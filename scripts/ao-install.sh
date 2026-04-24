@@ -17,7 +17,8 @@ run_filtered() {
   log="$(mktemp)"
   if ! "$@" >"$log" 2>&1 </dev/null; then
     grep -E "$filter" "$log" | head -n "$limit" || true
-    rm -f "$log"; return 1
+    rm -f "$log"
+    return 1
   fi
   grep -E "$filter" "$log" | head -n "$limit" || true
   rm -f "$log"
@@ -26,7 +27,7 @@ run_filtered() {
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
 # AO config lives in ~/.openclaw_prod/ ( searched by ao CLI config discovery ).
 # Hermes gateway uses its own ~/.hermes_prod/ for gateway-level config.
-OPENCLAW_PROD="$HOME/.openclaw_prod"
+OPENCLAW_PROD="${OPENCLAW_PROD:-$HOME/.openclaw_prod}"
 AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
 AGENT_ORCHESTRATOR_BRANCH="${AGENT_ORCHESTRATOR_BRANCH:-main}"
 AO_REPO_ROOT="${AO_REPO_ROOT:-$HOME/project_agento/agent-orchestrator}"
@@ -140,7 +141,7 @@ if ! launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; the
 else
   for pid in $PROJECTS; do
     # The lifecycle-all plist manages all workers; check via pgrep for per-project liveness
-    escaped_pid=$(printf '%s' "$pid" | sed -e 's/[][]/\\&/g')
+    escaped_pid=$(printf '%s' "$pid" | sed 's/[][().*^$+?{}|\\]/\\&/g')
     if pgrep -f "lifecycle-worker[[:space:]].*${escaped_pid}([[:space:]]|\$)" >/dev/null 2>&1; then
       WORKER_COUNT=$((WORKER_COUNT + 1))
       echo "  + $pid: running"
@@ -153,8 +154,7 @@ fi
 # ─── Step 7: Final verification via ao doctor ──────────────────────────────────
 echo "[7/7] Running ao doctor..."
 if command -v ao &>/dev/null; then
-  # Use || true so set -e doesn't abort when ao doctor exits 1 (common on fresh install with WARNs).
-  run_filtered '(PASS|WARN|FAIL|Results:)' 5 env AO_CONFIG_PATH="$CONFIG_FILE" ao doctor || true
+  run_filtered '(PASS|WARN|FAIL|Results:)' 5 env AO_CONFIG_PATH="$CONFIG_FILE" ao doctor
 else
   echo "  ao CLI not in PATH — run: export PATH=\"\$(npm config get prefix)/bin:\$PATH\""
 fi
