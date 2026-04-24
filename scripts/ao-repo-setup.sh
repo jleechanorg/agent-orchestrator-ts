@@ -46,15 +46,17 @@ import os
 import sys
 import yaml
 
-with open(os.environ.get("HERMES_HOME", os.path.join(os.environ["HOME"], ".hermes_prod")) + "/agent-orchestrator.yaml", "r", encoding="utf-8") as fh:
+config_path = os.environ.get("HERMES_HOME", os.path.join(os.environ["HOME"], ".hermes_prod")) + "/agent-orchestrator.yaml"
+with open(config_path, "r", encoding="utf-8") as fh:
     config = yaml.safe_load(fh) or {}
 
 worktree_dir = config.get("worktreeDir", os.path.join(os.environ["HOME"], ".worktrees"))
 print(os.path.expanduser(worktree_dir))
 PY
 ); then
-  echo "WARNING: Failed to read worktreeDir from config; defaulting to $HOME/.worktrees"
-  WORKTREE_DIR="$HOME/.worktrees"
+  echo "ERROR: Failed to read worktreeDir from agent-orchestrator.yaml"
+  echo "Please ensure your config file is valid YAML and try again."
+  exit 1
 fi
 mkdir -p "$WORKTREE_DIR"
 echo "[4/6] Worktree dir: $WORKTREE_DIR"
