@@ -85,11 +85,11 @@ echo "  Projects: $(echo "$PROJECTS" | tr ' ' ', ')"
 echo "[3/7] Linking AO skills..."
 if [ -f "$SCRIPT_DIR/install-repo-skills.sh" ]; then
   SKILLS_LOG="$(mktemp)"
-  if ! bash "$SCRIPT_DIR/install-repo-skills.sh" --global >"$SKILLS_LOG" 2>&1; then
+  if bash "$SCRIPT_DIR/install-repo-skills.sh" --global >"$SKILLS_LOG" 2>&1; then
     grep -v "^$" "$SKILLS_LOG" || true
-    echo "  WARNING: skills install had errors (continuing anyway)"
   else
     grep -v "^$" "$SKILLS_LOG" || true
+    echo "  WARNING: skills install had errors (continuing anyway)"
   fi
   rm -f "$SKILLS_LOG"
 fi
