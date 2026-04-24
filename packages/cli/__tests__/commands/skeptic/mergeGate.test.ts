@@ -180,7 +180,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     expect(result.skepticCommentId).toBe(98);
   });
 
-  it("treats GitHub App and bot-authored PRs as requiring Gate 3 CR review (no skip)", async () => {
+  it("treats GitHub App and bot-authored PRs as Gate 3 review-skipped", async () => {
     const headSha = "abc1230000000000000000000000000000000000";
     setup({
       ghJson: [
@@ -199,9 +199,32 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       "test", "test-repo", 1, "jleechan-agent[bot]"
     );
 
-    // Bot-authored PRs must still get a real CR review — no skip applied
-    expect(result.crApproved).toBe(false);
-    expect(result.crState).toBe("none");
+    // Bot-authored PRs skip Gate 3 CR review (GitHub Apps/bot authors cannot review their own PRs)
+    expect(result.crApproved).toBe(true);
+    expect(result.crState).toBe("review_skipped_author=app/coderabbitai");
+  });
+
+  it("skips Gate 3 for hyphenated bot author", async () => {
+    const headSha = "abc1230000000000000000000000000000000001";
+    setup({
+      ghJson: [
+        { head: { sha: headSha }, mergeable: true, user: { login: "github-actions[bot]" } },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        [],
+        [],
+      ],
+      fetchReviews: [],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    expect(result.crApproved).toBe(true);
+    expect(result.crState).toBe("review_skipped_author=github-actions[bot]");
   });
 
   it("rejects legacy SHA-only PASS comments without a fresh request id", async () => {
