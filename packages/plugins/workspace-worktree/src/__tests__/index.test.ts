@@ -363,6 +363,7 @@ describe("workspace.create()", () => {
         return Promise.resolve({ stdout: "\n", stderr: "" });
       }
 
+      // key is used to look up call results in the mock map below
       const key = [cmd, ...args, opts?.cwd ? `(cwd=${opts.cwd})` : ""].join(",");
       const result = callResults[key];
 
