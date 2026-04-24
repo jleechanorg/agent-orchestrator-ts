@@ -121,7 +121,7 @@ async function findExistingVerdict(
     if (!c.body.trim().startsWith("<!-- skeptic-agent-verdict -->")) continue;
     // Optionally match by requestId (when a specific trigger comment id is known).
     if (requestId && !hasSkepticRequestId(c.body, requestId)) continue;
-    if (requestId && validSha) continue;
+    if (validSha && !new RegExp(`<!-- skeptic-(?:gate|cron)-trigger-${escapeRegexLiteral(validSha)} -->`).test(c.body)) continue;
     const escapedSha = validSha ? escapeRegexLiteral(validSha) : undefined;
     const shaMarker = escapedSha
       ? new RegExp(`<!-- skeptic-(?:gate|cron)-trigger-${escapedSha} -->`)
