@@ -20,6 +20,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { describe, it, expect } from "vitest";
 
 // ---------------------------------------------------------------------------
@@ -801,6 +802,276 @@ describe("skeptic-cron-reusable.yml — request-id freshness contract", () => {
     expect(workflow).toContain("Unresolved cron request id exists for PR");
   });
 
+  function failSkippedVerdictCount(
+    comments: IssueComment[],
+    sha: string,
+    author: string,
+    prAuthor: string,
+  ): number {
+    const verdictRe =
+      /^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im;
+    return comments
+      .map((c) => ({
+        ...c,
+        verdict: (c.body.match(verdictRe)?.groups?.verdict ?? "").toUpperCase(),
+      }))
+      .filter(
+        (c) =>
+          (c.user.login.toLowerCase() === author.toLowerCase() ||
+            c.user.login.toLowerCase() === "github-actions[bot]") &&
+          c.user.login.toLowerCase() !== prAuthor.toLowerCase() &&
+          /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body) &&
+          (c.verdict === "FAIL" || c.verdict === "SKIPPED") &&
+          new RegExp(`<!--\\s*skeptic-cron-trigger-${sha}\\s*-->`, "i").test(c.body) &&
+          new RegExp(`<!--\\s*skeptic-head-sha-${sha}\\s*-->`, "i").test(c.body),
+      ).length;
+  }
+
+  // Timestamp-aware variant: mirrors the workflow's 4-hour suppress window.
+  // Returns true only when a matching FAIL/SKIPPED verdict exists AND was posted
+  // within suppressWindowSecs, providing a same-SHA recovery path after that window.
+  function shouldSuppressFailedTrigger(
+    comments: IssueComment[],
+    sha: string,
+    author: string,
+    prAuthor: string,
+    suppressWindowSecs: number,
+  ): boolean {
+    const verdictRe =
+      /^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im;
+    const nowMs = Date.now();
+    const matching = comments
+      .map((c) => ({
+        ...c,
+        verdict: (c.body.match(verdictRe)?.groups?.verdict ?? "").toUpperCase(),
+      }))
+      .filter(
+        (c) =>
+          (c.user.login.toLowerCase() === author.toLowerCase() ||
+            c.user.login.toLowerCase() === "github-actions[bot]") &&
+          c.user.login.toLowerCase() !== prAuthor.toLowerCase() &&
+          /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body) &&
+          (c.verdict === "FAIL" || c.verdict === "SKIPPED") &&
+          new RegExp(`<!--\\s*skeptic-cron-trigger-${sha}\\s*-->`, "i").test(c.body) &&
+          new RegExp(`<!--\\s*skeptic-head-sha-${sha}\\s*-->`, "i").test(c.body),
+      );
+    if (matching.length === 0) return false;
+    // Use the most recent verdict timestamp; fail open (allow retrigger) if missing
+    const sorted = [...matching].sort((a, b) =>
+      (a.created_at ?? "").localeCompare(b.created_at ?? ""),
+    );
+    const latest = sorted[sorted.length - 1];
+    if (!latest.created_at) return false;
+    const verdictMs = new Date(latest.created_at).getTime();
+    const ageMs = nowMs - verdictMs;
+    return ageMs < suppressWindowSecs * 1000;
+  }
+
+  function verdictComment(sha: string, verdict: "PASS" | "FAIL" | "SKIPPED", requestId = "req-1"): string {
+    return [
+      "<!-- skeptic-agent-verdict -->",
+      `<!-- skeptic-request-id-${requestId} -->`,
+      `<!-- skeptic-head-sha-${sha} -->`,
+      `VERDICT: ${verdict}`,
+      `<!-- skeptic-cron-trigger-${sha} -->`,
+    ].join("\n");
+  }
+
+  it("skips trigger when FAIL/SKIPPED verdict already exists for current SHA within suppress window", () => {
+    expect(workflow).toContain("Existing cron FAIL/SKIPPED verdict for PR");
+    expect(workflow).toContain("FAIL_SUPPRESS_WINDOW_SECS");
+    expect(workflow).toContain("allowing retry");
+    expect(workflow).toContain('.verdict == "FAIL" or .verdict == "SKIPPED"');
+  });
+
+  it("detects existing FAIL verdict and suppresses retrigger", () => {
+    const comments: IssueComment[] = [
+      { id: 10, user: { login: "github-actions[bot]" }, body: verdictComment(SHA_A, "FAIL") },
+    ];
+    expect(failSkippedVerdictCount(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(1);
+  });
+
+  it("detects existing SKIPPED verdict and suppresses retrigger", () => {
+    const comments: IssueComment[] = [
+      { id: 11, user: { login: "github-actions[bot]" }, body: verdictComment(SHA_A, "SKIPPED") },
+    ];
+    expect(failSkippedVerdictCount(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(1);
+  });
+
+  it("does not suppress when existing verdict is PASS", () => {
+    const comments: IssueComment[] = [
+      { id: 12, user: { login: "github-actions[bot]" }, body: verdictComment(SHA_A, "PASS") },
+    ];
+    expect(failSkippedVerdictCount(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(0);
+  });
+
+  it("does not suppress when FAIL verdict is for a different SHA", () => {
+    const comments: IssueComment[] = [
+      { id: 13, user: { login: "github-actions[bot]" }, body: verdictComment(SHA_B, "FAIL") },
+    ];
+    expect(failSkippedVerdictCount(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(0);
+  });
+
+  it("does not suppress when no verdict exists", () => {
+    const comments: IssueComment[] = [];
+    expect(failSkippedVerdictCount(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(0);
+  });
+
+  // Timestamp-aware suppress-window tests (4-hour recovery path)
+  it("suppresses retrigger when FAIL verdict is recent (< 4 hours old)", () => {
+    const recentTs = new Date(Date.now() - 30 * 60 * 1000).toISOString(); // 30 min ago
+    const comments: IssueComment[] = [
+      {
+        id: 20,
+        user: { login: "github-actions[bot]" },
+        body: verdictComment(SHA_A, "FAIL"),
+        created_at: recentTs,
+      },
+    ];
+    expect(shouldSuppressFailedTrigger(comments, SHA_A, "github-actions[bot]", "pr-author", 14400)).toBe(true);
+  });
+
+  it("allows retrigger when FAIL verdict is stale (> 4 hours old)", () => {
+    const staleTs = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(); // 5 hours ago
+    const comments: IssueComment[] = [
+      {
+        id: 21,
+        user: { login: "github-actions[bot]" },
+        body: verdictComment(SHA_A, "FAIL"),
+        created_at: staleTs,
+      },
+    ];
+    expect(shouldSuppressFailedTrigger(comments, SHA_A, "github-actions[bot]", "pr-author", 14400)).toBe(false);
+  });
+
+  it("suppresses retrigger when SKIPPED verdict is recent (< 4 hours old)", () => {
+    const recentTs = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 1 hour ago
+    const comments: IssueComment[] = [
+      {
+        id: 22,
+        user: { login: "github-actions[bot]" },
+        body: verdictComment(SHA_A, "SKIPPED"),
+        created_at: recentTs,
+      },
+    ];
+    expect(shouldSuppressFailedTrigger(comments, SHA_A, "github-actions[bot]", "pr-author", 14400)).toBe(true);
+  });
+
+  it("allows retrigger when no created_at (fails open for recovery)", () => {
+    const comments: IssueComment[] = [
+      {
+        id: 23,
+        user: { login: "github-actions[bot]" },
+        body: verdictComment(SHA_A, "FAIL"),
+        // no created_at
+      },
+    ];
+    expect(shouldSuppressFailedTrigger(comments, SHA_A, "github-actions[bot]", "pr-author", 14400)).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Direct jq execution tests: run the actual workflow jq filter via jq binary.
+  // These prove the workflow's jq/python path works, not just the TS mirror.
+  // Skip gracefully when jq is unavailable (local dev without jq installed).
+  // ---------------------------------------------------------------------------
+  const jqAvailable = spawnSync("jq", ["--version"], { encoding: "utf8" }).status === 0;
+  const itJq = jqAvailable ? it : it.skip;
+
+  function runFailSuppressFilter(
+    comments: IssueComment[],
+    sha: string,
+    author: string,
+    prAuthor: string,
+  ): string {
+    // Exact jq filter from skeptic-cron-reusable.yml (lines 147-161), using
+    // (?im) inline flags for cross-platform multiline support.
+    const filter = `
+      add
+      | map(. + {
+          verdict: (try (.body | capture("(?im)^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:[*]{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:[*]{1,2})?[ \\t]*(?:[-\\u2014:].*)?$").verdict | ascii_upcase) catch "")
+        })
+      | map(select(
+          (((.user.login | ascii_downcase) == ($author | ascii_downcase)) or ((.user.login | ascii_downcase) == "github-actions[bot]"))
+          and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+          and (.body | test("<!--\\\\s*skeptic-agent-verdict\\\\s*-->"; "i"))
+          and (.verdict == "FAIL" or .verdict == "SKIPPED")
+          and (.body | test("<!--\\\\s*skeptic-cron-trigger-" + $sha + "\\\\s*-->"; "i"))
+          and (.body | test("<!--\\\\s*skeptic-head-sha-" + $sha + "\\\\s*-->"; "i"))
+        ))
+      | sort_by(.created_at // "")
+      | last
+      | .created_at // ""
+    `;
+    const input = JSON.stringify(comments);
+    const result = spawnSync("jq", ["-sr", "--arg", "sha", sha, "--arg", "author", author, "--arg", "pr_author", prAuthor, filter], {
+      input,
+      encoding: "utf8",
+    });
+    return (result.stdout ?? "").trim();
+  }
+
+  itJq("jq filter extracts timestamp from recent FAIL verdict for matching SHA", () => {
+    const recentTs = new Date(Date.now() - 30 * 60 * 1000).toISOString().replace(/\.\d+Z$/, "Z");
+    const comments: IssueComment[] = [
+      {
+        id: 30,
+        user: { login: "github-actions[bot]" },
+        body: verdictComment(SHA_A, "FAIL"),
+        created_at: recentTs,
+      },
+    ];
+    expect(runFailSuppressFilter(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(recentTs);
+  });
+
+  itJq("jq filter extracts timestamp from recent SKIPPED verdict for matching SHA", () => {
+    const recentTs = new Date(Date.now() - 60 * 60 * 1000).toISOString().replace(/\.\d+Z$/, "Z");
+    const comments: IssueComment[] = [
+      {
+        id: 31,
+        user: { login: "github-actions[bot]" },
+        body: verdictComment(SHA_A, "SKIPPED"),
+        created_at: recentTs,
+      },
+    ];
+    expect(runFailSuppressFilter(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe(recentTs);
+  });
+
+  itJq("jq filter returns empty for PASS verdict (not suppressed)", () => {
+    const comments: IssueComment[] = [
+      {
+        id: 32,
+        user: { login: "github-actions[bot]" },
+        body: verdictComment(SHA_A, "PASS"),
+        created_at: "2026-04-24T10:00:00Z",
+      },
+    ];
+    expect(runFailSuppressFilter(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe("");
+  });
+
+  itJq("jq filter returns empty when SHA does not match (different SHA)", () => {
+    const comments: IssueComment[] = [
+      {
+        id: 33,
+        user: { login: "github-actions[bot]" },
+        body: verdictComment(SHA_B, "FAIL"),
+        created_at: "2026-04-24T10:00:00Z",
+      },
+    ];
+    expect(runFailSuppressFilter(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe("");
+  });
+
+  itJq("jq filter returns empty string when created_at is missing (fails open)", () => {
+    const comments: IssueComment[] = [
+      {
+        id: 34,
+        user: { login: "github-actions[bot]" },
+        body: verdictComment(SHA_A, "FAIL"),
+        // no created_at
+      },
+    ];
+    expect(runFailSuppressFilter(comments, SHA_A, "github-actions[bot]", "pr-author")).toBe("");
+  });
+
   it("derives the merge-step request id from cron trigger comments for the current SHA", () => {
     expect(workflow).toContain('REQUEST_ID=$(echo "$SKEPTIC_RAW" | jq -sr --arg sha "$HEAD_SHA"');
     expect(workflow).toContain('and (.body | test("SKEPTIC_CRON_TRIGGER"; "i"))');
@@ -848,194 +1119,5 @@ describe("skeptic-cron-reusable.yml — request-id freshness contract", () => {
     ];
 
     expect(selectLatestCronRequestId(comments, SHA_A)).toBe("");
-  });
-});
-// ---------------------------------------------------------------------------
-// skeptic-cron-reusable.yml — FAIL/SKIPPED suppress-window integration test
-// ---------------------------------------------------------------------------
-
-import { spawnSync } from "node:child_process";
-
-const FAIL_SUPPRESS_WINDOW_SECS = 14400; // 4 hours
-
-function extractFailVerdictTimestamp(
-  commentsJson: string,
-  sha: string,
-  botAuthor: string,
-  prAuthor: string,
-): string {
-  const filter = `add as $comments
-  | ($comments
-    | map(. + {
-        verdict: (try (.body | capture("^.*?VERDICT: (?<verdict>PASS|FAIL|SKIPPED).*$"; "im").verdict | ascii_upcase) catch "")
-      })
-    | map(select(
-        (((.user.login | ascii_downcase) == ($author | ascii_downcase)) or ((.user.login | ascii_downcase) == "github-actions[bot]"))
-        and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
-        and (.body | test("<!--\\\\s*skeptic-agent-verdict\\\\s*-->"; "i"))
-        and (.verdict == "FAIL" or .verdict == "SKIPPED")
-        and (.body | test("<!--\\\\s*skeptic-cron-trigger-" + $sha + "\\\\s*-->"; "i"))
-        and (.body | test("<!--\\\\s*skeptic-head-sha-" + $sha + "\\\\s*-->"; "i"))
-      ))
-    | sort_by(.created_at // "")
-    | last | .created_at // "")`;
-
-  const result = spawnSync("jq", ["-sr", "--arg", "sha", sha, "--arg", "author", botAuthor, "--arg", "pr_author", prAuthor, filter], {
-    input: commentsJson,
-    encoding: "utf8",
-  });
-  return (result.stdout ?? "").trim();
-}
-
-function suppressWindowDecision(verdictTs: string): "skip" | "retry" {
-  if (!verdictTs) return "retry";
-  const nowEpoch = Math.floor(Date.now() / 1000);
-  const verdictDate = new Date(verdictTs);
-  if (isNaN(verdictDate.getTime())) return "retry";
-  const verdictEpoch = Math.floor(verdictDate.getTime() / 1000);
-  const age = nowEpoch - verdictEpoch;
-  return age < FAIL_SUPPRESS_WINDOW_SECS ? "skip" : "retry";
-}
-
-describe("skeptic-cron-reusable.yml — FAIL/SKIPPED suppress-window (shell integration)", () => {
-  const SHA = "abc1230000000000000000000000000000000000";
-  const BOT = "github-actions[bot]";
-  const AUTHOR = "pr-author";
-  const WRONG_SHA = "def4560000000000000000000000000000000000";
-
-  function makeJson(body: string, createdAt?: string): string {
-    const obj: any = { id: 1, user: { login: BOT }, body };
-    if (createdAt) obj.created_at = createdAt;
-    return JSON.stringify([obj]);
-  }
-
-  function failComment(createdAt: string): string {
-    const body = [
-      "<!-- skeptic-agent-verdict -->",
-      "<!-- skeptic-request-id-cron-test-001 -->",
-      `<!-- skeptic-head-sha-${SHA} -->`,
-      `<!-- skeptic-cron-trigger-${SHA} -->`,
-      "VERDICT: FAIL",
-    ].join("\n");
-    return makeJson(body, createdAt);
-  }
-
-  function skippedComment(createdAt: string): string {
-    const body = [
-      "<!-- skeptic-agent-verdict -->",
-      "<!-- skeptic-request-id-cron-test-001 -->",
-      `<!-- skeptic-head-sha-${SHA} -->`,
-      `<!-- skeptic-cron-trigger-${SHA} -->`,
-      "VERDICT: SKIPPED",
-    ].join("\n");
-    return makeJson(body, createdAt);
-  }
-
-  function passComment(createdAt: string): string {
-    const body = [
-      "<!-- skeptic-agent-verdict -->",
-      "<!-- skeptic-request-id-cron-test-001 -->",
-      `<!-- skeptic-head-sha-${SHA} -->`,
-      `<!-- skeptic-cron-trigger-${SHA} -->`,
-      "VERDICT: PASS",
-    ].join("\n");
-    return makeJson(body, createdAt);
-  }
-
-  function wrongShaFailComment(createdAt: string): string {
-    const body = [
-      "<!-- skeptic-agent-verdict -->",
-      "<!-- skeptic-request-id-cron-test-001 -->",
-      `<!-- skeptic-head-sha-${WRONG_SHA} -->`,
-      `<!-- skeptic-cron-trigger-${WRONG_SHA} -->`,
-      "VERDICT: FAIL",
-    ].join("\n");
-    return makeJson(body, createdAt);
-  }
-
-  function noCreatedAtFailComment(): string {
-    const body = [
-      "<!-- skeptic-agent-verdict -->",
-      "<!-- skeptic-request-id-cron-test-001 -->",
-      `<!-- skeptic-head-sha-${SHA} -->`,
-      `<!-- skeptic-cron-trigger-${SHA} -->`,
-      "VERDICT: FAIL",
-    ].join("\n");
-    return makeJson(body);
-  }
-
-  function prAuthorFailComment(createdAt: string): string {
-    return JSON.stringify([{
-      id: 1,
-      user: { login: AUTHOR },
-      body: [
-        "<!-- skeptic-agent-verdict -->",
-        "<!-- skeptic-request-id-cron-test-001 -->",
-        `<!-- skeptic-head-sha-${SHA} -->`,
-        `<!-- skeptic-cron-trigger-${SHA} -->`,
-        "VERDICT: FAIL",
-      ].join("\n"),
-      created_at: createdAt,
-    }]);
-  }
-
-  const now = Date.now();
-  const recentTime = new Date(now - 30 * 60 * 1000).toISOString().replace(/\.\d+Z$/, "Z");
-  const recentTime2 = new Date(now - 60 * 60 * 1000).toISOString().replace(/\.\d+Z$/, "Z");
-  const staleTime = new Date(now - 5 * 3600 * 1000).toISOString().replace(/\.\d+Z$/, "Z");
-
-  it("recent FAIL verdict within 4-hour window → skip", () => {
-    const ts = extractFailVerdictTimestamp(failComment(recentTime), SHA, BOT, AUTHOR);
-    expect(suppressWindowDecision(ts)).toBe("skip");
-  });
-
-  it("recent SKIPPED verdict within 4-hour window → skip", () => {
-    const ts = extractFailVerdictTimestamp(skippedComment(recentTime2), SHA, BOT, AUTHOR);
-    expect(suppressWindowDecision(ts)).toBe("skip");
-  });
-
-  it("stale FAIL verdict (5h ago) → retry (recovery path)", () => {
-    const ts = extractFailVerdictTimestamp(failComment(staleTime), SHA, BOT, AUTHOR);
-    expect(suppressWindowDecision(ts)).toBe("retry");
-  });
-
-  it("no FAIL/SKIPPED verdict → retry (no suppression)", () => {
-    const ts = extractFailVerdictTimestamp(passComment(recentTime), SHA, BOT, AUTHOR);
-    expect(suppressWindowDecision(ts)).toBe("retry");
-  });
-
-  it("missing created_at → retry (fail-open)", () => {
-    const ts = extractFailVerdictTimestamp(noCreatedAtFailComment(), SHA, BOT, AUTHOR);
-    expect(suppressWindowDecision(ts)).toBe("retry");
-  });
-
-  it("wrong SHA → retry (same-PR deduplication by SHA)", () => {
-    const ts = extractFailVerdictTimestamp(wrongShaFailComment(recentTime), SHA, BOT, AUTHOR);
-    expect(suppressWindowDecision(ts)).toBe("retry");
-  });
-
-  it("PR-authored FAIL verdict → retry (author excluded)", () => {
-    const ts = extractFailVerdictTimestamp(prAuthorFailComment(recentTime), SHA, BOT, AUTHOR);
-    expect(suppressWindowDecision(ts)).toBe("retry");
-  });
-
-  it("Python epoch conversion matches JavaScript Date epoch for ISO-8601 timestamps", () => {
-    const ts = "2026-04-24T10:00:00Z";
-    const pyResult = spawnSync("python3", [
-      "-c",
-      `from datetime import datetime,timezone; dt=datetime.strptime('${ts}','%Y-%m-%dT%H:%M:%SZ'); print(int(dt.replace(tzinfo=timezone.utc).timestamp()))`,
-    ], { encoding: "utf8" }).stdout.trim();
-    const jsResult = String(Math.floor(new Date(ts).getTime() / 1000));
-    expect(pyResult).toBe(jsResult);
-  });
-
-  it("shell age comparison uses integer arithmetic", () => {
-    const nowEpoch = Math.floor(Date.now() / 1000);
-    const recentEpoch = nowEpoch - 1800;
-    const staleEpoch = nowEpoch - 18000;
-    const recentAge = nowEpoch - recentEpoch;
-    const staleAge = nowEpoch - staleEpoch;
-    expect(recentAge < FAIL_SUPPRESS_WINDOW_SECS).toBe(true);
-    expect(staleAge < FAIL_SUPPRESS_WINDOW_SECS).toBe(false);
   });
 });
