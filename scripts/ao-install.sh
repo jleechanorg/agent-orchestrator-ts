@@ -43,8 +43,11 @@ else
   REPO_ROOT="$(mktemp -d)"
   trap 'rm -rf "$REPO_ROOT" 2>/dev/null' EXIT
   echo "  Cloning agent-orchestrator to $REPO_ROOT..."
-  git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
-    "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" >/dev/null 2>&1
+  if ! git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
+    "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" 2>&1; then
+    echo "ERROR: git clone failed — check AGENT_ORCHESTRATOR_REPO and network connectivity"
+    exit 1
+  fi
 fi
 
 SCRIPT_DIR="$REPO_ROOT/scripts"
@@ -58,6 +61,12 @@ echo "[2/7] Bootstrapping AO config at $HERMES_HOME/agent-orchestrator.yaml..."
 
 mkdir -p "$HERMES_HOME"
 CONFIG_FILE="$HERMES_HOME/agent-orchestrator.yaml"
+
+# Backup existing config before overwriting
+if [ -f "$CONFIG_FILE" ]; then
+  cp "$CONFIG_FILE" "$CONFIG_FILE.bak-$(date -u +%Y%m%dT%H%M%SZ)"
+  echo "  Config backed up: $CONFIG_FILE.bak"
+fi
 
 # Write canonical config
 cat >"$CONFIG_FILE" <<EOF
