@@ -323,6 +323,11 @@ async function fetchPrViewFallbackAsJson(
       let lastErr: unknown;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
+          // Pagination: GitHub REST API returns exactly 100 items per page when more exist,
+          // fewer when on the last page. This is more reliable than parsing `Link` headers
+          // with curl (which requires --include to emit headers to stderr, complicating the
+          // error-wrap/shell-parse chain). The `per_page=100` convention is stable across
+          // all GitHub REST API endpoints used here.
           const reviews: unknown[] = [];
           for (let page = 1; ; page++) {
             const endpoint = `repos/${conv.repo}/pulls/${conv.prNumber}/reviews?per_page=100&page=${page}`;
@@ -515,6 +520,9 @@ async function resolveGhAuthToken(): Promise<string> {
   return tokenOutput.trim();
 }
 
+// Curl-based REST fallback — bypasses `gh` CLI entirely so rate-limit/retry loops
+// do not re-enter the same failure condition. REST API calls are stateless (no local
+// git context needed), so cwd is not passed to curl. Auth is via Bearer token env vars.
 export async function ghRestFallback(args: string[]): Promise<string> {
   // We only support `gh api ...` invocations here.
   if (!Array.isArray(args) || args.length === 0 || args[0] !== "api") {
@@ -985,6 +993,8 @@ async function maybeRemoveStaleCheckedOutWorktree(
  */
 async function fetchCheckRunsViaRest(repo: string, sha: string): Promise<unknown[]> {
   try {
+    // Pagination: GitHub REST API returns exactly 100 items per page when more exist,
+    // fewer when on the last page. Same `per_page=100` convention as reviews pagination.
     const checkRuns: unknown[] = [];
     for (let page = 1; ; page++) {
       const endpoint = `repos/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}`;
