@@ -379,12 +379,6 @@ jobs:
           fi
           echo "Only accepting verdicts posted after trigger was updated: $TRIGGER_UPDATED"
           echo "Also filtering by trigger SHA: ${TRIGGER_SHA:0:7}"
-          PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login // empty' 2>/dev/null || true)
-          if [ -z "$PR_AUTHOR" ]; then
-            echo "ERROR: PR author lookup failed — cannot enforce trusted actor rule"
-            echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
 
           INTERVAL=30
           MAX_ATTEMPTS=$(( ${{ inputs.poll_timeout_minutes }} * 60 / INTERVAL ))   # respect poll_timeout_minutes input
