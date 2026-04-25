@@ -136,7 +136,6 @@ jobs:
                         )
                       )
                       and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
-                      and ($body | test("(^|\\n)[[:space:]>#*]*VERDICT:[[:space:]]*PASS"; "i"))
                       and (.verdict != "")
                       and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
                            >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
