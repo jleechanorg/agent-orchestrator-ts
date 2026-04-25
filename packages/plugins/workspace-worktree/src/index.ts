@@ -208,7 +208,7 @@ async function maybeRemoveStaleCheckedOutWorktree(
           .some(
             (line) =>
               line.startsWith("worktree ") &&
-              resolve(line.slice("worktree ".length)) === resolvedStale,
+              resolve(line.slice("worktree ".length).trim()) === resolvedStale,
           ),
       );
     return !stillPresent;
