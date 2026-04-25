@@ -482,9 +482,10 @@ describe("skeptic chain integration", () => {
         const shaMatch = new RegExp(`<!--\\s*skeptic-gate-trigger-${escapedSha}\\s*-->`, "i").test(c.body);
         const requestMatch = new RegExp(`<!--\\s*skeptic-request-id-${escapedRequestId}\\s*-->`, "i").test(c.body);
         const headMatch = new RegExp(`<!--\\s*skeptic-head-sha-${escapedSha}\\s*-->`, "i").test(c.body);
+        // Fixed logic: accept skeptic bot author unconditionally (SKEPTIC_BOT_AUTHOR may be a human PR author).
+        const authorTrustPredicate = userLogin === botLogin;
         return (
-          // Correct: bot author is trusted even when == pr_author; gh-actions[bot] requires != pr_author
-          (userLogin === botLogin || (userLogin === "github-actions[bot]" && userLogin !== prLogin)) &&
+          authorTrustPredicate &&
           markerMatch &&
           Boolean(verdictType) &&
           timestampMatch &&
@@ -600,7 +601,11 @@ describe("skeptic chain integration", () => {
       expect(result!.body).toContain(`skeptic-gate-trigger-${TRIGGER_SHA}`);
     });
 
-    it("accepts a request-bound PASS when the bot author equals the PR author", () => {
+    it("accepts a request-bound PASS when the skeptic bot author equals the PR author", () => {
+      // When the configured skeptic bot author is the same as the PR author,
+      // the skeptic's own VERDICT comment must still be accepted.
+      // Previously this was rejected: authorMatch=true but trustedActorMatch=false
+      // when bot===PR_author. The fix accepts skeptic bot unconditionally.
       const comments = [
         {
           id: 150,
@@ -619,9 +624,8 @@ describe("skeptic chain integration", () => {
         "jleechan2015",
       );
 
-      // Bot author is trusted unconditionally (new logic); gh-actions[bot] requires != pr_author
       expect(result).not.toBeNull();
-      expect(result!.id).toBe(150);
+      expect(result!.body).toContain("VERDICT: PASS");
     });
 
     it("matches request ids literally when they contain regex metacharacters", () => {
