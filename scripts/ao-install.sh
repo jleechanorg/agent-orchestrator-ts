@@ -43,6 +43,9 @@ echo
 #   repo  — running from an existing ~/project_agento/agent-orchestrator clone
 #   curl  — piped from curl, need to clone first
 
+# Track whether we created a temp clone (in curl mode) so we can clean up on error.
+_CURL_MODE_CLONE=false
+
 if [ -d "$AO_REPO_ROOT/.git" ]; then
   REPO_ROOT="$AO_REPO_ROOT"
   echo "  Repo detected: $REPO_ROOT"
@@ -53,11 +56,19 @@ else
   # Use stable path for curl mode — we install launchd plists that reference
   # $REPO_ROOT, so the dir must persist after this script exits.
   REPO_ROOT="$HOME/project_agento/agent-orchestrator"
+  _CURL_MODE_CLONE=true
   if ! git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
     "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" 2>&1; then
     echo "ERROR: git clone failed — check AGENT_ORCHESTRATOR_REPO and network connectivity"
     exit 1
   fi
+fi
+
+# Clean up curl-mode clone on any exit (error, interrupt, etc.) since the
+# launchd plists reference $REPO_ROOT which should not exist on a fresh curl install.
+if [ "$_CURL_MODE_CLONE" = "true" ]; then
+  _clone_dir="$REPO_ROOT"
+  trap 'rm -rf "$_clone_dir" 2>/dev/null || true' EXIT
 fi
 
 SCRIPT_DIR="$REPO_ROOT/scripts"
