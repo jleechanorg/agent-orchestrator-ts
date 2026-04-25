@@ -8,7 +8,7 @@
  *
  * The skeptic verdict is idempotent — re-running updates the same comment.
  * The bot author is configured via GH_SKEPTIC_BOT_AUTHOR env var
- * (default: jleechan2015).
+ * (default: github-actions[bot]).
  */
 
 import chalk from "chalk";
@@ -31,11 +31,11 @@ import {
 } from "./skeptic/verdict-utils.js";
 export { VERDICT_LINE_RE };
 
-// bd-lg7i: Default to jleechan2015 — ao skeptic verify posts via `gh api`
-// authenticated as the local user, not the GitHub App bot. Override via
+// bd-lg7i: Default to github-actions[bot] — CI workflow poller filters by this
+// author, and CLI posts via gh api authenticated as the local user. Override via
 // GH_SKEPTIC_BOT_AUTHOR env var if posting identity changes.
 const SKEPTIC_BOT_AUTHOR =
-  process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "jleechan2015";
+  process.env["GH_SKEPTIC_BOT_AUTHOR"] ?? "github-actions[bot]";
 
 /** Extract file paths from a unified diff string.
  *
