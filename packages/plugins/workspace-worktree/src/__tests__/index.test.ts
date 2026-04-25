@@ -701,6 +701,24 @@ describe("workspace.create()", () => {
     );
   });
 
+  it("throws registered-path-collision error when worktree is registered in git", async () => {
+    const ws = create();
+    const worktreePath = "/mock-home/.worktrees/myproject/session-1";
+
+    // git worktree add -b fails with path already exists
+    mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitError(`fatal: '${worktreePath}' already exists`); // worktree add -b fails with path
+    // git worktree list shows the path IS registered in git (not a ghost)
+    mockGitSuccess(`worktree ${worktreePath}`); // worktree list --porcelain returns registered path
+
+    await expect(ws.create(makeCreateConfig())).rejects.toThrow(
+      /already exists/,
+    );
+    // Verify: no filesystem removal was attempted (worktree is registered, preserve it)
+    expect(mockRmSync).not.toHaveBeenCalled();
+  });
+
   it("falls through to branch-exists recovery when worktree list fails on ambiguous error", async () => {
     const ws = create();
     const worktreePath = "/mock-home/.worktrees/myproject/session-1";
