@@ -62,6 +62,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           REQUEST_ID: ${{ steps.post_trigger.outputs.request_id }}
@@ -121,10 +122,15 @@ jobs:
 
             VERDICT_JSON=$(printf '%s\n' "$RAW_COMMENTS" \
               | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
+                --arg pr_author "$PR_AUTHOR" \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" --arg request "$REQUEST_ID" \
                 'add
                 | map(select(
-                    ((.user.login == $author) or (.user.login == "github-actions[bot]"))
+                    ((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                    or (
+                      ((.user.login | ascii_downcase) == "github-actions[bot]")
+                      and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                    )
                     and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                     and (.body | test("VERDICT:"; "i"))
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
