@@ -550,7 +550,6 @@ function jqVerdictComment(
     (c) => {
       const userLogin = c.user.login.toLowerCase();
       const botLogin = botAuthor.toLowerCase();
-      const prLogin = prAuthor.toLowerCase();
       const verdictMatch = c.body.match(/^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im);
       const verdictType = verdictMatch?.[1]?.toUpperCase();
       return (

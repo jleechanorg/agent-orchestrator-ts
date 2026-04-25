@@ -474,7 +474,6 @@ describe("skeptic chain integration", () => {
       const matching = comments.filter((c) => {
         const userLogin = c.user.login.toLowerCase();
         const botLogin = botAuthor.toLowerCase();
-        const prLogin = prAuthor.toLowerCase();
         const markerMatch = /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body);
         const verdictMatch = c.body.match(/^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im);
         const verdictType = verdictMatch?.[1]?.toUpperCase();

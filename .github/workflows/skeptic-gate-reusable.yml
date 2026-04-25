@@ -448,11 +448,8 @@ jobs:
               VERDICT_JSON=$(echo "$VERDICT_RAW" | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
                 --arg request_id "$REQUEST_ID" \
-                --arg pr_author "$PR_AUTHOR" \
-                --arg VERDICT_RE "^[ \\t]*(?:> ?)?(?:\\#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$" \
-                'def extract_verdict(verdict_re): (.body | ([match(verdict_re; "img")] | last | .captures[0].string | ascii_upcase)) // "";
-                add
-                | map(. + {verdict: extract_verdict($VERDICT_RE)})
+                'add
+                | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
                 | map(select(
                     (.body as $body
                     | ((.user.login | ascii_downcase) == ($author | ascii_downcase))
