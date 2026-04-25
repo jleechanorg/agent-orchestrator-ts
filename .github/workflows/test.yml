@@ -131,10 +131,9 @@ jobs:
                     (.body as $body |
                       (
                         ((.user.login | ascii_downcase) == ($author | ascii_downcase))
-                        or (
+                        or
                           ((.user.login | ascii_downcase) == "github-actions[bot]")
                           and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
-                        )
                       )
                       and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                       and (.verdict != "")
