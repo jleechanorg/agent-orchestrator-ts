@@ -67,7 +67,7 @@ jobs:
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           REQUEST_ID: ${{ steps.post_trigger.outputs.request_id }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
-        timeout-minutes: 11  # headroom over MAX_ATTEMPTS*INTERVAL=40*15=600s
+        timeout-minutes: 11  # headroom over POLL_TIMEOUT=10m below
         run: |
           set +e
 
@@ -78,8 +78,9 @@ jobs:
           echo "Polling for VERDICT on PR #$PR_NUM (trigger SHA ${TRIGGER_SHA:0:7})"
           echo "Only accepting verdicts after: $TRIGGER_UPDATED"
 
+          POLL_TIMEOUT=600  # seconds — MUST match (timeout-minutes - 1min-headroom) * 60
           INTERVAL=15
-          MAX_ATTEMPTS=40  # 40 attempts × 15s = 600s; workflow timeout=11m for headroom
+          MAX_ATTEMPTS=$((POLL_TIMEOUT / INTERVAL))  # = 40; update POLL_TIMEOUT if INTERVAL changes
 
           PR_STATE_API_FAILURES=0
           COMMENTS_API_FAILURES=0
