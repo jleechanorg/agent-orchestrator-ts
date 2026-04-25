@@ -118,7 +118,7 @@ jobs:
                   verdict: extract_verdict($VERDICT_RE)
                 })
               | map(select(
-                    ((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                    ((.user.login | ascii_downcase) | . == ($author | ascii_downcase) or . == "github-actions[bot]")
                   and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                   and (.verdict == "PASS")
                   and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
@@ -192,7 +192,7 @@ jobs:
                     | ($comments
                       | map(. + {verdict: extract_verdict($VERDICT_RE)})
                       | map(select(
-                            ((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                            ((.user.login | ascii_downcase) | . == ($author | ascii_downcase) or . == "github-actions[bot]")
                           and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                           and (.verdict != "")
                           and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))

@@ -36,26 +36,28 @@ jobs:
           TRIGGER_SHA="$HEAD_SHA"
           REQUEST_ID="gate-${TRIGGER_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
-          RESPONSE=$(
-            printf 'SKEPTIC_GATE_TRIGGER\n<!-- skeptic-request-id-%s -->\n<!-- skeptic-head-sha-%s -->\n<!-- skeptic-gate-trigger-%s -->' \
+          # Capture gh api stdout separately from stderr to avoid JSON contamination.
+          # gh api writes advisory messages (e.g. rate-limit notices) to stderr; stdout is
+          # always pure JSON. We only merge them when gh itself fails so the error message
+          # is informative. When gh succeeds, we parse pure JSON from stdout only.
+          _GH_STDERR=$(mktemp)
+          RESPONSE=$(printf 'SKEPTIC_GATE_TRIGGER\n<!-- skeptic-request-id-%s -->\n<!-- skeptic-head-sha-%s -->\n<!-- skeptic-gate-trigger-%s -->' \
               "$REQUEST_ID" "$TRIGGER_SHA" "$TRIGGER_SHA" \
             | jq -Rs '{body: .}' - \
             | gh api \
               --method POST \
               "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
               -H "Content-Type: application/json" \
-              --input - 2>&1
-          )
+              --input - 2>"$_GH_STDERR")
           _RC=$?
-          # Parse the JSON response — if gh api emitted advisory lines to stderr,
-          # the merged output may not be pure JSON; extract the first JSON object.
-          TRIGGER_UPDATED=$(echo "$RESPONSE" | jq -r '.updated_at // empty' 2>/dev/null)
-
           if [ "$_RC" -ne 0 ]; then
-            echo "ERROR: gh api POST failed (rc=$_RC): ${RESPONSE:0:300}" >&2
+            echo "ERROR: gh api POST failed (rc=$_RC): $(cat "$_GH_STDERR")" >&2
+            rm -f "$_GH_STDERR"
             exit 1
           fi
-
+          rm -f "$_GH_STDERR"
+          # Parse pure JSON from stdout — no stderr contamination possible.
+          TRIGGER_UPDATED=$(echo "$RESPONSE" | jq -r '.updated_at // empty' 2>/dev/null)
           if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
             echo "ERROR: trigger comment posted but .updated_at missing: ${RESPONSE:0:300}" >&2
             exit 1
@@ -137,7 +139,7 @@ jobs:
                 'add
                 | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
                 | map(select(
-                    ((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                    ((.user.login | ascii_downcase) | . == ($author | ascii_downcase) or . == "github-actions[bot]")
                     and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                     and (.body | test("VERDICT:"; "i"))
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)

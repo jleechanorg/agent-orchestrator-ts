@@ -452,7 +452,7 @@ jobs:
                 | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
                 | map(select(
                     (.body as $body
-                    | ((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                    | ((.user.login | ascii_downcase) | . == ($author | ascii_downcase) or . == "github-actions[bot]")
                     and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                     and (.verdict != "")
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
