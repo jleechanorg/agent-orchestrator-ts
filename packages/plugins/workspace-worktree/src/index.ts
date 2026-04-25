@@ -509,7 +509,7 @@ export function create(config?: Record<string, unknown>): Workspace {
                     { cause: retryErr },
                   );
                 }
-              } else if (retryMsg.includes("already exists") || retryMsg.includes("A branch named")) {
+              } else if (retryMsg.includes("A branch named")) {
                 // Ghost was removed but branch already exists — reuse existing branch.
                 // Let reuseExistingBranch errors propagate directly without double-wrapping.
                 await reuseExistingBranch(
