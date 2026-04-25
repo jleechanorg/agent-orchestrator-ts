@@ -116,12 +116,15 @@ async function findExistingVerdict(
     // Must be from the skeptic bot author — cursor[bot] comments can contain
     // `<!-- skeptic-agent-verdict -->` as literal text in a bug description,
     // which would otherwise false-match here.
+    // Only reuse a comment if it was posted for the same trigger SHA —
+    // otherwise editing it leaves the old updated_at and the skeptical gate
+    // workflow rejects it (it filters by updated_at >= TRIGGER_UPDATED).
     if (c.user.login !== SKEPTIC_BOT_AUTHOR) continue;
     // Must start with the HTML marker (not just contain it mid-text).
     if (!c.body.trim().startsWith("<!-- skeptic-agent-verdict -->")) continue;
     // Optionally match by requestId (when a specific trigger comment id is known).
     if (requestId && !hasSkepticRequestId(c.body, requestId)) continue;
-    if (requestId && validSha) continue;
+    if (validSha && !requestId) continue;
     const escapedSha = validSha ? escapeRegexLiteral(validSha) : undefined;
     const shaMarker = escapedSha
       ? new RegExp(`<!-- skeptic-(?:gate|cron)-trigger-${escapedSha} -->`)
