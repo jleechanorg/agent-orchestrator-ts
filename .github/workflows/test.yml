@@ -47,13 +47,14 @@ jobs:
               --input - 2>&1
           )
           _RC=$?
+          # Parse the JSON response — if gh api emitted advisory lines to stderr,
+          # the merged output may not be pure JSON; extract the first JSON object.
+          TRIGGER_UPDATED=$(echo "$RESPONSE" | jq -r '.updated_at // empty' 2>/dev/null)
 
           if [ "$_RC" -ne 0 ]; then
             echo "ERROR: gh api POST failed (rc=$_RC): ${RESPONSE:0:300}" >&2
             exit 1
           fi
-
-          TRIGGER_UPDATED=$(echo "$RESPONSE" | jq -r '.updated_at // empty' 2>/dev/null)
 
           if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
             echo "ERROR: trigger comment posted but .updated_at missing: ${RESPONSE:0:300}" >&2
