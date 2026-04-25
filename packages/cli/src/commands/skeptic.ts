@@ -119,7 +119,7 @@ async function findExistingVerdict(
     // Only reuse a comment if it was posted for the same trigger SHA —
     // otherwise editing it leaves the old updated_at and the skeptical gate
     // workflow rejects it (it filters by updated_at >= TRIGGER_UPDATED).
-    if (c.user.login !== SKEPTIC_BOT_AUTHOR) continue;
+    if (c.user?.login !== SKEPTIC_BOT_AUTHOR) continue;
     // Must start with the HTML marker (not just contain it mid-text).
     if (!c.body.trim().startsWith("<!-- skeptic-agent-verdict -->")) continue;
     // Optionally match by requestId (when a specific trigger comment id is known).
