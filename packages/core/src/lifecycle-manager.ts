@@ -2767,8 +2767,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             { registry, sessionManager, observer },
             { projectId: scopedProjectId, project: skepticProject, activeSessions, correlationId },
           ).catch(skepticCronErr => {
+            const msg = skepticCronErr instanceof Error ? skepticCronErr.message : String(skepticCronErr);
             console.error(
-              `[skeptic-cron] failed: ${skepticCronErr instanceof Error ? skepticCronErr.message : String(skepticCronErr)}`,
+              `[skeptic-cron] failed: projectId=${scopedProjectId} correlationId=${correlationId} error=${msg}`,
             );
           });
         }
