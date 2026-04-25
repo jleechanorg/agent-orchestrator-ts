@@ -553,8 +553,9 @@ function jqVerdictComment(
       const verdictMatch = c.body.match(/^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im);
       const verdictType = verdictMatch?.[1]?.toUpperCase();
       return (
-        (userLogin === botLogin || userLogin === "github-actions[bot]") &&
-        userLogin !== prLogin &&
+        (userLogin === botLogin ||
+          (userLogin === "github-actions[bot]" && userLogin !== prLogin))
+        &&
         /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body) &&
         Boolean(verdictType) &&
         new RegExp(`<!--\\s*skeptic-cron-trigger-${triggerSha}\\s*-->`, "i").test(c.body) &&
@@ -638,11 +639,15 @@ describe("skeptic-cron.yml — verdict comment filter (SHA-scoped)", () => {
     expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).toBe("");
   });
 
-  it("rejects request-bound PASS comments from the PR author", () => {
+  it("accepts skeptic VERDICT when SKEPTIC_BOT_AUTHOR equals PR author", () => {
+    // When the configured skeptic bot author is the same as the PR author,
+    // the skeptic's own VERDICT comment must still be accepted.
+    // Previously the filter rejected this case: (author==bot AND author!=PR_author)
+    // always false when bot==PR_author. The fix accepts skeptic bot unconditionally.
     const comments: IssueComment[] = [
       { id: 450, user: { login: "jleechan2015" }, body: boundPassBody(SHA_A) },
     ];
-    expect(jqVerdictComment(comments, "jleechan2015", SHA_A, "req-1", "jleechan2015")).toBe("");
+    expect(jqVerdictComment(comments, "jleechan2015", SHA_A, "req-1", "jleechan2015")).toContain("VERDICT: PASS");
   });
 
   it("returns the most recent matching comment (highest ID)", () => {
@@ -725,12 +730,13 @@ describe("skeptic-cron.yml — verdict comment filter (SHA-scoped)", () => {
     expect(jqVerdictComment(comments, "jleechan2015", SHA_A)).toContain("VERDICT: PASS");
   });
 
-  it("normalizes author casing when rejecting PR-authored PASS comments", () => {
+  it("normalizes author casing when accepting skeptic VERDICT when bot === PR author", () => {
     const comments: IssueComment[] = [
       { id: 560, user: { login: "JLeeChan2015" }, body: boundPassBody(SHA_A) },
     ];
-
-    expect(jqVerdictComment(comments, "jleechan2015", SHA_A, "req-1", "jleechan2015")).toBe("");
+    // Case-normalized skeptic bot author (JLeeChan2015) should be accepted
+    // when it equals the PR author (jleechan2015).
+    expect(jqVerdictComment(comments, "jleechan2015", SHA_A, "req-1", "jleechan2015")).toContain("VERDICT: PASS");
   });
 
   it("is case-insensitive on VERDICT keyword", () => {
