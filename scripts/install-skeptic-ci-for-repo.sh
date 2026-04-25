@@ -11,6 +11,8 @@
 # Usage:
 #   ./scripts/install-skeptic-ci-for-repo.sh              # installs both (default)
 #   ./scripts/install-skeptic-ci-for-repo.sh --gate --force
+#   ./scripts/install-skeptic-ci-for-repo.sh --minimal    # skeptic-gate.yml only (lifecycle-worker primary, no GHA cron)
+#   ./scripts/install-skeptic-ci-for-repo.sh --gate --cron --cron-interval=60  # gate + hourly cron backup
 #   SKEPTIC_CI_REF=my-branch ./scripts/install-skeptic-ci-for-repo.sh
 #
 # From another repo: download, inspect, then run (do not pipe curl straight to bash):
@@ -30,14 +32,21 @@ SKEPTIC_CI_REF="${SKEPTIC_CI_REF:-$REF_DEFAULT}"
 INSTALL_GATE=false
 INSTALL_CRON=false
 FORCE=false
+MINIMAL=false
+CRON_INTERVAL=""
 
 usage() {
-  echo "Usage: $0 [--gate] [--cron] [--all] [--force]"
+  echo "Usage: $0 [--gate] [--cron] [--all] [--minimal] [--force]"
   echo "  (no flags)  Install both workflows (same as --all)"
-  echo "  --gate   Install only skeptic-gate.yml"
-  echo "  --cron   Install only skeptic-cron.yml"
-  echo "  --all    Install both workflows"
-  echo "  --force  Overwrite existing workflow files"
+  echo "  --minimal  Install only skeptic-gate.yml (thin polling; lifecycle-worker is primary eval)"
+  echo "  --gate     Install only skeptic-gate.yml"
+  echo "  --cron     Install only skeptic-cron.yml (GHA cron as backup catchup)"
+  echo "  --all      Install both workflows"
+  echo "  --force    Overwrite existing workflow files"
+  echo ""
+  echo "The --minimal mode is the recommended setup: skeptic-gate.yml polls for VERDICT"
+  echo "while lifecycle-worker runs ao skeptic verify and posts the actual VERDICT."
+  echo "The GHA cron (--cron) is an optional hourly backup catchup."
   echo ""
   echo "Environment:"
   echo "  SKEPTIC_CI_REPO  GitHub owner/repo for templates (default: $REPO_DEFAULT)"
@@ -50,6 +59,7 @@ while [[ $# -gt 0 ]]; do
     --gate) INSTALL_GATE=true ;;
     --cron) INSTALL_CRON=true ;;
     --all) INSTALL_GATE=true; INSTALL_CRON=true ;;
+    --minimal) MINIMAL=true; INSTALL_GATE=true; INSTALL_CRON=false ;;
     --force) FORCE=true ;;
     -h|--help) usage 0 ;;
     *) echo "Unknown option: $1" >&2; usage 1 ;;
@@ -112,6 +122,8 @@ echo ""
 echo "Next steps:"
 echo "  1. Review diffs: git diff .github/workflows/skeptic-*.yml"
 echo "  2. Commit and push to enable Actions."
-echo "  3. Run lifecycle-manager (AO worker) on a host with \`gh\` auth + \`ao skeptic verify\` so PR trigger comments get VERDICT replies."
-echo "  4. Optional: re-run a stuck gate via Actions → Skeptic Gate → Run workflow (workflow_dispatch)."
+echo "  3. Ensure lifecycle-manager is running on a host with \`gh\` auth + \`ao skeptic verify\`."
+echo "     The lifecycle-worker is the primary eval engine; skeptic-gate.yml just polls."
+echo "  4. Optional (if --cron was used): skeptic-cron.yml runs hourly as backup catchup."
+echo "  5. Optional: re-run a stuck gate via Actions → Skeptic Gate → Run workflow."
 echo ""
