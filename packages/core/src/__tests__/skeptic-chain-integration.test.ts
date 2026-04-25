@@ -477,8 +477,8 @@ describe("skeptic chain integration", () => {
         const requestMatch = new RegExp(`<!--\\s*skeptic-request-id-${escapedRequestId}\\s*-->`, "i").test(c.body);
         const headMatch = new RegExp(`<!--\\s*skeptic-head-sha-${escapedSha}\\s*-->`, "i").test(c.body);
         return (
-          authorMatch &&
-          trustedActorMatch &&
+          // Correct: bot author is trusted even when == pr_author; gh-actions[bot] requires != pr_author
+          (userLogin === botLogin || (userLogin === "github-actions[bot]" && userLogin !== prLogin)) &&
           markerMatch &&
           Boolean(verdictType) &&
           timestampMatch &&
@@ -594,7 +594,7 @@ describe("skeptic chain integration", () => {
       expect(result!.body).toContain(`skeptic-gate-trigger-${TRIGGER_SHA}`);
     });
 
-    it("rejects a request-bound PASS when the comment author is the PR author", () => {
+    it("accepts a request-bound PASS when the bot author equals the PR author", () => {
       const comments = [
         {
           id: 150,
@@ -613,7 +613,9 @@ describe("skeptic chain integration", () => {
         "jleechan2015",
       );
 
-      expect(result).toBeNull();
+      // Bot author is trusted unconditionally (new logic); gh-actions[bot] requires != pr_author
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(150);
     });
 
     it("matches request ids literally when they contain regex metacharacters", () => {
