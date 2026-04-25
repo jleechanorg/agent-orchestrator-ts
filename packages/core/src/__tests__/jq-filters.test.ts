@@ -536,7 +536,7 @@ function jqVerdictComment(
   botAuthor: string,
   triggerSha: string,
   requestId = "req-1",
-  prAuthor = "pr-author",
+  _prAuthor = "pr-author",
 ): string {
   const hasEightPassingGates = (body: string): boolean => {
     for (let gate = 1; gate <= 8; gate += 1) {

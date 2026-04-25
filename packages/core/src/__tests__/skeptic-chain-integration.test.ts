@@ -457,7 +457,7 @@ describe("skeptic chain integration", () => {
       triggerSha: string,
       triggerUpdated: string,
       requestId: string,
-      prAuthor = "pr-author",
+      _prAuthor = "pr-author",
     ): (typeof comments)[number] | null {
       const escapeRegexLiteral = (token: string): string =>
         token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
