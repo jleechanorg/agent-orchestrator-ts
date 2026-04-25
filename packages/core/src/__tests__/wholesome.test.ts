@@ -454,6 +454,10 @@ describe("wholesome — structural source-code assertions", () => {
       // fix/skip-pr-boilerplate-core-prompt (PR #487): pre-[agento] commits on this feature branch
       "30dbbf1823c273ba3d36251155e7eb630c16c9f2", // fix(prompt-builder): suppress PR/push instructions when skipPrBoilerplate=true
       "8e7abb690a065345caeca8507660af5ca7f7a27b", // feat: add consolidated ao-install.sh and ao-repo-setup.sh scripts
+      "062304986429079424c24cb8c612071d599d2594", // chore(pr-487): trigger fresh CI with extended timeout
+      "0297f8f293701a68212f77222a45908abaf718b5", // [copilot] fix: disable pipefail around ao doctor pipeline in ao-install.sh
+      "cbd2c7fb932d396efbebae34fb131119f3571d59", // fix(pr-487): update design doc SHA and commit count to current head
+      "e8137982c2783839105393af2a9bcf6d92ea4ee1", // fix(pr-487): honor spawnConfig.skipPrBoilerplate fallback + refresh design doc SHA
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
