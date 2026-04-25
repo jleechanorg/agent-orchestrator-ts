@@ -37,8 +37,11 @@ jobs:
           REQUEST_ID="gate-${TRIGGER_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
           RESPONSE=$(
-            printf '{"body":"SKEPTIC_GATE_TRIGGER\n<!-- skeptic-request-id-%s -->\n<!-- skeptic-head-sha-%s -->\n<!-- skeptic-gate-trigger-%s -->"}' \
-              "$REQUEST_ID" "$TRIGGER_SHA" "$TRIGGER_SHA" \
+            jq -n \
+              --arg request_id "$REQUEST_ID" \
+              --arg trigger_sha "$TRIGGER_SHA" \
+              --arg body "SKEPTIC_GATE_TRIGGER\n<!-- skeptic-request-id-($request_id) -->\n<!-- skeptic-head-sha-($trigger_sha) -->\n<!-- skeptic-gate-trigger-($trigger_sha) -->" \
+              '{body: $body}' \
             | gh api \
               --method POST \
               "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
