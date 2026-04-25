@@ -39,7 +39,7 @@ jobs:
           RESPONSE=$(
             printf 'SKEPTIC_GATE_TRIGGER\n<!-- skeptic-request-id-%s -->\n<!-- skeptic-head-sha-%s -->\n<!-- skeptic-gate-trigger-%s -->' \
               "$REQUEST_ID" "$TRIGGER_SHA" "$TRIGGER_SHA" \
-            | jq -R '{body: .}' - \
+            | jq -Rs '{body: .}' - \
             | gh api \
               --method POST \
               "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
