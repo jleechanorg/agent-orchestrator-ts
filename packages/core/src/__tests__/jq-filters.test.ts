@@ -549,11 +549,12 @@ function jqVerdictComment(
     (c) => {
       const userLogin = c.user.login.toLowerCase();
       const botLogin = botAuthor.toLowerCase();
-      const _prLogin = prAuthor.toLowerCase();
       const verdictMatch = c.body.match(/^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im);
       const verdictType = verdictMatch?.[1]?.toUpperCase();
+      // Accept configured SKEPTIC_BOT_AUTHOR or github-actions[bot] (fallback for GHA-skip verdicts)
+      const authorMatch = userLogin === botLogin || userLogin === "github-actions[bot]";
       return (
-        (userLogin === botLogin)
+        authorMatch
         &&
         /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body) &&
         Boolean(verdictType) &&

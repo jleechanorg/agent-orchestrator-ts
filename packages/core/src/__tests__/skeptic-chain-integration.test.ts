@@ -439,9 +439,9 @@ describe("skeptic chain integration", () => {
     const workflowSource = readFileSync(new URL("../../../../.github/workflows/test.yml", import.meta.url), "utf8");
 
     /**
-     * TypeScript re-implementation of skeptic-gate.yml's polling jq filter
-     * (workflow line 235). Validates that the filter correctly selects
-     * the verdict comment from a mixed list of PR comments.
+     * TypeScript re-implementation of skeptic-gate.yml's polling jq filter.
+     * Validates that the filter correctly selects the verdict comment
+     * from a mixed list of PR comments.
      */
     function jqFilterMatch(
       comments: Array<{ id: number; body: string; user: { login: string }; updatedAt: string }>,
@@ -449,7 +449,7 @@ describe("skeptic chain integration", () => {
       triggerSha: string,
       triggerUpdated: string,
       requestId: string,
-      prAuthor = "pr-author",
+      _prAuthor = "pr-author",
     ): (typeof comments)[number] | null {
       const escapeRegexLiteral = (token: string): string =>
         token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -466,7 +466,6 @@ describe("skeptic chain integration", () => {
       const matching = comments.filter((c) => {
         const userLogin = c.user.login.toLowerCase();
         const botLogin = botAuthor.toLowerCase();
-        const _prLogin = prAuthor.toLowerCase();
         const markerMatch = /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body);
         const verdictMatch = c.body.match(/^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im);
         const verdictType = verdictMatch?.[1]?.toUpperCase();
@@ -474,8 +473,8 @@ describe("skeptic chain integration", () => {
         const shaMatch = new RegExp(`<!--\\s*skeptic-gate-trigger-${escapedSha}\\s*-->`, "i").test(c.body);
         const requestMatch = new RegExp(`<!--\\s*skeptic-request-id-${escapedRequestId}\\s*-->`, "i").test(c.body);
         const headMatch = new RegExp(`<!--\\s*skeptic-head-sha-${escapedSha}\\s*-->`, "i").test(c.body);
-        // Fixed logic: accept skeptic bot author unconditionally (SKEPTIC_BOT_AUTHOR may be a human PR author).
-        const authorTrustPredicate = userLogin === botLogin;
+        // Accept SKEPTIC_BOT_AUTHOR or github-actions[bot] (fallback for GHA-skip verdicts).
+        const authorTrustPredicate = userLogin === botLogin || userLogin === "github-actions[bot]";
         return (
           authorTrustPredicate &&
           markerMatch &&
@@ -615,6 +614,24 @@ describe("skeptic chain integration", () => {
         "req-chain",
         "jleechan2015",
       );
+
+      expect(result).not.toBeNull();
+      expect(result!.body).toContain("VERDICT: PASS");
+    });
+
+    it("accepts github-actions[bot] as a trusted verdict author (GHA-skip fallback)", () => {
+      // When the configured SKEPTIC_BOT_AUTHOR cannot post (e.g., workflow lacks permissions),
+      // mergeGate posts a SKIPPED fallback as github-actions[bot]. The filter must accept this.
+      const comments = [
+        {
+          id: 160,
+          body: boundPassBody("req-chain", TRIGGER_SHA),
+          user: { login: "github-actions[bot]" },
+          updatedAt: "2026-03-28T12:05:00Z",
+        },
+      ];
+
+      const result = jqFilterMatch(comments, "jleechan2015", TRIGGER_SHA, TRIGGER_UPDATED, "req-chain");
 
       expect(result).not.toBeNull();
       expect(result!.body).toContain("VERDICT: PASS");
