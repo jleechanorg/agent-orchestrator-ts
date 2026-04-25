@@ -33,6 +33,7 @@ export async function postVerdict(
   const body = [
     "<!-- skeptic-agent-verdict -->",
     binding?.requestId ? `<!-- skeptic-request-id-${binding.requestId} -->` : null,
+    // Always include head-sha when provided, even if updating a comment posted without it.
     binding?.headSha ? `<!-- skeptic-head-sha-${binding.headSha} -->` : null,
     ...gateMarkers,
     "**🤖 Skeptic Agent Verdict (bd-qw6)**",
@@ -53,7 +54,13 @@ export async function postVerdict(
     .join("\n");
 
   if (existingCommentId) {
-    await patchComment(owner, repo, existingCommentId, body);
+    try {
+      await patchComment(owner, repo, existingCommentId, body);
+    } catch (err) {
+      // bd-479: if patch fails (comment was deleted or 404), fall back to create.
+      // This keeps the idempotent-retry pattern working even with stale comment IDs.
+      await createComment(owner, repo, prNumber, body);
+    }
   } else {
     await createComment(owner, repo, prNumber, body);
   }
