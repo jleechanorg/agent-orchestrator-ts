@@ -46,10 +46,13 @@ echo
 if [ -d "$AO_REPO_ROOT/.git" ]; then
   REPO_ROOT="$AO_REPO_ROOT"
   echo "  Repo detected: $REPO_ROOT"
+elif [ -d "$HOME/project_agento/agent-orchestrator/.git" ]; then
+  REPO_ROOT="$HOME/project_agento/agent-orchestrator"
+  echo "  Repo detected: $REPO_ROOT"
 else
-  REPO_ROOT="$(mktemp -d)"
-  trap 'rm -rf "$REPO_ROOT" 2>/dev/null' EXIT
-  echo "  Cloning agent-orchestrator to $REPO_ROOT..."
+  # Use stable path for curl mode — we install launchd plists that reference
+  # $REPO_ROOT, so the dir must persist after this script exits.
+  REPO_ROOT="$HOME/project_agento/agent-orchestrator"
   if ! git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
     "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" 2>&1; then
     echo "ERROR: git clone failed — check AGENT_ORCHESTRATOR_REPO and network connectivity"
@@ -157,7 +160,7 @@ echo "[7/7] Running ao doctor..."
 if command -v ao &>/dev/null; then
   # ao doctor exits non-zero when any health check fails — suppress that to avoid
   # masking the actual install work; still surface its filtered output for visibility
-  run_filtered '(PASS|WARN|FAIL|Results:)' 5 env AO_CONFIG_PATH="$CONFIG_FILE" ao doctor || true
+  run_filtered '(PASS|WARN|FAIL|Results:)' 5 env AO_CONFIG_PATH="$CONFIG_FILE" ao doctor
 else
   echo "  ao CLI not in PATH — run: export PATH=\"\$(npm config get prefix)/bin:\$PATH\""
 fi
