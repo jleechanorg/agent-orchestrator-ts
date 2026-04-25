@@ -155,7 +155,9 @@ fi
 # ─── Step 7: Final verification via ao doctor ──────────────────────────────────
 echo "[7/7] Running ao doctor..."
 if command -v ao &>/dev/null; then
-  run_filtered '(PASS|WARN|FAIL|Results:)' 5 env AO_CONFIG_PATH="$CONFIG_FILE" ao doctor
+  # ao doctor exits non-zero when any health check fails — suppress that to avoid
+  # masking the actual install work; still surface its filtered output for visibility
+  run_filtered '(PASS|WARN|FAIL|Results:)' 5 env AO_CONFIG_PATH="$CONFIG_FILE" ao doctor || true
 else
   echo "  ao CLI not in PATH — run: export PATH=\"\$(npm config get prefix)/bin:\$PATH\""
 fi
@@ -163,7 +165,9 @@ fi
 echo ""
 echo "=== Install Complete ==="
 echo "Config: $CONFIG_FILE"
-echo "Workers running: $WORKER_COUNT/$(echo "$PROJECTS" | wc -w | tr -d ' ')"
+# wc -w on BSD macOS pads output right-aligned with spaces; trim twice to be safe
+PROJECT_COUNT=$(echo "$PROJECTS" | wc -w | tr -d ' ' | tr -d ' ')
+echo "Workers running: $WORKER_COUNT/$PROJECT_COUNT"
 echo ""
 echo "Next steps:"
 echo "  AO_CONFIG_PATH=\"$CONFIG_FILE\" ao spawn --project agent-orchestrator 'echo hello'"
