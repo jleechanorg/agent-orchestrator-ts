@@ -51,7 +51,7 @@
     <main class="wrap">
       <section class="hero">
         <h1>[agento] feat(ao-library): AO technique library — SR-prtype as safe default</h1>
-        <ul class="muted"><li>Adds <code>TechniqueType</code>, <code>PrType</code>, <code>TechniqueConfig</code> to <code>types.ts</code></li><li>Adds <code>TechniqueConfigSchema</code> Zod validation to <code>config.ts</code></li><li>Adds technique guidance layer (Layer 2.5) to <code>prompt-builder.ts</code> — SR-prtype guidance per technique</li><li>Adds <code>classifyPrType()</code> ZFC-compliant LLM classifier to <code>decomposer.ts</code> (library only — not yet wired into production call site)</li><li>Adds <code>skills/technique-router/</code> standalone skill doc</li><li>Adds technique config section to <code>agent-orchestrator.yaml.example</code></li><li>Hardens skeptic automation (skeptic-gate-reusable.yml, skeptic-cron.yml, skeptic.ts)</li><li>Fixes ESLint worktrees ignore</li></ul>
+        <ul class="muted"><li>adds the AO technique-library foundation (<code>TechniqueType</code>, <code>PrType</code>, <code>TechniqueConfig</code>, schema wiring, prompt guidance, and <code>classifyPrType()</code>)</li><li>hardens skeptic automation in the reusable workflow, cron workflow, and CLI helpers</li><li>fixes the remaining open review thread by fail-closing <code>classifyPrType()</code> when the model returns a non-string <code>reasoning</code> field</li><li>includes authentic TDD red/green evidence for the reasoning-field fix</li></ul>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/479">#479</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
@@ -68,7 +68,7 @@
 │ PR #479 — agent-orchestrator                                       │
 └────────────────────────────────────────────────────────────────────── ┘
                   │
-    ▼ 19 file(s) changed
+    ▼ 21 file(s) changed
                   │
 ┌────────────────────────────────────────────────────────────────────── ┐
 │ feat(ao-library): AO technique library — SR-prtype as safe default │
@@ -78,10 +78,10 @@
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
-            <div class="stat"><div class="num">19</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">68</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+833</div><div class="lbl">Additions</div></div>
-            <div class="stat"><div class="num" style="color:#cf222e">-93</div><div class="lbl">Deletions</div></div>
+            <div class="stat"><div class="num">21</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">72</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+905</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-106</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
@@ -102,6 +102,7 @@
 <tr><td><code>packages/cli</code></td><td>4</td></tr>
 <tr><td><code>.github/workflows</code></td><td>3</td></tr>
 <tr><td><code>docs/design</code></td><td>2</td></tr>
+<tr><td><code>docs/evidence</code></td><td>2</td></tr>
 <tr><td><code>.beads</code></td><td>1</td></tr>
 <tr><td><code>agent-orchestrator.yaml.example</code></td><td>1</td></tr>
 <tr><td><code>eslint.config.js</code></td><td>1</td></tr>
@@ -119,25 +120,25 @@
             <tr>
       <td><code>.beads/issues.jsonl</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+3</td>
+      <td style="text-align:right;color:#2ea043">+4</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>.github/workflows/skeptic-cron.yml</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+13</td>
-      <td style="text-align:right;color:#cf222e">-12</td>
+      <td style="text-align:right;color:#2ea043">+15</td>
+      <td style="text-align:right;color:#cf222e">-16</td>
     </tr>
 <tr>
       <td><code>.github/workflows/skeptic-gate-reusable.yml</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+15</td>
+      <td style="text-align:right;color:#2ea043">+1</td>
       <td style="text-align:right;color:#cf222e">-1</td>
     </tr>
 <tr>
       <td><code>.github/workflows/test.yml</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+23</td>
+      <td style="text-align:right;color:#2ea043">+21</td>
       <td style="text-align:right;color:#cf222e">-4</td>
     </tr>
 <tr>
@@ -149,13 +150,25 @@
 <tr>
       <td><code>docs/design/pr-designs/pr-479.html</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+217</td>
+      <td style="text-align:right;color:#2ea043">+247</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>docs/design/pr-designs/pr-479.md</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+89</td>
+      <td style="text-align:right;color:#2ea043">+92</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>docs/evidence/pr-479/classify-reasoning-green.txt</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+12</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>docs/evidence/pr-479/classify-reasoning-red.txt</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+27</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
@@ -167,8 +180,8 @@
 <tr>
       <td><code>packages/cli/__tests__/commands/skeptic/skeptic.test.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+3</td>
-      <td style="text-align:right;color:#cf222e">-2</td>
+      <td style="text-align:right;color:#2ea043">+4</td>
+      <td style="text-align:right;color:#cf222e">-8</td>
     </tr>
 <tr>
       <td><code>packages/cli/src/commands/skeptic.ts</code></td>
@@ -186,19 +199,19 @@
       <td><code>packages/cli/src/commands/skeptic/verdict-utils.ts</code></td>
       <td>modified</td>
       <td style="text-align:right;color:#2ea043">+6</td>
-      <td style="text-align:right;color:#cf222e">-4</td>
+      <td style="text-align:right;color:#cf222e">-6</td>
     </tr>
 <tr>
       <td><code>packages/core/src/__tests__/decomposer.test.ts</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+137</td>
+      <td style="text-align:right;color:#2ea043">+139</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
-      <td><code>packages/core/src/__tests__/skeptic-chain-integration.test.ts</code></td>
+      <td><code>packages/core/src/__tests__/wholesome.test.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+1</td>
-      <td style="text-align:right;color:#cf222e">-1</td>
+      <td style="text-align:right;color:#2ea043">+7</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>packages/core/src/config.ts</code></td>
@@ -215,8 +228,8 @@
 <tr>
       <td><code>packages/core/src/prompt-builder.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+51</td>
-      <td style="text-align:right;color:#cf222e">-1</td>
+      <td style="text-align:right;color:#2ea043">+55</td>
+      <td style="text-align:right;color:#cf222e">-3</td>
     </tr>
 <tr>
       <td><code>packages/core/src/types.ts</code></td>
