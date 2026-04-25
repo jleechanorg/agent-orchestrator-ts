@@ -474,11 +474,8 @@ describe("skeptic chain integration", () => {
         const shaMatch = new RegExp(`<!--\\s*skeptic-gate-trigger-${escapedSha}\\s*-->`, "i").test(c.body);
         const requestMatch = new RegExp(`<!--\\s*skeptic-request-id-${escapedRequestId}\\s*-->`, "i").test(c.body);
         const headMatch = new RegExp(`<!--\\s*skeptic-head-sha-${escapedSha}\\s*-->`, "i").test(c.body);
-        // Fixed logic: always accept skeptic bot author; only apply PR-author
-        // exclusion to github-actions[bot] trigger comments.
-        const authorTrustPredicate =
-          userLogin === botLogin ||
-          (userLogin === "github-actions[bot]" && userLogin !== prLogin);
+        // Fixed logic: accept skeptic bot author unconditionally (SKEPTIC_BOT_AUTHOR may be a human PR author).
+        const authorTrustPredicate = userLogin === botLogin;
         return (
           authorTrustPredicate &&
           markerMatch &&

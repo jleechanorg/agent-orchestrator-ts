@@ -553,8 +553,7 @@ function jqVerdictComment(
       const verdictMatch = c.body.match(/^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im);
       const verdictType = verdictMatch?.[1]?.toUpperCase();
       return (
-        (userLogin === botLogin ||
-          (userLogin === "github-actions[bot]" && userLogin !== prLogin))
+        (userLogin === botLogin)
         &&
         /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body) &&
         Boolean(verdictType) &&
