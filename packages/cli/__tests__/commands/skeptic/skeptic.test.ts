@@ -202,6 +202,18 @@ describe("dry-run SKIPPED color mapping", () => {
 });
 
 describe("bindVerdictOutput", () => {
+  const COMPLETE_PASS_WITH_8_GATES = [
+    "<!-- skeptic-gate-1:PASS -->",
+    "<!-- skeptic-gate-2:PASS -->",
+    "<!-- skeptic-gate-3:PASS -->",
+    "<!-- skeptic-gate-4:PASS -->",
+    "<!-- skeptic-gate-5:PASS -->",
+    "<!-- skeptic-gate-6:PASS -->",
+    "<!-- skeptic-gate-7:PASS -->",
+    "<!-- skeptic-gate-8:PASS -->",
+    "VERDICT: PASS",
+  ].join("\n");
+
   it("downgrades PASS to FAIL when the LLM output lacks complete gate markers", () => {
     const result = bindVerdictOutput({
       llmOutput: "VERDICT: PASS\n\nAll good.",
@@ -217,17 +229,7 @@ describe("bindVerdictOutput", () => {
   it("keeps a complete request-bound PASS unchanged", () => {
     const headSha = "abc1230000000000000000000000000000000000";
     const result = bindVerdictOutput({
-      llmOutput: [
-        "<!-- skeptic-gate-1:PASS -->",
-        "<!-- skeptic-gate-2:PASS -->",
-        "<!-- skeptic-gate-3:PASS -->",
-        "<!-- skeptic-gate-4:PASS -->",
-        "<!-- skeptic-gate-5:PASS -->",
-        "<!-- skeptic-gate-6:PASS -->",
-        "<!-- skeptic-gate-7:PASS -->",
-        "<!-- skeptic-gate-8:PASS -->",
-        "VERDICT: PASS",
-      ].join("\n"),
+      llmOutput: COMPLETE_PASS_WITH_8_GATES,
       headSha,
       requestId: "req-1",
     });
@@ -237,17 +239,7 @@ describe("bindVerdictOutput", () => {
 
   it("keeps PASS unchanged when complete gate markers exist and request/head bindings are omitted", () => {
     const result = bindVerdictOutput({
-      llmOutput: [
-        "<!-- skeptic-gate-1:PASS -->",
-        "<!-- skeptic-gate-2:PASS -->",
-        "<!-- skeptic-gate-3:PASS -->",
-        "<!-- skeptic-gate-4:PASS -->",
-        "<!-- skeptic-gate-5:PASS -->",
-        "<!-- skeptic-gate-6:PASS -->",
-        "<!-- skeptic-gate-7:PASS -->",
-        "<!-- skeptic-gate-8:PASS -->",
-        "VERDICT: PASS",
-      ].join("\n"),
+      llmOutput: COMPLETE_PASS_WITH_8_GATES,
     });
 
     expect(result.verdictLine).toBe("VERDICT: PASS");
