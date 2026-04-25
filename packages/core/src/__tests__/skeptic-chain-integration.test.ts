@@ -682,8 +682,13 @@ describe("skeptic chain integration", () => {
     });
 
     it("matches verdict lines after hidden markers in jq, matching ao skeptic comment format", () => {
-      expect(workflowSource).toContain('test("(^|\\\\n)[[:space:]>#*]*VERDICT:[[:space:]]*PASS');
+      // The jq filter uses .verdict != "PASS" (not body-text search) so FAIL/SKIPPED
+      // verdicts can be properly detected. The buggy body-text search pattern is removed.
+      expect(workflowSource).toContain('.verdict != "PASS"');
+      // The buggy start-of-line pattern should not be present
       expect(workflowSource).not.toContain('test("^[[:space:]>#*]*VERDICT:[[:space:]]*PASS');
+      // The old body-text search pattern should not be present (it blocked FAIL/SKIPPED)
+      expect(workflowSource).not.toContain('test("(^|\\\\n)[[:space:]>#*]*VERDICT:[[:space:]]*PASS');
     });
 
     it("returns null when no matching verdict exists", () => {
