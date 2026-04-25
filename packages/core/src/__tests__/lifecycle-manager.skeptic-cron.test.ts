@@ -4,7 +4,7 @@
  * Tests verify that the lifecycle-manager poll loop correctly guards the
  * runLocalSkepticCron call:
  * - NOT called when scopedProjectId is undefined
- * - skipped when backfillAllPRs is false
+ * - called regardless of backfillAllPRs setting
  * - called with correct deps/params when backfillAllPRs is true
  * - called when backfillAllPRs is undefined (opt-out default)
  * - poll loop survives throw from runLocalSkepticCron
