@@ -553,8 +553,8 @@ function jqVerdictComment(
       const verdictMatch = c.body.match(/^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im);
       const verdictType = verdictMatch?.[1]?.toUpperCase();
       return (
-        (userLogin === botLogin || userLogin === "github-actions[bot]") &&
-        userLogin !== prLogin &&
+        (userLogin === botLogin ||
+          (userLogin === "github-actions[bot]" && userLogin !== prLogin)) &&
         /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body) &&
         Boolean(verdictType) &&
         new RegExp(`<!--\\s*skeptic-cron-trigger-${triggerSha}\\s*-->`, "i").test(c.body) &&
@@ -638,11 +638,20 @@ describe("skeptic-cron.yml — verdict comment filter (SHA-scoped)", () => {
     expect(jqVerdictComment(comments, "github-actions[bot]", SHA_A)).toBe("");
   });
 
-  it("rejects request-bound PASS comments from the PR author", () => {
+  it("accepts verdict from SKEPTIC_BOT_AUTHOR even when they are the PR author", () => {
     const comments: IssueComment[] = [
       { id: 450, user: { login: "jleechan2015" }, body: boundPassBody(SHA_A) },
     ];
-    expect(jqVerdictComment(comments, "jleechan2015", SHA_A, "req-1", "jleechan2015")).toBe("");
+    // SKEPTIC_BOT_AUTHOR is trusted unconditionally — pr_author check only applies to github-actions[bot]
+    expect(jqVerdictComment(comments, "jleechan2015", SHA_A, "req-1", "jleechan2015")).toContain("VERDICT: PASS");
+  });
+
+  it("rejects github-actions[bot] comments from the PR author when configured bot is DIFFERENT", () => {
+    const comments: IssueComment[] = [
+      { id: 460, user: { login: "github-actions[bot]" }, body: boundPassBody(SHA_A) },
+    ];
+    // When configured bot is different from github-actions[bot], the latter is subject to pr_author check
+    expect(jqVerdictComment(comments, "jleechan2015", SHA_A, "req-1", "github-actions[bot]")).toBe("");
   });
 
   it("returns the most recent matching comment (highest ID)", () => {
@@ -725,12 +734,12 @@ describe("skeptic-cron.yml — verdict comment filter (SHA-scoped)", () => {
     expect(jqVerdictComment(comments, "jleechan2015", SHA_A)).toContain("VERDICT: PASS");
   });
 
-  it("normalizes author casing when rejecting PR-authored PASS comments", () => {
+  it("accepts verdict from SKEPTIC_BOT_AUTHOR regardless of PR author (case-normalized)", () => {
     const comments: IssueComment[] = [
       { id: 560, user: { login: "JLeeChan2015" }, body: boundPassBody(SHA_A) },
     ];
-
-    expect(jqVerdictComment(comments, "jleechan2015", SHA_A, "req-1", "jleechan2015")).toBe("");
+    // SKEPTIC_BOT_AUTHOR is trusted unconditionally even when they are the PR author
+    expect(jqVerdictComment(comments, "jleechan2015", SHA_A, "req-1", "jleechan2015")).toContain("VERDICT: PASS");
   });
 
   it("is case-insensitive on VERDICT keyword", () => {
