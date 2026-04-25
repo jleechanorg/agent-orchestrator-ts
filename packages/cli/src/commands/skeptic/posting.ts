@@ -57,11 +57,29 @@ export async function postVerdict(
     try {
       await patchComment(owner, repo, existingCommentId, body);
     } catch (err) {
-      // bd-479: if patch fails (comment was deleted or 404), fall back to create.
-      // This keeps the idempotent-retry pattern working even with stale comment IDs.
+      // bd-479: only fallback for deleted/stale comment IDs (404).
+      // Rethrow all other errors (auth, rate-limit, network, 422) so upstream
+      // can handle retries/failures and avoid creating duplicate verdict comments.
+      if (!isGhNotFoundError(err)) {
+        throw err;
+      }
       await createComment(owner, repo, prNumber, body);
     }
   } else {
     await createComment(owner, repo, prNumber, body);
   }
+}
+
+/**
+ * Returns true when the error indicates a GitHub API 404 / "not found" response.
+ * The `gh` CLI prints "HTTP 404: Not Found" or "status: 404" in stderr on such errors.
+ */
+function isGhNotFoundError(err: unknown): boolean {
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : "";
+  return /\b404\b/i.test(msg) || /not\s+found/i.test(msg);
 }
