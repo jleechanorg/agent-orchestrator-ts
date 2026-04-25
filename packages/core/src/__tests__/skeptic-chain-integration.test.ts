@@ -467,8 +467,9 @@ describe("skeptic chain integration", () => {
         const userLogin = c.user.login.toLowerCase();
         const botLogin = botAuthor.toLowerCase();
         const prLogin = prAuthor.toLowerCase();
-        const authorMatch = userLogin === botLogin || userLogin === "github-actions[bot]";
-        const trustedActorMatch = userLogin !== prLogin;
+        const isTrustedBot = userLogin === botLogin;
+        const isTrustedGhActions = userLogin === "github-actions[bot]" && userLogin !== prLogin;
+        const trustedActorMatch = isTrustedBot || isTrustedGhActions;
         const markerMatch = /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body);
         const verdictMatch = c.body.match(/^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im);
         const verdictType = verdictMatch?.[1]?.toUpperCase();
@@ -477,7 +478,6 @@ describe("skeptic chain integration", () => {
         const requestMatch = new RegExp(`<!--\\s*skeptic-request-id-${escapedRequestId}\\s*-->`, "i").test(c.body);
         const headMatch = new RegExp(`<!--\\s*skeptic-head-sha-${escapedSha}\\s*-->`, "i").test(c.body);
         return (
-          authorMatch &&
           trustedActorMatch &&
           markerMatch &&
           Boolean(verdictType) &&
@@ -594,7 +594,7 @@ describe("skeptic chain integration", () => {
       expect(result!.body).toContain(`skeptic-gate-trigger-${TRIGGER_SHA}`);
     });
 
-    it("rejects a request-bound PASS when the comment author is the PR author", () => {
+    it("accepts a PASS verdict when the bot author IS the PR author — new trust model", () => {
       const comments = [
         {
           id: 150,
@@ -613,7 +613,11 @@ describe("skeptic chain integration", () => {
         "jleechan2015",
       );
 
-      expect(result).toBeNull();
+      // New trust model: SKEPTIC_BOT_AUTHOR is trusted unconditionally.
+      // A PR opened by the bot author is still valid since the bot's credentials
+      // are not accessible to the human PR author.
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(150);
     });
 
     it("matches request ids literally when they contain regex metacharacters", () => {
