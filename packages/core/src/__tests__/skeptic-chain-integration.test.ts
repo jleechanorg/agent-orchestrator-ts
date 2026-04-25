@@ -467,8 +467,6 @@ describe("skeptic chain integration", () => {
         const userLogin = c.user.login.toLowerCase();
         const botLogin = botAuthor.toLowerCase();
         const prLogin = prAuthor.toLowerCase();
-        const authorMatch = userLogin === botLogin || userLogin === "github-actions[bot]";
-        const trustedActorMatch = userLogin !== prLogin;
         const markerMatch = /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body);
         const verdictMatch = c.body.match(/^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im);
         const verdictType = verdictMatch?.[1]?.toUpperCase();
@@ -476,9 +474,13 @@ describe("skeptic chain integration", () => {
         const shaMatch = new RegExp(`<!--\\s*skeptic-gate-trigger-${escapedSha}\\s*-->`, "i").test(c.body);
         const requestMatch = new RegExp(`<!--\\s*skeptic-request-id-${escapedRequestId}\\s*-->`, "i").test(c.body);
         const headMatch = new RegExp(`<!--\\s*skeptic-head-sha-${escapedSha}\\s*-->`, "i").test(c.body);
+        // Fixed logic: always accept skeptic bot author; only apply PR-author
+        // exclusion to github-actions[bot] trigger comments.
+        const authorTrustPredicate =
+          userLogin === botLogin ||
+          (userLogin === "github-actions[bot]" && userLogin !== prLogin);
         return (
-          authorMatch &&
-          trustedActorMatch &&
+          authorTrustPredicate &&
           markerMatch &&
           Boolean(verdictType) &&
           timestampMatch &&
@@ -594,7 +596,11 @@ describe("skeptic chain integration", () => {
       expect(result!.body).toContain(`skeptic-gate-trigger-${TRIGGER_SHA}`);
     });
 
-    it("rejects a request-bound PASS when the comment author is the PR author", () => {
+    it("accepts a request-bound PASS when the skeptic bot author equals the PR author", () => {
+      // When the configured skeptic bot author is the same as the PR author,
+      // the skeptic's own VERDICT comment must still be accepted.
+      // Previously this was rejected: authorMatch=true but trustedActorMatch=false
+      // when bot===PR_author. The fix accepts skeptic bot unconditionally.
       const comments = [
         {
           id: 150,
@@ -613,7 +619,8 @@ describe("skeptic chain integration", () => {
         "jleechan2015",
       );
 
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result!.body).toContain("VERDICT: PASS");
     });
 
     it("matches request ids literally when they contain regex metacharacters", () => {
