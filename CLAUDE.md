@@ -196,23 +196,26 @@ pnpm test
 
 `jleechanorg/agent-orchestrator`. Never upstream `ComposioHQ` PR without explicit approval. Strip fork artifacts for upstream cherry-picks.
 
-## Binary Installation — Single Canonical Source of Truth
+## Binary Installation — Canonical Install Paths
 
-**AO is installed from source and updated via the canonical scripts. Never install or update AO via `npm install -g @jleechanorg/ao-cli` directly — that path produces a stale, unversioned global npm package that bypasses the source tree.**
+**Two install paths exist for different audiences:**
+
+| Audience | Install command | Notes |
+|----------|---------------|-------|
+| **This repo's maintainers** (you) | `bash scripts/setup.sh` | Builds from current source tree via `npm link` — always latest SHA |
+| **Other people / other machines** | `npm install -g @jleechanorg/ao-cli` | Standard npm install — published package |
 
 | Task | Command |
 |------|---------|
-| Fresh install | `bash scripts/setup.sh` |
+| Fresh install (repo maintainers) | `bash scripts/setup.sh` |
 | Update to latest main | `bash scripts/ao-update.sh` |
 | Verify install health | `ao doctor` |
 
-**Why `scripts/setup.sh` over `npm install -g`?** The setup script builds from the current source tree and runs `npm link`, which symlinks `packages/cli/dist/index.js` into the global npm prefix. This ensures the running binary matches the source tree SHA. The global npm package (`@jleechanorg/ao-cli`) is unversioned plain JS source published by `release.yml` — it lags source by days/weeks and is not the canonical install path.
+**Why `scripts/setup.sh`?** It builds from the current source tree and runs `npm link`, which symlinks `packages/cli/dist/index.js` into the global npm prefix. The running binary always matches the source tree SHA — no lag.
 
-**Why `scripts/ao-update.sh` over `npm update -g`?** `ao-update.sh` kills existing lifecycle-workers before rebuilding, then restarts them. Running `npm update` without this sequence leaves old workers on stale code while a new binary is installed — causing the exact stale-binary divergence this rule prevents.
+**Why `scripts/ao-update.sh` over `npm update -g`?** `ao-update.sh` kills existing lifecycle-workers before rebuilding, then restarts them. Running `npm update` without this sequence leaves old workers on stale code while a new binary is installed.
 
 **After every install or update, run `ao doctor` and confirm zero FAIL results before spawning workers.** `ao doctor` detects non-canonical lifecycle-workers (running from a different binary path than `command -v ao`). If `ao doctor --fix` is needed, run it and re-verify.
-
-**The global npm package (`@jleechanorg/ao-cli`) is unsupported as a primary install path.** It is acceptable as a fallback only when the source tree is unavailable (e.g., CI environment, new machine before repo checkout). Do not use it as the primary binary source.
 
 **The launchd plist and all worker invocations must resolve `ao` from PATH** — they invoke `ao` as a command, not via a hardcoded path. The binary path is determined by the `npm link` done in setup/update scripts.
 

@@ -156,7 +156,7 @@ Current smooth rule: `max_inactivity_gap <= 60 minutes` from PR open to merge.
 
 ```bash
 # Run core tests
-pnpm --filter @composio/ao-core test
+pnpm --filter @jleechanorg/ao-core test
 
 # Run all tests
 pnpm test
@@ -248,21 +248,22 @@ Before opening a PR, verify:
 
 ## AO Binary Installation — Non-Negotiable Norm
 
-**The AO binary must come from the source tree via `scripts/setup.sh` or `scripts/ao-update.sh`.**
+**Two install paths exist for different audiences:**
 
-| When | Do this |
+| Audience | Install command | Notes |
+|----------|---------------|-------|
+| **This repo's maintainers** (you) | `bash scripts/setup.sh` | Builds from current source tree via `npm link` — always latest SHA |
+| **Other people / other machines** | `npm install -g @jleechanorg/ao-cli` | Standard npm install — published package |
+
+**Why this matters for all agents**: If Codex or Cursor spawns an AO worker via `ao spawn`, that worker inherits the `PATH`-resolved `ao` binary. For this repo's maintainers, `scripts/setup.sh` ensures the running binary always matches the source tree SHA. The global npm package lags behind source between `release.yml` publishes.
+
+| Task | Command |
 |------|---------|
-| Fresh machine or no `ao` in PATH | `bash scripts/setup.sh` |
-| Updating AO to latest main | `bash scripts/ao-update.sh` |
+| Fresh install (repo maintainers) | `bash scripts/setup.sh` |
+| Update to latest main | `bash scripts/ao-update.sh` |
 | After any install or update | `ao doctor` — must show zero FAIL |
 
-**Never** `npm install -g @jleechanorg/ao-cli` as a primary install. That path installs an unversioned, stale JS bundle from the global npm registry that bypasses the source tree entirely. When the global npm lags (it can be days/weeks behind source), running AO workers use a binary with an older `ReactionConfigSchema` enum — causing silent config validation failures that are hard to diagnose.
-
-**Why this matters for all agents**: If Codex or Cursor spawns an AO worker via `ao spawn`, that worker inherits the `PATH`-resolved `ao` binary. If `npm install -g` placed a stale `@jleechanorg/ao-cli` earlier in `PATH`, the worker runs stale code while the source tree has fixes.
-
 **After every install or update, run `ao doctor` and confirm zero FAIL results before spawning workers.** `ao doctor` detects non-canonical lifecycle-workers (running from a different binary path than `command -v ao`). If `ao doctor --fix` is needed, run it and re-verify.
-
-**The global npm package is unsupported as a primary install path.** It is acceptable as a fallback only when the source tree is unavailable (e.g., CI environment, new machine before repo checkout).
 
 ## Agent Orchestrator (ao) Session
 
