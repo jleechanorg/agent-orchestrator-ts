@@ -246,7 +246,7 @@ Before opening a PR, verify:
 - [ ] No secrets or tokens committed
 - [ ] Conventional commit messages
 
-## AO Binary Installation — Non-Negotiable Norm
+## Binary Installation — Canonical Install Paths
 
 **Two install paths exist for different audiences:**
 

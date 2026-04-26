@@ -217,7 +217,7 @@ pnpm test
 
 **After every install or update, run `ao doctor` and confirm zero FAIL results before spawning workers.** `ao doctor` detects non-canonical lifecycle-workers (running from a different binary path than `command -v ao`). If `ao doctor --fix` is needed, run it and re-verify.
 
-**The launchd plist and all worker invocations must resolve `ao` from PATH** — they invoke `ao` as a command, not via a hardcoded path. The binary path is determined by the `npm link` done in setup/update scripts.
+**All worker invocations (including launchd plist) must call `ao` as a command resolved from PATH — never a hardcoded path.** After `scripts/setup.sh` or `scripts/ao-update.sh`, the `npm link` step makes `packages/cli/dist/index.js` the `PATH`-visible `ao` binary. For `npm install -g` users, the binary lives in the global npm prefix instead.
 
 ## Skills (user scope + this repo)
 
