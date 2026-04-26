@@ -58,3 +58,4 @@ ao session cleanup --dry-run
 - Config reference: `references/config.md`
 - CLI help: `ao --help`, `ao spawn --help`, `ao start --help`
 - Repo policies: `AGENTS.md`, `CLAUDE.md`
+- **Binary installation norms: `AGENTS.md` — "AO Binary Installation"** — `scripts/setup.sh` is the only supported install path; `ao doctor` must pass after any install or update
