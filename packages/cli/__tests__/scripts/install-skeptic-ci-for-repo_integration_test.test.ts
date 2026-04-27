@@ -137,4 +137,33 @@ describe("scripts/install-skeptic-ci-for-repo.sh", () => {
       rmSync(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it("rejects --cron --minimal regardless of flag order", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "install-skeptic-minimal-conflict-"));
+    try {
+      const fakeRepo = join(tempRoot, "repo");
+      mkdirSync(fakeRepo, { recursive: true });
+      initBareGitRepo(fakeRepo);
+
+      const binDir = join(tempRoot, "bin");
+      mkdirSync(binDir, { recursive: true });
+      createFakeCurl(binDir);
+
+      const result = spawnSync("bash", [scriptPath, "--cron", "--minimal"], {
+        cwd: fakeRepo,
+        env: {
+          ...process.env,
+          PATH: `${binDir}:/usr/bin:/bin:/usr/local/bin`,
+          SKEPTIC_CI_REPO: "fake/ignored",
+          SKEPTIC_CI_REF: "main",
+        },
+        encoding: "utf8",
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("--minimal can't be combined with --cron or --all");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
 });

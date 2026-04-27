@@ -36,14 +36,23 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - id: detect
         run: |
+          set +e
           OUTPUT=$(npx semantic-release --dry-run --no-ci 2>&1)
           EXIT=$?
+          set -e
           echo "$OUTPUT"
           NEXT=$(echo "$OUTPUT" | grep -oP 'The next release version is \K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
           CURRENT=$(node -p "require('./package.json').version")
+          # Distinguish "not a release branch / nothing to release" (exit 1, benign)
+          # from actual auth/config errors (exit 1 + error/Exception in output).
           if [ -z "$NEXT" ]; then
             if [ $EXIT -ne 0 ]; then
-              echo "release_type=error" >> $GITHUB_OUTPUT
+              # Check output text: benign no-op messages that produce exit 1 without being real errors
+              if echo "$OUTPUT" | grep -qiE 'not.published.from.current.branch|already.up.to.date|no.releases.found|nothing.to.release|skip.releasing'; then
+                echo "release_type=none" >> $GITHUB_OUTPUT
+              else
+                echo "release_type=error" >> $GITHUB_OUTPUT
+              fi
             else
               echo "release_type=none" >> $GITHUB_OUTPUT
             fi

@@ -58,3 +58,4 @@ ao session cleanup --dry-run
 - Config reference: `references/config.md`
 - CLI help: `ao --help`, `ao spawn --help`, `ao start --help`
 - Repo policies: `AGENTS.md`, `CLAUDE.md`
+- **Binary installation norms:** [Binary Installation — Canonical Install Paths](../../AGENTS.md#binary-installation--canonical-install-paths) — `scripts/setup.sh` for repo maintainers, `npm install -g @jleechanorg/ao-cli` for others; `ao doctor` must pass after any install or update

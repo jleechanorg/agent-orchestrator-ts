@@ -156,7 +156,7 @@ Current smooth rule: `max_inactivity_gap <= 60 minutes` from PR open to merge.
 
 ```bash
 # Run core tests
-pnpm --filter @composio/ao-core test
+pnpm --filter @jleechanorg/ao-core test
 
 # Run all tests
 pnpm test
@@ -245,6 +245,25 @@ Before opening a PR, verify:
 - [ ] Config-first hierarchy followed (AGENTS.md §Development Hierarchy)
 - [ ] No secrets or tokens committed
 - [ ] Conventional commit messages
+
+## Binary Installation — Canonical Install Paths
+
+**Two install paths exist for different audiences:**
+
+| Audience | Install command | Notes |
+|----------|---------------|-------|
+| **This repo's maintainers** (you) | `bash scripts/setup.sh` | Builds from current source tree via `npm link` — always latest SHA |
+| **Other people / other machines** | `npm install -g @jleechanorg/ao-cli` | Standard npm install — published package |
+
+**Why this matters for all agents**: If Codex or Cursor spawns an AO worker via `ao spawn`, that worker inherits the `PATH`-resolved `ao` binary. For this repo's maintainers, `scripts/setup.sh` ensures the running binary always matches the source tree SHA. The global npm package lags behind source between `release.yml` publishes.
+
+| Task | Command |
+|------|---------|
+| Fresh install (repo maintainers) | `bash scripts/setup.sh` |
+| Update to latest main | `bash scripts/ao-update.sh` |
+| After any install or update | `ao doctor` — must show zero FAIL |
+
+**After every install or update, run `ao doctor` and confirm zero FAIL results before spawning workers.** `ao doctor` detects non-canonical lifecycle-workers (running from a different binary path than `command -v ao`). If `ao doctor --fix` is needed, run it and re-verify.
 
 ## Agent Orchestrator (ao) Session
 

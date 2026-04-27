@@ -242,10 +242,12 @@ check_install_layout() {
 }
 
 check_runtime_sanity() {
-  # Support git-checkout layout (packages/ao/bin/ao.js), npm-install layout
-  # (dist/index.js inside the CLI package root), and legacy paths.
+  # Canonical: packages/cli/dist/index.js (result of npm link from setup/update scripts).
+  # Also supports legacy paths and npm-install layouts.
   local launcher=""
-  if [ -f "$REPO_ROOT/packages/ao/bin/ao.js" ]; then
+  if [ -f "$REPO_ROOT/packages/cli/dist/index.js" ]; then
+    launcher="$REPO_ROOT/packages/cli/dist/index.js"
+  elif [ -f "$REPO_ROOT/packages/ao/bin/ao.js" ]; then
     launcher="$REPO_ROOT/packages/ao/bin/ao.js"
   elif [ -f "$REPO_ROOT/packages/agent-orchestrator/bin/ao.js" ]; then
     launcher="$REPO_ROOT/packages/agent-orchestrator/bin/ao.js"
@@ -253,7 +255,7 @@ check_runtime_sanity() {
     launcher="$REPO_ROOT/dist/index.js"
   fi
   if [ -z "$launcher" ]; then
-    fail "launcher entrypoint is missing. Fix: reinstall with npm install -g @jleechanorg/ao-cli"
+    fail "launcher entrypoint is missing. Fix: bash scripts/setup.sh (repo maintainers) or npm install -g @jleechanorg/ao-cli (other users)"
     return
   fi
 
