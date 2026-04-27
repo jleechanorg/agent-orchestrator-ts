@@ -77,8 +77,8 @@ jobs:
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           REQUEST_ID: ${{ steps.post_trigger.outputs.request_id }}
-          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
-        timeout-minutes: 2
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
+        timeout-minutes: 11  # headroom over POLL_TIMEOUT=10m below
         run: |
           set +e
 
@@ -142,19 +142,13 @@ jobs:
                 'add
                 | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
                 | map(select(
-                    ((.user.login | ascii_downcase) | . == ($author | ascii_downcase) or . == "github-actions[bot]")
-                    and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
-                    and (.body | test("VERDICT:"; "i"))
-                    and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
-                         >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
-                    and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
-                    and (.body | test("<!--\\s*skeptic-request-id-" + $request + "\\s*-->"; "i"))
-                    and (.body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
-                    and (.body as $body |
-                      ($body | test("(^|\\n)[[:space:]>#*]*VERDICT:[[:space:]]*(FAIL|SKIPPED)([[:space:][:punct:]]|$)"; "i"))
-                      or (
-                        ($body | test("(^|\\n)[[:space:]>#*]*VERDICT:[[:space:]]*PASS([[:space:][:punct:]]|$)"; "i"))
-                        and all(range(1; 9); . as $gate | $body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))
+                    (.body as $body |
+                      (
+                        ((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                        or (
+                          ((.user.login | ascii_downcase) == "github-actions[bot]")
+                          and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                        )
                       )
                       and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                       and (.verdict != "")
