@@ -844,6 +844,15 @@ function createClaudeCodeAgent(): Agent {
         }
       } else {
         env["ANTHROPIC_BASE_URL"] = "";
+        // Pass Claude Code's auth tokens to fresh tmux sessions so agents
+        // don't have to re-authenticate (these are stored in ~/.claude, not env)
+        if (process.env.ANTHROPIC_AUTH_TOKEN) {
+          env["ANTHROPIC_AUTH_TOKEN"] = process.env.ANTHROPIC_AUTH_TOKEN;
+          env["ANTHROPIC_API_KEY"] = process.env.ANTHROPIC_AUTH_TOKEN;
+        }
+        if (process.env.CLAUDECODE_SETTINGS) {
+          env["CLAUDECODE_SETTINGS"] = process.env.CLAUDECODE_SETTINGS;
+        }
       }
 
       // Set session info for introspection
@@ -856,6 +865,11 @@ function createClaudeCodeAgent(): Agent {
       }
       if (process.env.MCP_AGENT_MAIL_TOKEN) {
         env["MCP_AGENT_MAIL_TOKEN"] = process.env.MCP_AGENT_MAIL_TOKEN;
+      }
+
+      // Pass GitHub token so agents can authenticate with gh CLI in fresh tmux sessions
+      if (process.env.GITHUB_TOKEN) {
+        env["GITHUB_TOKEN"] = process.env.GITHUB_TOKEN;
       }
 
       // NOTE: AO_PROJECT_ID is NOT set here - it's the caller's responsibility

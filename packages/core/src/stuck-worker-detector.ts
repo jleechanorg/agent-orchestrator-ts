@@ -49,7 +49,9 @@ const WAITING_PATTERNS: RegExp[] = [
   /Waiting for user/i,
   /Do you want to proceed\?/i,
   /\(Y\)es.*\(N\)o/i,
-  /bypass.*permissions/i,
+  // Match permission/bypass prompts but NOT the Claude Code status indicator
+  // "bypass permissions on (shift+tab to cycle)" which is just UI state
+  /bypass.*permissions.*\?/i,
   /approval required/i,
   /\[y\/n\]/i,
   /\[yes\/no\]/i,
