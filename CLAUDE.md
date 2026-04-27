@@ -219,6 +219,8 @@ pnpm test
 
 **All worker invocations (including launchd plist) must call `ao` as a command resolved from PATH — never a hardcoded path.** After `scripts/setup.sh` or `scripts/ao-update.sh`, the `npm link` step makes `packages/cli/dist/index.js` the `PATH`-visible `ao` binary. For `npm install -g` users, the binary lives in the global npm prefix instead.
 
+**Verify the publish pipeline works before documenting an install path.** If a mechanism (e.g. `release.yml`, a workflow, a script) is broken, fix it before documenting the install path that depends on it. Documenting a broken install path creates a bad experience for every user who follows it.
+
 ## Skills (user scope + this repo)
 
 Long-form operational skills live under **`~/.claude/skills/<name>/SKILL.md`** (restored from archive; beads **bd-pwku**). Examples: `ao-session-monitor`, `auton`, `harness-engineering`, `nextsteps`, `evolve-loop`. **Do not** treat duplicate loose copies in random paths as canonical.

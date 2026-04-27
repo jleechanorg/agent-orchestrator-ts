@@ -18,7 +18,7 @@ name: Skeptic Gate
 on:
   workflow_run:
     types: [completed]
-    branches: [main]
+    workflows: ["Green Gate"]
 
   workflow_dispatch:
     inputs:
@@ -32,7 +32,7 @@ on:
         type: string
 
 concurrency:
-  group: skeptic-gate-${{ github.event.workflow_run.pull_request.number || github.event.inputs.pr_number || github.run_id }}
+  group: skeptic-gate-${{ (github.event.workflow_run.pull_requests[0].number || github.event.inputs.pr_number || github.run_id) }}
   cancel-in-progress: false
 
 permissions:
@@ -47,7 +47,7 @@ jobs:
     name: Skeptic Gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.event.workflow_run.conclusion == 'success' || github.event.action == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       # ----------------------------------------------------------------
       # Extract PR context from workflow_run event
@@ -55,13 +55,14 @@ jobs:
       - name: Resolve PR number and head SHA
         id: resolve
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # workflow_run payload: workflow_run.event == 'pull_request'
-          WR_PR_NUM: ${{ github.event.workflow_run.pull_request.number || '' }}
-          WR_HEAD_SHA: ${{ github.event.workflow_run.pull_request.head.sha || '' }}
+          WR_PR_NUM: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
+          WR_HEAD_SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha || '' }}
           WD_PR_NUM: ${{ github.event.inputs.pr_number || '' }}
           WD_HEAD_SHA: ${{ github.event.inputs.head_sha || '' }}
         run: |
-          if [ "${{ github.event.action }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             PR_NUM="$WD_PR_NUM"
             HEAD_SHA="$WD_HEAD_SHA"
           else
@@ -171,17 +172,18 @@ jobs:
           echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
 
           API_FAILURES=0
+          COMMENTS_API_FAILURES=0
           for i in $(seq 1 $MAX_ATTEMPTS); do
             PR_STATE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.state' 2>&1)
+            PR_STATE_FAIL=0
             if echo "$PR_STATE" | grep -qi "error\|rate limit\|authentication\|not found\|server error"; then
               API_FAILURES=$((API_FAILURES + 1))
+              PR_STATE_FAIL=1
               echo "API warning: PR state lookup failed (attempt $((i))): ${PR_STATE:0:100}"
               if [ "$API_FAILURES" -ge 3 ]; then
                 echo "ERROR: Too many consecutive API failures"
                 exit 1
               fi
-            else
-              API_FAILURES=0
             fi
 
             if [ "$PR_STATE" = "closed" ]; then
@@ -200,13 +202,28 @@ jobs:
             GH_EXIT=$?
             if [ "$GH_EXIT" -ne 0 ]; then
               VERDICT_JSON=""
+              COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
+              API_FAILURES=$((API_FAILURES + 1))
+              echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $((i)))"
+              if [ "$API_FAILURES" -ge 3 ]; then
+                echo "ERROR: Too many consecutive API failures"
+                exit 1
+              fi
+              echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
+              sleep $INTERVAL
+              continue
             else
+              COMMENTS_API_FAILURES=0
+              # Only reset main counter when both APIs succeed in the same iteration
+              if [ "$PR_STATE_FAIL" -eq 0 ]; then
+                API_FAILURES=0
+              fi
               VERDICT_JSON=$(echo "$VERDICT_RAW" | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$HEAD_SHA" \
                 --arg request_id "$REQUEST_ID" \
                 --arg pr_author "$PR_AUTHOR" \
                 'add
-                | map(. + {verdict: (try (.body | capture("^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
+                | map(. + {verdict: (try (.body | ([match("^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$"; "img")] | last | .captures[0].string | ascii_upcase) catch "")})
                 | map(select(
                     (.body as $body
                     | (((.user.login | ascii_downcase) == ($author | ascii_downcase)) or ((.user.login | ascii_downcase) == "github-actions[bot]"))
@@ -222,18 +239,6 @@ jobs:
                          or (all(range(1;9); . as $gate | ($body | test("<!--\s*skeptic-gate-" + ($gate | tostring) + "\s*:\s*PASS\s*-->"; "i"))))))
                   ))
                 | last // empty' 2>/dev/null || echo "empty")
-            fi
-
-            if [ "$GH_EXIT" -ne 0 ]; then
-              API_FAILURES=$((API_FAILURES + 1))
-              echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $((i)))"
-              if [ "$API_FAILURES" -ge 3 ]; then
-                echo "ERROR: Too many consecutive API failures"
-                exit 1
-              fi
-              echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
-              sleep $INTERVAL
-              continue
             fi
 
             if ! echo "$VERDICT_JSON" | jq -e 'if . == null or (.body == null) then empty else .body end | length > 0' >/dev/null 2>&1; then

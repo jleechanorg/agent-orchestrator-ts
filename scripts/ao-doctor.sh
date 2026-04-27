@@ -196,11 +196,11 @@ check_launcher() {
         return
       fi
     fi
-    warn "ao launcher refresh failed. Fix: cd $REPO_ROOT/packages/cli && sudo npm link"
+    warn "ao launcher refresh failed. Fix: cd $REPO_ROOT/packages/cli && sudo npm link (repo maintainers) or npm install -g @jleechanorg/ao-cli (other users)"
     return
   fi
 
-  warn "ao launcher is not in PATH. Fix: cd $REPO_ROOT && bash scripts/setup.sh"
+  warn "ao launcher is not in PATH. Fix: cd $REPO_ROOT && bash scripts/setup.sh (repo maintainers) or npm install -g @jleechanorg/ao-cli (other users)"
 }
 
 check_tmux() {
@@ -265,7 +265,7 @@ check_runtime_sanity() {
     launcher="$REPO_ROOT/dist/index.js"
   fi
   if [ -z "$launcher" ]; then
-    fail "launcher entrypoint is missing. Fix: bash scripts/setup.sh (canonical install)"
+    fail "launcher entrypoint is missing. Fix: bash scripts/setup.sh (repo maintainers) or npm install -g @jleechanorg/ao-cli (other users)"
     return
   fi
 

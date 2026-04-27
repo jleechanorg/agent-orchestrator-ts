@@ -255,7 +255,7 @@ check_runtime_sanity() {
     launcher="$REPO_ROOT/dist/index.js"
   fi
   if [ -z "$launcher" ]; then
-    fail "launcher entrypoint is missing. Fix: bash scripts/setup.sh (canonical install)"
+    fail "launcher entrypoint is missing. Fix: bash scripts/setup.sh (repo maintainers) or npm install -g @jleechanorg/ao-cli (other users)"
     return
   fi
 

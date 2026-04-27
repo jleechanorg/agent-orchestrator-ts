@@ -437,6 +437,14 @@ describe("skeptic chain integration", () => {
   // -------------------------------------------------------------------------
   describe("skeptic-gate.yml JQ filter", () => {
     const workflowSource = readFileSync(new URL("../../../../.github/workflows/test.yml", import.meta.url), "utf8");
+    const gateWorkflowSource = readFileSync(
+      new URL("../../../../.github/workflows/skeptic-gate.yml", import.meta.url),
+      "utf8",
+    );
+    const reusableWorkflowSource = readFileSync(
+      new URL("../../../../.github/workflows/skeptic-gate-reusable.yml", import.meta.url),
+      "utf8",
+    );
 
     /**
      * TypeScript re-implementation of skeptic-gate.yml's polling jq filter
@@ -666,6 +674,26 @@ describe("skeptic chain integration", () => {
 
       expect(prStateFailureBlock).toContain('sleep "$INTERVAL"');
       expect(prStateFailureBlock).toContain("continue");
+    });
+
+    it("prevents double-counting API failures in the reusable workflow polling loop", () => {
+      const prStateFailureBlock = reusableWorkflowSource.match(
+        /if echo "\$PR_STATE" \| grep -qi "error\\\|rate limit\\\|authentication\\\|not found\\\|server error"; then([\s\S]*?)fi\s*\n\s*\n\s*if \[ "\$PR_STATE" = "closed" \]/,
+      )?.[1];
+      const verdictFailureBlock = reusableWorkflowSource.match(
+        /if \[ "\$GH_EXIT" -ne 0 \]; then([\s\S]*?)else/,
+      )?.[1];
+
+      expect(prStateFailureBlock).toContain('sleep $INTERVAL');
+      expect(prStateFailureBlock).toContain("continue");
+      expect(verdictFailureBlock).toContain('sleep $INTERVAL');
+      expect(verdictFailureBlock).toContain("continue");
+    });
+
+    it("authenticates the resolve step before the fallback gh api call", () => {
+      expect(gateWorkflowSource).toMatch(
+        /Resolve PR number and head SHA[\s\S]*?GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/,
+      );
     });
 
     it("scopes workflow concurrency per PR instead of serializing all skeptic gate runs", () => {
