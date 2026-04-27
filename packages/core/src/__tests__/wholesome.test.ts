@@ -449,10 +449,8 @@ describe("wholesome — structural source-code assertions", () => {
       "2b3b57ad3ae4dda1b1275000b55011e80461c552", // fix(config): remove desktop notifications from default configs
       "df94594cc7398fd49ab60966b79f44a0da337e4f", // fix(core): apply upstream prompt delivery robustness + send.ts error handling (rebased SHA)
       "35f2d946a315f5e6bc3c8a16a7181384bf0145db", // fix(config): remove desktop notifications from default configs (rebased SHA)
-      // PR #497: early branch commits before [agento] prefix adoption (pre-fix history)
-      "a3449420ec614159c9af65dfa7bc4244ece8bc94", // fix: update jqFilterMatch and test to match new skeptic author-trust logic
-      "90da9e0f1ef1e162871ee283d26dba5f4463ce77", // test: update jq-filters.test.ts to cover SKEPTIC_BOT_AUTHOR == PR_author case
-      "a5cddda44612b279202b4e518b960da94b206b5b", // fix: skeptic-gate jq filter accepts VERDICT when SKEPTIC_BOT_AUTHOR == PR_author
+      // PR #498: original jq-predicate fix commit — pre-existing [agento] gap before strict first-parent check
+      "da47ec502f55c28dd33b93542ac660bdf3ae0c20", // fix: skeptic-gate jq filter accepts VERDICT when SKEPTIC_BOT_AUTHOR == PR_author
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {

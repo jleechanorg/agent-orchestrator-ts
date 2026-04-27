@@ -171,8 +171,9 @@ jobs:
           # Gate 3: CR APPROVED (latest CR review is APPROVED)
           # ----------------------------------------------------------------
           LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-            --jq '[.[] | select(.user.login == "coderabbitai[bot]" and (.state == "APPROVED" or .state == "CHANGES_REQUESTED"))] | sort_by(.submitted_at) | last | .state // "none"' \
-            2>/dev/null || echo "none")
+            --paginate 2>/dev/null | jq -r --arg head_sha "$HEAD_SHA" \
+            '[.[] | select(.user.login == "coderabbitai[bot]" and (.state == "APPROVED" or .state == "CHANGES_REQUESTED") and .commit_id == $head_sha)] | sort_by(.submitted_at) | last | .state // "none"' \
+            || echo "none")
           LATEST_CR="${LATEST_CR:-none}"
 
           if [ "$LATEST_CR" = "APPROVED" ]; then
