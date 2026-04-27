@@ -61,20 +61,74 @@ jobs:
       head_sha: ${{ steps.check_6green.outputs.head_sha }}
     steps:
       # ----------------------------------------------------------------
+      # Guard: resolve PR number. Skip (not fail) when no PR context is
+      # available — this happens when the workflow is called without
+      # inputs (e.g. via workflow_run trigger or a misconfigured caller).
+      # Exiting 0 (skip) avoids false failures on non-PR events while still
+      # allowing the workflow to run for real PRs via workflow_dispatch.
+      # ----------------------------------------------------------------
+      - name: Resolve PR number and head SHA
+        id: resolve_pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WR_PR_NUM: ${{ inputs.pr_number || github.event.inputs.pr_number || '' }}
+          WR_HEAD_SHA: ${{ inputs.head_sha || github.event.inputs.head_sha || '' }}
+          # github.event.pull_request is only populated for pull_request events
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          WR_PR_NUM="$WR_PR_NUM"
+          WR_HEAD_SHA="$WR_HEAD_SHA"
+
+          # Only try github.event.pull_request when this is actually a pull_request event.
+          # For workflow_call, workflow_run, schedule, etc. — github.event.pull_request is null
+          # and accessing it causes an empty-string expansion, not an error.
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            if [ -z "$WR_PR_NUM" ]; then
+              WR_PR_NUM="${{ github.event.pull_request.number }}"
+            fi
+            if [ -z "$WR_HEAD_SHA" ]; then
+              WR_HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            fi
+          fi
+
+          if [ -z "$WR_PR_NUM" ]; then
+            echo "SKIP: No PR number available (event=$GITHUB_EVENT_NAME, inputs.pr_number=${{ inputs.pr_number }}, inputs.head_sha=${{ inputs.head_sha }})"
+            echo "pr_resolved=false" >> "$GITHUB_OUTPUT"
+            echo "pr_num=" >> "$GITHUB_OUTPUT"
+            echo "head_sha=" >> "$GITHUB_OUTPUT"
+          else
+            echo "PR_NUM=$WR_PR_NUM"
+            echo "HEAD_SHA=${WR_HEAD_SHA:-<fetched from API>}"
+            echo "pr_resolved=true" >> "$GITHUB_OUTPUT"
+            echo "pr_num=$WR_PR_NUM" >> "$GITHUB_OUTPUT"
+            echo "head_sha=${WR_HEAD_SHA:-}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ----------------------------------------------------------------
       # Pre-check: 6-green eligibility (gates 1-5).
       # Exits fast for non-eligible PRs — avoids expensive CLI setup.
       # ----------------------------------------------------------------
       - name: Check 6-green eligibility (gates 1-5)
         id: check_6green
+        if: steps.resolve_pr.outputs.pr_resolved == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ inputs.pr_number || github.event.inputs.pr_number || github.event.pull_request.number }}
+          PR_NUM: ${{ steps.resolve_pr.outputs.pr_num }}
         run: |
           PR_NUM=$PR_NUM
           ELIGIBLE=true
 
+          # Resolve HEAD_SHA from API if not provided via inputs
+          HEAD_SHA=""
+          if [ -n "${{ steps.resolve_pr.outputs.head_sha }}" ]; then
+            HEAD_SHA="${{ steps.resolve_pr.outputs.head_sha }}"
+            echo "Using provided HEAD_SHA: ${HEAD_SHA:0:12}"
+          else
+            echo "Fetching HEAD SHA from API..."
+            HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
+          fi
+
           # Gate 1: CI green — only "success" passes
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
           if [ -z "$HEAD_SHA" ]; then
             echo "ERROR: could not fetch PR head SHA" >&2
             ELIGIBLE=false
@@ -262,7 +316,7 @@ jobs:
         if: steps.check_6green.outputs.eligible == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ inputs.pr_number || github.event.inputs.pr_number || github.event.pull_request.number }}
+          PR_NUM: ${{ steps.resolve_pr.outputs.pr_num }}
           HEAD_SHA: ${{ steps.check_6green.outputs.head_sha }}
         run: |
           PR_NUM=$PR_NUM
@@ -308,7 +362,7 @@ jobs:
         timeout-minutes: ${{ inputs.poll_timeout_minutes }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ inputs.pr_number || github.event.inputs.pr_number || github.event.pull_request.number }}
+          PR_NUM: ${{ steps.resolve_pr.outputs.pr_num }}
           HEAD_SHA: ${{ steps.check_6green.outputs.head_sha }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
