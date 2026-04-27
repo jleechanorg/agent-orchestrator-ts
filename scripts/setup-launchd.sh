@@ -53,6 +53,14 @@ path_for_launchd() {
   fi
 }
 
+ao_cli_path() {
+  if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/packages/cli/dist/index.js" ]; then
+    echo "$REPO_ROOT/packages/cli/dist/index.js"
+  else
+    command -v ao 2>/dev/null || echo "ao"
+  fi
+}
+
 install_lifecycle_plist() {
   local template="$TEMPLATE_DIR/ai.agento.lifecycle-all.plist.template"
   local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.lifecycle-all.plist"
@@ -98,6 +106,7 @@ install_lifecycle_plist() {
     -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
     -e "s|@AO_CONFIG_PATH@|$(escape_sed "$config_path")|g" \
     -e "s|@PATH@|$path_value|g" \
+    -e "s|@AO_CLI_PATH@|$(escape_sed "$(ao_cli_path)")|g" \
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null

@@ -11,6 +11,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/ao-config-topology.sh
 source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
+# Resolve the ao CLI binary. Prefer the source tree (has all fork subcommands)
+# when running from a repo checkout; fall back to PATH-resolved ao (global npm).
+_ao_bin() {
+  if [ -f "$REPO_ROOT/packages/cli/dist/index.js" ]; then
+    echo "$REPO_ROOT/packages/cli/dist/index.js"
+  else
+    command -v ao 2>/dev/null || echo "ao"
+  fi
+}
+AO_CLI="$(_ao_bin)"
+export AO_CLI_PATH="$AO_CLI"
+
 # Prevent overlapping lifecycle-all runs (launchd/manual retries can race).
 LOCKDIR="${AO_START_ALL_LOCKDIR:-/tmp/ao-start-all.lock}"
 LOCK_ACQUIRED=false
@@ -104,7 +116,7 @@ is_lifecycle_worker_running() {
 # Repeated ao stop/start cycles can kill healthy workers and create thrash.
 if [ "${AO_START_STOP_FIRST:-0}" = "1" ]; then
   echo "Resetting stale AO runtime state (ao stop)..."
-  ao stop >/dev/null 2>&1 || true
+  "$AO_CLI" stop >/dev/null 2>&1 || true
 fi
 START_FAILURES=0
 
@@ -118,7 +130,7 @@ for PROJECT in $SELECTED; do
   START_LOG="$LOG_DIR/ao-start-${PROJECT}.log"
   if [ "$FIRST" = true ] && [ "$START_DASHBOARD" = "1" ]; then
     echo "=== Starting $PROJECT (with dashboard, async) ==="
-    nohup ao start "$PROJECT" > "$START_LOG" 2>&1 &
+    nohup "$AO_CLI" start "$PROJECT" > "$START_LOG" 2>&1 &
     START_PID=$!
     disown || true
     echo "  launched ao start for $PROJECT (pid=$START_PID, log=$START_LOG)"
@@ -129,7 +141,7 @@ for PROJECT in $SELECTED; do
     if is_lifecycle_worker_running "$PROJECT"; then
       echo "  lifecycle-worker $PROJECT already running — skipping"
     else
-      nohup ao lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
+      nohup "$AO_CLI" lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
       START_PID=$!
       disown || true
       echo "  launched lifecycle-worker for $PROJECT (pid=$START_PID, log=$LOG_DIR/ao-lifecycle-${PROJECT}.log)"

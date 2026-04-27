@@ -39,6 +39,8 @@
     <string>@PATH@</string>
     <key>AO_CONFIG_PATH</key>
     <string>@AO_CONFIG_PATH@</string>
+    <key>AO_CLI_PATH</key>
+    <string>@AO_CLI_PATH@</string>
     <key>AO_START_STOP_FIRST</key>
     <string>0</string>
     <key>AO_START_DASHBOARD</key>
