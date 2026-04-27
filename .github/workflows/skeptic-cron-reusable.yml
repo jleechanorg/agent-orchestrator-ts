@@ -115,7 +115,7 @@ jobs:
               'add
               | map(. + {
                   request_id: (try (.body | capture("<!--\\s*skeptic-request-id-(?<request_id>[A-Za-z0-9_.:-]+)\\s*-->"; "i").request_id) catch ""),
-                  verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-]:].*)?$"; "im").verdict | ascii_upcase) catch "")
+                  verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")
                 })
               | map(select(
                     (((.user.login | ascii_downcase) == ($author | ascii_downcase))
@@ -492,7 +492,7 @@ jobs:
               --arg sha "$HEAD_SHA" \
               --arg request_id "$REQUEST_ID" \
               'add
-              | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-]:].*)?$"; "im").verdict | ascii_upcase) catch "")})
+              | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
               | map(select(
                 (.body as $body
                 | (((.user.login | ascii_downcase) == ($author | ascii_downcase))
