@@ -14,6 +14,10 @@ description = "Allowlisted patterns"
 # Historical commits containing placeholder tokens committed by upstream contributors
 commits = [
   "0393ab70a83e090883895d2168aa39a76f997ec8",
+  # False positives: test data and docs with placeholder keys
+  "656290f8af78d1c244094a453ff4b019a32ef8f2",
+  "6ca0dc83f8ad348240ea5839bc090b2512c578c1",
+  "7e7d9ab47ff0803dfc7a5d490da31c190915bd32",
 ]
 
 paths = [
