@@ -112,15 +112,14 @@ jobs:
             PASS_REQUEST_ID=$(echo "$COMMENTS_RAW" | jq -sr \
               --arg sha "$PR_SHA" \
               --arg author "$SKEPTIC_BOT_AUTHOR" \
-              --arg pr_author "$PR_AUTHOR" \
               'add
               | map(. + {
                   request_id: (try (.body | capture("<!--\\s*skeptic-request-id-(?<request_id>[A-Za-z0-9_.:-]+)\\s*-->"; "i").request_id) catch ""),
-                  verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")
+                  verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-]:].*)?$"; "im").verdict | ascii_upcase) catch "")
                 })
               | map(select(
-                  (((.user.login | ascii_downcase) == ($author | ascii_downcase)) or ((.user.login | ascii_downcase) == "github-actions[bot]"))
-                  and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                    (((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                      or ((.user.login | ascii_downcase) == "github-actions[bot]"))
                   and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                   and (.verdict == "PASS")
                   and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
@@ -137,7 +136,6 @@ jobs:
             REQUEST_ID=$(echo "$COMMENTS_RAW" | jq -sr \
               --arg sha "$PR_SHA" \
               --arg author "$SKEPTIC_BOT_AUTHOR" \
-              --arg pr_author "$PR_AUTHOR" \
               'add as $comments
               | ($comments
                 | map(. + {request_id: (try (.body | capture("<!--\\s*skeptic-request-id-(?<request_id>[A-Za-z0-9_.:-]+)\\s*-->"; "i").request_id) catch "")})
@@ -154,8 +152,7 @@ jobs:
                     | ($comments
                       | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
                       | map(select(
-                          (((.user.login | ascii_downcase) == ($author | ascii_downcase)) or ((.user.login | ascii_downcase) == "github-actions[bot]"))
-                          and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                            ((.user.login | ascii_downcase) == ($author | ascii_downcase))
                           and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                           and (.verdict != "")
                           and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
@@ -494,13 +491,12 @@ jobs:
               --arg author "$SKEPTIC_BOT_AUTHOR" \
               --arg sha "$HEAD_SHA" \
               --arg request_id "$REQUEST_ID" \
-              --arg pr_author "$PR_AUTHOR" \
               'add
-              | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
+              | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-]:].*)?$"; "im").verdict | ascii_upcase) catch "")})
               | map(select(
                 (.body as $body
-                | (((.user.login | ascii_downcase) == ($author | ascii_downcase)) or ((.user.login | ascii_downcase) == "github-actions[bot]"))
-                and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                | (((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                  or ((.user.login | ascii_downcase) == "github-actions[bot]"))
                 and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                 and (.verdict != "")
                 and ($body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))

@@ -2762,13 +2762,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Fire-and-forget so a long-running LLM evaluation does not block the poll loop.
       if (scopedProjectId) {
         const skepticProject = config.projects[scopedProjectId];
-        if (skepticProject && skepticProject.backfillAllPRs !== false) {
+        if (skepticProject) {
           void runLocalSkepticCron(
             { registry, sessionManager, observer },
             { projectId: scopedProjectId, project: skepticProject, activeSessions, correlationId },
           ).catch(skepticCronErr => {
+            const msg = skepticCronErr instanceof Error ? skepticCronErr.message : String(skepticCronErr);
             console.error(
-              `[skeptic-cron] failed: ${skepticCronErr instanceof Error ? skepticCronErr.message : String(skepticCronErr)}`,
+              `[skeptic-cron] failed: projectId=${scopedProjectId} correlationId=${correlationId} error=${msg}`,
             );
           });
         }
