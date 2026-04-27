@@ -41,6 +41,36 @@ Core code (`packages/core/src/`) should be treated as stable infrastructure. The
 
 When given a task, **default to dispatching an AO worker** — not running `claude -p`, not opening a terminal yourself, not writing a one-off script.
 
+### Fork worker binary resolution — TWO layers must agree
+
+When setting up a lifecycle-worker launchd plist, two independent binary resolutions must both point to the **source tree** CLI (not the global npm):
+
+1. **`ProgramArguments[1]`** — the process entry point in the plist
+2. **`execFile("ao", ...)` calls inside the running worker** — resolved via `PATH` and `AO_CLI_PATH`
+
+**The trap**: If only layer 1 uses the source binary but layer 2 resolves via PATH to the global npm (`/Users/jleechan/bin/ao`), internal commands like `ao skeptic verify` will silently fail because the global npm lacks fork subcommands.
+
+**The portable fix** (handled automatically by `scripts/setup-launchd.sh` + `scripts/start-all.sh`):
+- `setup-launchd.sh` sets `AO_CLI_PATH` in the plist to the source CLI path
+- `start-all.sh` resolves `ao` via `_ao_bin()` (source-first) before spawning workers
+- The plist template includes `AO_CLI_PATH` as an env var so `execFile` calls inside the worker use the correct binary
+
+**Manual plist authoring**: If you write a plist by hand, you MUST set both:
+```xml
+<key>EnvironmentVariables</key>
+<dict>
+    <!-- ... -->
+    <key>AO_CLI_PATH</key>
+    <string>/path/to/repo/packages/cli/dist/index.js</string>
+</dict>
+```
+And use the source `packages/cli/dist/index.js` as `ProgramArguments[1]`, not the global `ao` binary.
+
+**macOS launchd user agents** (in `~/Library/LaunchAgents/`):
+- Use `launchctl bootout gui/$(id -u)/<label>` — NOT `sudo launchctl unload`
+- `sudo launchctl` targets root's session and will fail with I/O error for user-owned agents
+- Helper: `~/.claude/hooks/ao-launchd-reload.sh <plist-path>` auto-detects user vs system
+
 ### When to use AO workers
 - Implementing features, bug fixes, or refactors
 - Running tests, fixing CI failures
