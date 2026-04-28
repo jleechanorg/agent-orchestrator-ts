@@ -114,7 +114,7 @@ function makeMockRegistry(sha: string): PluginRegistry {
     get: vi.fn((_type: "scm", _plugin: string) => ({
       getPRHeadSha: async () => sha,
     })),
-  } as unknown as PluginRegistry;
+  } satisfies PluginRegistry;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,21 +133,16 @@ describe("lifecycle-manager skeptic trigger — pr_open transition", () => {
   });
 
   /**
-   * RED STATE: This test FAILS in the current broken state.
+   * Verifies that triggerSkepticReaction dispatches executeReaction for pr_open sessions
+   * when the worker-signals-completion reaction is configured with skeptic-review action.
    *
-   * The bug: When config has `worker-signals-completion: { auto: true, action: skeptic-review }`,
-   * calling triggerSkepticReaction(session with pr_open, lastSkepticSha, correlationId, config, registry, executeReaction)
-   * should call executeReaction with reactionKey="worker-signals-completion" and reactionConfig.action="skeptic-review".
-   *
-   * This test verifies the trigger chain is wired correctly at the triggerSkepticReaction level.
-   * If this PASSES, the bug must be elsewhere (pollLoop not calling triggerSkepticReaction for pr_open).
-   * If this FAILS, triggerSkepticReaction itself is not calling executeReaction correctly.
+   * This validates the trigger chain is wired correctly at the triggerSkepticReaction level.
    *
    * NOTE: We cannot verify runSkepticReviewReaction was called here because the mock executeReaction
    * passed to triggerSkepticReactionImpl doesn't invoke the case skeptic-review branch. We verify
    * only that executeReaction was called with the correct arguments.
    */
-  it("FAILS: triggerSkepticReaction should call executeReaction with skeptic-review when configured", async () => {
+  it("triggerSkepticReaction calls executeReaction with skeptic-review when configured", async () => {
     const session = makeSession({ status: "pr_open" });
     const lastSkepticSha = new Map<string, string>();
     const config = makeConfig(true);
@@ -182,8 +177,6 @@ describe("lifecycle-manager skeptic trigger — pr_open transition", () => {
       executeReaction,
     );
 
-    // In the current state, this assertion should PASS — triggerSkepticReaction IS wired correctly.
-    // The bug must be elsewhere (pollLoop not calling triggerSkepticReaction for pr_open).
     expect(result).toBe(true);
     expect(executeReactionCalls).toHaveLength(1);
     expect(executeReactionCalls[0].reactionKey).toBe("worker-signals-completion");
@@ -191,15 +184,13 @@ describe("lifecycle-manager skeptic trigger — pr_open transition", () => {
   });
 
   /**
-   * RED STATE: This test FAILS in the current broken state.
-   *
    * Verifies the first-seen skeptic dispatch path — when a session is first polled
    * with pr_open status (no prior SHA in lastSkepticSha), skeptic should fire.
    *
    * The first-seen path is in the pollLoop's no-transition block (when tracked === undefined).
    * This test directly exercises triggerSkepticReaction with a session that has no prior SHA.
    */
-  it("FAILS: triggerSkepticReaction should fire for first-seen session (no prior SHA)", async () => {
+  it("triggerSkepticReaction fires for first-seen session (no prior SHA)", async () => {
     const session = makeSession({ status: "pr_open" });
     const lastSkepticSha = new Map<string, string>(); // No prior entry — first-seen
     const firstSeenSha = "abc1111111111111111111111111111111111111";
