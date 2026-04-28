@@ -105,7 +105,7 @@ function makeConfig(
       },
     },
     defaults: {},
-  } as unknown as OrchestratorConfig;
+  } satisfies OrchestratorConfig;
 }
 
 // Minimal mock SCM
