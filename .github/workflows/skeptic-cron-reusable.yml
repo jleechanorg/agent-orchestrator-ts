@@ -113,10 +113,12 @@ jobs:
               --arg sha "$PR_SHA" \
               --arg author "$SKEPTIC_BOT_AUTHOR" \
               --arg pr_author "$PR_AUTHOR" \
-              'add
+              --arg VERDICT_RE "^[ \\t]*(?:> ?)?(?:\\#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$" \
+              'def extract_verdict(verdict_re): (.body | ([match(verdict_re; "img")] | last | .captures[0].string | ascii_upcase)) // "";
+              add
               | map(. + {
                   request_id: (try (.body | capture("<!--\\s*skeptic-request-id-(?<request_id>[A-Za-z0-9_.:-]+)\\s*-->"; "i").request_id) catch ""),
-                  verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")
+                  verdict: extract_verdict($VERDICT_RE)
                 })
               | map(select(
                   (
@@ -143,7 +145,9 @@ jobs:
               --arg sha "$PR_SHA" \
               --arg author "$SKEPTIC_BOT_AUTHOR" \
               --arg pr_author "$PR_AUTHOR" \
-              'add as $comments
+              --arg VERDICT_RE "^[ \\t]*(?:> ?)?(?:\\#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$" \
+              'def extract_verdict(verdict_re): (.body | ([match(verdict_re; "img")] | last | .captures[0].string | ascii_upcase)) // "";
+              add as $comments
               | ($comments
                 | map(. + {request_id: (try (.body | capture("<!--\\s*skeptic-request-id-(?<request_id>[A-Za-z0-9_.:-]+)\\s*-->"; "i").request_id) catch "")})
                 | map(select(
@@ -157,7 +161,7 @@ jobs:
                 | reverse
                 | map(select(.request_id as $rid
                     | ($comments
-                      | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
+                      | map(. + {verdict: extract_verdict($VERDICT_RE)})
                       | map(select(
                           (
                             ((.user.login | ascii_downcase) == ($author | ascii_downcase))
@@ -505,8 +509,10 @@ jobs:
               --arg sha "$HEAD_SHA" \
               --arg request_id "$REQUEST_ID" \
               --arg pr_author "$PR_AUTHOR" \
-              'add
-              | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
+              --arg VERDICT_RE "^[ \\t]*(?:> ?)?(?:\\#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$" \
+              'def extract_verdict(verdict_re): (.body | ([match(verdict_re; "img")] | last | .captures[0].string | ascii_upcase)) // "";
+              add
+              | map(. + {verdict: extract_verdict($VERDICT_RE)})
               | map(select(
                 (.body as $body
                 | (

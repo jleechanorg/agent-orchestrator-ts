@@ -449,8 +449,10 @@ jobs:
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
                 --arg request_id "$REQUEST_ID" \
                 --arg pr_author "$PR_AUTHOR" \
-                'add
-                | map(. + {verdict: (try (.body | ([match("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "img")] | last | .captures[0].string | ascii_upcase) catch "")})
+                --arg VERDICT_RE "^[ \\t]*(?:> ?)?(?:\\#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$" \
+                'def extract_verdict(verdict_re): (.body | ([match(verdict_re; "img")] | last | .captures[0].string | ascii_upcase)) // "";
+                add
+                | map(. + {verdict: extract_verdict($VERDICT_RE)})
                 | map(select(
                     (.body as $body
                     | (
