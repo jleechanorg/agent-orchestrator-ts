@@ -171,6 +171,97 @@ export function parseDuration(str: string): number {
   }
 }
 
+/** Reaction keys for conditions that can oscillate (e.g. CI failing→pending→failing).
+ *  Their trackers survive status exit so the escalation budget accumulates
+ *  across oscillations instead of resetting to zero each time.
+ *  Note: "merge-conflicts" is NOT here — statusToEventType never emits
+ *  "merge.conflicts", so the transition handler at line ~1892 can't reach it.
+ *  Merge-conflict tracker lifecycle is managed in maybeDispatchMergeConflicts. */
+const PERSISTENT_REACTION_KEYS = new Set(["ci-failed"]);
+
+/** Number of consecutive CI-passing polls required before the ci-failed tracker
+ *  (including its escalated flag) is cleared, allowing a fresh budget for the
+ *  next real CI failure incident. */
+const CI_PASSING_STABLE_THRESHOLD = 2;
+
+type WorkspaceBranchProbe =
+  | { kind: "branch"; branch: string }
+  | { kind: "detached" }
+  | { kind: "unavailable" };
+
+const TRANSIENT_DETACHED_GIT_MARKERS = [
+  "rebase-merge",
+  "rebase-apply",
+  "CHERRY_PICK_HEAD",
+  "BISECT_LOG",
+] as const;
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && "code" in error;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isErrnoException(error) && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function hasTransientDetachedGitState(gitDir: string): Promise<boolean> {
+  const checks = await Promise.all(
+    TRANSIENT_DETACHED_GIT_MARKERS.map((marker) => pathExists(join(gitDir, marker))),
+  );
+  return checks.some(Boolean);
+}
+
+async function resolveGitDir(workspacePath: string): Promise<string> {
+  const dotGitPath = join(workspacePath, ".git");
+  const dotGitStats = await stat(dotGitPath);
+  if (dotGitStats.isDirectory()) return dotGitPath;
+
+  const dotGitContent = (await readFile(dotGitPath, "utf8")).trim();
+  const gitDirMatch = dotGitContent.match(/^gitdir:\s*(.+)$/i);
+  if (!gitDirMatch) {
+    throw new Error(`Invalid .git pointer in workspace: ${workspacePath}`);
+  }
+
+  return resolve(dirname(dotGitPath), gitDirMatch[1].trim());
+}
+
+async function readWorkspaceBranch(workspacePath: string): Promise<WorkspaceBranchProbe> {
+  let gitDir: string;
+  try {
+    gitDir = await resolveGitDir(workspacePath);
+  } catch {
+    return { kind: "unavailable" };
+  }
+
+  try {
+    const head = (await readFile(join(gitDir, "HEAD"), "utf8")).trim();
+    const prefix = "ref: refs/heads/";
+    if (!head.startsWith(prefix)) {
+      return (await hasTransientDetachedGitState(gitDir))
+        ? { kind: "unavailable" }
+        : { kind: "detached" };
+    }
+
+    const branch = head.slice(prefix.length).trim();
+    if (branch.length > 0) {
+      return { kind: "branch", branch };
+    }
+    return (await hasTransientDetachedGitState(gitDir))
+      ? { kind: "unavailable" }
+      : { kind: "detached" };
+  } catch {
+    return { kind: "unavailable" };
+  }
+}
+
 /** Infer a reasonable priority from event type. */
 function inferPriority(type: EventType): EventPriority {
   if (type.includes("stuck") || type.includes("needs_input") || type.includes("errored")) {
@@ -317,6 +408,9 @@ export interface LifecycleManagerDeps {
 interface ReactionTracker {
   attempts: number;
   firstTriggered: Date;
+  /** True after this reaction has escalated. Short-circuits further dispatches
+   *  until the underlying condition resolves and the tracker is explicitly cleared. */
+  escalated?: boolean;
 }
 
 /**
@@ -1017,6 +1111,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       reactionTrackers.set(trackerKey, tracker);
     }
 
+    // Already escalated — wait for the condition to resolve before resuming.
+    if (tracker.escalated) {
+      return { reactionType: reactionKey, success: true, action: "escalated", escalated: true };
+    }
+
     // bd-n039: message-content hash dedup for send-to-agent.
     // bd-1178: also dedup by PR head SHA — if the SHA changed, send even if message content is
     // identical (e.g. new CI failure on same failure type). Only skip when BOTH message hash AND
@@ -1125,6 +1224,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         data: { reactionKey, attempts: tracker.attempts },
       });
       await notifyHuman(event, reactionConfig.priority ?? "urgent");
+
+      // Mark as escalated — silences further dispatches until the underlying
+      // condition resolves and clearReactionTracker() is called explicitly.
+      tracker.escalated = true;
+
       return {
         reactionType: reactionKey,
         success: true,
@@ -1709,10 +1813,111 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
   }
 
+  async function maybeDispatchMergeConflicts(
+    session: Session,
+    newStatus: SessionStatus,
+  ): Promise<void> {
+    const project = config.projects[session.projectId];
+    if (!project || !session.pr) return;
+
+    const scm = project.scm?.plugin ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    if (!scm) return;
+
+    const conflictReactionKey = "merge-conflicts";
+
+    // Clear tracking when PR is no longer open.
+    const prState = session.metadata["prState"] as string | undefined;
+    if ((prState && prState !== "open") || newStatus === "killed") {
+      clearReactionTracker(session.id, conflictReactionKey);
+      updateSessionMetadata(session, {
+        lastMergeConflictDispatched: "",
+      });
+      return;
+    }
+
+    // Only check for conflicts on open PRs
+    if (
+      newStatus !== "pr_open" &&
+      newStatus !== "ci_failed" &&
+      newStatus !== "review_pending" &&
+      newStatus !== "changes_requested" &&
+      newStatus !== "approved" &&
+      newStatus !== "mergeable"
+    ) {
+      return;
+    }
+
+    // Check for conflicts using batch PR status or individual mergeability call.
+    let hasConflicts = false;
+    try {
+      if (scm.getBatchPRStatus) {
+        const batch = await scm.getBatchPRStatus(session.pr);
+        hasConflicts = !batch.mergeReadiness.noConflicts;
+      } else if (scm.getMergeability) {
+        const merge = await scm.getMergeability(session.pr);
+        hasConflicts = !merge.noConflicts;
+      }
+    } catch {
+      return;
+    }
+
+    const lastDispatched = session.metadata["lastMergeConflictDispatched"] ?? "";
+
+    if (hasConflicts) {
+      // Already dispatched for current conflict state — skip
+      if (lastDispatched === "true") return;
+
+      const reactionConfig = getReactionConfigForSession(session, conflictReactionKey);
+      if (
+        reactionConfig &&
+        reactionConfig.action &&
+        (reactionConfig.auto !== false || reactionConfig.action === "notify")
+      ) {
+        try {
+          // Build enriched config with dynamic base branch message.
+          // Preserve "warning" priority from old direct-dispatch code unless
+          // the user explicitly set a different priority in their config.
+          const enrichedConfig = {
+            ...reactionConfig,
+            priority: reactionConfig.priority ?? ("warning" as const),
+          };
+          if (reactionConfig.action === "send-to-agent" && !reactionConfig.message) {
+            const baseBranch = session.pr.baseBranch ?? "the default branch";
+            enrichedConfig.message = `Your PR branch has merge conflicts with ${baseBranch}. Rebase your branch on ${baseBranch}, resolve the conflicts, and push. You should not need to call gh for merge status unless you need additional context — this information is current.`;
+          }
+
+          const result = await executeReaction(
+            session.id,
+            session.projectId,
+            conflictReactionKey,
+            enrichedConfig,
+          );
+          // Only set dedup flag for non-escalated success — escalation hands off
+          // to the human, so we must NOT suppress future agent dispatches if the
+          // condition recurs after the tracker resets.
+          if (result.success && result.action !== "escalated") {
+            updateSessionMetadata(session, {
+              lastMergeConflictDispatched: "true",
+            });
+          }
+        } catch {
+          // Dispatch failed — will retry on next poll cycle
+        }
+      }
+    } else if (lastDispatched === "true") {
+      // Conflicts resolved — clear dedup flag and reaction tracker so future
+      // conflicts start a fresh incident with a fresh escalation budget.
+      updateSessionMetadata(session, {
+        lastMergeConflictDispatched: "",
+      });
+      clearReactionTracker(session.id, conflictReactionKey);
+    }
+  }
+
   /**
-   * Persist GitHub PR state to the session metadata file + in-memory session object.
-   * Owns its own best-effort try/catch and warn-level logging so callers stay
-   * straight-line. Returns true on success, false if the metadata write failed.
+    * Persist GitHub PR state to the session metadata file + in-memory session object.
+    * Owns its own best-effort try/catch and warn-level logging so callers stay
+    * straight-line. Returns true on success, false if the metadata write failed.
    */
   function persistPrState({ session, state, projectPath }: {
     session: Session;
@@ -1844,6 +2049,29 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     ) {
       await sendMcpMailSessionStart(task).catch(() => {/* non-fatal */});
     }
+
+    // CI resolution tracking — reset the ci-failed tracker (including its escalated
+    // flag) once CI has been passing for CI_PASSING_STABLE_THRESHOLD consecutive polls.
+    // This lets the next real CI failure start with a fresh budget.
+    // Uses newStatus as a proxy: only non-failing, non-pending statuses count toward
+    // the stability window (the fork uses direct SCM calls, not prEnrichmentCache).
+    if (session.pr && newStatus !== "ci_failed") {
+      const ciPassing = newStatus === "pr_open" || newStatus === "approved" ||
+        newStatus === "mergeable" || newStatus === "review_pending" ||
+        newStatus === "changes_requested" || newStatus === "merged";
+      if (ciPassing) {
+        const stableCount = Number(session.metadata["ciPassingStableCount"] ?? "0") + 1;
+        if (stableCount >= CI_PASSING_STABLE_THRESHOLD) {
+          clearReactionTracker(session.id, "ci-failed");
+          updateSessionMetadata(session, { ciPassingStableCount: "" });
+        } else {
+          updateSessionMetadata(session, { ciPassingStableCount: String(stableCount) });
+        }
+      } else if (session.metadata["ciPassingStableCount"]) {
+        // pending or failing resets the stability window — only "passing" counts as resolution
+        updateSessionMetadata(session, { ciPassingStableCount: "" });
+      }
+    }
     if (newStatus !== oldStatus) {
       const correlationId = createCorrelationId("lifecycle-transition");
 
@@ -1955,11 +2183,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         allCompleteEmitted = false;
       }
 
-      // Clear reaction trackers for the old status so retries reset on state changes
+      // Clear reaction trackers for the old status so retries reset on state changes.
+      // Persistent keys (ci-failed) are excluded — their trackers survive oscillation
+      // so the escalation budget accumulates across cycles. On escalation, the tracker
+      // is cleared in executeReaction so future incidents get a fresh budget.
       const oldEventType = statusToEventType(undefined, oldStatus);
       if (oldEventType) {
         const oldReactionKey = eventToReactionKey(oldEventType);
-        if (oldReactionKey) {
+        if (oldReactionKey && !PERSISTENT_REACTION_KEYS.has(oldReactionKey)) {
           clearReactionTracker(session.id, oldReactionKey);
         }
       }
@@ -2163,6 +2394,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         executeReaction,
         agentDead,
       }, transitionReaction);
+
+      await maybeDispatchMergeConflicts(session, newStatus);
     } else {
       // No transition but track current state
       states.set(session.id, newStatus);

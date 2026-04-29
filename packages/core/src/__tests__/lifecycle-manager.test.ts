@@ -3091,7 +3091,6 @@ describe("reactions", () => {
     expect(mockSCM.mergePR).toHaveBeenCalledWith(session.pr, "squash", 0);
   });
 });
-
 describe("getStates", () => {
   it("returns copy of states map", async () => {
     const session = makeSession({ status: "spawning" });
