@@ -217,10 +217,7 @@ describe("runLocalSkepticCron integration (bd-skp2)", () => {
     });
     try {
       lm.start(60_000);
-      await vi.waitUntil(
-        () => vi.mocked(mockRunLocalSkepticCron).mock.calls.length === 1,
-        { timeout: 5000 },
-      );
+      await vi.waitUntil(() => vi.mocked(mockRunLocalSkepticCron).mock.calls.length > 0, { timeout: 3000 });
       expect(mockRunLocalSkepticCron).toHaveBeenCalledTimes(1);
       const [deps, params] = vi.mocked(mockRunLocalSkepticCron).mock.calls[0]!;
       expect(params.projectId).toBe("my-app");

@@ -141,6 +141,47 @@ jobs:
               echo "Existing cron PASS request id for PR #${PR_NUM} (SHA ${PR_SHA:0:7}); not posting a new trigger"
               continue
             fi
+            # Suppress retrigger when a FAIL/SKIPPED verdict was posted for this SHA
+            # within the last FAIL_SUPPRESS_WINDOW_SECS (default 4 hours).
+            # After the window expires the cron is allowed one retry, providing a
+            # same-SHA recovery path when mutable PR state (CR approval, resolved
+            # threads) improves without a new commit.
+            FAIL_SUPPRESS_WINDOW_SECS=14400
+            FAIL_VERDICT_TS=$(echo "$COMMENTS_RAW" | jq -sr \
+              --arg sha "$PR_SHA" \
+              --arg author "$SKEPTIC_BOT_AUTHOR" \
+              --arg pr_author "$PR_AUTHOR" \
+              'add
+              | map(. + {
+                  verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")
+                })
+              | map(select(
+                  (
+                    ((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                    or (
+                      ((.user.login | ascii_downcase) == "github-actions[bot]")
+                      and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                    )
+                  )
+                  and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
+                  and (.verdict == "FAIL" or .verdict == "SKIPPED")
+                  and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
+                  and (.body | test("<!--\\s*skeptic-head-sha-" + $sha + "\\s*-->"; "i"))
+                ))
+              | sort_by(.created_at // "")
+              | last
+              | .created_at // ""' 2>/dev/null || echo "")
+            if [ -n "$FAIL_VERDICT_TS" ]; then
+              NOW_EPOCH=$(date +%s)
+              VERDICT_EPOCH=$(python3 -c "from datetime import datetime,timezone; dt=datetime.strptime('$FAIL_VERDICT_TS','%Y-%m-%dT%H:%M:%SZ'); print(int(dt.replace(tzinfo=timezone.utc).timestamp()))" 2>/dev/null || echo 0)
+              VERDICT_AGE=$(( NOW_EPOCH - VERDICT_EPOCH ))
+              if [ "$VERDICT_AGE" -lt "$FAIL_SUPPRESS_WINDOW_SECS" ]; then
+                echo "Existing cron FAIL/SKIPPED verdict for PR #${PR_NUM} (SHA ${PR_SHA:0:7}, ${VERDICT_AGE}s ago); not posting a new trigger"
+                continue
+              else
+                echo "Stale cron FAIL/SKIPPED verdict for PR #${PR_NUM} (SHA ${PR_SHA:0:7}, ${VERDICT_AGE}s ago > ${FAIL_SUPPRESS_WINDOW_SECS}s window); allowing retry"
+              fi
+            fi
             REQUEST_ID=$(echo "$COMMENTS_RAW" | jq -sr \
               --arg sha "$PR_SHA" \
               --arg author "$SKEPTIC_BOT_AUTHOR" \
