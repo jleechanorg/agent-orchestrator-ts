@@ -54,16 +54,26 @@ LOCK_ACQUIRED=true
 # AO agents work in git worktrees — the main clone must stay on main.
 MAIN_REPO="${AO_MAIN_REPO:-$HOME/project_agento/agent-orchestrator}"
 if [ -e "$MAIN_REPO/.git" ]; then
+  # Auto-recover from rebase/merge contamination left by crashed agents.
+  if [ -d "$MAIN_REPO/.git/rebase-merge" ] || [ -d "$MAIN_REPO/.git/rebase-apply" ]; then
+    echo "WARNING: main repo has a stuck rebase — aborting automatically"
+    git -C "$MAIN_REPO" rebase --abort 2>/dev/null || true
+  fi
+  if [ -f "$MAIN_REPO/.git/MERGE_HEAD" ]; then
+    echo "WARNING: main repo has a stuck merge — aborting automatically"
+    git -C "$MAIN_REPO" merge --abort 2>/dev/null || true
+  fi
+
   CURRENT_BRANCH="$(git -C "$MAIN_REPO" branch --show-current 2>/dev/null || true)"
   if [ "$CURRENT_BRANCH" != "main" ]; then
     echo "WARNING: main repo is on branch '$CURRENT_BRANCH' — switching to main"
-    if ! git -C "$MAIN_REPO" checkout main; then
-      echo "ERROR: failed to checkout main — resolve manually (uncommitted changes? conflicts?)"
+    git -C "$MAIN_REPO" checkout --force main 2>/dev/null || true
+    if [ "$(git -C "$MAIN_REPO" branch --show-current 2>/dev/null)" != "main" ]; then
+      echo "ERROR: failed to checkout main — resolve manually"
       echo "  Fix: cd \"$MAIN_REPO\" && git status"
       exit 1
-    elif ! git -C "$MAIN_REPO" pull --ff-only; then
-      echo "WARNING: git pull --ff-only failed — continuing anyway"
     fi
+    git -C "$MAIN_REPO" pull --ff-only 2>/dev/null || echo "WARNING: git pull --ff-only failed — continuing anyway"
   fi
 fi
 
