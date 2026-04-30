@@ -1950,7 +1950,7 @@ describe("scm-github plugin", () => {
       expect(setTimeoutSpy).toHaveBeenCalled();
     });
 
-    it("does not retry wrapped curl 403 permission errors", async () => {
+    it("retries wrapped curl 403 as rate-limit (falls back to REST)", async () => {
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded");
@@ -1963,9 +1963,10 @@ describe("scm-github plugin", () => {
       );
       mockGh([]);
 
-      await expect(scm.getReviews(pr)).rejects.toBeInstanceOf(Error);
-      expect(setTimeoutSpy).toHaveBeenCalledTimes(2);
-      expect(ghMock).toHaveBeenCalledTimes(5);
+      const result = await scm.getReviews(pr);
+      expect(result).toEqual([]);
+      expect(setTimeoutSpy).toHaveBeenCalledTimes(3);
+      expect(ghMock).toHaveBeenCalledTimes(6);
     });
   });
 
