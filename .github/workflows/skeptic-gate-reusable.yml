@@ -385,6 +385,7 @@ jobs:
 
           echo "Polling for VERDICT on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
           echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
+          echo "REQUEST_ID: $REQUEST_ID"
 
           API_FAILURES=0
           COMMENTS_API_FAILURES=0

@@ -87,11 +87,6 @@ export interface BoundVerdictOutput {
 
 export function bindVerdictOutput(params: {
   llmOutput: string;
-  // Kept for call-site compatibility — no-op after the requestId/headSha downgrade
-  // path was removed in this PR. Callers still pass these; removing them would be
-  // a breaking API change for external callers.
-  headSha?: string;
-  requestId?: string;
 }): BoundVerdictOutput {
   const verdictMatch = params.llmOutput.match(VERDICT_LINE_RE);
   if (!verdictMatch) {
@@ -104,17 +99,17 @@ export function bindVerdictOutput(params: {
   }
 
   const verdictType = verdictMatch[1].toUpperCase() as Verdict;
-  // Fail-closed: downgrade PASS to FAIL when the LLM output lacks all 8 gate markers.
-  // The requestId/headSha checks were dropped — they were always undefined when
-  // --request-id is not passed, causing incorrect downgrade of every PASS verdict.
-  // Gate markers are the authoritative PASS contract: the LLM must emit all 8.
-  const downgradedPass = verdictType === "PASS" && !hasCompletePassingGateMarkers(params.llmOutput);
+  // Downgrade PASS to FAIL if gate markers are incomplete (fail-closed safety net).
+  // Note: !params.requestId || !params.headSha was removed — these were always true
+  // when requestId/headSha were undefined, incorrectly downgrading ALL PASS verdicts.
+  const downgradedPass =
+    verdictType === "PASS" && !hasCompletePassingGateMarkers(params.llmOutput);
   const verdictLine = downgradedPass
-    ? "VERDICT: FAIL — PASS missing complete skeptic gate markers"
+    ? "VERDICT: FAIL — PASS missing complete skeptic gate table"
     : verdictMatch[0];
   return {
     verdictLine,
-    llmOutput: verdictLine === verdictMatch[0] ? params.llmOutput : `${params.llmOutput}\n\n${verdictLine}`,
+    llmOutput: downgradedPass ? `${params.llmOutput}\n\n${verdictLine}` : params.llmOutput,
     verdictType: downgradedPass ? "FAIL" : verdictType,
   };
 }

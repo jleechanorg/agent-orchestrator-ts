@@ -88,6 +88,17 @@ jobs:
           fi
           echo "Polling for VERDICT on PR #$PR_NUM (trigger SHA ${TRIGGER_SHA:0:7})"
           echo "Only accepting verdicts after: $TRIGGER_UPDATED"
+          echo "REQUEST_ID: $REQUEST_ID"
+
+          # ao skeptic verify runs without REQUEST_ID (local invocation vs GHA).
+          # Make the request-id marker check optional — head-sha + trigger-sha are sufficient
+          # to uniquely identify a verdict for a given PR+SHA.
+          if [ -z "$REQUEST_ID" ] || [ "$REQUEST_ID" = "null" ]; then
+            NEED_REQUEST_ID="false"
+            echo "REQUEST_ID is empty — verdict matching is SHA-only (accepting ao skeptic verify verdicts)"
+          else
+            NEED_REQUEST_ID="true"
+          fi
 
           POLL_TIMEOUT=600  # seconds — MUST match (timeout-minutes - 1min-headroom) * 60
           INTERVAL=15

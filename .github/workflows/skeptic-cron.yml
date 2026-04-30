@@ -27,6 +27,7 @@ jobs:
       pull-requests: write
       issues: write
       checks: read
+      statuses: read
     outputs:
       prs_evaluated: ${{ steps.list_prs.outputs.pr_numbers }}
       merged_count: ${{ steps.merge_prs.outputs.merged_count }}
@@ -39,11 +40,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # --paginate + jq -s: pipe all pages to jq slurp, combine into single array before filtering.
-          # Using --paginate --jq is wrong: jq processes each page separately, producing arrays-of-arrays.
-          PR_JSON=$(gh api repos/${{ github.repository }}/pulls \
+          PR_JSON=$(set -o pipefail; gh api repos/${{ github.repository }}/pulls \
             --paginate 2>/dev/null \
-            | jq -s '[add[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]' 2>/dev/null || echo "[]")
+            | jq -s 'add | [.[] | select(.draft == false) | {number, title, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]' 2>/dev/null) || echo "[]"
 
           echo "Open non-draft PRs found:"
           echo "$PR_JSON" | jq -c '.[]' 2>/dev/null || echo "$PR_JSON"
@@ -102,7 +101,7 @@ jobs:
             # Fallback: check the Green Gate check run status
             if [ "$GATE_PASSED" = "false" ]; then
               GATE_CHECK=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
-                --jq '[.check_runs[] | select(.name == "Green Gate")] | last | .conclusion // "none"' 2>/dev/null || echo "none")
+                --jq '[.check_runs[] | select(.name == "Green Gate Orchestrator")] | last | .conclusion // "none"' 2>/dev/null || echo "none")
               if [ "$GATE_CHECK" = "success" ]; then
                 GATE_PASSED=true
                 echo "  [PRE-CHECK] Green Gate check run: success for SHA ${PR_SHA:0:7}"
@@ -205,15 +204,13 @@ jobs:
             fi
 
             # ----------------------------------------------------------------
-            # Gate 4: Bugbot clean — use Cursor Bugbot check-run conclusion.
-            # Matches green-gate.yml approach: check-run API is authoritative;
-            # text-scanning PR comments for "error" produces false positives.
-            # ----------------------------------------------------------------
+            # Gate 4: Bugbot clean — fail on any non-success conclusion.
+            # "success" only; cancelled/timed_out/action_required/stale all fail the gate.
             BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
               --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
               2>/dev/null || echo "none")
-            if [ "$BUGBOT_CONCLUSION" = "failure" ]; then
-              echo "  [SKIP] Gate-4 FAIL: Bugbot check-run=failure"
+            if [ "$BUGBOT_CONCLUSION" != "success" ]; then
+              echo "  [SKIP] Gate-4 FAIL: Bugbot check-run=$BUGBOT_CONCLUSION (not success)"
               SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
               continue
             fi
@@ -405,11 +402,12 @@ jobs:
             fi
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
-            # 4. Bugbot clean — use Cursor Bugbot check-run conclusion (matches green-gate.yml)
+            # Gate 4: Bugbot clean — fail on any non-success conclusion.
+            # "success" only; cancelled/timed_out/action_required/stale all fail the gate.
             BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
               --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
               2>/dev/null || echo "none")
-            BUGBOT_STATUS=$(if [ "$BUGBOT_CONCLUSION" = "failure" ]; then echo "FAIL (check-run=$BUGBOT_CONCLUSION)"; else echo "PASS (check-run=$BUGBOT_CONCLUSION)"; fi)
+            BUGBOT_STATUS=$(if [ "$BUGBOT_CONCLUSION" = "success" ]; then echo "PASS"; else echo "FAIL (check-run=$BUGBOT_CONCLUSION)"; fi)
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
             # 5. Inline comments resolved (GraphQL)
@@ -450,10 +448,11 @@ jobs:
             echo "  [5] Comments resolved:   $COMMENTS_STATUS"
 
             # 6. Evidence review (fail-closed)
-            # No --paginate: reviews API returns up to 100/page, sufficient for any PR.
-            # Also filters by .commit_id to ensure approval is for the correct HEAD.
-            EVIDENCE_APPROVED=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-              --jq '[.[] | select(.user.login == "evidence-review-bot" and .state == "APPROVED" and .commit_id == "'"$PR_SHA"'")] | length' 2>/dev/null || echo 0)
+            # --paginate fetches all review pages so evidence-review-bot approvals on a later
+            # page are not missed for long-lived PRs, while .commit_id keeps the match on HEAD.
+            EVIDENCE_APPROVED=$(set -o pipefail; gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
+              --paginate 2>/dev/null \
+              | jq -sr '[add[] | select(.user.login == "evidence-review-bot" and .state == "APPROVED" and .commit_id == "'"$PR_SHA"'")] | length' 2>/dev/null || echo 0)
 
             EVIDENCE_CHECKS_RAW=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
               --paginate \

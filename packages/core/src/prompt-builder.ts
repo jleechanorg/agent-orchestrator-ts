@@ -1,9 +1,14 @@
 /**
  * Prompt Builder — composes layered prompts for agent sessions.
  *
- * Two prompt parts:
- *   1. CORE_AGENT_PROMPT — constant session lifecycle guidance (always included)
- *   2. PR_BOILERPLATE — PR/push workflow instructions (gated by skipPrBoilerplate)
+ * Layered sections (ordered):
+ *   1. CORE_AGENT_PROMPT — session identity, always included
+ *   2. PR_BOILERPLATE — git workflow, PR handling, TDD; omitted when skipPrBoilerplate=true
+ *   3. Config-derived context — project name, repo, default branch, tracker info, reaction rules
+ *   4. Technique selection — SR-prtype guidance (config/default driven)
+ *   5. User rules — inline agentRules and/or agentRulesFile content
+ *   6. Decomposition context — lineage + siblings
+ *   7. Explicit user prompt (highest priority)
  *
  * These are assembled into the full agent prompt via buildPrompt(), which also
  * injects config-derived context and user rules.
@@ -103,7 +108,14 @@ export interface PromptBuildConfig {
   /** Decomposition context — sibling task descriptions (from decomposer) */
   siblings?: string[];
 
-  /** Skip PR/push boilerplate for planning-only and artifact-only workers */
+  /** Technique for this session (from project config or decomposition). Defaults to SR-prtype. */
+  technique?: import("./types.js").TechniqueType;
+
+  /**
+   * When true, the PR/Git/TDD boilerplate is excluded from the base prompt.
+   * Use for planning-only, artifact-only, or other non-coding workers that
+   * should not attempt to create branches, push code, or open PRs.
+   */
   skipPrBoilerplate?: boolean;
 }
 
@@ -158,6 +170,49 @@ function buildConfigLayer(config: PromptBuildConfig): string {
 }
 
 // =============================================================================
+// LAYER 2.5: TECHNIQUE SELECTION
+// =============================================================================
+
+/** Technique guidance per type — all converge within rubric noise, SR-prtype is safe default */
+const TECHNIQUE_GUIDANCE: Record<string, string> = {
+  "SR-prtype": `## Technique: Self-Refine with PR-Type Classification (SR-prtype)
+Before writing code, classify the issue into a PR type:
+- state-bool: widening boolean semantics (int 1/0, string '1'/'0' as valid True/False)
+- data-norm: normalizing key names and numeric formats (xp→xp_gained, NaN handling)
+- ci-workflow: GitHub Actions workflow changes (YAML scripting, gate logic)
+- typeddict-schema: TypedDict + validation for previously untyped data structures
+- large-arch-refactor: module extraction, moving functions between files
+
+Apply the corresponding exemplar pattern. Use 3-round self-refine: write code, self-critique, revise.`,
+
+  "SR-fewshot": `## Technique: Self-Refine with Single Exemplar (SR-fewshot)
+Find the most relevant prior PR for this issue type. Use single-exemplar critique.
+Apply 3-round self-refine: write code, self-critique, revise.`,
+
+  "SR": `## Technique: Self-Refine (SR)
+Apply 3-round self-refine: write code, self-critique, revise.`,
+
+  "ET": `## Technique: Extended Thinking (ET)
+Use chain-of-thought reasoning. Show your work step by step before writing code.`,
+
+  "PRM": `## Technique: Process Reward Model (PRM)
+Score each step of your reasoning, not just the final answer. Self-verify each step before proceeding.`,
+
+  "default": `## Technique: Self-Refine with PR-Type Classification (SR-prtype)
+Apply 3-round self-refine with PR-type classification: write code, self-critique, revise.
+Classify the issue type and apply the corresponding pattern.`,
+};
+
+function buildTechniqueLayer(config: PromptBuildConfig): string {
+  // Resolve technique: config > project default > SR-prtype.
+  // TechniqueConfig.perType/thresholds remain classification-only placeholders until
+  // routing is wired into the production selection path.
+  const technique = config.technique ?? config.project.technique?.default ?? "SR-prtype";
+  const guidance = TECHNIQUE_GUIDANCE[technique] ?? TECHNIQUE_GUIDANCE["default"];
+  return guidance;
+}
+
+// =============================================================================
 // LAYER 3: USER RULES
 // =============================================================================
 
@@ -205,6 +260,9 @@ export function buildPrompt(config: PromptBuildConfig): string {
 
   // Layer 2: Config-derived context
   sections.push(buildConfigLayer(config));
+
+  // Layer 2.5: Technique selection (autor research: all converge, SR-prtype is safe default)
+  sections.push(buildTechniqueLayer(config));
 
   // Layer 3: User rules
   if (userRules) {
