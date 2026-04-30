@@ -18,7 +18,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.inputs.pr_number || github.event.pull_request.number || github.ref }}
   cancel-in-progress: false  # Never cancel in-progress gate runs; multiple runs for same SHA are harmless
 
 jobs:
