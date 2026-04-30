@@ -202,7 +202,7 @@ describe("dry-run SKIPPED color mapping", () => {
 });
 
 describe("bindVerdictOutput", () => {
-  const COMPLETE_PASS_WITH_8_GATES = [
+  const _COMPLETE_PASS_WITH_8_GATES = [
     "<!-- skeptic-gate-1:PASS -->",
     "<!-- skeptic-gate-2:PASS -->",
     "<!-- skeptic-gate-3:PASS -->",
