@@ -208,7 +208,7 @@ async function maybeRemoveStaleCheckedOutWorktree(
           .some(
             (line) =>
               line.startsWith("worktree ") &&
-              resolve(line.slice("worktree ".length)) === resolvedStale,
+              resolve(line.slice("worktree ".length).trim()) === resolvedStale,
           ),
       );
     return !stillPresent;
@@ -216,6 +216,72 @@ async function maybeRemoveStaleCheckedOutWorktree(
     // If git worktree list fails, fall back to filesystem check.
     return !existsSync(resolvedStale);
   }
+}
+
+/**
+ * Reuse an existing branch by creating a worktree and checking it out.
+ * Handles stale-checkout recovery and cleans up the worktree on failure.
+ * Returns true on success; throws on checkout failure.
+ */
+async function reuseExistingBranch(
+  repoPath: string,
+  worktreePath: string,
+  branch: string,
+  baseRef: string,
+  worktreeBaseDir: string,
+): Promise<boolean> {
+  await git(repoPath, "worktree", "add", worktreePath, baseRef);
+  let checkoutSucceeded = false;
+  try {
+    await git(worktreePath, "checkout", branch);
+    checkoutSucceeded = true;
+  } catch (checkoutErr: unknown) {
+    const checkoutMsg =
+      checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
+    if (checkoutMsg.includes("already checked out") && checkoutMsg.includes("checked out at")) {
+      let retryErr: unknown;
+      try {
+        const removedStale = await maybeRemoveStaleCheckedOutWorktree(repoPath, checkoutMsg, worktreeBaseDir);
+        if (removedStale) {
+          try {
+            await git(worktreePath, "checkout", branch);
+            checkoutSucceeded = true;
+          } catch (e: unknown) {
+            // Capture retry failure — throw it rather than falling through to the original error.
+            retryErr = e;
+          }
+        }
+        // else: Non-AO worktree holds the branch lock — let the original error propagate.
+      } catch {
+        // Fall through to original error path.
+      }
+      if (retryErr !== undefined) {
+        const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        // Worktree was created by `git worktree add` at line 233 but checkout retry failed.
+        // Clean up the orphaned worktree before propagating the error.
+        try {
+          await git(repoPath, "worktree", "remove", "--force", worktreePath);
+        } catch {
+          // Best-effort cleanup
+        }
+        throw Object.assign(
+          new Error(`Failed to checkout branch "${branch}" in worktree: ${retryMsg}`),
+          { cause: retryErr },
+        );
+      }
+    }
+    if (!checkoutSucceeded) {
+      try {
+        await git(repoPath, "worktree", "remove", "--force", worktreePath);
+      } catch {
+        // Best-effort cleanup
+      }
+      throw new Error(`Failed to checkout branch "${branch}" in worktree: ${checkoutMsg}`, {
+        cause: checkoutErr,
+      });
+    }
+  }
+  return checkoutSucceeded;
 }
 
 /** Only allow safe characters in path segments to prevent directory traversal */
@@ -329,52 +395,153 @@ export function create(config?: Record<string, unknown>): Workspace {
       try {
         await git(repoPath, "worktree", "add", "-b", cfg.branch, worktreePath, baseRef);
       } catch (err: unknown) {
-        // Only retry if the error is "branch already exists"
         const msg = err instanceof Error ? err.message : String(err);
         if (!msg.includes("already exists")) {
           throw new Error(`Failed to create worktree for branch "${cfg.branch}": ${msg}`, {
             cause: err,
           });
         }
-        // Branch already exists — create worktree and check it out
-        await git(repoPath, "worktree", "add", worktreePath, baseRef);
-        let checkoutSucceeded = false;
+
+        // Determine if this is a "path already exists" error (ghost worktree)
+        // vs "branch already exists" error.
+        // Ghost: the path exists on disk but git doesn't know about it via worktree list.
+        // In that case, if there's no active tmux session, we can safely remove it.
+        // Only trigger ghost detection when the error mentions the worktree path itself.
+        // Guard: if git worktree list fails (e.g., repo corruption), fall through to
+        // branch-exists recovery rather than propagating an unguarded error.
+        const normalizedWorktreePath = resolve(worktreePath);
+        let isGhostWorktree = false;
+        let pathCollisionErr: Error | undefined;
         try {
-          await git(worktreePath, "checkout", cfg.branch);
-          checkoutSucceeded = true;
-        } catch (checkoutErr: unknown) {
-          const checkoutMsg =
-            checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
+          const listOutput = await git(repoPath, "worktree", "list", "--porcelain");
+          const isRegistered = listOutput
+            .split("\n")
+            .some(
+              (line) =>
+                line.startsWith("worktree ") &&
+                resolve(line.slice("worktree ".length).trim()) === normalizedWorktreePath,
+            );
+          // Only match git's actual path-collision stderr format, not the command string
+          // that appears in every Node.js execFile error. Git uses: fatal: '/path' already exists
+          if (
+            msg.includes(`'${normalizedWorktreePath}' already exists`) ||
+            msg.includes(`"${normalizedWorktreePath}" already exists`)
+          ) {
+            // Error mentions the worktree path — collision type depends on registration.
+            if (!isRegistered) {
+              isGhostWorktree = true; // Ghost: path on disk, not in git
+            } else {
+              // Registered path collision — throw explicit error, don't fall through
+              // to branch-exists path which would mask the collision.
+              pathCollisionErr = new Error(
+                `Failed to create worktree for branch "${cfg.branch}": ${msg}`,
+                { cause: err },
+              );
+            }
+          }
+          // else: error doesn't mention path → branch collision → isGhostWorktree stays false
+        } catch {
+          // worktree list failed (network, git bug, etc.) — determine path type from error.
+          // If the error is a path-collision (not branch-collision), we can't proceed safely
+          // because we can't distinguish ghost from registered path. Throw immediately.
+          // Only fall through for ambiguous "already exists" that might be branch-collision.
+          const isPathCollision =
+            msg.includes(`'${normalizedWorktreePath}' already exists`) ||
+            msg.includes(`"${normalizedWorktreePath}" already exists`);
+          if (isPathCollision) {
+            throw new Error(
+              `Failed to create worktree for branch "${cfg.branch}": ${msg} (ghost detection unavailable — list failed)`,
+              { cause: err },
+            );
+          }
+          // else: fall through to branch-exists recovery (could be branch collision).
+        }
+        if (pathCollisionErr) throw pathCollisionErr;
 
-          // bd-xf5: Recover from stale checked-out worktrees that block checkout.
-          // If target branch is checked out in another worktree but that worktree has
-          // no active tmux session, force-remove it and retry checkout once.
-          if (checkoutMsg.includes("already checked out") && checkoutMsg.includes("checked out at")) {
+        if (isGhostWorktree) {
+          // Check for active tmux session — if none, it's safe to remove the ghost.
+          const hasActiveSession = await hasActiveTmuxSessionForWorktreeName(worktreePath);
+          if (!hasActiveSession) {
+            // Ghost worktree with no active session — remove and retry once.
             try {
-              const removedStale = await maybeRemoveStaleCheckedOutWorktree(repoPath, checkoutMsg, worktreeBaseDir);
-              if (removedStale) {
-                await git(worktreePath, "checkout", cfg.branch);
-                checkoutSucceeded = true;
+              // Use filesystem removal for ghost worktrees since git doesn't know about them.
+              rmSync(worktreePath, { recursive: true, force: true });
+            } catch {
+              // Best-effort removal
+            }
+            try {
+              await git(repoPath, "worktree", "add", "-b", cfg.branch, worktreePath, baseRef);
+            } catch (retryErr: unknown) {
+              const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+              // Ghost recovery path: if retry fails because branch is checked out
+              // elsewhere, recover using the same mechanism as branch-exists path.
+              if (
+                retryMsg.includes("already checked out") &&
+                retryMsg.includes("checked out at")
+              ) {
+                let removedStale;
+                try {
+                  removedStale = await maybeRemoveStaleCheckedOutWorktree(
+                    repoPath,
+                    retryMsg,
+                    worktreeBaseDir,
+                  );
+                  if (removedStale) {
+                    await git(repoPath, "worktree", "add", "-b", cfg.branch, worktreePath, baseRef);
+                  }
+                } catch (secondErr: unknown) {
+                  // secondErr is from maybeRemoveStaleCheckedOutWorktree itself.
+                  // Chain it to retryMsg (not retryErr) since retryErr is not relevant here.
+                  throw Object.assign(
+                    new Error(
+                      `Failed to create worktree for branch "${cfg.branch}": ${retryMsg}`,
+                    ),
+                    { cause: secondErr },
+                  );
+                }
+                if (!removedStale) {
+                  // Non-AO worktree holds the branch lock — propagate with retryErr as cause.
+                  // Throw here (outside the try/catch) so no double-wrapping occurs.
+                  throw Object.assign(
+                    new Error(
+                      `Failed to create worktree for branch "${cfg.branch}": ${retryMsg}`,
+                    ),
+                    { cause: retryErr },
+                  );
+                }
+              } else if (retryMsg.includes("A branch named")) {
+                // Ghost was removed but branch already exists — reuse existing branch.
+                // Let reuseExistingBranch errors propagate directly without double-wrapping.
+                await reuseExistingBranch(
+                  repoPath,
+                  worktreePath,
+                  cfg.branch,
+                  baseRef,
+                  worktreeBaseDir,
+                );
+              } else {
+                throw new Error(
+                  `Failed to create worktree for branch "${cfg.branch}": ${retryMsg}`,
+                  { cause: retryErr },
+                );
               }
-              // else: Non-AO worktree holds the branch lock — let the error propagate.
-              // The scm-github checkoutPR call will handle this via its own ref-based
-              // fallback once workspace.create() returns.
-            } catch {
-              // Fall through to original error path.
             }
+          } else {
+            // Active tmux session exists — preserve worktree, let error propagate.
+            throw new Error(
+              `Failed to create worktree for branch "${cfg.branch}": ${msg}`,
+              { cause: err },
+            );
           }
-
-          if (!checkoutSucceeded) {
-            // Checkout failed — remove the orphaned worktree before rethrowing
-            try {
-              await git(repoPath, "worktree", "remove", "--force", worktreePath);
-            } catch {
-              // Best-effort cleanup
-            }
-            throw new Error(`Failed to checkout branch "${cfg.branch}" in worktree: ${checkoutMsg}`, {
-              cause: checkoutErr,
-            });
-          }
+        } else {
+          // Branch already exists — create worktree and check it out
+          await reuseExistingBranch(
+            repoPath,
+            worktreePath,
+            cfg.branch,
+            baseRef,
+            worktreeBaseDir,
+          );
         }
       }
 

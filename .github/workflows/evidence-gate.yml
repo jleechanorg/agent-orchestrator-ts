@@ -544,6 +544,16 @@ jobs:
           elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Ff][Aa][Ii][Ll]'; then
             echo "Verdict: FAIL with present bundle — contradiction; gate passes but this bundle should be re-examined"
 
+          # Check for SKIPPED verdict — terminal state, gate passes
+          elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Ss][Kk][Ii][Pp][Pp][Ee][Dd]'; then
+            echo "Verdict: SKIPPED — evidence gate passes"
+
+          # Check for PENDING verdict — non-final state, fail closed.
+          # The skeptic gate runs asynchronously and will update the verdict when complete.
+          elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Pp][Ee][Nn][Dd][Ii][Nn][Gg]'; then
+            echo "ERROR: Verdict: PENDING is non-final. Wait for PASS/FAIL/SKIPPED."
+            exit 1
+
           # No verdict found — hard requirement, gate fails
           else
             echo "ERROR: No verdict found in evidence bundle. Verdict is a mandatory field — missing verdict fails the evidence gate."

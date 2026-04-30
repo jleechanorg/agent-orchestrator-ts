@@ -254,6 +254,7 @@ export function registerSkeptic(program: Command): Command {
             SKEPTIC_BOT_AUTHOR,
             options.triggerSha,
             skipVerdict,
+            { requestId, headSha },
           );
           spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
         } catch (err) {
