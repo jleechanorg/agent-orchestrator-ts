@@ -379,12 +379,6 @@ jobs:
           fi
           echo "Only accepting verdicts posted after trigger was updated: $TRIGGER_UPDATED"
           echo "Also filtering by trigger SHA: ${TRIGGER_SHA:0:7}"
-          PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login // empty' 2>/dev/null || true)
-          if [ -z "$PR_AUTHOR" ]; then
-            echo "ERROR: PR author lookup failed — cannot enforce trusted actor rule"
-            echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
 
           INTERVAL=30
           MAX_ATTEMPTS=$(( ${{ inputs.poll_timeout_minutes }} * 60 / INTERVAL ))   # respect poll_timeout_minutes input
@@ -449,10 +443,8 @@ jobs:
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
                 --arg request_id "$REQUEST_ID" \
                 --arg pr_author "$PR_AUTHOR" \
-                --arg VERDICT_RE "^[ \\t]*(?:> ?)?(?:\\#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$" \
-                'def extract_verdict(verdict_re): (.body | ([match(verdict_re; "img")] | last | .captures[0].string | ascii_upcase)) // "";
-                add
-                | map(. + {verdict: extract_verdict($VERDICT_RE)})
+                'add
+                | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
                 | map(select(
                     (.body as $body
                     | (

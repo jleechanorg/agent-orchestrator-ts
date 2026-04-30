@@ -2,12 +2,32 @@
 # ao-install.sh — Consolidated AO worker-node install
 # Replaces: setup.sh + bootstrap-openclaw-config.sh + setup-extended.sh
 # Usage: curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/ao-install.sh | bash
-# Or:     bash /tmp/ao-install.sh  (from a clone of agent-orchestrator)
+# Or:     bash /tmp/ao-install.sh  (run from a clone of agent-orchestrator)
+# Requirements: git, curl, bash 4+, npm (for ao CLI build)
 
 set -euo pipefail
 
+# Run a command, filter its output through grep/head, exit non-zero on command failure.
+# stdin is connected to /dev/null to prevent interactive prompts from causing silent hangs
+# (setup.sh enables interactive mode when stdin is a tty, issuing read prompts that write to
+# stderr which gets redirected to the log — leaving the terminal invisible and read waiting).
+run_filtered() {
+  local filter="$1"; local limit="$2"; shift 2
+  local log
+  log="$(mktemp)"
+  if ! "$@" >"$log" 2>&1 </dev/null; then
+    grep -E "$filter" "$log" | head -n "$limit" || true
+    rm -f "$log"
+    return 1
+  fi
+  grep -E "$filter" "$log" | head -n "$limit" || true
+  rm -f "$log"
+}
+
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
-HERMES_HOME="${HERMES_HOME/#\~/$HOME}"
+# AO config lives in ~/.openclaw_prod/ ( searched by ao CLI config discovery ).
+# Hermes gateway uses its own ~/.hermes_prod/ for gateway-level config.
+OPENCLAW_PROD="${OPENCLAW_PROD:-$HOME/.openclaw_prod}"
 AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
 AGENT_ORCHESTRATOR_BRANCH="${AGENT_ORCHESTRATOR_BRANCH:-main}"
 AO_REPO_ROOT="${AO_REPO_ROOT:-$HOME/project_agento/agent-orchestrator}"
@@ -20,39 +40,54 @@ echo
 
 # ─── Step 0: Detect run mode ─────────────────────────────────────────────────
 # Two modes:
-#   MODE=repo    — running from an existing ~/project_agento/agent-orchestrator clone
-#   MODE=curl    — piped from curl, need to clone first
+#   repo  — running from an existing ~/project_agento/agent-orchestrator clone
+#   curl  — piped from curl, need to clone first
+
+# Track whether we created a temp clone (in curl mode) so we can clean up on error.
+_CURL_MODE_CLONE=false
 
 if [ -d "$AO_REPO_ROOT/.git" ]; then
-  MODE="repo"
   REPO_ROOT="$AO_REPO_ROOT"
-  echo "[0/7] Repo detected: $REPO_ROOT"
+  echo "  Repo detected: $REPO_ROOT"
+elif [ -d "$HOME/project_agento/agent-orchestrator/.git" ]; then
+  REPO_ROOT="$HOME/project_agento/agent-orchestrator"
+  echo "  Repo detected: $REPO_ROOT"
 else
-  MODE="curl"
-  REPO_ROOT="$(mktemp -d)"
-  echo "[0/7] Cloning agent-orchestrator to $REPO_ROOT..."
-  git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
-    "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" >/dev/null 2>&1
+  # Use stable path for curl mode — we install launchd plists that reference
+  # $REPO_ROOT, so the dir must persist after this script exits.
+  REPO_ROOT="$HOME/project_agento/agent-orchestrator"
+  _CURL_MODE_CLONE=true
+  if ! git clone --branch "$AGENT_ORCHESTRATOR_BRANCH" \
+    "$AGENT_ORCHESTRATOR_REPO" "$REPO_ROOT" 2>&1; then
+    echo "ERROR: git clone failed — check AGENT_ORCHESTRATOR_REPO and network connectivity"
+    exit 1
+  fi
+fi
+
+# Clean up curl-mode clone on any exit (error, interrupt, etc.) since the
+# launchd plists reference $REPO_ROOT which should not exist on a fresh curl install.
+if [ "$_CURL_MODE_CLONE" = "true" ]; then
+  _clone_dir="$REPO_ROOT"
+  trap 'rm -rf "$_clone_dir" 2>/dev/null || true' EXIT
 fi
 
 SCRIPT_DIR="$REPO_ROOT/scripts"
 
 # ─── Step 1: Install dependencies + build CLI ────────────────────────────────
 echo "[1/7] Running setup.sh (install + build)..."
-SETUP_LOG="$(mktemp)"
-if ! bash "$SCRIPT_DIR/setup.sh" >"$SETUP_LOG" 2>&1; then
-  grep -E '^\[ok\]|\[ERROR\]|ERROR|complete' "$SETUP_LOG" | head -20 || true
-  echo "ERROR: setup.sh failed. See full log at $SETUP_LOG"
-  exit 1
+run_filtered '^\[ok\]|\[ERROR\]|ERROR|complete' 20 bash -c "cd \"$REPO_ROOT\" && bash \"$SCRIPT_DIR/setup.sh\""
+
+# ─── Step 2: Bootstrap AO config at openclaw_prod ────────────────────────────
+echo "[2/7] Bootstrapping AO config at $OPENCLAW_PROD/agent-orchestrator.yaml..."
+
+mkdir -p "$OPENCLAW_PROD"
+CONFIG_FILE="$OPENCLAW_PROD/agent-orchestrator.yaml"
+
+# Backup existing config before overwriting
+if [ -f "$CONFIG_FILE" ]; then
+  cp "$CONFIG_FILE" "$CONFIG_FILE.bak-$(date -u +%Y%m%dT%H%M%SZ)"
+  echo "  Config backed up: $CONFIG_FILE.bak"
 fi
-grep -E '^\[ok\]|\[ERROR\]|ERROR|complete' "$SETUP_LOG" | head -20 || true
-rm -f "$SETUP_LOG"
-
-# ─── Step 2: Bootstrap config at hermes_prod ─────────────────────────────────
-echo "[2/7] Bootstrapping AO config at $HERMES_HOME/agent-orchestrator.yaml..."
-
-mkdir -p "$HERMES_HOME"
-CONFIG_FILE="$HERMES_HOME/agent-orchestrator.yaml"
 
 # Write canonical config
 cat >"$CONFIG_FILE" <<EOF
@@ -71,11 +106,15 @@ projects:
 EOF
 
 for pid in $PROJECTS; do
-  echo "  $pid:" >> "$CONFIG_FILE"
-  echo "    repo: jleechanorg/$pid" >> "$CONFIG_FILE"
-  echo "    path: ~/project_agento/$pid" >> "$CONFIG_FILE"
+  echo "  ${pid}:" >> "$CONFIG_FILE"
+  echo "    name: ${pid}" >> "$CONFIG_FILE"
+  echo "    repo: jleechanorg/${pid}" >> "$CONFIG_FILE"
+  echo "    path: ~/project_agento/${pid}" >> "$CONFIG_FILE"
+  echo "    defaultBranch: main" >> "$CONFIG_FILE"
+  echo "    sessionPrefix: ${pid}" >> "$CONFIG_FILE"
   echo "    scm:" >> "$CONFIG_FILE"
   echo "      plugin: github" >> "$CONFIG_FILE"
+  echo "      repo: jleechanorg/${pid}" >> "$CONFIG_FILE"
 done
 
 chmod 600 "$CONFIG_FILE"
@@ -85,14 +124,7 @@ echo "  Projects: $(echo "$PROJECTS" | tr ' ' ', ')"
 # ─── Step 3: Link AO skills to user .claude ──────────────────────────────────
 echo "[3/7] Linking AO skills..."
 if [ -f "$SCRIPT_DIR/install-repo-skills.sh" ]; then
-  SKILLS_LOG="$(mktemp)"
-  if bash "$SCRIPT_DIR/install-repo-skills.sh" --global >"$SKILLS_LOG" 2>&1; then
-    grep -v "^$" "$SKILLS_LOG" || true
-  else
-    grep -v "^$" "$SKILLS_LOG" || true
-    echo "  WARNING: skills install had errors (continuing anyway)"
-  fi
-  rm -f "$SKILLS_LOG"
+  bash "$SCRIPT_DIR/install-repo-skills.sh" --global 2>/dev/null || echo "  (skills install skipped)"
 fi
 
 # ─── Step 4: Verify hermes gateway health ───────────────────────────────────
@@ -110,14 +142,7 @@ fi
 # ─── Step 5: Run setup-extended.sh (rebuild CLI + launchd + webhook) ─────────
 echo "[5/7] Running setup-extended.sh..."
 if [ -f "$SCRIPT_DIR/setup-extended.sh" ]; then
-  EXTENDED_LOG="$(mktemp)"
-  if ! AO_CONFIG_PATH="$CONFIG_FILE" bash "$SCRIPT_DIR/setup-extended.sh" >"$EXTENDED_LOG" 2>&1; then
-    grep -E '^\[|^ok|^WARNING|═══|complete|Installing' "$EXTENDED_LOG" | head -30 || true
-    echo "  WARNING: setup-extended.sh had errors (see above)"
-  else
-    grep -E '^\[|^ok|^WARNING|═══|complete|Installing' "$EXTENDED_LOG" | head -30 || true
-  fi
-  rm -f "$EXTENDED_LOG"
+  run_filtered '^\[|^ok|^WARNING|═══|complete|Installing' 30 env AO_CONFIG_PATH="$CONFIG_FILE" bash "$SCRIPT_DIR/setup-extended.sh"
 else
   echo "  setup-extended.sh not found — skipping"
 fi
@@ -125,42 +150,40 @@ fi
 # ─── Step 6: Verify lifecycle workers ────────────────────────────────────────
 echo "[6/7] Verifying lifecycle workers..."
 WORKER_COUNT=0
-if [ "$(uname)" != "Darwin" ]; then
-  echo "  - launchd not available (non-macOS)"
-elif launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
+
+if ! launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
+  echo "  - lifecycle-all service not loaded"
+else
   for pid in $PROJECTS; do
-    if pgrep -f "lifecycle-worker[[:space:]].*${pid}([[:space:]]|\$)" >/dev/null 2>&1; then
+    # The lifecycle-all plist manages all workers; check via pgrep for per-project liveness
+    escaped_pid=$(printf '%s' "$pid" | sed 's/[][().*^$+?{}|\\]/\\&/g')
+    if pgrep -f "lifecycle-worker[[:space:]].*${escaped_pid}([[:space:]]|\$)" >/dev/null 2>&1; then
       WORKER_COUNT=$((WORKER_COUNT + 1))
       echo "  + $pid: running"
     else
       echo "  - $pid: not running"
     fi
   done
-else
-  echo "  - lifecycle-all service not loaded"
 fi
 
-# ─── Step 7: Final verification via ao doctor ────────────────────────────────
+# ─── Step 7: Final verification via ao doctor ──────────────────────────────────
 echo "[7/7] Running ao doctor..."
 if command -v ao &>/dev/null; then
-  AO_CONFIG_PATH="$CONFIG_FILE" ao doctor 2>&1 | grep -E '(PASS|WARN|FAIL|Results:)' | tail -5 || true
+  # ao doctor exits non-zero when any health check fails — suppress that to avoid
+  # masking the actual install work; still surface its filtered output for visibility
+  run_filtered '(PASS|WARN|FAIL|Results:)' 5 env AO_CONFIG_PATH="$CONFIG_FILE" ao doctor
 else
   echo "  ao CLI not in PATH — run: export PATH=\"\$(npm config get prefix)/bin:\$PATH\""
-fi
-
-# ─── Cleanup on curl mode ────────────────────────────────────────────────────
-if [ "$MODE" = "curl" ]; then
-  echo ""
-  echo "Cleaning up temp clone..."
-  rm -rf "$REPO_ROOT"
 fi
 
 echo ""
 echo "=== Install Complete ==="
 echo "Config: $CONFIG_FILE"
-echo "Workers running: $WORKER_COUNT/$(echo "$PROJECTS" | wc -w)"
+# wc -w on BSD macOS pads output right-aligned with spaces; trim twice to be safe
+PROJECT_COUNT=$(echo "$PROJECTS" | wc -w | tr -d ' ' | tr -d ' ')
+echo "Workers running: $WORKER_COUNT/$PROJECT_COUNT"
 echo ""
 echo "Next steps:"
-echo "  ao spawn --project agent-orchestrator 'echo hello'"
-echo "  ao status"
+echo "  AO_CONFIG_PATH=\"$CONFIG_FILE\" ao spawn --project agent-orchestrator 'echo hello'"
+echo "  AO_CONFIG_PATH=\"$CONFIG_FILE\" ao status"
 echo "  cat $CONFIG_FILE"

@@ -35,20 +35,31 @@ jobs:
           PR_NUM=${{ github.event.pull_request.number }}
           TRIGGER_SHA="$HEAD_SHA"
           REQUEST_ID="gate-${TRIGGER_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          BODY=$(printf '%s\n%s\n%s\n%s' \
-            "SKEPTIC_GATE_TRIGGER" \
-            "<!-- skeptic-request-id-${REQUEST_ID} -->" \
-            "<!-- skeptic-head-sha-${TRIGGER_SHA} -->" \
-            "<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->")
 
-          TRIGGER_UPDATED=$(gh api -X POST \
-            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
-            -H "Accept: application/vnd.github+json" \
-            -f "body=${BODY}" \
-            --jq '.updated_at' 2>/dev/null)
-
+          # Capture gh api stdout separately from stderr to avoid JSON contamination.
+          # gh api writes advisory messages (e.g. rate-limit notices) to stderr; stdout is
+          # always pure JSON. We only merge them when gh itself fails so the error message
+          # is informative. When gh succeeds, we parse pure JSON from stdout only.
+          _GH_STDERR=$(mktemp)
+          RESPONSE=$(printf 'SKEPTIC_GATE_TRIGGER\n<!-- skeptic-request-id-%s -->\n<!-- skeptic-head-sha-%s -->\n<!-- skeptic-gate-trigger-%s -->' \
+              "$REQUEST_ID" "$TRIGGER_SHA" "$TRIGGER_SHA" \
+            | jq -Rs '{body: .}' - \
+            | gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
+              -H "Content-Type: application/json" \
+              --input - 2>"$_GH_STDERR")
+          _RC=$?
+          if [ "$_RC" -ne 0 ]; then
+            echo "ERROR: gh api POST failed (rc=$_RC): $(cat "$_GH_STDERR")" >&2
+            rm -f "$_GH_STDERR"
+            exit 1
+          fi
+          rm -f "$_GH_STDERR"
+          # Parse pure JSON from stdout — no stderr contamination possible.
+          TRIGGER_UPDATED=$(echo "$RESPONSE" | jq -r '.updated_at // empty' 2>/dev/null)
           if [ -z "$TRIGGER_UPDATED" ] || [ "$TRIGGER_UPDATED" = "null" ]; then
-            echo "ERROR: failed to post trigger comment" >&2
+            echo "ERROR: trigger comment posted but .updated_at missing: ${RESPONSE:0:300}" >&2
             exit 1
           fi
           echo "Trigger posted at: $TRIGGER_UPDATED"
@@ -106,12 +117,14 @@ jobs:
               exit 0
             fi
 
+            _RAW_STDERR=$(mktemp)
             RAW_COMMENTS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
-              --paginate 2>&1)
+              --paginate 2>"$_RAW_STDERR")
             GH_EXIT=$?
             if [ "$GH_EXIT" -ne 0 ]; then
               COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
-              echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $i): ${RAW_COMMENTS:0:100}"
+              echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $i): $(cat "$_RAW_STDERR" | head -1)"
+              rm -f "$_RAW_STDERR"
               if [ "$COMMENTS_API_FAILURES" -ge 3 ]; then
                 echo "ERROR: Too many consecutive verdict comment API failures" >&2
                 exit 1
@@ -120,6 +133,7 @@ jobs:
               sleep "$INTERVAL"
               continue
             fi
+            rm -f "$_RAW_STDERR"
 
             VERDICT_JSON=$(printf '%s\n' "$RAW_COMMENTS" \
               | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \

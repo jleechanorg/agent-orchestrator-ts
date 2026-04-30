@@ -450,10 +450,7 @@ describe("wholesome — structural source-code assertions", () => {
       "df94594cc7398fd49ab60966b79f44a0da337e4f", // fix(core): apply upstream prompt delivery robustness + send.ts error handling (rebased SHA)
       "35f2d946a315f5e6bc3c8a16a7181384bf0145db", // fix(config): remove desktop notifications from default configs (rebased SHA)
       // PR #498: original jq-predicate fix commit — pre-existing [agento] gap before strict first-parent check
-      "da47ec502f55c28dd33b93542ac660bdf3ae0c20", // fix: skeptic-gate jq filter accepts VERDICT when SKEPTIC_BOT_AUTHOR=*** PR_author
-      // fix/ao-config-hermes-discovery (PR #482): pre-[agento] commit from merged feature branch
-      "5bd13ae180dcf83a9cc186bcdfc024075d7c7909", // feat: add consolidated ao-install.sh and ao-repo-setup.sh scripts
-      "8e7abb690a065345caeca8507660af5ca7f7a27b", // feat: add consolidated ao-install.sh and ao-repo-setup.sh scripts
+      "da47ec502f55c28dd33b93542ac660bdf3ae0c20", // fix: skeptic-gate jq filter accepts VERDICT when SKEPTIC_BOT_AUTHOR == PR_author
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
