@@ -2873,10 +2873,12 @@ describe("scm-github plugin", () => {
   describe("REST fallback URL construction", () => {
     let prevGithubToken: string | undefined;
     let prevGhToken: string | undefined;
+    let prevAoBotGhToken: string | undefined;
 
     beforeEach(() => {
       prevGithubToken = process.env["GITHUB_TOKEN"];
       prevGhToken = process.env["GH_TOKEN"];
+      prevAoBotGhToken = process.env["AO_BOT_GH_TOKEN"];
       process.env["GITHUB_TOKEN"] = "test-token";
     });
 
@@ -2885,6 +2887,8 @@ describe("scm-github plugin", () => {
       else process.env["GITHUB_TOKEN"] = prevGithubToken;
       if (prevGhToken === undefined) delete process.env["GH_TOKEN"];
       else process.env["GH_TOKEN"] = prevGhToken;
+      if (prevAoBotGhToken === undefined) delete process.env["AO_BOT_GH_TOKEN"];
+      else process.env["AO_BOT_GH_TOKEN"] = prevAoBotGhToken;
     });
 
     it("throws for non-gh api commands", async () => {
@@ -3079,10 +3083,41 @@ describe("scm-github plugin", () => {
       expect(process.env["GH_TOKEN"]).not.toBe("gh-env-token");
     });
 
+    it("bypasses AO_BOT_GH_TOKEN override when gh auth token recovers from an unauthorized env token", async () => {
+      delete process.env["GITHUB_TOKEN"];
+      delete process.env["GH_TOKEN"];
+      process.env["AO_BOT_GH_TOKEN"] = "ao-bot-env-token";
+      ghMock.mockRejectedValueOnce(
+        Object.assign(new Error("Command failed: curl ... returned error: 401"), {
+          stdout: '{"message":"Bad credentials"}',
+        }),
+      );
+      ghMock.mockImplementationOnce(async (_bin, _args, options?: { env?: NodeJS.ProcessEnv }) => {
+        const effectiveAoBotToken = options?.env
+          ? options.env["AO_BOT_GH_TOKEN"]
+          : process.env["AO_BOT_GH_TOKEN"];
+        return { stdout: `${effectiveAoBotToken || "gh-auth-token"}\n` };
+      });
+      ghMock.mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await expect(ghRestFallback(["api", "repos/owner/repo/pulls"])).resolves.toBe(
+        '{"test": true}',
+      );
+
+      expect(ghMock).toHaveBeenCalledTimes(3);
+      expect(ghMock.mock.calls[1]?.[0]).toBe("gh");
+      expect(ghMock.mock.calls[1]?.[1]).toEqual(["auth", "token"]);
+      expect(ghMock.mock.calls[2]?.[0]).toBe("curl");
+    });
+
+    it("does not leak AO_BOT_GH_TOKEN between tests", () => {
+      expect(process.env["AO_BOT_GH_TOKEN"]).not.toBe("ao-bot-env-token");
+    });
+
     it("surfaces retried curl failures instead of the original auth error", async () => {
       process.env["GITHUB_TOKEN"] = "env-token";
       ghMock.mockRejectedValueOnce(
-        Object.assign(new Error("Command failed: curl ... returned error: 401"), {
+
           stdout: '{"message":"Bad credentials"}',
         }),
       );
