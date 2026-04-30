@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { expandHome } from "./paths.js";
 
 export type ManagedConfigEnvironment = "staging" | "production";
 
@@ -23,10 +24,26 @@ export function getManagedConfigPath(env: ManagedConfigEnvironment = "staging"):
     );
   }
 
+  // Search order: explicit env override → HERMES_HOME → .hermes_prod → .openclaw_prod (legacy).
+  // Use existsSync so we actually discover files rather than just returning strings.
+  const hermesHomeRaw = process.env.HERMES_HOME ?? "";
+  const hermesHomeExpanded = hermesHomeRaw ? resolve(expandHome(hermesHomeRaw), CONFIG_FILENAME) : "";
+  const hermesHomePath = hermesHomeRaw ? (existsSync(hermesHomeExpanded) ? hermesHomeExpanded : null) : null;
+  const hermesProdPath = existsSync(resolve(homedir(), ".hermes_prod", CONFIG_FILENAME))
+    ? resolve(homedir(), ".hermes_prod", CONFIG_FILENAME)
+    : null;
+  const openclawProdPath = existsSync(resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME))
+    ? resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME)
+    : null;
+
   return (
     getPathOverride("AO_PROD_CONFIG_PATH") ??
     getPathOverride("AO_PRODUCTION_CONFIG_PATH") ??
-    resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME)
+    hermesHomePath ??
+    hermesProdPath ??
+    openclawProdPath ??
+    // Default: use .hermes_prod as the default production path when nothing exists yet.
+    resolve(homedir(), ".hermes_prod", CONFIG_FILENAME)
   );
 }
 

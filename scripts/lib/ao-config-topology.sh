@@ -21,7 +21,29 @@ ao_production_config_path() {
     printf '%s\n' "$AO_PRODUCTION_CONFIG_PATH"
     return 0
   fi
-  printf '%s/.openclaw_prod/agent-orchestrator.yaml\n' "${HOME:?HOME is required}"
+  # HERMES_HOME is the canonical AO/Hermes worker config directory (ao-install.sh,
+  # ao-repo-setup.sh, and the launchd plist all use it). Check it first so the
+  # config written by ao-install.sh is auto-discovered without AO_CONFIG_PATH.
+  # Tilde-expand HERMES_HOME when it starts with literal ~ (not when already $HOME-based).
+  local hermes_home_expanded="${HERMES_HOME:-}"
+  if [ "${hermes_home_expanded:0:1}" = "~" ]; then
+    hermes_home_expanded="${HOME}${hermes_home_expanded:1}"
+  fi
+  if [ -n "${HERMES_HOME:-}" ] && [ -f "${hermes_home_expanded}/agent-orchestrator.yaml" ]; then
+    printf '%s/agent-orchestrator.yaml\n' "$hermes_home_expanded"
+    return 0
+  fi
+  if [ -f "${HOME}/.hermes_prod/agent-orchestrator.yaml" ]; then
+    printf '%s/.hermes_prod/agent-orchestrator.yaml\n' "$HOME"
+    return 0
+  fi
+  if [ -f "${HOME}/.openclaw_prod/agent-orchestrator.yaml" ]; then
+    # Backward-compatibility: preserve discovery of configs written by older ao-install.sh.
+    printf '%s/.openclaw_prod/agent-orchestrator.yaml\n' "$HOME"
+    return 0
+  fi
+  # Default: use .hermes_prod when nothing exists yet.
+  printf '%s/.hermes_prod/agent-orchestrator.yaml\n' "${HOME:?HOME is required}"
 }
 
 ao_legacy_alias_paths() {
