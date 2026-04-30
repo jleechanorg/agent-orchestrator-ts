@@ -202,37 +202,48 @@ describe("dry-run SKIPPED color mapping", () => {
 });
 
 describe("bindVerdictOutput", () => {
-  it("downgrades PASS to FAIL when the fresh verdict contract is incomplete", () => {
+  const COMPLETE_PASS_WITH_8_GATES = [
+    "<!-- skeptic-gate-1:PASS -->",
+    "<!-- skeptic-gate-2:PASS -->",
+    "<!-- skeptic-gate-3:PASS -->",
+    "<!-- skeptic-gate-4:PASS -->",
+    "<!-- skeptic-gate-5:PASS -->",
+    "<!-- skeptic-gate-6:PASS -->",
+    "<!-- skeptic-gate-7:PASS -->",
+    "<!-- skeptic-gate-8:PASS -->",
+    "VERDICT: PASS",
+  ].join("\n");
+
+  it("downgrades PASS to FAIL when the LLM output lacks complete gate markers", () => {
     const result = bindVerdictOutput({
       llmOutput: "VERDICT: PASS\n\nAll good.",
       headSha: "abc1230000000000000000000000000000000000",
       requestId: "req-1",
     });
 
-    expect(result.verdictLine).toBe("VERDICT: FAIL — PASS missing complete skeptic gate table or request binding");
-    expect(result.llmOutput).toContain("VERDICT: FAIL — PASS missing complete skeptic gate table or request binding");
+    expect(result.verdictLine).toBe("VERDICT: FAIL — PASS missing complete skeptic gate markers");
+    expect(result.llmOutput).toContain("VERDICT: FAIL — PASS missing complete skeptic gate markers");
     expect(result.verdictType).toBe("FAIL");
   });
 
   it("keeps a complete request-bound PASS unchanged", () => {
     const headSha = "abc1230000000000000000000000000000000000";
     const result = bindVerdictOutput({
-      llmOutput: [
-        "<!-- skeptic-gate-1:PASS -->",
-        "<!-- skeptic-gate-2:PASS -->",
-        "<!-- skeptic-gate-3:PASS -->",
-        "<!-- skeptic-gate-4:PASS -->",
-        "<!-- skeptic-gate-5:PASS -->",
-        "<!-- skeptic-gate-6:PASS -->",
-        "<!-- skeptic-gate-7:PASS -->",
-        "<!-- skeptic-gate-8:PASS -->",
-        "VERDICT: PASS",
-      ].join("\n"),
+      llmOutput: COMPLETE_PASS_WITH_8_GATES,
       headSha,
       requestId: "req-1",
     });
 
     expect(result.verdictLine).toBe("VERDICT: PASS");
+  });
+
+  it("keeps PASS unchanged when complete gate markers exist and request/head bindings are omitted", () => {
+    const result = bindVerdictOutput({
+      llmOutput: COMPLETE_PASS_WITH_8_GATES,
+    });
+
+    expect(result.verdictLine).toBe("VERDICT: PASS");
+    expect(result.verdictType).toBe("PASS");
   });
 });
 
