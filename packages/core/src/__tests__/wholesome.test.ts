@@ -450,7 +450,14 @@ describe("wholesome — structural source-code assertions", () => {
       "df94594cc7398fd49ab60966b79f44a0da337e4f", // fix(core): apply upstream prompt delivery robustness + send.ts error handling (rebased SHA)
       "35f2d946a315f5e6bc3c8a16a7181384bf0145db", // fix(config): remove desktop notifications from default configs (rebased SHA)
       // PR #498: original jq-predicate fix commit — pre-existing [agento] gap before strict first-parent check
-      "da47ec502f55c28dd33b93542ac660bdf3ae0c20", // fix: skeptic-gate jq filter accepts VERDICT when SKEPTIC_BOT_AUTHOR == PR_author
+      "da47ec502f55c28dd33b93542ac660bdf3ae0c20", // fix: skeptic-gate jq filter accepts VERDICT when SKEPTIC_BOT_AUTHOR=*** PR_author
+      // fix/stuck-worker-bypass-false-positive (PR #494): pre-prefix commits during dev
+      "6baf84044464af62252bc9b473e6623638634158", // chore: close recovery bead for PR 493 sync
+      "c348c1bbfbe45874ffbb2b0dfac1631749d6da32", // fix(skeptic): prevent cursor[bot] comments from false-matching verdict
+      "22dc636d0d86084501948ccf60ca7cc6819503b4", // fix(skeptic-gate): increase timeout to 10min, MAX_ATTEMPTS to 32
+      "268ba82da3802bd950987a9e7604d712fd7d4c84", // test(skeptic): add shell-integration test for FAIL/SKIPPED suppress-window
+      "3fad0c4d73c36dc4bc7af7f775bb40de1d01d972", // fix(skeptic): correct SHA filtering in findExistingVerdict
+      "5c4a0f4be5c6983220036c6cf80df02532f28763", // test(skeptic-cron): verify skeptic runs regardless of backfillAllPRs
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
