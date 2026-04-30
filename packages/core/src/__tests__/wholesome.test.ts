@@ -450,14 +450,14 @@ describe("wholesome — structural source-code assertions", () => {
       "df94594cc7398fd49ab60966b79f44a0da337e4f", // fix(core): apply upstream prompt delivery robustness + send.ts error handling (rebased SHA)
       "35f2d946a315f5e6bc3c8a16a7181384bf0145db", // fix(config): remove desktop notifications from default configs (rebased SHA)
       // PR #498: original jq-predicate fix commit — pre-existing [agento] gap before strict first-parent check
-      "da47ec502f55c28dd33b93542ac660bdf3ae0c20", // fix: skeptic-gate jq filter accepts VERDICT when SKEPTIC_BOT_AUTHOR=*** PR_author
-      // fix/stuck-worker-bypass-false-positive (PR #494): pre-prefix commits during dev
-      "6baf84044464af62252bc9b473e6623638634158", // chore: close recovery bead for PR 493 sync
-      "c348c1bbfbe45874ffbb2b0dfac1631749d6da32", // fix(skeptic): prevent cursor[bot] comments from false-matching verdict
-      "22dc636d0d86084501948ccf60ca7cc6819503b4", // fix(skeptic-gate): increase timeout to 10min, MAX_ATTEMPTS to 32
-      "268ba82da3802bd950987a9e7604d712fd7d4c84", // test(skeptic): add shell-integration test for FAIL/SKIPPED suppress-window
-      "3fad0c4d73c36dc4bc7af7f775bb40de1d01d972", // fix(skeptic): correct SHA filtering in findExistingVerdict
-      "5c4a0f4be5c6983220036c6cf80df02532f28763", // test(skeptic-cron): verify skeptic runs regardless of backfillAllPRs
+      "da47ec502f55c28dd33b93542ac660bdf3ae0c20", // fix: skeptic-gate jq filter accepts VERDICT when SKEPTIC_BOT_AUTHOR == PR_author
+      // fix/skip-pr-boilerplate-core-prompt (PR #487): pre-[agento] commits on this feature branch
+      "30dbbf1823c273ba3d36251155e7eb630c16c9f2", // fix(prompt-builder): suppress PR/push instructions when skipPrBoilerplate=true
+      "8e7abb690a065345caeca8507660af5ca7f7a27b", // feat: add consolidated ao-install.sh and ao-repo-setup.sh scripts
+      "062304986429079424c24cb8c612071d599d2594", // chore(pr-487): trigger fresh CI with extended timeout
+      "0297f8f293701a68212f77222a45908abaf718b5", // [copilot] fix: disable pipefail around ao doctor pipeline in ao-install.sh
+      "cbd2c7fb932d396efbebae34fb131119f3571d59", // fix(pr-487): update design doc SHA and commit count to current head
+      "e8137982c2783839105393af2a9bcf6d92ea4ee1", // fix(pr-487): honor spawnConfig.skipPrBoilerplate fallback + refresh design doc SHA
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {

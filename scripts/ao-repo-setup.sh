@@ -1,11 +1,10 @@
 #!/bin/bash
 # ao-repo-setup.sh — Bootstrap a fresh AO worker node
-# Replaces multiple legacy config directories with ~/.openclaw_prod/ as canonical location.
+# Replaces multiple legacy config directories with ~/.hermes_prod/ as sole source.
 # Usage: curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/ao-repo-setup.sh | bash
 set -euo pipefail
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
-OPENCLAW_PROD="${OPENCLAW_PROD:-$HOME/.openclaw_prod}"
 AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
 AGENT_ORCHESTRATOR_BRANCH="${AGENT_ORCHESTRATOR_BRANCH:-main}"
 
@@ -15,11 +14,10 @@ echo "OpenClaw prod: $OPENCLAW_PROD"
 echo "Repo: $AGENT_ORCHESTRATOR_REPO ($AGENT_ORCHESTRATOR_BRANCH)"
 echo
 
-# Step 1: Verify AO config exists (canonical location is ~/.openclaw_prod/)
-AO_CONFIG="$OPENCLAW_PROD/agent-orchestrator.yaml"
-if [ ! -f "$AO_CONFIG" ]; then
-    echo "ERROR: $AO_CONFIG not found."
-    echo "Run 'ao-install.sh' first to bootstrap the AO config."
+# Step 1: Verify hermes_prod exists and has config
+if [ ! -f "$HERMES_HOME/agent-orchestrator.yaml" ]; then
+    echo "ERROR: $HERMES_HOME/agent-orchestrator.yaml not found."
+    echo "Run 'ao install' first to initialize hermes_prod."
     exit 1
 fi
 echo "[1/6] AO config verified: $AO_CONFIG"
@@ -34,32 +32,47 @@ echo "[2/6] AO CLI: $AO_VERSION"
 
 # Step 3: Verify hermes gateway is running
 if ! command -v hermes &>/dev/null; then
-    echo "[3/6] WARNING: Hermes CLI not installed (skipping gateway check)"
+    echo "WARNING: Hermes CLI not installed (skipping gateway check)"
 elif HERMES_STATUS=$(hermes gateway status 2>&1) && echo "$HERMES_STATUS" | grep -q "Gateway is running"; then
     echo "[3/6] Hermes gateway: running"
 else
-    echo "[3/6] WARNING: Hermes gateway not running."
+    echo "WARNING: Hermes gateway not running."
     echo "Start with: hermes gateway start"
     echo "Or: ./bin/hermes gateway start"
 fi
 
 # Step 4: Check workspace directory
-WORKTREE_DIR=$(python3 -c "
-import yaml, os
-c = yaml.safe_load(open('$AO_CONFIG'))
-wt = c.get('worktreeDir', os.path.join(os.environ.get('HOME', ''), '.worktrees'))
-print(os.path.expanduser(wt))
-" 2>/dev/null || echo "$HOME/.worktrees")
+if ! WORKTREE_DIR=$(python3 - <<'PY'
+import os
+import sys
+import yaml
+
+config_path = os.environ.get("HERMES_HOME", os.path.join(os.environ["HOME"], ".hermes_prod")) + "/agent-orchestrator.yaml"
+with open(config_path, "r", encoding="utf-8") as fh:
+    config = yaml.safe_load(fh) or {}
+
+worktree_dir = config.get("worktreeDir", os.path.join(os.environ["HOME"], ".worktrees"))
+print(os.path.expanduser(worktree_dir))
+PY
+); then
+  echo "ERROR: Failed to read worktreeDir from agent-orchestrator.yaml"
+  echo "Please ensure your config file is valid YAML and try again."
+  exit 1
+fi
 mkdir -p "$WORKTREE_DIR"
 echo "[4/6] Worktree dir: $WORKTREE_DIR"
 
-# Step 5: Check launchd for lifecycle worker
+# Step 5: Check launchd for lifecycle worker (Darwin-only)
 # The canonical service is ai.agento.lifecycle-all (uses start-all.sh),
 # NOT the old per-project com.agentorchestrator.lifecycle-* plists.
-if launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
-  echo "[5/6] Lifecycle worker: installed via ai.agento.lifecycle-all (launchd)"
+if [[ "$(uname)" == "Darwin" ]]; then
+  if launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
+    echo "[5/6] Lifecycle worker: installed via ai.agento.lifecycle-all (launchd)"
+  else
+    echo "[5/6] Lifecycle worker: NOT installed via launchd (run 'ao setup-launchd' or setup-extended.sh)"
+  fi
 else
-  echo "[5/6] Lifecycle worker: NOT installed via launchd (run 'ao setup-launchd' or setup-extended.sh)"
+  echo "[5/6] Lifecycle worker: not applicable (non-Darwin platform)"
 fi
 
 # Step 6: Verify agent-orchestrator repo is accessible

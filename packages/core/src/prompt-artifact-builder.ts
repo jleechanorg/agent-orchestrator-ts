@@ -25,6 +25,8 @@ export interface WorkerPromptArtifactConfig {
   sessionId: SessionId;
   spawnConfig: SessionSpawnConfig;
   composedPromptPath?: string;
+  /** Skip PR/push boilerplate (e.g. for artifact-only workers). Defaults to false. */
+  skipPrBoilerplate?: boolean;
 }
 
 export function agentSupportsPromptFile(agent: Agent): boolean {
@@ -66,7 +68,7 @@ export function buildWorkerPromptArtifact(config: WorkerPromptArtifactConfig): W
     userPrompt: requestedTask,
     lineage: config.spawnConfig.lineage,
     siblings: config.spawnConfig.siblings,
-    skipPrBoilerplate: config.spawnConfig.skipPrBoilerplate,
+    skipPrBoilerplate: config.skipPrBoilerplate ?? config.spawnConfig.skipPrBoilerplate ?? false,
   });
 
   const composedPromptPath =
