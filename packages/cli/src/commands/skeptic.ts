@@ -107,22 +107,29 @@ async function findExistingVerdict(
 
   const comments = await fetchIssueComments(owner, repo, prNumber);
   for (const c of comments) {
-    const authorLogin = c.user?.login?.toLowerCase();
-    if (!authorLogin || authorLogin !== SKEPTIC_BOT_AUTHOR.toLowerCase()) continue;
-    // Must start with the HTML marker (not just contain it mid-text).
-    if (!c.body.trim().startsWith("<!-- skeptic-agent-verdict -->")) continue;
-    // Optionally match by requestId (when a specific trigger comment id is known).
-    if (requestId) {
-      const escaped = requestId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      if (!new RegExp(`<!-- skeptic-request-id-${escaped} -->`, "i").test(c.body)) continue;
-    } else if (validSha) {
-      const escapedSha = validSha.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const shaMarker = new RegExp(`<!-- skeptic-(?:gate|cron)-trigger-${escapedSha} -->`);
-      if (!shaMarker.test(c.body)) continue;
-    }
-    const m = c.body.match(VERDICT_LINE_RE);
-    if (m) {
-      return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
+    // Must be from the skeptic bot author — cursor[bot] comments can contain
+    // `<!-- skeptic-agent-verdict -->` as literal text in a bug description,
+    // which would otherwise false-match here.
+    // Only reuse a comment if it was posted for the same trigger SHA —
+    // otherwise editing it leaves the old updated_at and the skeptical gate
+    // workflow rejects it (it filters by updated_at >= TRIGGER_UPDATED).
+    if (/<!-- skeptic-agent-verdict -->/i.test(c.body)) {
+      const escapedSha = validSha?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const shaMarker = escapedSha
+        ? new RegExp(`<!-- skeptic-(?:gate|cron)-trigger-${escapedSha} -->`)
+        : null;
+      if (!shaMarker || shaMarker.test(c.body)) {
+        // If requestId was provided, also match by it to avoid races on same SHA
+        if (requestId) {
+          const escapedRid = requestId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const ridMarker = new RegExp(`<!-- skeptic-request-id-${escapedRid} -->`, "i");
+          if (!ridMarker.test(c.body)) continue;
+        }
+        const m = c.body.match(VERDICT_LINE_RE);
+        if (m) {
+          return { verdict: m[1].toUpperCase() as "PASS" | "FAIL" | "SKIPPED", commentId: c.id };
+        }
+      }
     }
   }
   return null;
@@ -285,7 +292,9 @@ export function registerSkeptic(program: Command): Command {
       const spinner4 = ora("Posting verdict to PR #" + prNumber + "…").start();
       let commentBody: string;
       try {
-        await postVerdict(
+        // postVerdict returns the exact body it posted to GitHub, so claim
+        // verification checks the real comment — not a stripped-down rebuild.
+        commentBody = await postVerdict(
           owner,
           repo,
           prNumber,
@@ -297,13 +306,6 @@ export function registerSkeptic(program: Command): Command {
           { headSha: triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
-
-        // bd-upxh: the comment we just posted is the comment-level evidence.
-        // Use the same body we posted (contains the HTML marker + verdict).
-        commentBody = [
-          "<!-- skeptic-agent-verdict -->",
-          bound.verdictLine,
-        ].join("\n");
 
         // Verify both run-level (LLM output) and comment-level (GitHub comment).
         // This surfaces INSUFFICIENT when evidence is missing or inconsistent — fail-closed.

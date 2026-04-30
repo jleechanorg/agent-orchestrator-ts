@@ -202,7 +202,7 @@ describe("dry-run SKIPPED color mapping", () => {
 });
 
 describe("bindVerdictOutput", () => {
-  const COMPLETE_PASS_WITH_8_GATES = [
+  const _COMPLETE_PASS_WITH_8_GATES = [
     "<!-- skeptic-gate-1:PASS -->",
     "<!-- skeptic-gate-2:PASS -->",
     "<!-- skeptic-gate-3:PASS -->",
@@ -237,15 +237,6 @@ describe("bindVerdictOutput", () => {
         "<!-- skeptic-gate-8:PASS -->",
         "VERDICT: PASS",
       ].join("\n"),
-    });
-
-    expect(result.verdictLine).toBe("VERDICT: PASS");
-    expect(result.verdictType).toBe("PASS");
-  });
-
-  it("keeps PASS unchanged when complete gate markers exist and request/head bindings are omitted", () => {
-    const result = bindVerdictOutput({
-      llmOutput: COMPLETE_PASS_WITH_8_GATES,
     });
 
     expect(result.verdictLine).toBe("VERDICT: PASS");

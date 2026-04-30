@@ -28,7 +28,7 @@ export async function postVerdict(
   /** Full LLM output — included in body so explanations are never lost. */
   llmOutput?: string,
   binding?: SkepticVerdictBinding,
-): Promise<void> {
+): Promise<string> {
   const gateMarkers = extractSkepticGateMarkers(llmOutput ?? verdict);
   const body = [
     "<!-- skeptic-agent-verdict -->",
@@ -68,6 +68,8 @@ export async function postVerdict(
   } else {
     await createComment(owner, repo, prNumber, body);
   }
+
+  return body;
 }
 
 /**

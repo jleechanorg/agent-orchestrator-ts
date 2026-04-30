@@ -2,7 +2,7 @@ Command: pnpm --filter @jleechanorg/ao-core test -- src/__tests__/decomposer.tes
 Date: 2026-04-22
 Result: PASS
 
- RUN  v4.0.18 /Users/jleechan/.worktrees/agent-orchestrator/ao-4054/packages/core
+ RUN  v4.0.18 <local-worktree>/packages/core
 
  ✓ src/__tests__/decomposer.test.ts (11 tests) 5ms
 
