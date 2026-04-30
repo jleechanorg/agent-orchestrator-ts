@@ -80,19 +80,57 @@ const RATE_LIMIT_ERROR_PATTERNS = [
   "GraphQL rate limit",
   "rate limit exceeded",
   "Too Many Requests",
+  "secondary rate limit",
+  // curl REST fallback emits 403 when GitHub rejects a token/scope due to rate limiting
+  "REST fallback failed",
+  "curl returned error: 403",
 ];
 
+const AUTH_ERROR_PATTERNS = [
+  "bad credentials",
+  "requires authentication",
+  "authentication failed",
+  "unauthorized",
+];
+
+function readExecErrorField(error: unknown, key: "stdout" | "stderr"): string {
+  const value = error && typeof error === "object" ? Reflect.get(error, key) : undefined;
+  return typeof value === "string" ? value : "";
+}
+
+function collectErrorText(error: unknown): string {
+  const parts = [error instanceof Error ? error.message : String(error)];
+  parts.push(readExecErrorField(error, "stdout"));
+  parts.push(readExecErrorField(error, "stderr"));
+  if (error instanceof Error && error.cause) {
+    parts.push(collectErrorText(error.cause));
+  }
+  return parts.filter((part) => part.trim().length > 0).join("\n");
+}
+
+function parseHttpStatusCode(error: unknown): number | undefined {
+  const match = collectErrorText(error).match(/\b(?:error|status)\D+(401|429)\b/i);
+  if (!match) return undefined;
+  return Number(match[1]);
+}
+
 function isRateLimitError(error: unknown): boolean {
-  const msg = error instanceof Error ? error.message : String(error);
+  const msg = collectErrorText(error);
   if (
     RATE_LIMIT_ERROR_PATTERNS.some((pattern) => msg.toLowerCase().includes(pattern.toLowerCase()))
   ) {
     return true;
   }
-  if (error instanceof Error && error.cause) {
-    return isRateLimitError(error.cause);
+  const status = parseHttpStatusCode(error);
+  return status === 429;
+}
+
+function isAuthError(error: unknown): boolean {
+  const msg = collectErrorText(error);
+  if (AUTH_ERROR_PATTERNS.some((pattern) => msg.toLowerCase().includes(pattern.toLowerCase()))) {
+    return true;
   }
-  return false;
+  return parseHttpStatusCode(error) === 401;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -267,9 +305,8 @@ function synthesizePrViewJsonFromRest(
 
 async function fetchPrViewFallbackAsJson(
   conv: PrViewRestConversion,
-  cwd?: string,
 ): Promise<string> {
-  const pullRaw = await execCli("gh", ["api", `repos/${conv.repo}/pulls/${conv.prNumber}`], cwd);
+  const pullRaw = await ghRestFallback(["api", `repos/${conv.repo}/pulls/${conv.prNumber}`]);
   const restObj = JSON.parse(pullRaw) as Record<string, unknown>;
 
   let reviewDecision: string | undefined;
@@ -286,11 +323,23 @@ async function fetchPrViewFallbackAsJson(
       let lastErr: unknown;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          revRaw = await execCli(
-            "gh",
-            ["api", `repos/${conv.repo}/pulls/${conv.prNumber}/reviews`, "--paginate"],
-            cwd,
-          );
+          // Pagination: GitHub REST API returns exactly 100 items per page when more exist,
+          // fewer when on the last page. This is more reliable than parsing `Link` headers
+          // with curl (which requires --include to emit headers to stderr, complicating the
+          // error-wrap/shell-parse chain). The `per_page=100` convention is stable across
+          // all GitHub REST API endpoints used here.
+          const reviews: unknown[] = [];
+          for (let page = 1; ; page++) {
+            const endpoint = `repos/${conv.repo}/pulls/${conv.prNumber}/reviews?per_page=100&page=${page}`;
+            const pageRaw = await ghRestFallback(["api", endpoint]);
+            const parsed = JSON.parse(pageRaw) as unknown;
+            if (!Array.isArray(parsed)) {
+              throw new Error(`Expected reviews array for ${endpoint}`);
+            }
+            reviews.push(...parsed);
+            if (parsed.length < 100) break;
+          }
+          revRaw = JSON.stringify(reviews);
           break;
         } catch (err) {
           lastErr = err;
@@ -320,7 +369,7 @@ async function fetchPrViewFallbackAsJson(
     const headObj = restObj.head as Record<string, unknown> | undefined;
     const sha = typeof headObj?.sha === "string" ? headObj.sha : undefined;
     if (sha) {
-      statusCheckRollup = await fetchCheckRunsViaRest(conv.repo, sha, cwd);
+      statusCheckRollup = await fetchCheckRunsViaRest(conv.repo, sha);
     }
   }
 
@@ -393,7 +442,7 @@ async function ghWithRetry(
       console.warn(
         "Gh CLI rate limit retries exhausted, trying REST API fallback for `gh pr view` call",
       );
-      return await fetchPrViewFallbackAsJson(conv, cwd);
+      return await fetchPrViewFallbackAsJson(conv);
     }
   }
 
@@ -454,6 +503,26 @@ function cleanupTempCurlConfig(configPath: string | undefined): void {
   }
 }
 
+// No retry on resolveGhAuthToken — gh auth token is invoked as a fallback after
+// env-token lookup already failed. A second failure here means the gh CLI itself
+// cannot authenticate (e.g., not logged in). Retrying would loop indefinitely with
+// the same result. The caller handles this by falling through without a token.
+async function resolveGhAuthToken(): Promise<string> {
+  const env = { ...process.env };
+  delete env.GITHUB_TOKEN;
+  delete env.GH_TOKEN;
+  delete env.AO_BOT_GH_TOKEN;
+  const { stdout: tokenOutput } = await execFileAsync("gh", ["auth", "token"], {
+    env,
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 30_000,
+  });
+  return tokenOutput.trim();
+}
+
+// Curl-based REST fallback — bypasses `gh` CLI entirely so rate-limit/retry loops
+// do not re-enter the same failure condition. REST API calls are stateless (no local
+// git context needed), so cwd is not passed to curl. Auth is via Bearer token env vars.
 export async function ghRestFallback(args: string[]): Promise<string> {
   // We only support `gh api ...` invocations here.
   if (!Array.isArray(args) || args.length === 0 || args[0] !== "api") {
@@ -494,16 +563,20 @@ export async function ghRestFallback(args: string[]): Promise<string> {
   // NOTE: We keep the 'repos/' prefix because GitHub REST API requires it.
   // gh uses repos/owner/repo/path and REST API is https://api.github.com/repos/owner/repo/path
 
-  // Get authentication token for the REST API call
-  let token = "";
-  try {
-    const { stdout: tokenOutput } = await execFileAsync("gh", ["auth", "token"], {
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 30_000,
-    });
-    token = tokenOutput.trim();
-  } catch {
-    // No auth available - continue without token (will hit lower rate limits)
+  // Prefer already-present env tokens so the curl fallback does not depend on
+  // gh auth resolution under the same failure conditions that triggered fallback.
+  const envToken =
+    process.env.GITHUB_TOKEN?.trim() ||
+    process.env.GH_TOKEN?.trim() ||
+    process.env.AO_BOT_GH_TOKEN?.trim() ||
+    "";
+  let token = envToken;
+  if (!token) {
+    try {
+      token = await resolveGhAuthToken();
+    } catch {
+      // No auth available - continue without token (will hit lower rate limits)
+    }
   }
 
   // Build query string from remaining args (e.g., --method GET, -F, etc.)
@@ -542,33 +615,51 @@ export async function ghRestFallback(args: string[]): Promise<string> {
   // Build curl command with authentication and error handling.
   // SECURITY: The token is written to a temporary curl config file instead of
   // being passed as a CLI argument, so it is not visible in `ps` output.
-  const curlArgs = [
-    "-f", // Fail on HTTP 4xx/5xx
-    "-sS", // Silent but show errors
-    "-H",
-    "Accept: application/vnd.github+json",
-    "-H",
-    "X-GitHub-Api-Version: 2022-11-28",
-  ];
+  const executeCurl = async (requestToken: string): Promise<string> => {
+    const curlArgs = [
+      "--fail-with-body",
+      "-sS", // Silent but show errors
+      "-H",
+      "Accept: application/vnd.github+json",
+      "-H",
+      "X-GitHub-Api-Version: 2022-11-28",
+    ];
 
-  let curlConfigPath: string | undefined;
-  if (token) {
-    curlConfigPath = writeTempCurlConfig(token);
-    curlArgs.push("--config", curlConfigPath);
-  }
+    let curlConfigPath: string | undefined;
+    if (requestToken) {
+      curlConfigPath = writeTempCurlConfig(requestToken);
+      curlArgs.push("--config", curlConfigPath);
+    }
 
-  curlArgs.push(...curlFlags, url);
+    curlArgs.push(...curlFlags, url);
+
+    try {
+      const { stdout } = await execFileAsync("curl", curlArgs, {
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 30_000,
+      });
+      return stdout.trim();
+    } finally {
+      cleanupTempCurlConfig(curlConfigPath);
+    }
+  };
 
   try {
-    const { stdout } = await execFileAsync("curl", curlArgs, {
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 30_000,
-    });
-    return stdout.trim();
+    return await executeCurl(token);
   } catch (err) {
+    if (envToken && isAuthError(err)) {
+      const ghToken = await resolveGhAuthToken().catch(() => null);
+      if (ghToken && ghToken !== envToken) {
+        try {
+          return await executeCurl(ghToken);
+        } catch (retryError) {
+          throw new Error(`REST fallback failed: ${(retryError as Error).message}`, {
+            cause: retryError,
+          });
+        }
+      }
+    }
     throw new Error(`REST fallback failed: ${(err as Error).message}`, { cause: err });
-  } finally {
-    cleanupTempCurlConfig(curlConfigPath);
   }
 }
 
@@ -897,19 +988,23 @@ async function maybeRemoveStaleCheckedOutWorktree(
 
 /**
  * Shared helper: fetch all check-runs for a commit via the GitHub REST API
- * using `gh api --paginate` to retrieve all pages automatically.
+ * using manual REST pagination to retrieve all pages.
  * Returns a statusCheckRollup-compatible array of entries with name, state, and detailsUrl.
  */
-async function fetchCheckRunsViaRest(repo: string, sha: string, cwd?: string): Promise<unknown[]> {
+async function fetchCheckRunsViaRest(repo: string, sha: string): Promise<unknown[]> {
   try {
-    // gh api --paginate follows Link headers automatically to fetch all pages
-    const raw = await execCli(
-      "gh",
-      ["api", `repos/${repo}/commits/${sha}/check-runs`, "--paginate"],
-      cwd,
-    );
-    const data = JSON.parse(raw) as { check_runs?: unknown[] };
-    return (data.check_runs ?? []).map((run: Record<string, unknown> | unknown) => {
+    // Pagination: GitHub REST API returns exactly 100 items per page when more exist,
+    // fewer when on the last page. Same `per_page=100` convention as reviews pagination.
+    const checkRuns: unknown[] = [];
+    for (let page = 1; ; page++) {
+      const endpoint = `repos/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}`;
+      const raw = await ghRestFallback(["api", endpoint]);
+      const data = JSON.parse(raw) as { check_runs?: unknown[] };
+      const pageRuns = Array.isArray(data.check_runs) ? data.check_runs : [];
+      checkRuns.push(...pageRuns);
+      if (pageRuns.length < 100) break;
+    }
+    return checkRuns.map((run: unknown) => {
       const r = run as Record<string, unknown>;
       return {
         name: r.name,

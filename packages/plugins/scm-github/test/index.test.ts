@@ -77,10 +77,7 @@ function mockGhError(msg = "Command failed") {
 function assertNoGitWorktreeRemoveCalls() {
   const removeCalls = ghMock.mock.calls.filter(
     ([bin, args]) =>
-      bin === "git" &&
-      Array.isArray(args) &&
-      args[0] === "worktree" &&
-      args[1] === "remove",
+      bin === "git" && Array.isArray(args) && args[0] === "worktree" && args[1] === "remove",
   );
   expect(removeCalls).toHaveLength(0);
 }
@@ -273,7 +270,10 @@ describe("scm-github plugin", () => {
       // Verify gh was called with the correct REST endpoint
       expect(ghMock).toHaveBeenCalledWith(
         "gh",
-        expect.arrayContaining(["api", expect.stringContaining("repos/acme/repo/issues/42/comments")]),
+        expect.arrayContaining([
+          "api",
+          expect.stringContaining("repos/acme/repo/issues/42/comments"),
+        ]),
         expect.any(Object),
       );
     });
@@ -376,7 +376,11 @@ describe("scm-github plugin", () => {
       }));
       // Page 2: skeptic PASS verdict — fewer than 100 items → pagination stops
       const page2 = [
-        { id: 101, user: { login: "jleechan-agent[bot]" }, body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS" },
+        {
+          id: 101,
+          user: { login: "jleechan-agent[bot]" },
+          body: "<!-- skeptic-agent-verdict -->\nVERDICT: PASS",
+        },
       ];
       ghMock.mockResolvedValueOnce({ stdout: JSON.stringify(page1) });
       ghMock.mockResolvedValueOnce({ stdout: JSON.stringify(page2) });
@@ -957,7 +961,9 @@ describe("scm-github plugin", () => {
             `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${stalePath}'\n`,
           ),
         ); // initial fetch blocked by stale worktree
-        ghMock.mockResolvedValueOnce({ stdout: `worktree ${stalePath}\nHEAD abc123\nbranch refs/heads/feat/my-feature\n\n` }); // git worktree list --porcelain (stale entry present)
+        ghMock.mockResolvedValueOnce({
+          stdout: `worktree ${stalePath}\nHEAD abc123\nbranch refs/heads/feat/my-feature\n\n`,
+        }); // git worktree list --porcelain (stale entry present)
         ghMock.mockResolvedValueOnce({ stdout: "detached-ghost\nanother-live-session\n" }); // tmux list-sessions (stale ao-9999 is dead)
         ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree remove --force --force
         ghMock.mockResolvedValueOnce({ stdout: "" }); // git worktree list --porcelain (stale entry gone, dir still lingers)
@@ -1026,7 +1032,10 @@ describe("scm-github plugin", () => {
         if (command === "remote get-url origin") {
           return { stdout: "https://github.com/acme/repo.git\n" };
         }
-        if (command === "fetch --force https://github.com/acme/repo.git +refs/pull/42/head:feat/my-feature") {
+        if (
+          command ===
+          "fetch --force https://github.com/acme/repo.git +refs/pull/42/head:feat/my-feature"
+        ) {
           currentBranch = "feat/my-feature";
           return { stdout: "" };
         }
@@ -1114,7 +1123,10 @@ describe("scm-github plugin", () => {
         if (command === "remote get-url origin") {
           return { stdout: "https://github.com/acme/repo.git\n" };
         }
-        if (command === "fetch --force https://github.com/acme/repo.git +refs/pull/42/head:feat/my-feature") {
+        if (
+          command ===
+          "fetch --force https://github.com/acme/repo.git +refs/pull/42/head:feat/my-feature"
+        ) {
           return { stdout: "" };
         }
         if (command === "checkout -f feat/my-feature") {
@@ -1151,7 +1163,8 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
       ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
       ghMock.mockRejectedValueOnce(new Error("couldn't find remote ref refs/pull/42/head")); // primary prRef fetch fails
-      ghMock.mockRejectedValueOnce( // fallback branch fetch blocked by non-AO worktree
+      ghMock.mockRejectedValueOnce(
+        // fallback branch fetch blocked by non-AO worktree
         new Error(
           `fatal: refusing to fetch into branch 'refs/heads/feat/my-feature' checked out at '${configuredWorktreeDir}/acme/feature-research'\n`,
         ),
@@ -1168,8 +1181,8 @@ describe("scm-github plugin", () => {
         (c: string[]) => c[1]?.[0] === "fetch",
       );
       // At least one fetch call should use pr.branch (not prRef) in recovery
-      const recoveryFetch = fetchCalls.find(
-        (c: string[]) => c[1]?.some((a: string) => a.includes("feat/my-feature") && a.includes("tmp-fetch")),
+      const recoveryFetch = fetchCalls.find((c: string[]) =>
+        c[1]?.some((a: string) => a.includes("feat/my-feature") && a.includes("tmp-fetch")),
       );
       expect(recoveryFetch).toBeDefined();
     });
@@ -1183,7 +1196,8 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/repo.git\n" }); // git remote get-url origin
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git fetch +refs/pull/42/head:feat/my-feature (succeeds)
       ghMock.mockResolvedValueOnce({ stdout: "session/abc123\n" }); // git branch --show-current (after fetch — still session branch)
-      ghMock.mockRejectedValueOnce( // git checkout -f feat/my-feature — locked by non-AO worktree
+      ghMock.mockRejectedValueOnce(
+        // git checkout -f feat/my-feature — locked by non-AO worktree
         new Error("fatal: 'feat/my-feature' is already checked out at '/opt/other-worktree'"),
       );
       ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" }); // git rev-parse refs/heads/feat/my-feature (reset target SHA)
@@ -1274,6 +1288,18 @@ describe("scm-github plugin", () => {
   // ---- getPRSummary REST fallback -----------------------------------------
 
   describe("getPRSummary REST fallback", () => {
+    let prevGithubToken: string | undefined;
+
+    beforeEach(() => {
+      prevGithubToken = process.env["GITHUB_TOKEN"];
+      process.env["GITHUB_TOKEN"] = "fake-env-token-for-tests";
+    });
+
+    afterEach(() => {
+      if (prevGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
+      else process.env["GITHUB_TOKEN"] = prevGithubToken;
+    });
+
     it("falls back to REST API when GraphQL is rate-limited", async () => {
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded");
@@ -1281,7 +1307,12 @@ describe("scm-github plugin", () => {
       // REST fallback returns full PR object
       mockGh({ state: "open", merged: false, title: "Fix bug", additions: 10, deletions: 5 });
       const summary = await scm.getPRSummary(pr);
-      expect(summary).toMatchObject({ state: "open", title: "Fix bug", additions: 10, deletions: 5 });
+      expect(summary).toMatchObject({
+        state: "open",
+        title: "Fix bug",
+        additions: 10,
+        deletions: 5,
+      });
     });
 
     it("REST fallback correctly identifies merged PRs", async () => {
@@ -1292,6 +1323,23 @@ describe("scm-github plugin", () => {
       const summary = await scm.getPRSummary(pr);
       expect(summary.state).toBe("merged");
     });
+
+    it("uses the describe-level GITHUB_TOKEN setup instead of consuming an auth-token mock", async () => {
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGh({ state: "open", merged: false, title: "Fix bug", additions: 10, deletions: 5 });
+
+      const summary = await scm.getPRSummary(pr);
+
+      expect(summary.state).toBe("open");
+      expect(
+        ghMock.mock.calls.some(
+          ([bin, args]) =>
+            bin === "gh" && Array.isArray(args) && args[0] === "auth" && args[1] === "token",
+        ),
+      ).toBe(false);
+    });
   });
 
   // ---- getReviewDecision REST fallback ------------------------------------
@@ -1299,8 +1347,15 @@ describe("scm-github plugin", () => {
 
   describe("getReviewDecision REST fallback", () => {
     let setTimeoutSpy: ReturnType<typeof vi.spyOn>;
+    let prevGithubToken: string | undefined;
 
     beforeEach(() => {
+      prevGithubToken = process.env["GITHUB_TOKEN"];
+      // Set a fake env token so ghRestFallback uses it directly without calling
+      // `gh auth token` (which would consume an extra mock and shift call counts).
+      // Tests that intentionally test gh-auth-token behavior set GITHUB_TOKEN
+      // themselves in their own setup.
+      process.env["GITHUB_TOKEN"] = "fake-env-token-for-tests";
       setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void) => {
         cb();
         return 0 as unknown as NodeJS.Timeout;
@@ -1309,6 +1364,8 @@ describe("scm-github plugin", () => {
 
     afterEach(() => {
       setTimeoutSpy.mockRestore();
+      if (prevGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
+      else process.env["GITHUB_TOKEN"] = prevGithubToken;
     });
 
     it("returns pending when REST synthesizes from pull + reviews (empty reviews = conservative)", async () => {
@@ -1321,17 +1378,13 @@ describe("scm-github plugin", () => {
       mockGhError("API rate limit exceeded");
       mockGh([]);
       expect(await scm.getReviewDecision(pr)).toBe("pending");
-      expect(ghMock).toHaveBeenNthCalledWith(
-        4,
-        "gh",
-        ["api", "repos/acme/repo/pulls/42"],
-        expect.any(Object),
+      expect(ghMock).toHaveBeenNthCalledWith(4, "curl", expect.any(Array), expect.any(Object));
+      expect((ghMock.mock.calls[3]?.[1] as string[]).join(" ")).toContain(
+        "https://api.github.com/repos/acme/repo/pulls/42",
       );
-      expect(ghMock).toHaveBeenNthCalledWith(
-        5,
-        "gh",
-        ["api", "repos/acme/repo/pulls/42/reviews", "--paginate"],
-        expect.any(Object),
+      expect(ghMock).toHaveBeenNthCalledWith(5, "curl", expect.any(Array), expect.any(Object));
+      expect((ghMock.mock.calls[4]?.[1] as string[]).join(" ")).toContain(
+        "https://api.github.com/repos/acme/repo/pulls/42/reviews?per_page=100&page=1",
       );
     });
 
@@ -1462,6 +1515,20 @@ describe("scm-github plugin", () => {
   // ---- getCIChecks -------------------------------------------------------
 
   describe("getCIChecks", () => {
+    let prevGithubToken: string | undefined;
+
+    beforeEach(() => {
+      prevGithubToken = process.env["GITHUB_TOKEN"];
+      // Prevent ghRestFallback from calling `gh auth token` during fallback,
+      // which would shift mock consumption and cause wrong call counts.
+      process.env["GITHUB_TOKEN"] = "fake-env-token-for-tests";
+    });
+
+    afterEach(() => {
+      if (prevGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
+      else process.env["GITHUB_TOKEN"] = prevGithubToken;
+    });
+
     it("maps various check states correctly", async () => {
       mockGh([
         {
@@ -1515,9 +1582,7 @@ describe("scm-github plugin", () => {
       expect(checks[0].completedAt).toBeUndefined();
     });
 
-    it(
-      "falls back to REST check-runs when rate-limited on statusCheckRollup",
-      async () => {
+    it("falls back to REST check-runs when rate-limited on statusCheckRollup", async () => {
       // First call: gh pr checks fails (unsupported)
       mockGhError("gh pr checks failed: unknown json field 'state'");
       // Second call: gh pr view --json statusCheckRollup => rate limit (3 retries)
@@ -1543,9 +1608,7 @@ describe("scm-github plugin", () => {
       expect(checks).toHaveLength(2);
       expect(checks[0]).toMatchObject({ name: "build", status: "passed" });
       expect(checks[1]).toMatchObject({ name: "lint", status: "failed" });
-    },
-      12_000,
-    );
+    }, 12_000);
 
     it("falls back to statusCheckRollup when pr checks json is unsupported", async () => {
       mockGhError("gh pr checks failed: unknown json field 'state'");
@@ -1570,6 +1633,18 @@ describe("scm-github plugin", () => {
   // ---- getCISummary ------------------------------------------------------
 
   describe("getCISummary", () => {
+    let prevGithubToken: string | undefined;
+
+    beforeEach(() => {
+      prevGithubToken = process.env["GITHUB_TOKEN"];
+      process.env["GITHUB_TOKEN"] = "fake-env-token-for-tests";
+    });
+
+    afterEach(() => {
+      if (prevGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
+      else process.env["GITHUB_TOKEN"] = prevGithubToken;
+    });
+
     it('returns "failing" when any check failed', async () => {
       mockGh([
         { name: "a", state: "SUCCESS" },
@@ -1639,112 +1714,96 @@ describe("scm-github plugin", () => {
       expect(await scm.getCISummary(pr)).toBe("none");
     });
 
-    it(
-      "returns 'failing' when all retries hit rate limits and secondary fallback also fails (bd-jp7q)",
-      async () => {
-        // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        // getPRState: ghWithRetry with 4 attempts; all fail → getCISummary returns "failing" (fail-closed)
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
-      },
-      120000, // ghWithRetry: 3 retries × up to 30s backoff; 12 errors ≈ 56s total
-    );
+    it("returns 'failing' when all retries hit rate limits and secondary fallback also fails (bd-jp7q)", async () => {
+      // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // getPRState: ghWithRetry with 4 attempts; all fail → getCISummary returns "failing" (fail-closed)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
+    }, 120000); // ghWithRetry: 3 retries × up to 30s backoff; 12 errors ≈ 56s total
 
-    it(
-      "returns 'failing' when all retries hit rate limits and secondary fallback also fails (cannot determine state)",
-      async () => {
-        // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        // Secondary fallback throws → checks.length === 0 → getPRState also throws
-        // (no mock left) → fail-closed.
-        await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
-      },
-      120000,
-    );
+    it("returns 'failing' when all retries hit rate limits and secondary fallback also fails (cannot determine state)", async () => {
+      // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // Secondary fallback throws → checks.length === 0 → getPRState also throws
+      // (no mock left) → fail-closed.
+      await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
+    }, 120000);
 
-    it(
-      "returns 'passing' when getCIChecks hits rate limit but REST fallback succeeds",
-      async () => {
-        // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        // REST fallback: gh api repos/acme/repo/pulls/42
-        mockGh({
-          state: "open",
-          head: { sha: "abc123", ref: "feat/test" },
-          base: { ref: "main" },
-        });
-        // REST fallback: fetchCheckRunsViaRest → gh api repos/acme/repo/commits/abc123/check-runs --paginate
-        mockGh({
-          check_runs: [
-            { name: "build", status: "completed", conclusion: "success", html_url: "https://ci/1" },
-            { name: "lint", status: "completed", conclusion: "success", html_url: "https://ci/2" },
-          ],
-        });
+    it("returns 'passing' when getCIChecks hits rate limit but REST fallback succeeds", async () => {
+      // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST fallback: gh api repos/acme/repo/pulls/42
+      mockGh({
+        state: "open",
+        head: { sha: "abc123", ref: "feat/test" },
+        base: { ref: "main" },
+      });
+      // REST fallback: fetchCheckRunsViaRest → gh api repos/acme/repo/commits/abc123/check-runs --paginate
+      mockGh({
+        check_runs: [
+          { name: "build", status: "completed", conclusion: "success", html_url: "https://ci/1" },
+          { name: "lint", status: "completed", conclusion: "success", html_url: "https://ci/2" },
+        ],
+      });
 
-        await expect(scm.getCISummary(pr)).resolves.toEqual("passing");
-      },
-      120000, // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
-    );
+      await expect(scm.getCISummary(pr)).resolves.toEqual("passing");
+    }, 120000); // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
 
-    it(
-      "returns 'failing' when getCIChecks hits rate limit but REST fallback returns failing checks",
-      async () => {
-        // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        mockGhError("API rate limit exceeded");
-        // REST fallback: gh api repos/acme/repo/pulls/42
-        mockGh({
-          state: "open",
-          head: { sha: "abc123", ref: "feat/test" },
-          base: { ref: "main" },
-        });
-        // REST fallback: fetchCheckRunsViaRest → gh api repos/acme/repo/commits/abc123/check-runs --paginate
-        mockGh({
-          check_runs: [
-            { name: "build", status: "completed", conclusion: "success" },
-            { name: "lint", status: "completed", conclusion: "failure" },
-          ],
-        });
+    it("returns 'failing' when getCIChecks hits rate limit but REST fallback returns failing checks", async () => {
+      // getCIChecks: gh pr checks rate-limited (4 retries = 4 calls)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // getCIChecksFromStatusRollup: gh pr view rate-limited (4 retries = 4 calls)
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      // REST fallback: gh api repos/acme/repo/pulls/42
+      mockGh({
+        state: "open",
+        head: { sha: "abc123", ref: "feat/test" },
+        base: { ref: "main" },
+      });
+      // REST fallback: fetchCheckRunsViaRest → gh api repos/acme/repo/commits/abc123/check-runs --paginate
+      mockGh({
+        check_runs: [
+          { name: "build", status: "completed", conclusion: "success" },
+          { name: "lint", status: "completed", conclusion: "failure" },
+        ],
+      });
 
-        await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
-      },
-      120000, // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
-    );
+      await expect(scm.getCISummary(pr)).resolves.toEqual("failing");
+    }, 120000); // ghWithRetry: 3 retries × up to 30s backoff; 8 errors ≈ 56s total
   });
 
   // ---- getReviews --------------------------------------------------------
@@ -1808,16 +1867,23 @@ describe("scm-github plugin", () => {
 
   describe("getReviews REST fallback", () => {
     let setTimeoutSpy: ReturnType<typeof vi.spyOn>;
+    let prevGithubToken: string | undefined;
 
     beforeEach(() => {
+      prevGithubToken = process.env["GITHUB_TOKEN"];
       setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void) => {
         cb();
         return 0 as unknown as NodeJS.Timeout;
       });
+      // Prevent ghRestFallback from calling `gh auth token` during fallback,
+      // which would shift mock consumption and cause wrong call counts.
+      process.env["GITHUB_TOKEN"] = "fake-env-token-for-tests";
     });
 
     afterEach(() => {
       setTimeoutSpy.mockRestore();
+      if (prevGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
+      else process.env["GITHUB_TOKEN"] = prevGithubToken;
     });
 
     it("returns empty array when REST fallback has no reviews field", async () => {
@@ -1848,6 +1914,58 @@ describe("scm-github plugin", () => {
       mockGhError("API rate limit exceeded");
       mockGhError("API rate limit exceeded"); // 3rd attempt → throws
       await expect(scm.getReviews(pr)).rejects.toThrow("API rate limit exceeded");
+    });
+
+    it("retries when REST fallback wraps curl 429 rate-limit errors", async () => {
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGh({ state: "open", merged: false });
+      ghMock.mockRejectedValueOnce(
+        Object.assign(
+          new Error("REST fallback failed: Command failed: curl ... returned error: 429"),
+          { stdout: '{"message":"API rate limit exceeded for test"}' },
+        ),
+      );
+      mockGh([]);
+
+      await expect(scm.getReviews(pr)).resolves.toEqual([]);
+      expect(setTimeoutSpy).toHaveBeenCalled();
+    });
+
+    it("retries when a leading 403 would otherwise shadow a later 429 status", async () => {
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGh({ state: "open", merged: false });
+      ghMock.mockRejectedValueOnce(
+        Object.assign(
+          new Error("REST fallback failed: Command failed: curl ... returned error: 403"),
+          { stdout: '{"status":429}' },
+        ),
+      );
+      mockGh([]);
+
+      await expect(scm.getReviews(pr)).resolves.toEqual([]);
+      expect(setTimeoutSpy).toHaveBeenCalled();
+    });
+
+    it("does not retry wrapped curl 403 permission errors", async () => {
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGhError("API rate limit exceeded");
+      mockGh({ state: "open", merged: false });
+      ghMock.mockRejectedValueOnce(
+        Object.assign(
+          new Error("Command failed: curl ... returned error: 403"),
+          { stdout: '{"message":"Resource not accessible by integration"}' },
+        ),
+      );
+      mockGh([]);
+
+      await expect(scm.getReviews(pr)).rejects.toBeInstanceOf(Error);
+      expect(setTimeoutSpy).toHaveBeenCalledTimes(2);
+      expect(ghMock).toHaveBeenCalledTimes(5);
     });
   });
 
@@ -2619,7 +2737,7 @@ describe("scm-github plugin", () => {
   });
 
   describe("getBatchPRStatus", () => {
-    it('treats whitespace-only reviewDecision as review required', async () => {
+    it("treats whitespace-only reviewDecision as review required", async () => {
       mockGh({
         state: "OPEN",
         mergeable: "MERGEABLE",
@@ -2670,8 +2788,13 @@ describe("scm-github plugin", () => {
 
   describe("rate limit handling", () => {
     let setTimeoutSpy: ReturnType<typeof vi.spyOn>;
+    let prevGithubToken: string | undefined;
 
     beforeEach(() => {
+      prevGithubToken = process.env["GITHUB_TOKEN"];
+      // Set a fake env token so ghRestFallback uses it directly without calling
+      // `gh auth token` (which would consume an extra mock and shift call counts).
+      process.env["GITHUB_TOKEN"] = "fake-env-token-for-tests";
       // Mock setTimeout to resolve immediately for rate limit tests
       setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void) => {
         cb();
@@ -2681,6 +2804,8 @@ describe("scm-github plugin", () => {
 
     afterEach(() => {
       setTimeoutSpy.mockRestore();
+      if (prevGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
+      else process.env["GITHUB_TOKEN"] = prevGithubToken;
     });
 
     it("retries on rate limit error and succeeds", async () => {
@@ -2703,14 +2828,35 @@ describe("scm-github plugin", () => {
         .mockRejectedValueOnce(new Error("rate limit"))
         .mockRejectedValueOnce(new Error("rate limit"))
         .mockRejectedValueOnce(new Error("rate limit"))
-        // 4th call: REST fallback also fails
+        // 4th call: REST fallback curl also fails (GITHUB_TOKEN is set in beforeEach)
         .mockRejectedValueOnce(new Error("rate limit"));
 
       const scm = await create({});
 
       await expect(scm.getPRState(pr)).rejects.toThrow();
-      // 3 retries + 1 REST fallback attempt = 4 calls
+      // 3 retries + 1 REST curl fallback = 4 calls
       expect(ghMock).toHaveBeenCalledTimes(4);
+    });
+
+    it("uses curl-based REST fallback for gh pr view instead of re-entering gh api", async () => {
+      process.env["GITHUB_TOKEN"] = "env-token";
+      ghMock
+        .mockRejectedValueOnce(new Error("rate limit"))
+        .mockRejectedValueOnce(new Error("rate limit"))
+        .mockRejectedValueOnce(new Error("rate limit"))
+        .mockResolvedValueOnce({ stdout: JSON.stringify({ state: "open", merged: false }) });
+
+      const scm = await create({});
+      const result = await scm.getPRState(pr);
+
+      expect(result).toBe("open");
+      expect(ghMock).toHaveBeenCalledTimes(4);
+      expect(ghMock.mock.calls[3]?.[0]).toBe("curl");
+      expect(
+        ghMock.mock.calls.some(
+          ([bin, args]) => bin === "gh" && Array.isArray(args) && args[0] === "api",
+        ),
+      ).toBe(false);
     });
 
     it("does not retry non-rate-limit errors", async () => {
@@ -2725,6 +2871,22 @@ describe("scm-github plugin", () => {
   });
 
   describe("REST fallback URL construction", () => {
+    let prevGithubToken: string | undefined;
+    let prevGhToken: string | undefined;
+
+    beforeEach(() => {
+      prevGithubToken = process.env["GITHUB_TOKEN"];
+      prevGhToken = process.env["GH_TOKEN"];
+      process.env["GITHUB_TOKEN"] = "test-token";
+    });
+
+    afterEach(() => {
+      if (prevGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
+      else process.env["GITHUB_TOKEN"] = prevGithubToken;
+      if (prevGhToken === undefined) delete process.env["GH_TOKEN"];
+      else process.env["GH_TOKEN"] = prevGhToken;
+    });
+
     it("throws for non-gh api commands", async () => {
       await expect(ghRestFallback(["pr", "view", "123"])).rejects.toThrow(
         "ghRestFallback only supports `gh api` commands",
@@ -2744,10 +2906,7 @@ describe("scm-github plugin", () => {
     });
 
     it("constructs URL correctly for simple endpoint", async () => {
-      // gh auth token call fails (no token), but curl call should still work
-      ghMock
-        .mockRejectedValueOnce(new Error("not authenticated"))
-        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+      ghMock.mockResolvedValueOnce({ stdout: '{"test": true}' });
 
       await ghRestFallback(["api", "repos/owner/repo/pulls"]);
 
@@ -2758,9 +2917,7 @@ describe("scm-github plugin", () => {
     });
 
     it("constructs URL correctly for endpoint with leading slash", async () => {
-      ghMock
-        .mockRejectedValueOnce(new Error("not authenticated"))
-        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+      ghMock.mockResolvedValueOnce({ stdout: '{"test": true}' });
 
       await ghRestFallback(["api", "/repos/owner/repo/pulls"]);
 
@@ -2770,21 +2927,19 @@ describe("scm-github plugin", () => {
     });
 
     it("handles query string parameters", async () => {
-      ghMock
-        .mockRejectedValueOnce(new Error("not authenticated"))
-        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+      ghMock.mockResolvedValueOnce({ stdout: '{"test": true}' });
 
       await ghRestFallback(["api", "repos/owner/repo/pulls?per_page=100"]);
 
       const curlCalls = ghMock.mock.calls.filter((call) => call[0] === "curl");
       expect(curlCalls).toHaveLength(1);
-      expect(curlCalls[0][1]).toContain("https://api.github.com/repos/owner/repo/pulls?per_page=100");
+      expect(curlCalls[0][1]).toContain(
+        "https://api.github.com/repos/owner/repo/pulls?per_page=100",
+      );
     });
 
     it("passes through --method GET flag", async () => {
-      ghMock
-        .mockRejectedValueOnce(new Error("not authenticated"))
-        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+      ghMock.mockResolvedValueOnce({ stdout: '{"test": true}' });
 
       await ghRestFallback(["api", "repos/owner/repo/pulls", "--method", "GET"]);
 
@@ -2795,9 +2950,7 @@ describe("scm-github plugin", () => {
     });
 
     it("matches execCli trimming semantics for REST fallback output", async () => {
-      ghMock
-        .mockRejectedValueOnce(new Error("not authenticated"))
-        .mockResolvedValueOnce({ stdout: '  {"test": true}\n' });
+      ghMock.mockResolvedValueOnce({ stdout: '  {"test": true}\n' });
 
       await expect(ghRestFallback(["api", "repos/owner/repo/pulls"])).resolves.toBe(
         '{"test": true}',
@@ -2805,9 +2958,7 @@ describe("scm-github plugin", () => {
     });
 
     it("finds endpoint when --method GET precedes the path", async () => {
-      ghMock
-        .mockRejectedValueOnce(new Error("not authenticated"))
-        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+      ghMock.mockResolvedValueOnce({ stdout: '{"test": true}' });
 
       await ghRestFallback([
         "api",
@@ -2824,10 +2975,7 @@ describe("scm-github plugin", () => {
     });
 
     it("includes auth token when available", async () => {
-      // First call is gh auth token, second is curl
-      ghMock
-        .mockResolvedValueOnce({ stdout: "test-token\n" })
-        .mockResolvedValueOnce({ stdout: '{"test": true}' });
+      ghMock.mockResolvedValueOnce({ stdout: '{"test": true}' });
 
       await ghRestFallback(["api", "repos/owner/repo/pulls"]);
 
@@ -2840,6 +2988,113 @@ describe("scm-github plugin", () => {
       const configPath = curlArgs[configIdx + 1];
       expect(configPath).toMatch(/[/\\].curl-auth-[\w-]+$/);
     });
+
+    it("prefers env token over gh auth token for curl fallback", async () => {
+      process.env["GITHUB_TOKEN"] = "env-token";
+      ghMock.mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await ghRestFallback(["api", "repos/owner/repo/pulls"]);
+
+      expect(ghMock).toHaveBeenCalledTimes(1);
+      expect(ghMock).toHaveBeenCalledWith("curl", expect.any(Array), expect.any(Object));
+      expect(
+        ghMock.mock.calls.some(
+          ([bin, args]) =>
+            bin === "gh" && Array.isArray(args) && args[0] === "auth" && args[1] === "token",
+        ),
+      ).toBe(false);
+    });
+
+    it("retries with gh auth token when env token is unauthorized", async () => {
+      process.env["GITHUB_TOKEN"] = "env-token";
+      ghMock.mockRejectedValueOnce(
+        Object.assign(new Error("Command failed: curl ... returned error: 401"), {
+          stdout: '{"message":"Bad credentials"}',
+        }),
+      );
+      ghMock.mockResolvedValueOnce({ stdout: "gh-auth-token\n" });
+      ghMock.mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await expect(ghRestFallback(["api", "repos/owner/repo/pulls"])).resolves.toBe(
+        '{"test": true}',
+      );
+
+      expect(ghMock).toHaveBeenCalledTimes(3);
+      expect(ghMock.mock.calls[0]?.[0]).toBe("curl");
+      expect(ghMock.mock.calls[1]?.[0]).toBe("gh");
+      expect(ghMock.mock.calls[1]?.[1]).toEqual(["auth", "token"]);
+      expect(ghMock.mock.calls[2]?.[0]).toBe("curl");
+    });
+
+    it("bypasses GITHUB_TOKEN override when gh auth token recovers from an unauthorized env token", async () => {
+      process.env["GITHUB_TOKEN"] = "env-token";
+      ghMock.mockRejectedValueOnce(
+        Object.assign(new Error("Command failed: curl ... returned error: 401"), {
+          stdout: '{"message":"Bad credentials"}',
+        }),
+      );
+      ghMock.mockImplementationOnce(async (_bin, _args, options?: { env?: NodeJS.ProcessEnv }) => {
+        const effectiveGithubToken = options?.env
+          ? options.env["GITHUB_TOKEN"]
+          : process.env["GITHUB_TOKEN"];
+        return { stdout: `${effectiveGithubToken || "gh-auth-token"}\n` };
+      });
+      ghMock.mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await expect(ghRestFallback(["api", "repos/owner/repo/pulls"])).resolves.toBe(
+        '{"test": true}',
+      );
+
+      expect(ghMock).toHaveBeenCalledTimes(3);
+      expect(ghMock.mock.calls[1]?.[0]).toBe("gh");
+      expect(ghMock.mock.calls[1]?.[1]).toEqual(["auth", "token"]);
+      expect(ghMock.mock.calls[2]?.[0]).toBe("curl");
+    });
+
+    it("bypasses GH_TOKEN override when gh auth token recovers from an unauthorized env token", async () => {
+      delete process.env["GITHUB_TOKEN"];
+      process.env["GH_TOKEN"] = "gh-env-token";
+      ghMock.mockRejectedValueOnce(
+        Object.assign(new Error("Command failed: curl ... returned error: 401"), {
+          stdout: '{"message":"Bad credentials"}',
+        }),
+      );
+      ghMock.mockImplementationOnce(async (_bin, _args, options?: { env?: NodeJS.ProcessEnv }) => {
+        const effectiveGhToken = options?.env ? options.env["GH_TOKEN"] : process.env["GH_TOKEN"];
+        return { stdout: `${effectiveGhToken || "gh-auth-token"}\n` };
+      });
+      ghMock.mockResolvedValueOnce({ stdout: '{"test": true}' });
+
+      await expect(ghRestFallback(["api", "repos/owner/repo/pulls"])).resolves.toBe(
+        '{"test": true}',
+      );
+
+      expect(ghMock).toHaveBeenCalledTimes(3);
+      expect(ghMock.mock.calls[1]?.[0]).toBe("gh");
+      expect(ghMock.mock.calls[1]?.[1]).toEqual(["auth", "token"]);
+      expect(ghMock.mock.calls[2]?.[0]).toBe("curl");
+    });
+
+    it("does not leak GH_TOKEN between tests", () => {
+      expect(process.env["GH_TOKEN"]).not.toBe("gh-env-token");
+    });
+
+    it("surfaces retried curl failures instead of the original auth error", async () => {
+      process.env["GITHUB_TOKEN"] = "env-token";
+      ghMock.mockRejectedValueOnce(
+        Object.assign(new Error("Command failed: curl ... returned error: 401"), {
+          stdout: '{"message":"Bad credentials"}',
+        }),
+      );
+      ghMock.mockResolvedValueOnce({ stdout: "gh-auth-token\n" });
+      ghMock.mockRejectedValueOnce(
+        Object.assign(new Error("Command failed: curl ... returned error: 429"), {
+          stdout: '{"message":"API rate limit exceeded"}',
+        }),
+      );
+
+      await expect(ghRestFallback(["api", "repos/owner/repo/pulls"])).rejects.toThrow("429");
+    });
   });
 
   // ---- GhCache write-dedupe exclusion ------------------------------------
@@ -2848,9 +3103,7 @@ describe("scm-github plugin", () => {
     it("concurrent identical write operations each invoke gh CLI independently (not deduplicated)", async () => {
       // Provide two separate responses. If in-flight dedupe incorrectly applied to writes,
       // ghMock would only be called once and the second response would go unconsumed.
-      ghMock
-        .mockResolvedValueOnce({ stdout: "" })
-        .mockResolvedValueOnce({ stdout: "" });
+      ghMock.mockResolvedValueOnce({ stdout: "" }).mockResolvedValueOnce({ stdout: "" });
 
       // Fire two concurrent identical merges for the same PR
       await Promise.all([scm.mergePR(pr, "squash"), scm.mergePR(pr, "squash")]);
