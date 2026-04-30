@@ -33,6 +33,7 @@ export async function postVerdict(
   const body = [
     "<!-- skeptic-agent-verdict -->",
     binding?.requestId ? `<!-- skeptic-request-id-${binding.requestId} -->` : null,
+    // Always include head-sha when provided, even if updating a comment posted without it.
     binding?.headSha ? `<!-- skeptic-head-sha-${binding.headSha} -->` : null,
     ...gateMarkers,
     "**🤖 Skeptic Agent Verdict (bd-qw6)**",
@@ -53,8 +54,32 @@ export async function postVerdict(
     .join("\n");
 
   if (existingCommentId) {
-    await patchComment(owner, repo, existingCommentId, body);
+    try {
+      await patchComment(owner, repo, existingCommentId, body);
+    } catch (err) {
+      // bd-479: only fallback for deleted/stale comment IDs (404).
+      // Rethrow all other errors (auth, rate-limit, network, 422) so upstream
+      // can handle retries/failures and avoid creating duplicate verdict comments.
+      if (!isGhNotFoundError(err)) {
+        throw err;
+      }
+      await createComment(owner, repo, prNumber, body);
+    }
   } else {
     await createComment(owner, repo, prNumber, body);
   }
+}
+
+/**
+ * Returns true when the error indicates a GitHub API 404 / "not found" response.
+ * The `gh` CLI prints "HTTP 404: Not Found" or "status: 404" in stderr on such errors.
+ */
+function isGhNotFoundError(err: unknown): boolean {
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : "";
+  return /\b404\b/i.test(msg) || /not\s+found/i.test(msg);
 }
