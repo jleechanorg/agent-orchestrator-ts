@@ -229,17 +229,55 @@ interface Review {
   submitted_at: string;
 }
 
-function jqLatestCRReview(reviews: Review[]): string {
+interface ApprovalSignalComment {
+  user: { login: string };
+  body: string;
+  created_at: string;
+}
+
+function jqLatestCRReview(
+  reviews: Review[],
+  approvalComments: ApprovalSignalComment[] = [],
+  headCommittedAt = "",
+  codeRabbitStatus = "none",
+): string {
+  const isCodeRabbitUser = (login: string): boolean =>
+    login === "coderabbitai[bot]" || login === "coderabbitai";
   const filtered = reviews.filter(
     (r) =>
-      r.user.login === "coderabbitai[bot]" &&
+      isCodeRabbitUser(r.user.login) &&
       (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED"),
   );
-  if (filtered.length === 0) return "none";
+  if (filtered.length === 0) {
+    const hasApprovalComment = approvalComments.some(
+      (comment) =>
+        isCodeRabbitUser(comment.user.login) &&
+        (!headCommittedAt || comment.created_at >= headCommittedAt) &&
+        /(?:^\s*\[approve\]\s*$|changes approved\.)/im.test(comment.body),
+    );
+    return codeRabbitStatus === "success" && hasApprovalComment ? "APPROVED" : "none";
+  }
   const sorted = [...filtered].sort((a, b) =>
     b.submitted_at.localeCompare(a.submitted_at),
   );
-  return sorted[0].state;
+  const latestState = sorted[0].state;
+  const latestReviewAt = sorted[0].submitted_at;
+  if (latestState === "APPROVED") return "APPROVED";
+
+  // When latestState is CHANGES_REQUESTED, only override it with a
+  // fresh approval comment that is NEWER than the CHANGES_REQUESTED
+  // review. A stale approval comment posted before the latest
+  // CHANGES_REQUESTED must not flip the result to APPROVED.
+  const hasApprovalComment = approvalComments.some(
+    (comment) =>
+      isCodeRabbitUser(comment.user.login) &&
+      (!headCommittedAt || comment.created_at >= headCommittedAt) &&
+      (!latestReviewAt || comment.created_at > latestReviewAt) &&
+      /(?:^\s*\[approve\]\s*$|changes approved\.)/im.test(comment.body),
+  );
+  return codeRabbitStatus === "success" && hasApprovalComment
+    ? "APPROVED"
+    : latestState;
 }
 
 describe("skeptic-gate.yml — CR review state filter", () => {
@@ -250,6 +288,52 @@ describe("skeptic-gate.yml — CR review state filter", () => {
       { user: { login: "human-reviewer" }, state: "APPROVED", submitted_at: "2026-04-03T10:00:00Z" },
     ];
     expect(jqLatestCRReview(reviews)).toBe("APPROVED");
+  });
+
+  it("accepts the plain coderabbitai login as the same reviewer identity", () => {
+    const reviews: Review[] = [
+      { user: { login: "coderabbitai[bot]" }, state: "CHANGES_REQUESTED", submitted_at: "2026-04-01T10:00:00Z" },
+      { user: { login: "coderabbitai" }, state: "APPROVED", submitted_at: "2026-04-02T10:00:00Z" },
+    ];
+    expect(jqLatestCRReview(reviews)).toBe("APPROVED");
+  });
+
+  it("treats a fresh CodeRabbit approval comment plus success status as APPROVED", () => {
+    const reviews: Review[] = [
+      { user: { login: "coderabbitai[bot]" }, state: "CHANGES_REQUESTED", submitted_at: "2026-04-01T10:00:00Z" },
+    ];
+    const approvalComments: ApprovalSignalComment[] = [
+      {
+        user: { login: "coderabbitai[bot]" },
+        body: "<details>\n<summary>Actions performed</summary>\n\nComments resolved and changes approved.\n\n</details>",
+        created_at: "2026-04-03T10:05:00Z",
+      },
+    ];
+    expect(
+      jqLatestCRReview(reviews, approvalComments, "2026-04-01T09:00:00Z", "success"),
+    ).toBe("APPROVED");
+  });
+
+  it("rejects a stale approval comment posted before the latest CHANGES_REQUESTED", () => {
+    // Scenario: approval comment at 10:00, then CHANGES_REQUESTED review at 11:00.
+    // The stale approval comment must NOT override the newer CHANGES_REQUESTED.
+    const reviews: Review[] = [
+      {
+        user: { login: "coderabbitai[bot]" },
+        state: "CHANGES_REQUESTED",
+        submitted_at: "2026-04-03T11:00:00Z",
+      },
+    ];
+    const approvalComments: ApprovalSignalComment[] = [
+      {
+        user: { login: "coderabbitai[bot]" },
+        body: "<details>\n<summary>Actions performed</summary>\n\nComments resolved and changes approved.\n\n</details>",
+        created_at: "2026-04-03T10:00:00Z",
+      },
+    ];
+    expect(
+      jqLatestCRReview(reviews, approvalComments, "2026-04-03T09:00:00Z", "success"),
+    ).toBe("CHANGES_REQUESTED");
   });
 
   it("returns CHANGES_REQUESTED when latest CR review is CHANGES_REQUESTED", () => {
