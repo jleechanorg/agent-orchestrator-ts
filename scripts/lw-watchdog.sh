@@ -112,12 +112,14 @@ has_exact_lifecycle_worker_for_project() {
   local project="$1"
   local process_line
 
+  # Workers spawn as: nohup node ... lifecycle-worker <project>
+  # pgrep -f matches the full command line; pattern must match the process args.
   while IFS= read -r process_line; do
     case "$process_line" in
-      *"ao lifecycle-worker ${project}"|*"ao lifecycle-worker ${project} "*) return 0 ;;
+      *lifecycle-worker[[:space:]]+${project}|*lifecycle-worker[[:space:]]+${project}[[:space:]]*) return 0 ;;
     esac
   done <<EOF
-$(pgrep -lf "ao lifecycle-worker" 2>/dev/null || true)
+$(pgrep -lf "lifecycle-worker" 2>/dev/null || true)
 EOF
 
   return 1
@@ -139,9 +141,10 @@ SERVICE_IDS=(
 SERVICE_PLISTS=(
   "$HOME/Library/LaunchAgents/ai.agento.lifecycle-all.plist"
 )
-# Process name patterns for pgrep — lifecycle-all runs all projects
+# Process name patterns for pgrep — lifecycle-all spawns workers via node, so match
+# the "lifecycle-worker <project>" suffix. Workers are: nohup node ... lifecycle-worker <project>
 SERVICE_PGREP_PATTERNS=(
-  "ao[[:space:]]+lifecycle-worker"
+  "lifecycle-worker"
 )
 
 for i in "${!SERVICE_IDS[@]}"; do
@@ -153,7 +156,7 @@ for i in "${!SERVICE_IDS[@]}"; do
     continue
   fi
 
-  # Use pre-defined pgrep pattern (includes 'ao' prefix for accurate matching)
+  # Use pre-defined pgrep pattern (workers spawn via node, match on "lifecycle-worker")
   PGREP_PATTERN="${SERVICE_PGREP_PATTERNS[$i]}"
 
   # Parse the full launchctl state string. `state = not running` must stay intact;
@@ -192,26 +195,49 @@ for i in "${!SERVICE_IDS[@]}"; do
   fi
 
   if [ "$SERVICE_ID" = "ai.agento.lifecycle-all" ] && [ "$STATE_CLASS" = "not_running" ]; then
+    # Wrapper (start-all.sh) exits after forking workers — this is NORMAL.
+    # Check if workers are actually running before deciding to kick.
     MISSING_WORKERS="$(list_missing_lifecycle_workers)"
     if [ "$MISSING_WORKERS" = "$CONFIG_PARSE_FAILED_SENTINEL" ]; then
       log "WARN: $SERVICE_ID — configured project list unavailable; skipping kickstart to avoid false restart loop"
       continue
     fi
     if [ -z "$MISSING_WORKERS" ]; then
+      # All workers present — wrapper exited normally after forking. HEALTHY.
       log "HEALTHY_DORMANT: $SERVICE_ID — wrapper not running, all child lifecycle workers present"
       continue
     fi
 
-    log "RESTART_NEEDED: $SERVICE_ID — wrapper not running, missing lifecycle workers: $MISSING_WORKERS"
+    # Workers are missing — kick the service to respawn them.
+    log "RESTART_NEEDED: $SERVICE_ID — missing lifecycle workers: $MISSING_WORKERS"
     KICKSTART_OUT="$(launchctl kickstart -k "gui/$UID_NUM/$SERVICE_ID" 2>&1 || true)"
     if [ -n "$KICKSTART_OUT" ]; then
       log "KICKSTART: $SERVICE_ID — $KICKSTART_OUT"
     fi
 
-    sleep 3
-    NEW_STATE_OUTPUT="$(launchctl print "gui/$UID_NUM/$SERVICE_ID" 2>&1 || true)"
-    NEW_STATE="$(extract_launchctl_state_from_output "$NEW_STATE_OUTPUT")"
-    log "VERIFY: $SERVICE_ID — state=$NEW_STATE after kickstart"
+    # Wait up to 60s for workers to respawn (start-all.sh forks then exits).
+    # Poll every 5s so a fast respawn doesn't waste time.
+    WORKERS_CONFIRMED=""
+    for retry in $(seq 1 12); do
+      sleep 5
+      STILL_MISSING="$(list_missing_lifecycle_workers)"
+      if [ "$STILL_MISSING" = "$CONFIG_PARSE_FAILED_SENTINEL" ]; then
+        log "VERIFY: $SERVICE_ID — config unavailable after kick, giving up"
+        break
+      fi
+      if [ -z "$STILL_MISSING" ]; then
+        WORKERS_CONFIRMED=1
+        log "VERIFY: $SERVICE_ID — all workers present after ${retry}x5s"
+        break
+      fi
+      log "RETRY: $SERVICE_ID — still missing: $STILL_MISSING (attempt ${retry}/12)"
+    done
+    if [ -z "$WORKERS_CONFIRMED" ]; then
+      MISSING_AFTER="$(list_missing_lifecycle_workers)"
+      if [ "$MISSING_AFTER" != "$CONFIG_PARSE_FAILED_SENTINEL" ] && [ -n "$MISSING_AFTER" ]; then
+        log "WARN: $SERVICE_ID — workers still missing after 60s: $MISSING_AFTER"
+      fi
+    fi
     continue
   fi
 
