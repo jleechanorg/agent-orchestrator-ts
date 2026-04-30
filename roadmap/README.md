@@ -4,6 +4,13 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-04-25
+
+- **ao-core global dist stale — enum mismatch** — Global npm `@jleechanorg/ao-core@0.1.0` dist (built 08:04) missing `skeptic-review`, `respawn-for-review`, `claim-verification` from `ReactionConfigSchema.action` enum. Source dist (built 10:38) has all 8 values. Workers crashed with `ZodError: Invalid enum value 'skeptic-review'`. Fix: synced key files (config.js, lifecycle-manager.js, skeptic-reviewer.js, fork-skeptic-extension.js, index.js, worktree-git.js) from source to global npm location. Workaround: workers running from source `packages/cli/dist` (PID 3035 agent-orchestrator, PID 77098 worldarchitect).
+- **SLACK_WEBHOOK_URL placeholder crash** — Global `ao-core/dist/utils.js` `validateUrl` throws on `${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/PLACEHOLDER}`. Source handles gracefully via `[notifier-slack] Ignoring unresolved webhookUrl placeholder`. Still unresolved — fix needed in `utils.js` validateUrl. Beads: **bd-2wdq**.
+- **worldarchitect skeptic-cron disabled by backfillAllPRs=false** — `runLocalSkepticCron` gated by `backfillAllPRs !== false` at lifecycle-manager.ts:2765. worldarchitect had this false, silently skipping all skeptic evaluations. Fix: set `backfillAllPRs: true` in `~/.hermes_prod/agent-orchestrator.yaml`. Bead: **bd-fixsk**.
+- **PR #500 ready to land** — `fix(skeptic): patchComment 404 fallback` supersedes #479. Verify workers spawning AO sessions, then land in order: #500 → rebase #495/#496/#498.
+
 ### 2026-04-22
 
 - **Plugin refactor plan (bd-8kel)** — Fork has ~2,700 LOC of fork-specific code embedded in core files causing merge conflicts on every upstream import. Full architectural analysis: companion module pattern (`fork-*.ts`) already in use, all extractable as proper plugins. Designed 8-plugin architecture reducing conflict surface from ~2,700 to ~80 LOC. Plan: [`nextsteps-plugin-refactor.md`](./nextsteps-plugin-refactor.md). Phase 1: extract `lifecycle-skeptic` plugin (~500 LOC, highest impact).

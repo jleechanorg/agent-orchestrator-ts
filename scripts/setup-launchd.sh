@@ -53,10 +53,16 @@ path_for_launchd() {
   fi
 }
 
+# Returns the path to the CLI binary for AO_CLI_PATH env var.
+# Prefers the source tree (repo-local packages/cli/dist/index.js) when running
+# from a repo checkout, since the global npm ao may not include fork subcommands.
+# Falls back to the PATH-resolved ao binary if called from outside the repo.
 ao_cli_path() {
+  # Use the source tree if REPO_ROOT is set and the dist exists
   if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/packages/cli/dist/index.js" ]; then
     echo "$REPO_ROOT/packages/cli/dist/index.js"
   else
+    # Fallback: resolve ao from PATH (e.g., global npm install)
     command -v ao 2>/dev/null || echo "ao"
   fi
 }
@@ -98,6 +104,8 @@ install_lifecycle_plist() {
   tmp_plist="$(mktemp)"
   local path_value
   path_value="$(escape_sed "$(path_for_launchd)")"
+  local ao_cli_path_value
+  ao_cli_path_value="$(escape_sed "$(ao_cli_path)")"
 
   sed \
     -e "s|@HOME@|$(escape_sed "$HOME")|g" \
@@ -105,6 +113,7 @@ install_lifecycle_plist() {
     -e "s|@START_ALL_SCRIPT@|$(escape_sed "$script")|g" \
     -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
     -e "s|@AO_CONFIG_PATH@|$(escape_sed "$config_path")|g" \
+    -e "s|@AO_CLI_PATH@|$ao_cli_path_value|g" \
     -e "s|@PATH@|$path_value|g" \
     -e "s|@AO_CLI_PATH@|$(escape_sed "$(ao_cli_path)")|g" \
     "$template" > "$tmp_plist"
