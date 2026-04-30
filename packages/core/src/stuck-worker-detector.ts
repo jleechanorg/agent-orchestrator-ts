@@ -49,7 +49,7 @@ const WAITING_PATTERNS: RegExp[] = [
   /Waiting for user/i,
   /Do you want to proceed\?/i,
   /\(Y\)es.*\(N\)o/i,
-  /bypass.*permissions/i,
+  /bypass\s+permissions.*\?/i,
   /approval required/i,
   /\[y\/n\]/i,
   /\[yes\/no\]/i,

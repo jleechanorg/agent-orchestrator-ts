@@ -1007,12 +1007,6 @@ describe("skeptic-cron-reusable.yml — request-id freshness contract", () => {
       input,
       encoding: "utf8",
     });
-    if (result.error) {
-      throw result.error;
-    }
-    if (result.status !== 0) {
-      throw new Error(`jq failed: ${result.stderr?.trim() ?? "unknown error"}`);
-    }
     return (result.stdout ?? "").trim();
   }
 

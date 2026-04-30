@@ -77,10 +77,20 @@ describe("analyzePaneContent", () => {
     expect(result.action).toBe("nudge");
   });
 
-  it("returns nudge when bypass permissions prompt detected", () => {
+  it("returns nudge for bypass permissions prompt with question", () => {
+    // Real permission dialog: "Would you like to bypass permissions for this operation?"
+    // Must trigger nudge — narrower /bypass\s+permissions.*\?/i pattern catches this.
     const pane = "Would you like to bypass permissions for this operation?\n";
     const result = analyzePaneContent(pane);
     expect(result.action).toBe("nudge");
+  });
+
+  it("returns none for bypass permissions status bar text (false-positive guard)", () => {
+    // Claude Code status bar shows "bypass permissions on (shift+tab to cycle)" in every idle session.
+    // This must NOT trigger a nudge — real permission dialogs use [y/n] / (Y)es/(N)o patterns.
+    const pane = "Some output\n⏵⏵ bypass permissions on (shift+tab to cycle)\n";
+    const result = analyzePaneContent(pane);
+    expect(result.action).toBe("none");
   });
 
   it("returns nudge when [y/n] prompt detected", () => {
