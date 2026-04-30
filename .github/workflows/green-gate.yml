@@ -168,21 +168,28 @@ jobs:
           GATE_ROWS="${GATE_ROWS}| 2. No conflicts | ${GATE2} | ${GATE2_DETAIL} |\n"
 
           # ----------------------------------------------------------------
-          # Gate 3: CR APPROVED (latest CR review is APPROVED)
+          # Gate 3: CR APPROVED — uses GraphQL reviewDecision (authoritative).
+          # REST reviews filtered by commit_id miss approvals on earlier SHAs
+          # that GitHub still considers valid for the PR overall.
           # ----------------------------------------------------------------
-          LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
-            --paginate 2>/dev/null | jq -r --arg head_sha "$HEAD_SHA" \
-            '[.[] | select(.user.login == "coderabbitai[bot]" and (.state == "APPROVED" or .state == "CHANGES_REQUESTED") and .commit_id == $head_sha)] | sort_by(.submitted_at) | last | .state // "none"' \
-            || echo "none")
-          LATEST_CR="${LATEST_CR:-none}"
+          REVIEW_DECISION=$(gh api graphql -f query='
+            query($owner:String!,$repo:String!,$pr:Int!) {
+              repository(owner:$owner,name:$repo) {
+                pullRequest(number:$pr) { reviewDecision }
+              }
+            }' -f owner="${{ github.repository_owner }}" \
+               -f repo="$(echo '${{ github.repository }}' | cut -d/ -f2)" \
+               -F pr="$PR_NUM" \
+            --jq '.data.repository.pullRequest.reviewDecision // "NONE"' 2>/dev/null \
+            || echo "NONE")
 
-          if [ "$LATEST_CR" = "APPROVED" ]; then
+          if [ "$REVIEW_DECISION" = "APPROVED" ]; then
             GATE3="PASS"
           else
             GATE3="FAIL"
             FAILED_GATES="${FAILED_GATES}3, "
           fi
-          GATE3_DETAIL="state=$LATEST_CR"
+          GATE3_DETAIL="reviewDecision=$REVIEW_DECISION"
           echo "Gate 3: $GATE3 ($GATE3_DETAIL)"
           GATE_ROWS="${GATE_ROWS}| 3. CR approved | ${GATE3} | ${GATE3_DETAIL} |\n"
 
@@ -243,7 +250,7 @@ jobs:
           # If CR has APPROVED, non-nit unresolved comments are non-blocking (CR
           # has already signed off despite the noise). Without CR APPROVED, unresolved
           # comments remain a hard failure (fail-closed).
-          if [ "$LATEST_CR" = "APPROVED" ]; then
+          if [ "$REVIEW_DECISION" = "APPROVED" ]; then
             GATE5="PASS"
             GATE5_DETAIL="${UNRESOLVED:-N/A} unresolved (CR approved — non-blocking)"
           elif [ "$UNRESOLVED" = "__GQL_ERROR__" ] || [ "$UNRESOLVED" = "__TRUNCATED__" ]; then
