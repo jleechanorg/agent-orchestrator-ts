@@ -156,8 +156,13 @@ jobs:
                   verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")
                 })
               | map(select(
-                  (((.user.login | ascii_downcase) == ($author | ascii_downcase)) or ((.user.login | ascii_downcase) == "github-actions[bot]"))
-                  and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                  (
+                    ((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                    or (
+                      ((.user.login | ascii_downcase) == "github-actions[bot]")
+                      and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                    )
+                  )
                   and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                   and (.verdict == "FAIL" or .verdict == "SKIPPED")
                   and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
