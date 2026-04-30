@@ -292,7 +292,9 @@ export function registerSkeptic(program: Command): Command {
       const spinner4 = ora("Posting verdict to PR #" + prNumber + "…").start();
       let commentBody: string;
       try {
-        await postVerdict(
+        // postVerdict returns the exact body it posted to GitHub, so claim
+        // verification checks the real comment — not a stripped-down rebuild.
+        commentBody = await postVerdict(
           owner,
           repo,
           prNumber,
@@ -304,13 +306,6 @@ export function registerSkeptic(program: Command): Command {
           { headSha: triggerSha, requestId: options.requestId } as SkepticVerdictBinding,
         );
         spinner4.succeed(chalk.green("Done! Skeptic verdict posted."));
-
-        // bd-upxh: the comment we just posted is the comment-level evidence.
-        // Use the same body we posted (contains the HTML marker + verdict).
-        commentBody = [
-          "<!-- skeptic-agent-verdict -->",
-          bound.verdictLine,
-        ].join("\n");
 
         // Verify both run-level (LLM output) and comment-level (GitHub comment).
         // This surfaces INSUFFICIENT when evidence is missing or inconsistent — fail-closed.
