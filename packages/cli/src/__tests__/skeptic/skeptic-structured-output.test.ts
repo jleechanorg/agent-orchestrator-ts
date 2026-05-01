@@ -266,7 +266,7 @@ describe("skeptic structured output", () => {
         null,
       );
 
-      expect(prompt).toContain("GOALS SECTION VERIFICATION");
+      expect(prompt).toContain("GOALS PROOF");
       expect(prompt).toContain("Rule 12");
       expect(prompt).toContain("12a");
       expect(prompt).toContain("12b");
@@ -284,9 +284,9 @@ describe("skeptic structured output", () => {
         null,
       );
 
-      expect(prompt).toContain("bullet or numbered items");
+      expect(prompt).toContain("bullet/numbered item");
       expect(prompt).toContain("12a");
-      expect(prompt).toContain("Extract each bullet/numbered item");
+      expect(prompt).toContain("Extract each bullet/numbered item from the Goals section");
     });
 
     it("Rule 12d allows test goals to be satisfied by test changes", () => {
@@ -298,11 +298,11 @@ describe("skeptic structured output", () => {
         null,
       );
 
-      // 12d must say test-only goals CAN be satisfied by test changes
-      expect(prompt).toContain("Goals explicitly about adding or updating tests CAN be satisfied by test changes");
+      // 12f must say TESTING goals don't require behavioral code changes
+      expect(prompt).toContain("Behavioral code changes are NOT required if goal explicitly says 'add tests'");
     });
 
-    it("Rule 12d still rejects test-only for feature/bugfix goals", () => {
+    it("Rule 12 rejects behavioral goals with no test validation", () => {
       const prompt = buildSkepticPrompt(
         makeMinimalPR(),
         makePassingState(),
@@ -311,8 +311,8 @@ describe("skeptic structured output", () => {
         null,
       );
 
-      expect(prompt).toContain("For feature/bugfix goals");
-      expect(prompt).toContain("a goal with only test changes is NOT implemented");
+      expect(prompt).toContain("FAIL if behavioral goal has no corresponding passing test");
+      expect(prompt).toContain("The test must specifically prove the claimed behavior, not just exist");
     });
 
     it("Rule 12 skips when no Goals section present", () => {
@@ -325,7 +325,7 @@ describe("skeptic structured output", () => {
       );
 
       expect(prompt).toContain("skip this rule");
-      expect(prompt).toContain("not mandatory to have Goals sections");
+      expect(prompt).toContain("skip rules 12c-12g");
     });
 
     it("FAIL format instructs to include Goals Verification section when Rule 12 gaps found", () => {
