@@ -280,6 +280,8 @@ export function buildSkepticPrompt(
     "<!-- skeptic-gate-6:PASS -->",
     "<!-- skeptic-gate-7:PASS -->",
     "<!-- skeptic-gate-8:PASS -->",
+    "<!-- skeptic-gate-8a:PASS -->",
+    "<!-- skeptic-gate-8b:PASS -->",
     "VERDICT: PASS — [one sentence stating why the PR passes]",
     "--- // END PASS",
     "",

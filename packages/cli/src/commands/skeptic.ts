@@ -199,25 +199,20 @@ export function registerSkeptic(program: Command): Command {
       // Design doc fetch uses GitHub API with the PR's head ref so it works regardless of cwd.
       const designDoc = await fetchDesignDoc(owner, repo, prNumber, pr.headRefOid).catch(() => null);
 
-      // Fetch test file contents for Rule 12 behavioral goal verification.
-      const testFiles = await fetchTestFileContents(
-        owner,
-        repo,
-        prNumber,
-        diff,
-        pr.headRefOid,
-      );
-
       spinner.succeed(chalk.green(`Fetched PR #${prNumber}: "${pr.title}"`));
 
+      // Fetch test file contents and merge gate state in parallel.
       const spinner2 = ora("Fetching merge gate state (aligned with checkMergeGate)…").start();
-      const state = await fetchMergeGateState(owner, repo, prNumber, SKEPTIC_BOT_AUTHOR).catch(
-        (err) => {
-          spinner2.fail(chalk.red("Failed to fetch merge gate state: " + err));
-          process.exit(1);
-          return null as never;
-        },
-      );
+      const [testFiles, state] = await Promise.all([
+        fetchTestFileContents(owner, repo, prNumber, diff, pr.headRefOid).catch(() => new Map<string, string>()),
+        fetchMergeGateState(owner, repo, prNumber, SKEPTIC_BOT_AUTHOR).catch(
+          (err) => {
+            spinner2.fail(chalk.red("Failed to fetch merge gate state: " + err));
+            process.exit(1);
+            return null as never;
+          },
+        ),
+      ]);
       spinner2.succeed(chalk.green("Merge gate state fetched"));
 
       // Early SKIP: if all diff files match exclude patterns, post VERDICT: SKIPPED immediately.
