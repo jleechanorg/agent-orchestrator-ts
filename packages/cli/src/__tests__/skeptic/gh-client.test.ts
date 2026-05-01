@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const execMock = vi.hoisted(() => vi.fn<[cmd: string, args: string[]], Promise<{ stdout: string }>>());
+const execMock = vi.hoisted(() => {
+  const fn = vi.fn<(cmd: string, args: string[]) => Promise<{ stdout: string }>>();
+  return fn;
+});
 
 vi.mock("../../lib/shell.js", () => ({
   exec: execMock,
