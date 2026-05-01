@@ -268,7 +268,7 @@ export function buildSkepticPrompt(
     "<!-- skeptic-gate-8c:PASS|FAIL -->  Evidence provenance — evidence cited is tied to changed files",
     "A PASS verdict is invalid unless all eight markers are PASS.",
     "Gate 8 sub-markers (8a/8b/8c) are informational — they do not individually block merge.",
-    "They MUST appear in the output when Rule 12 or Rule 13 gaps are found.",
+    "Emit 8a/8b/8c only when Rule 12 or Rule 13 gaps are found, or when explaining an evidence-provenance failure.",
     "",
     "// PASS — output brief confirmation only, no structured sections:",
     "<!-- skeptic-gate-1:PASS -->",
