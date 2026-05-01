@@ -139,8 +139,8 @@ export function buildSkepticPrompt(
   ].join("\n");
 
   // Test file contents section — enables Rule 12 behavioral goal verification
-  const MAX_TOTAL_TEST_FILE_CHARS = 100_000;
-  const MAX_TEST_FILE_CHARS = 50_000;
+  const MAX_TOTAL_TEST_FILE_CHARS = 20_000;
+  const MAX_TEST_FILE_CHARS = 10_000;
   let remainingTestChars = MAX_TOTAL_TEST_FILE_CHARS;
   const testFilesSection =
     testFiles && testFiles.size > 0
