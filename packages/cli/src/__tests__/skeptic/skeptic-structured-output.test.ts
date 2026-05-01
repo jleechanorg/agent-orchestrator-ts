@@ -384,6 +384,78 @@ describe("skeptic structured output", () => {
       expect(failingOutput).toContain("## Background");
     });
   });
+
+  describe("testFiles injection (Rule 12)", () => {
+    it("injects test file contents when testFiles Map is provided", () => {
+      const testFiles = new Map([["src/foo.test.ts", "describe('foo', () => { it('works', () => {}); });"]]);
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+        testFiles,
+      );
+      expect(prompt).toContain("--- TEST FILE CONTENTS");
+      expect(prompt).toContain("src/foo.test.ts");
+      expect(prompt).toContain("describe('foo'");
+    });
+
+    it("omits testFiles section when no test files provided", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      expect(prompt).not.toContain("--- TEST FILE CONTENTS");
+    });
+  });
+
+  describe("8a/8b/8c marker contract", () => {
+    it("PASS template always includes 8a and 8b markers but not 8c in the actual template lines", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      // The PASS template section (before --- // END PASS) includes 8a and 8b
+      const passSection = prompt.split("--- // END PASS")[0] ?? "";
+      expect(passSection).toContain("<!-- skeptic-gate-8a:PASS -->");
+      expect(passSection).toContain("<!-- skeptic-gate-8b:PASS -->");
+      // 8c appears only in the instruction block (the "8c:PASS|FAIL" line), not as a concrete PASS template line
+      // Check that "<!-- skeptic-gate-8c:PASS -->" is NOT in the PASS template
+      const passTemplateMatch = passSection.match(/<!-- skeptic-gate-8c:PASS -->/);
+      expect(passTemplateMatch).toBeNull();
+    });
+
+    it("8a/8b/8c are documented as informational only (not individual merge blockers)", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      expect(prompt).toContain("Gate 8 sub-markers (8a/8b/8c) are informational");
+      expect(prompt).toContain("do not individually block merge");
+    });
+
+    it("FAIL instruction says emit 8a/8b/8c only when gaps found", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makeFailingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      const outputSection = prompt.split("OUTPUT FORMAT:")[1] ?? "";
+      expect(outputSection).toContain("emit 8a/8b/8c only when Rule 12 or Rule 13 gaps are found");
+    });
+  });
 });
 
 describe("isEvidenceAuthentic", () => {

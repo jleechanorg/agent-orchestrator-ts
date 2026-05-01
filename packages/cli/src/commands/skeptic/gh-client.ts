@@ -245,10 +245,12 @@ export async function fetchTestFileContents(
 
   if (testPaths.length === 0) return results;
 
-  // Fetch each test file via GitHub API
+  // Fetch each test file via GitHub API — collect settled results first to ensure
+  // deterministic insertion order (Promise.allSettled resolves in creation order, but we
+  // insert after all settle to be explicit about testPaths ordering).
   const refSuffix = ref ? `?ref=${encodeURIComponent(ref)}` : "";
-  await Promise.allSettled(
-    testPaths.map(async (filePath) => {
+  const settledResults = await Promise.allSettled(
+    testPaths.map(async (filePath): Promise<[string, string] | null> => {
       try {
         const endpoint = `repos/${owner}/${repo}/contents/${filePath}${refSuffix}`;
         const data = (await ghJson(endpoint)) as {
@@ -257,13 +259,21 @@ export async function fetchTestFileContents(
         } | null;
         if (data?.content && data?.encoding === "base64") {
           const content = Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8");
-          results.set(filePath, content);
+          return [filePath, content];
         }
       } catch {
         // Individual file fetch failure is non-fatal — skip this file
       }
+      return null;
     }),
   );
+
+  // Insert into Map in testPaths order for deterministic output
+  for (const result of settledResults) {
+    if (result.status === "fulfilled" && result.value !== null) {
+      results.set(result.value[0], result.value[1]);
+    }
+  }
 
   return results;
 }
