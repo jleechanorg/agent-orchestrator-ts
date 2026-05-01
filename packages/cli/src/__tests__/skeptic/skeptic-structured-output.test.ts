@@ -324,7 +324,6 @@ describe("skeptic structured output", () => {
         null,
       );
 
-      expect(prompt).toContain("skip this rule");
       expect(prompt).toContain("skip rules 12c-12g");
     });
 

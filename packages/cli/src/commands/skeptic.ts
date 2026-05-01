@@ -204,6 +204,8 @@ export function registerSkeptic(program: Command): Command {
       // Fetch test file contents and merge gate state in parallel.
       const spinner2 = ora("Fetching merge gate state (aligned with checkMergeGate)…").start();
       const [testFiles, state] = await Promise.all([
+        // Degrade to empty Map on failure — Rule 12 will skip if no test files,
+        // rather than crashing the entire skeptic run for an non-critical enhancement.
         fetchTestFileContents(owner, repo, prNumber, diff, pr.headRefOid).catch(() => new Map<string, string>()),
         fetchMergeGateState(owner, repo, prNumber, SKEPTIC_BOT_AUTHOR).catch(
           (err) => {
