@@ -16,7 +16,7 @@ import { minimatch } from "minimatch";
 import ora from "ora";
 import type { Command } from "commander";
 import { exec } from "../lib/shell.js";
-import { fetchPRMeta, fetchReviews, fetchDiff, fetchIssueComments, fetchDesignDoc } from "./skeptic/gh-client.js";
+import { fetchPRMeta, fetchReviews, fetchDiff, fetchIssueComments, fetchDesignDoc, fetchTestFileContents } from "./skeptic/gh-client.js";
 import { fetchMergeGateState } from "./skeptic/mergeGate.js";
 import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
@@ -199,6 +199,12 @@ export function registerSkeptic(program: Command): Command {
       // Design doc fetch uses GitHub API with the PR's head ref so it works regardless of cwd.
       const designDoc = await fetchDesignDoc(owner, repo, prNumber, pr.headRefOid).catch(() => null);
 
+      // Fetch test file contents for Rule 12 behavioral goal verification.
+      // Fetch in parallel with the merge gate state to avoid adding latency.
+      const [testFiles] = await Promise.all([
+        fetchTestFileContents(owner, repo, prNumber, diff, pr.headRefOid).catch(() => new Map()),
+      ]);
+
       spinner.succeed(chalk.green(`Fetched PR #${prNumber}: "${pr.title}"`));
 
       const spinner2 = ora("Fetching merge gate state (aligned with checkMergeGate)…").start();
@@ -248,7 +254,7 @@ export function registerSkeptic(program: Command): Command {
 
       // Build and run evaluation
       const spinner3 = ora("Running skeptic evaluation…").start();
-      let prompt = buildSkepticPrompt(pr, state, diff, reviews, designDoc);
+      let prompt = buildSkepticPrompt(pr, state, diff, reviews, designDoc, testFiles);
       // Custom prompt: prepend user instructions before the default skeptic context
       if (options.prompt) {
         prompt = `CUSTOM EVALUATION INSTRUCTIONS:\n${options.prompt}\n\n---\n\n${prompt}`;

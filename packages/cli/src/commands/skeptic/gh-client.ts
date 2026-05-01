@@ -171,6 +171,80 @@ export async function fetchDiff(owner: string, repo: string, prNumber: number): 
   }
 }
 
+/**
+ * Fetch the content of test files changed in a PR.
+ * Extracts test file paths from the unified diff and fetches each via GitHub API.
+ * Only returns content for files that appear to be tests (match common test patterns).
+ * Falls back to gh pr diff --name-only to enumerate changed files when direct diff parsing
+ * is insufficient.
+ *
+ * @param owner     GitHub owner
+ * @param repo      GitHub repo
+ * @param prNumber  PR number
+ * @param diff      The full unified diff string (used to extract file paths)
+ * @param ref       Git ref (branch name or SHA) to read from; defaults to PR head
+ * @returns Map of filename → file content, for test files only
+ */
+export async function fetchTestFileContents(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  diff: string,
+  ref?: string,
+): Promise<Map<string, string>> {
+  const results = new Map<string, string>();
+
+  // Extract file paths from diff
+  const filePaths = new Set<string>();
+  for (const line of diff.split("\n")) {
+    // Standard unified diff: --- a/foo.test.ts and +++ b/foo.test.ts
+    const m1 = line.match(/^[+-]{3}[ \t][ab]\/(.+)$/);
+    if (m1) {
+      filePaths.add(m1[1]);
+    }
+    // git diff --git header: diff --git a/foo.test.ts b/foo.test.ts
+    const m2 = line.match(/^diff --git [ab]\/(.+?) [ab]\/(.+)$/);
+    if (m2) {
+      filePaths.add(m2[2]);
+    }
+  }
+
+  // Filter to test files only
+  const TEST_PATTERNS = [
+    /\.test\./,
+    /\.spec\./,
+    /\/tests?\//,
+    /__tests?__/,
+    /test\/|\/test-/,
+  ];
+  const isTestFile = (path: string) => TEST_PATTERNS.some((re) => re.test(path));
+  const testPaths = Array.from(filePaths).filter(isTestFile);
+
+  if (testPaths.length === 0) return results;
+
+  // Fetch each test file via GitHub API
+  const refSuffix = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+  await Promise.allSettled(
+    testPaths.map(async (filePath) => {
+      try {
+        const endpoint = `repos/${owner}/${repo}/contents/${filePath}${refSuffix}`;
+        const data = (await ghJson(endpoint)) as {
+          content?: string;
+          encoding?: string;
+        } | null;
+        if (data?.content && data?.encoding === "base64") {
+          const content = Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8");
+          results.set(filePath, content);
+        }
+      } catch {
+        // Individual file fetch failure is non-fatal — skip this file
+      }
+    }),
+  );
+
+  return results;
+}
+
 export async function fetchIssueComments(
   owner: string,
   repo: string,

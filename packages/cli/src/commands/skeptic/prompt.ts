@@ -49,6 +49,7 @@ export function buildSkepticPrompt(
   diff: string,
   reviews: ReviewInfo[],
   designDoc: string | null,
+  testFiles?: Map<string, string>,
 ): string {
   const crDetail = state.crDismissedWithoutApproval
     ? `${state.crState} + DISMISSED_WITHOUT_APPROVAL`
@@ -137,6 +138,20 @@ export function buildSkepticPrompt(
     diff.slice(0, MAX_DIFF_CHARS),
   ].join("\n");
 
+  // Test file contents section — enables Rule 12 behavioral goal verification
+  const MAX_TEST_FILE_CHARS = 50_000;
+  const testFilesSection =
+    testFiles && testFiles.size > 0
+      ? [
+          "",
+          "--- TEST FILE CONTENTS (for Rule 12 behavioral goal verification) ---",
+          ...Array.from(testFiles.entries()).flatMap(([filename, content]) => [
+            `--- ${filename} ---`,
+            content.slice(0, MAX_TEST_FILE_CHARS),
+          ]),
+        ].join("\n")
+      : "";
+
   return [
     "You are a Skeptic QA Agent. Your job is to FIND GAPS in this PR.",
     "INVERTED INCENTIVE: You are rewarded for finding missing evidence.",
@@ -187,17 +202,52 @@ export function buildSkepticPrompt(
     "When flagging Rule 11 gaps, quote the specific design doc claim and the corresponding diff gap.",
     "If no design doc exists, flag it as a gap (Rule 11f: missing design doc).",
     "",
-    "--- GOALS SECTION VERIFICATION (Rule 12) ---",
-    "12. GOALS SECTION VERIFICATION — systematic per-goal check:",
-    "    If the PR description contains a '## Goals' or '## Goal' section with bullet or numbered items:",
+    "--- GOALS PROOF (Rule 12 — enhanced) ---",
+    "12. GOALS PROOF — systematic per-goal check with prove-by-tests requirement:",
+    "    If the PR description contains a '## Goals' or '## Goal' section:",
     "    12a. Extract each bullet/numbered item from the Goals section",
-    "    12b. For each goal bullet, verify there is diff evidence (code, config, workflow, or other changes) implementing it",
-    "    12c. FAIL if any goal bullet has NO corresponding implementation in the diff",
-    "    12d. For feature/bugfix goals, a goal with only test changes is NOT implemented (tests prove behavior, not create it). Goals explicitly about adding or updating tests CAN be satisfied by test changes.",
-    "    12e. A goal about documentation only requires doc changes — no code changes needed",
+    "    12b. Classify each goal type:",
+    "        BEHAVIORAL: makes a functional claim ('adds X', 'fixes Y', 'enables Z')",
+    "        STRUCTURAL: adds files, packages, dependencies, config",
+    "        DOCUMENTATION: only affects docs, READMEs, comments",
+    "        TESTING: explicitly about adding/updating tests",
+    "    12c. For BEHAVIORAL goals:",
+    "        - Find the test(s) that validate this behavior (read test files in the diff)",
+    "        - Check CI output or evidence for test execution proving the behavior works",
+    "        - FAIL if behavioral goal has no corresponding passing test",
+    "        - FAIL if test exists but evidence doesn't show it running/passing",
+    "        - The test must specifically prove the claimed behavior, not just exist",
+    "    12d. For STRUCTURAL goals:",
+    "        - Verify the diff adds the file/package/config",
+    "        - Verify the addition is connected to the claimed goal (not orphaned)",
+    "    12e. For DOCUMENTATION goals:",
+    "        - Test changes not required if goal explicitly says 'docs only'",
+    "    12f. For TESTING goals:",
+    "        - Behavioral code changes are NOT required if goal explicitly says 'add tests'",
+    "    12g. FAIL if a ## Goals section exists but no goal has any test validation",
+    "    TDD Red-Green check: if the PR claims to follow TDD, verify the commit history",
+    "    shows Red (failing test) before Green (passing implementation), or evidence shows",
+    "    the initial failure state followed by passing state.",
+    "    Credible proof forms (in order of strength):",
+    "      1. CI test output showing specific test case passing with output matching the claimed behavior",
+    "      2. Terminal/video evidence of running the test command locally with matching output",
+    "      3. TDD Red-Green video showing initial failure, then implementation, then Green",
+    "      4. Code coverage report with % showing the changed code is covered",
+    "    Insufficient alone: 'tests exist', 'CI is green' (doesn't prove specific goal was tested),",
+    "    'coverage increased' (doesn't prove specific goal was validated)",
     "    When flagging Rule 12 gaps, quote the specific goal bullet and explain what diff evidence you expected",
-    "    NOTE: If PR has no Goals section, skip this rule (it's not mandatory to have Goals sections)",
+    "    NOTE: If PR has no Goals section, skip rules 12c-12g (structural/docs-only goals still checked)",
     "",
+    "--- TENETS ADHERENCE CHECK (Rule 13 — NEW) ---",
+    "13. TENETS ADHERENCE CHECK — for each stated principle:",
+    "    Look in PR description for 'tenet', 'principle', 'should', 'must', 'rule' language.",
+    "    13a. Quote the stated tenet",
+    "    13b. Find the code, tests, or config that enforces it",
+    "    13c. FAIL if a stated tenet has no implementing code in the diff",
+    "    Example: PR says 'all auth flows must use short-lived tokens' but diff doesn't",
+    "    change any auth code → FAIL tenet adherence",
+    "    Example: PR says 'we follow TDD' but no Red-Green test evidence exists → FAIL",
+    "    NOTE: If PR has no tenets/principles section, skip this rule",
     "OUTPUT FORMAT:",
     "",
     "Before the final VERDICT line, include exactly one machine-readable marker for each gate:",
@@ -209,7 +259,12 @@ export function buildSkepticPrompt(
     "<!-- skeptic-gate-6:PASS|FAIL -->  Detailed evidence review; evidence exists is not enough",
     "<!-- skeptic-gate-7:PASS|FAIL -->  Independent technical skeptic review",
     "<!-- skeptic-gate-8:PASS|FAIL -->  PR description goals/tenets/scope vs code/evidence alignment",
+    "<!-- skeptic-gate-8a:PASS|FAIL -->  Goals proof — behavioral goals have test validation",
+    "<!-- skeptic-gate-8b:PASS|FAIL -->  Tenets adherence — all stated principles have implementing code",
+    "<!-- skeptic-gate-8c:PASS|FAIL -->  Evidence provenance — evidence cited is tied to changed files",
     "A PASS verdict is invalid unless all eight markers are PASS.",
+    "Gate 8 sub-markers (8a/8b/8c) are informational — they do not individually block merge.",
+    "They MUST appear in the output when Rule 12 or Rule 13 gaps are found.",
     "",
     "// PASS — output brief confirmation only, no structured sections:",
     "<!-- skeptic-gate-1:PASS -->",
@@ -219,9 +274,12 @@ export function buildSkepticPrompt(
     "<!-- skeptic-gate-5:PASS -->",
     "<!-- skeptic-gate-6:PASS -->",
     "<!-- skeptic-gate-7:PASS -->",
-    "<!-- skeptic-gate-8:PASS -->",
-    "VERDICT: PASS — [one sentence stating why the PR passes]",
-    "--- // END PASS",
+    "<!-- skeptic-gate-8:PASS -->"
+    "<!-- skeptic-gate-8a:PASS -->  (behavioral goals have test validation)"
+    "<!-- skeptic-gate-8b:PASS -->  (all stated principles have implementing code)"
+    "<!-- skeptic-gate-8c:PASS -->  (evidence cited is tied to changed files)"
+    "VERDICT: PASS — [one sentence stating why the PR passes]"
+    "--- // END PASS"
     "",
     "// FAIL — must include all four required sections in this exact order:",
     "## Background",
@@ -240,7 +298,12 @@ export function buildSkepticPrompt(
     "",
     "// Optional appendix sections — append after ## Bot Consultation if the corresponding rule has gaps:",
     "// ## Design Alignment     (include when Rule 11 gaps are found)",
-    "// ## Goals Verification   (include when Rule 12 gaps are found)",
+    "// ## Goals Verification   (include when Rule 12 gaps are found — MUST quote specific goal and expected test evidence)",
+    "// ## Tenets Adherence     (include when Rule 13 gaps are found — MUST quote specific tenet)",
+    "// ## Gate 8 Sub-components (include when 8a/8b/8c markers are present):",
+    "//   <!-- skeptic-gate-8a:FAIL -->  Goals proof gap",
+    "//   <!-- skeptic-gate-8b:FAIL -->  Tenets adherence gap",
+    "//   <!-- skeptic-gate-8c:FAIL -->  Evidence provenance gap",
     "",
     "VERDICT: FAIL",
     "",
@@ -251,5 +314,6 @@ export function buildSkepticPrompt(
     summary,
     prDescriptionSection,
     designDocSection,
+    testFilesSection,
   ].join("\n");
 }

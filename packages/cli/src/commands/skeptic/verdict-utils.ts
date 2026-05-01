@@ -62,7 +62,7 @@ export function hasCompletePassingGateMarkers(body: string): boolean {
 
 export function extractSkepticGateMarkers(body: string): string[] {
   return Array.from(
-    body.matchAll(/<!--\s*skeptic-gate-[1-8]\s*:\s*(?:PASS|FAIL|SKIPPED)\s*-->/gi),
+    body.matchAll(/<!--\s*skeptic-gate-(?:[1-8]|8a|8b|8c)\s*:\s*(?:PASS|FAIL|SKIPPED)\s*-->/gi),
     (match) => match[0],
   );
 }
