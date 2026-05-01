@@ -218,7 +218,21 @@ export async function fetchTestFileContents(
     /test\/|\/test-/,
   ];
   const isTestFile = (path: string) => TEST_PATTERNS.some((re) => re.test(path));
-  const testPaths = Array.from(filePaths).filter(isTestFile);
+  let testPaths = Array.from(filePaths).filter(isTestFile);
+
+  // Fallback: if diff parsing yielded no test files, use gh pr diff --name-only
+  if (testPaths.length === 0) {
+    const listResult = await exec("gh", [
+      "pr", "diff", "--name-only",
+      "--repo", `${owner}/${repo}`,
+      String(prNumber),
+    ]);
+    testPaths = listResult.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .filter(isTestFile);
+  }
 
   if (testPaths.length === 0) return results;
 

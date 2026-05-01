@@ -200,10 +200,13 @@ export function registerSkeptic(program: Command): Command {
       const designDoc = await fetchDesignDoc(owner, repo, prNumber, pr.headRefOid).catch(() => null);
 
       // Fetch test file contents for Rule 12 behavioral goal verification.
-      // Fetch in parallel with the merge gate state to avoid adding latency.
-      const [testFiles] = await Promise.all([
-        fetchTestFileContents(owner, repo, prNumber, diff, pr.headRefOid).catch(() => new Map()),
-      ]);
+      const testFiles = await fetchTestFileContents(
+        owner,
+        repo,
+        prNumber,
+        diff,
+        pr.headRefOid,
+      );
 
       spinner.succeed(chalk.green(`Fetched PR #${prNumber}: "${pr.title}"`));
 

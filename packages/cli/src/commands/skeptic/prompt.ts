@@ -139,16 +139,20 @@ export function buildSkepticPrompt(
   ].join("\n");
 
   // Test file contents section — enables Rule 12 behavioral goal verification
+  const MAX_TOTAL_TEST_FILE_CHARS = 100_000;
   const MAX_TEST_FILE_CHARS = 50_000;
+  let remainingTestChars = MAX_TOTAL_TEST_FILE_CHARS;
   const testFilesSection =
     testFiles && testFiles.size > 0
       ? [
           "",
           "--- TEST FILE CONTENTS (for Rule 12 behavioral goal verification) ---",
-          ...Array.from(testFiles.entries()).flatMap(([filename, content]) => [
-            `--- ${filename} ---`,
-            content.slice(0, MAX_TEST_FILE_CHARS),
-          ]),
+          ...Array.from(testFiles.entries()).flatMap(([filename, content]) => {
+            if (remainingTestChars <= 0) return [];
+            const slice = content.slice(0, Math.min(MAX_TEST_FILE_CHARS, remainingTestChars));
+            remainingTestChars -= slice.length;
+            return [`--- ${filename} ---`, slice];
+          }),
         ].join("\n")
       : "";
 
@@ -274,12 +278,12 @@ export function buildSkepticPrompt(
     "<!-- skeptic-gate-5:PASS -->",
     "<!-- skeptic-gate-6:PASS -->",
     "<!-- skeptic-gate-7:PASS -->",
-    "<!-- skeptic-gate-8:PASS -->"
-    "<!-- skeptic-gate-8a:PASS -->  (behavioral goals have test validation)"
-    "<!-- skeptic-gate-8b:PASS -->  (all stated principles have implementing code)"
-    "<!-- skeptic-gate-8c:PASS -->  (evidence cited is tied to changed files)"
-    "VERDICT: PASS — [one sentence stating why the PR passes]"
-    "--- // END PASS"
+    "<!-- skeptic-gate-8:PASS -->",
+    "<!-- skeptic-gate-8a:PASS -->  (behavioral goals have test validation)",
+    "<!-- skeptic-gate-8b:PASS -->  (all stated principles have implementing code)",
+    "<!-- skeptic-gate-8c:PASS -->  (evidence cited is tied to changed files)",
+    "VERDICT: PASS — [one sentence stating why the PR passes]",
+    "--- // END PASS",
     "",
     "// FAIL — must include all four required sections in this exact order:",
     "## Background",
