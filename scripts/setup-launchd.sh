@@ -127,6 +127,12 @@ install_lifecycle_plist() {
   launchctl enable "gui/$(id -u)/$label" >/dev/null 2>&1 || true
   launchctl kickstart -k "gui/$(id -u)/$label"
 
+  # Post-install verification: confirm MINIMAX_API_KEY propagated to workers
+  if [ -x "$REPO_ROOT/scripts/test-launchd-env.sh" ]; then
+    echo "Verifying env var propagation..."
+    "$REPO_ROOT/scripts/test-launchd-env.sh" || echo "WARNING: env var check failed — workers may not authenticate with MiniMax"
+  fi
+
   echo "Installed launchd: $plist_path"
 }
 

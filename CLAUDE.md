@@ -66,6 +66,15 @@ When setting up a lifecycle-worker launchd plist, two independent binary resolut
 ```
 And use the source `packages/cli/dist/index.js` as `ProgramArguments[1]`, not the global `ao` binary.
 
+**Post-install verification** (mandatory after `setup-launchd.sh lifecycle`):
+```bash
+ps eww -p $(pgrep -f "lifecycle-worker") | grep MINIMAX_API_KEY
+# Must show the real key — not empty, not ***
+
+# Also verify spawned tmux sessions get ANTHROPIC_API_KEY:
+# ao spawn "echo AKEY=\$ANTHROPIC_API_KEY"  # should show non-empty value
+```
+
 **macOS launchd user agents** (in `~/Library/LaunchAgents/`):
 - Use `launchctl bootout gui/$(id -u)/<label>` — NOT `sudo launchctl unload`
 - `sudo launchctl` targets root's session and will fail with I/O error for user-owned agents
