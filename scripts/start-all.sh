@@ -148,14 +148,23 @@ for PROJECT in $SELECTED; do
     echo "=== Starting $PROJECT lifecycle-worker (async) ==="
     # In no-dashboard mode, launch workers directly for every project.
     # Avoid ao start --no-dashboard keepalive wrappers that can mask missing workers.
-    if is_lifecycle_worker_running "$PROJECT"; then
-      echo "  lifecycle-worker $PROJECT already running — skipping"
-    else
-      nohup "$AO_CLI" lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
-      START_PID=$!
-      disown || true
-      echo "  launched lifecycle-worker for $PROJECT (pid=$START_PID, log=$LOG_DIR/ao-lifecycle-${PROJECT}.log)"
+    # Kill any existing workers for this project FIRST — regardless of binary path.
+    # This prevents duplicate workers from racing between launchd and manual startup paths.
+    # The idempotency check (is_lifecycle_worker_running) alone is not sufficient because
+    # two different startup invocations (launchd + manual/dashboard) can race past it
+    # simultaneously, each spawning a worker from a different ao binary.
+    existing_pids=$(pgrep -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" 2>/dev/null || true)
+    if [ -n "$existing_pids" ]; then
+      echo "  killing existing lifecycle-worker(s) for $PROJECT before starting fresh (pids: $existing_pids)"
+      for pid in $existing_pids; do
+        kill "$pid" 2>/dev/null || true
+      done
+      sleep 2
     fi
+    nohup "$AO_CLI" lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
+    START_PID=$!
+    disown || true
+    echo "  launched lifecycle-worker for $PROJECT (pid=$START_PID, log=$LOG_DIR/ao-lifecycle-${PROJECT}.log)"
   fi
   FIRST=false
   echo ""
