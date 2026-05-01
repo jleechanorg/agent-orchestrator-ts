@@ -153,7 +153,8 @@ for PROJECT in $SELECTED; do
     # The idempotency check (is_lifecycle_worker_running) alone is not sufficient because
     # two different startup invocations (launchd + manual/dashboard) can race past it
     # simultaneously, each spawning a worker from a different ao binary.
-    existing_pids=$(pgrep -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" 2>/dev/null || true)
+    project_escaped="$(printf '%s' "$PROJECT" | sed 's/[][().*^$+?{}|\\]/\\&/g')"
+    existing_pids=$(pgrep -f "lifecycle-worker[[:space:]].*${project_escaped}([[:space:]]|$)" 2>/dev/null || true)
     if [ -n "$existing_pids" ]; then
       echo "  killing existing lifecycle-worker(s) for $PROJECT before starting fresh (pids: $existing_pids)"
       for pid in $existing_pids; do
