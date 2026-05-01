@@ -220,7 +220,7 @@ export async function fetchTestFileContents(
     /\.spec\./,
     /\/tests?\//,
     /__tests?__/,
-    /test\/|\/test-/,
+    /\/test\//,
   ];
   const isTestFile = (path: string) => TEST_PATTERNS.some((re) => re.test(path));
   let testPaths = Array.from(filePaths).filter(isTestFile);
