@@ -207,6 +207,11 @@ export async function fetchTestFileContents(
     if (m2) {
       filePaths.add(m2[2]);
     }
+    // Binary file indicator: Binary files a/foo and b/foo differ
+    const m3 = line.match(/^Binary files [ab]\/(.+) and [ab]\/(.+) differ$/);
+    if (m3) {
+      filePaths.add(m3[2]);
+    }
   }
 
   // Filter to test files only
@@ -222,16 +227,20 @@ export async function fetchTestFileContents(
 
   // Fallback: if diff parsing yielded no test files, use gh pr diff --name-only
   if (testPaths.length === 0) {
-    const listResult = await exec("gh", [
-      "pr", "diff", "--name-only",
-      "--repo", `${owner}/${repo}`,
-      String(prNumber),
-    ]);
-    testPaths = listResult.stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .filter(isTestFile);
+    try {
+      const listResult = await exec("gh", [
+        "pr", "diff", "--name-only",
+        "--repo", `${owner}/${repo}`,
+        String(prNumber),
+      ]);
+      testPaths = listResult.stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .filter(isTestFile);
+    } catch {
+      // gh unavailable or network error — degrade gracefully
+    }
   }
 
   if (testPaths.length === 0) return results;
