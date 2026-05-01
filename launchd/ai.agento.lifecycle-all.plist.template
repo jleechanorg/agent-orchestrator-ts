@@ -47,8 +47,8 @@
     <string>0</string>
     <key>MINIMAX_API_KEY</key>
     <string>@MINIMAX_API_KEY@</string>
-    <key>MINIMAX_BASE_URL</key>
-    <string>@MINIMAX_BASE_URL@</string>
+    <key>MINIMAX_ANTHROPIC_BASE_URL</key>
+    <string>@MINIMAX_ANTHROPIC_BASE_URL@</string>
     <key>MINIMAX_MODEL</key>
     <string>@MINIMAX_MODEL@</string>
   </dict>
