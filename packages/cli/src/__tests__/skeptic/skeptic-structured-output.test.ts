@@ -266,7 +266,7 @@ describe("skeptic structured output", () => {
         null,
       );
 
-      expect(prompt).toContain("GOALS SECTION VERIFICATION");
+      expect(prompt).toContain("GOALS PROOF");
       expect(prompt).toContain("Rule 12");
       expect(prompt).toContain("12a");
       expect(prompt).toContain("12b");
@@ -284,9 +284,9 @@ describe("skeptic structured output", () => {
         null,
       );
 
-      expect(prompt).toContain("bullet or numbered items");
+      expect(prompt).toContain("bullet/numbered item");
       expect(prompt).toContain("12a");
-      expect(prompt).toContain("Extract each bullet/numbered item");
+      expect(prompt).toContain("Extract each bullet/numbered item from the Goals section");
     });
 
     it("Rule 12d allows test goals to be satisfied by test changes", () => {
@@ -298,11 +298,11 @@ describe("skeptic structured output", () => {
         null,
       );
 
-      // 12d must say test-only goals CAN be satisfied by test changes
-      expect(prompt).toContain("Goals explicitly about adding or updating tests CAN be satisfied by test changes");
+      // 12f must say TESTING goals don't require behavioral code changes
+      expect(prompt).toContain("Behavioral code changes are NOT required if goal explicitly says 'add tests'");
     });
 
-    it("Rule 12d still rejects test-only for feature/bugfix goals", () => {
+    it("Rule 12 rejects behavioral goals with no test validation", () => {
       const prompt = buildSkepticPrompt(
         makeMinimalPR(),
         makePassingState(),
@@ -311,8 +311,8 @@ describe("skeptic structured output", () => {
         null,
       );
 
-      expect(prompt).toContain("For feature/bugfix goals");
-      expect(prompt).toContain("a goal with only test changes is NOT implemented");
+      expect(prompt).toContain("FAIL if behavioral goal has no corresponding passing test");
+      expect(prompt).toContain("The test must specifically prove the claimed behavior, not just exist");
     });
 
     it("Rule 12 skips when no Goals section present", () => {
@@ -324,8 +324,7 @@ describe("skeptic structured output", () => {
         null,
       );
 
-      expect(prompt).toContain("skip this rule");
-      expect(prompt).toContain("not mandatory to have Goals sections");
+      expect(prompt).toContain("skip rules 12c-12g");
     });
 
     it("FAIL format instructs to include Goals Verification section when Rule 12 gaps found", () => {
@@ -383,6 +382,78 @@ describe("skeptic structured output", () => {
       // FAIL section is after "--- // END PASS" — contains all structured sections
       const failingOutput = failingPrompt.split("--- // END PASS")[1] ?? "";
       expect(failingOutput).toContain("## Background");
+    });
+  });
+
+  describe("testFiles injection (Rule 12)", () => {
+    it("injects test file contents when testFiles Map is provided", () => {
+      const testFiles = new Map([["src/foo.test.ts", "describe('foo', () => { it('works', () => {}); });"]]);
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+        testFiles,
+      );
+      expect(prompt).toContain("--- TEST FILE CONTENTS");
+      expect(prompt).toContain("src/foo.test.ts");
+      expect(prompt).toContain("describe('foo'");
+    });
+
+    it("omits testFiles section when no test files provided", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      expect(prompt).not.toContain("--- TEST FILE CONTENTS");
+    });
+  });
+
+  describe("8a/8b/8c marker contract", () => {
+    it("PASS template always includes 8a and 8b markers but not 8c in the actual template lines", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      // The PASS template section (before --- // END PASS) includes 8a and 8b
+      const passSection = prompt.split("--- // END PASS")[0] ?? "";
+      expect(passSection).toContain("<!-- skeptic-gate-8a:PASS -->");
+      expect(passSection).toContain("<!-- skeptic-gate-8b:PASS -->");
+      // 8c appears only in the instruction block (the "8c:PASS|FAIL" line), not as a concrete PASS template line
+      // Check that "<!-- skeptic-gate-8c:PASS -->" is NOT in the PASS template
+      const passTemplateMatch = passSection.match(/<!-- skeptic-gate-8c:PASS -->/);
+      expect(passTemplateMatch).toBeNull();
+    });
+
+    it("8a/8b/8c are documented as informational only (not individual merge blockers)", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      expect(prompt).toContain("Gate 8 sub-markers (8a/8b/8c) are informational");
+      expect(prompt).toContain("do not individually block merge");
+    });
+
+    it("FAIL instruction says emit 8a/8b/8c only when gaps found", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makeFailingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      const outputSection = prompt.split("OUTPUT FORMAT:")[1] ?? "";
+      expect(outputSection).toContain("emit 8a/8b/8c only when Rule 12 or Rule 13 gaps are found");
     });
   });
 });

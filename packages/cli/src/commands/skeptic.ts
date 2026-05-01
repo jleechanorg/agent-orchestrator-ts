@@ -16,7 +16,7 @@ import { minimatch } from "minimatch";
 import ora from "ora";
 import type { Command } from "commander";
 import { exec } from "../lib/shell.js";
-import { fetchPRMeta, fetchReviews, fetchDiff, fetchIssueComments, fetchDesignDoc } from "./skeptic/gh-client.js";
+import { fetchPRMeta, fetchReviews, fetchDiff, fetchIssueComments, fetchDesignDoc, fetchTestFileContents } from "./skeptic/gh-client.js";
 import { fetchMergeGateState } from "./skeptic/mergeGate.js";
 import { buildSkepticPrompt } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
@@ -201,14 +201,20 @@ export function registerSkeptic(program: Command): Command {
 
       spinner.succeed(chalk.green(`Fetched PR #${prNumber}: "${pr.title}"`));
 
+      // Fetch test file contents and merge gate state in parallel.
       const spinner2 = ora("Fetching merge gate state (aligned with checkMergeGate)…").start();
-      const state = await fetchMergeGateState(owner, repo, prNumber, SKEPTIC_BOT_AUTHOR).catch(
-        (err) => {
-          spinner2.fail(chalk.red("Failed to fetch merge gate state: " + err));
-          process.exit(1);
-          return null as never;
-        },
-      );
+      const [testFiles, state] = await Promise.all([
+        // Degrade to empty Map on failure — Rule 12 will skip if no test files,
+        // rather than crashing the entire skeptic run for an non-critical enhancement.
+        fetchTestFileContents(owner, repo, prNumber, diff, pr.headRefOid).catch(() => new Map<string, string>()),
+        fetchMergeGateState(owner, repo, prNumber, SKEPTIC_BOT_AUTHOR).catch(
+          (err) => {
+            spinner2.fail(chalk.red("Failed to fetch merge gate state: " + err));
+            process.exit(1);
+            return null as never;
+          },
+        ),
+      ]);
       spinner2.succeed(chalk.green("Merge gate state fetched"));
 
       // Early SKIP: if all diff files match exclude patterns, post VERDICT: SKIPPED immediately.
@@ -248,7 +254,7 @@ export function registerSkeptic(program: Command): Command {
 
       // Build and run evaluation
       const spinner3 = ora("Running skeptic evaluation…").start();
-      let prompt = buildSkepticPrompt(pr, state, diff, reviews, designDoc);
+      let prompt = buildSkepticPrompt(pr, state, diff, reviews, designDoc, testFiles);
       // Custom prompt: prepend user instructions before the default skeptic context
       if (options.prompt) {
         prompt = `CUSTOM EVALUATION INSTRUCTIONS:\n${options.prompt}\n\n---\n\n${prompt}`;
