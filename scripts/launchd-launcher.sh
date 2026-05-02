@@ -22,6 +22,7 @@ shift
 # Source shell profile in interactive mode to get all exports (API keys, nvm, etc.)
 # bashrc has a "case $- in *i*) ;; *) return;; esac" guard that skips exports
 # when not interactive. The -i flag forces past it.
-eval "$(bash -ic 'declare -x' 2>/dev/null)" || true
+# Filter to only non-empty values to avoid overriding plist defaults with empties.
+eval "$(bash -ic 'declare -x' 2>/dev/null | grep -E 'declare -x [A-Za-z_]+="[^"]"' || true)" || true
 
 exec "$TARGET" "$@"
