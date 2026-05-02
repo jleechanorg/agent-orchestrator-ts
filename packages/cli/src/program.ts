@@ -62,6 +62,7 @@ export function buildProgram(): Command {
   registerSkepticInstall(skepticCmd);
   // Commander v12 vs v13 has incompatible opts<T>() return type variance.
   // The runtime behavior is identical — this is a TypeScript variance issue only.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   registerAutonomousHarness(program as any);
 
   program

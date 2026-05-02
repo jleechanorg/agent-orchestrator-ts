@@ -13,10 +13,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "allowJs": true,
-    "paths": {
-      "@jleechanorg/ao-core": ["../packages/core/dist/index.js"]
-    }
+    "allowJs": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
