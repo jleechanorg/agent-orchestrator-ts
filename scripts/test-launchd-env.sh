@@ -4,8 +4,8 @@
 # installed correctly and the env var propagated to running processes.
 #
 # Exit codes:
-#   0 — all checks pass
-#   1 — MINIMAX_API_KEY missing or empty in one or more workers
+#   0 — all checks pass (MINIMAX_API_KEY, MINIMAX_BASE_URL, MINIMAX_MODEL, GITHUB_TOKEN)
+#   1 — one or more required env vars missing or empty in workers
 #   2 — no lifecycle-worker processes found (may mean workers haven't restarted yet)
 
 set -euo pipefail
@@ -27,6 +27,19 @@ if [ -z "$youngest_pid" ]; then
 fi
 
 echo "Checking youngest lifecycle-worker PID: $youngest_pid"
+
+# Check GITHUB_TOKEN (needed for gh auth in skeptic-cron)
+gh_token=$(ps eww -p "$youngest_pid" 2>/dev/null | tr ' ' '\n' | grep "^GITHUB_TOKEN=" || true)
+if [ -z "$gh_token" ]; then
+  echo "FAIL: GITHUB_TOKEN is not set in PID $youngest_pid"
+  echo "  gh CLI will fail inside skeptic-cron — no VERDICT comments posted on PRs"
+  FAILED=1
+elif echo "$gh_token" | grep -q 'ghp_'; then
+  echo "PASS: GITHUB_TOKEN is present in PID $youngest_pid"
+else
+  echo "FAIL: GITHUB_TOKEN is present but wrong: $gh_token"
+  FAILED=1
+fi
 
 # Check environment via ps eww (extended format shows exported env vars)
 key_value=$(ps eww -p "$youngest_pid" 2>/dev/null | tr ' ' '\n' | grep "^MINIMAX_API_KEY=" || true)

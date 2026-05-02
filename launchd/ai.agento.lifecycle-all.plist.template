@@ -51,6 +51,8 @@
     <string>@MINIMAX_ANTHROPIC_BASE_URL@</string>
     <key>MINIMAX_MODEL</key>
     <string>@MINIMAX_MODEL@</string>
+    <key>GITHUB_TOKEN</key>
+    <string>@GITHUB_TOKEN@</string>
   </dict>
 
   <key>StandardOutPath</key>
