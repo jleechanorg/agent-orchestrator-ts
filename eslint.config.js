@@ -133,7 +133,7 @@ export default tseslint.config(
 
   // Node.js plugins and core modules — these run in Node.js, not browser
   {
-    files: ["packages/plugins/**/*.ts", "packages/core/**/*.ts", "packages/cli/**/*.ts"],
+    files: ["packages/plugins/**/*.ts", "packages/core/**/*.ts", "packages/cli/**/*.ts", "autonomous-harness/**/*.ts"],
     languageOptions: {
       globals: {
         process: "readonly",
