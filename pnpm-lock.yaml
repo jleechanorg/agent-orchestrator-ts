@@ -72,9 +72,6 @@ importers:
 
   autonomous-harness:
     dependencies:
-      '@jleechanorg/ao-cli':
-        specifier: workspace:*
-        version: link:../packages/cli
       '@jleechanorg/ao-core':
         specifier: workspace:*
         version: link:../packages/core
