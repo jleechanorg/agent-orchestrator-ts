@@ -11,14 +11,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/ao-config-topology.sh
 source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
-# Resolve the ao CLI binary. Prefer the source tree (has all fork subcommands)
-# when running from a repo checkout; fall back to PATH-resolved ao (global npm).
+# Resolve the ao CLI binary. Uses the global npm-installed ao binary.
 _ao_bin() {
-  if [ -f "$REPO_ROOT/packages/cli/dist/index.js" ]; then
-    echo "$REPO_ROOT/packages/cli/dist/index.js"
-  else
-    command -v ao 2>/dev/null || echo "ao"
-  fi
+  command -v ao 2>/dev/null || echo "ao"
 }
 AO_CLI="$(_ao_bin)"
 export AO_CLI_PATH="$AO_CLI"
