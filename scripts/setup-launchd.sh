@@ -121,7 +121,7 @@ install_lifecycle_plist() {
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
-  install -m 644 "$tmp_plist" "$plist_path"
+  install -m 600 "$tmp_plist" "$plist_path"
   rm -f "$tmp_plist"
 
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
@@ -188,7 +188,7 @@ install_novel_plist() {
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
-  install -m 644 "$tmp_plist" "$plist_path"
+  install -m 600 "$tmp_plist" "$plist_path"
   rm -f "$tmp_plist"
 
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
@@ -245,7 +245,7 @@ install_watchdog_plist() {
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
-  install -m 644 "$tmp_plist" "$plist_path"
+  install -m 600 "$tmp_plist" "$plist_path"
   rm -f "$tmp_plist"
 
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
