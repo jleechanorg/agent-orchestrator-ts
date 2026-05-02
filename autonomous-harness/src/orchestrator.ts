@@ -1,0 +1,350 @@
+/**
+ * Autonomous Harness Orchestrator
+ *
+ * GAN-style generator/evaluator loop driven by file-based handoffs.
+ * The orchestrator (MiniMax M2.7) spawns workers for each phase,
+ * polls for artifact completion, and advances the state machine.
+ *
+ * Design: https://github.com/jleechanorg/jleechanclaw/blob/main/papers/experiment_autonomous_harness/technique.md
+ */
+
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import type { HarnessState, Phase, SprintState } from "./harness-state.js";
+import { createInitialState, nextPhase } from "./harness-state.js";
+
+const execAsync = promisify(execFile);
+
+function execAsyncWithExitCode(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { cwd: opts?.cwd, timeout: opts?.timeout }, (error, stdout, stderr) => {
+      const exitCode = error ? (parseInt(String((error as NodeJS.ErrnoException).code ?? "0"), 10) || 0) : 0;
+      resolve({ stdout, stderr, exitCode });
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// AO Worker spawn via CLI
+// ---------------------------------------------------------------------------
+
+export interface SpawnConfig {
+  model: string;
+  systemPrompt: string;
+  taskPrompt: string;
+  workspace: string;
+  sessionName: string;
+  skillRoot?: string;
+  evidenceDir?: string;
+}
+
+export interface SpawnResult {
+  sessionId: string;
+  sessionName: string;
+  exitCode: number | null;
+}
+
+/**
+ * Spawn an AO worker using the `ao` CLI. The worker reads the harness_state.json
+ * and produces artifacts according to its phase.
+ */
+export async function spawnAOWorker(config: SpawnConfig): Promise<SpawnResult> {
+  const sessionName = config.sessionName || `autonomous-${Date.now()}`;
+  const args = [
+    "spawn",
+    "--model", config.model,
+    "--session", sessionName,
+    "--workspace", config.workspace,
+    "--system-prompt", config.systemPrompt,
+    "--task-prompt", config.taskPrompt,
+  ];
+
+  if (config.skillRoot) {
+    args.push("--skill-root", config.skillRoot);
+  }
+
+  const { stdout, stderr } = await execAsyncWithExitCode("ao", args, {
+    cwd: config.workspace,
+    timeout: 600_000, // 10min
+  });
+
+  return {
+    sessionId: sessionName,
+    sessionName,
+    exitCode: null, // ao spawn is fire-and-forget; exit code reflects CLI, not worker
+  };
+}
+
+// ---------------------------------------------------------------------------
+// File-based artifact I/O
+// ---------------------------------------------------------------------------
+
+export function statePath(workspace: string): string {
+  return join(workspace, "harness_state.json");
+}
+
+export function artifactPath(workspace: string, sprint: number, artifact: string): string {
+  return join(workspace, `sprint_${sprint}`, artifact);
+}
+
+export function readState(workspace: string): HarnessState | null {
+  const p = statePath(workspace);
+  if (!existsSync(p)) return null;
+  try {
+    return JSON.parse(readFileSync(p, "utf-8")) as HarnessState;
+  } catch {
+    return null;
+  }
+}
+
+export function writeState(workspace: string, state: HarnessState): void {
+  const p = statePath(workspace);
+  mkdirSync(workspace, { recursive: true });
+  writeFileSync(p, JSON.stringify(state, null, 2));
+}
+
+export function readArtifact(workspace: string, sprint: number, artifact: string): string | null {
+  const p = artifactPath(workspace, sprint, artifact);
+  if (!existsSync(p)) return null;
+  return readFileSync(p, "utf-8");
+}
+
+export function writeArtifact(
+  workspace: string,
+  sprint: number,
+  artifact: string,
+  content: string
+): void {
+  const dir = join(workspace, `sprint_${sprint}`);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, artifact), content, "utf-8");
+}
+
+// ---------------------------------------------------------------------------
+// Phase prompt builders
+// ---------------------------------------------------------------------------
+
+export function buildResearchPrompt(state: HarnessState): string {
+  return `You are the Researcher agent for sprint ${state.currentSprint.sprintNumber}.
+
+Research the project at: ${state.projectPath}
+
+Your job:
+1. Deep-read ALL existing files — understand the architecture, patterns, and constraints
+2. Write a research.md file (>50 lines) with the tag "research"
+3. Use words like "deeply", "intricacies" to ensure thorough analysis
+4. If research is wrong, the plan is wrong, implementation is wrong
+
+Output: Write ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "research.md")}
+
+After completing research, update the harness state by writing ${statePath(state.projectPath)}.
+Set currentSprint.phase to "plan" and currentSprint.artifacts.researchMd to the path you wrote.
+Set currentSprint.updatedAt to ${new Date().toISOString()}.`;
+}
+
+export function buildPlanPrompt(state: HarnessState): string {
+  return `You are the Strategist agent for sprint ${state.currentSprint.sprintNumber}.
+
+Read: ${state.projectPath}/sprint_${state.currentSprint.sprintNumber}/research.md
+
+Your job:
+1. Write a full spec.md covering all functionality
+2. Write a plan.md with feature breakdown and priorities
+3. Use your own .md files (not built-in plan mode) for full control
+
+Output paths:
+- ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "spec.md")}
+- ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "plan.md")}
+
+After completing the plan, update harness state:
+Set currentSprint.phase to "annotation" and currentSprint.artifacts.specMd + planMd to their paths.
+Set currentSprint.updatedAt.`;
+}
+
+export function buildAnnotationPrompt(state: HarnessState): string {
+  return `You are the Reviewer agent for sprint ${state.currentSprint.sprintNumber}.
+
+Read the plan: ${state.projectPath}/sprint_${state.currentSprint.sprintNumber}/plan.md
+
+Your job:
+1. Open the plan in your editor
+2. Add inline annotations (correcting assumptions, rejecting approaches, adding constraints)
+3. Send Claude back to address notes — repeat until the plan is validated
+4. Write a plan_review.md summarizing your annotations
+5. Write sprint_contract.md with agreed "done" criteria before the sprint
+
+Output paths:
+- ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "plan_review.md")}
+- ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "sprint_contract.md")}
+
+After completing annotation cycle, update harness state:
+Set currentSprint.phase to "implementation" and currentSprint.artifacts.planReviewMd + sprintContractMd.
+Set currentSprint.updatedAt.`;
+}
+
+export function buildImplementationPrompt(state: HarnessState): string {
+  return `You are the Generator agent for sprint ${state.currentSprint.sprintNumber}.
+
+Read: ${state.projectPath}/sprint_${state.currentSprint.sprintNumber}/sprint_contract.md
+
+Implement the full sprint per the contract. When done:
+1. Mark each completed task in the plan document
+2. Write a sprint_${state.currentSprint.sprintNumber}_report.md with what was built + self-eval
+3. Do NOT add unnecessary comments or jsdocs
+4. Do NOT use any or unknown types
+5. Continuously run typecheck
+
+Output: ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "sprint_report.md")}
+
+After implementation, update harness state:
+Set currentSprint.phase to "eval".
+Set currentSprint.artifacts.sprintReportMd.
+Set currentSprint.updatedAt.`;
+}
+
+export function buildEvaluatorPrompt(state: HarnessState): string {
+  return `You are the Evaluator agent for sprint ${state.currentSprint.sprintNumber}.
+
+Judge the sprint using EVIDENCE + QUALITY dual verdict:
+
+EVIDENCE: Did the generator produce the promised artifacts?
+QUALITY: Score 1-10 on:
+  1. Correctness (0.25 weight) — does it solve the problem?
+  2. Code quality (0.25 weight) — no any/unknown types, clean structure
+  3. Test coverage (0.20 weight) — real tests, not mocks
+  4. Documentation (0.15 weight) — clear why, not when/ticket
+  5. Design compliance (0.15 weight) — follows sprint_contract.md
+
+Final score = 0.7 × rubric + 0.3 × diff_similarity
+Diff similarity = 1 - (lines_changed / 1000)
+
+Read the sprint report: ${state.projectPath}/sprint_${state.currentSprint.sprintNumber}/sprint_report.md
+
+Output: ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "sprint_eval.md")}
+
+If score >= 7 and EVIDENCE pass → verdict: "pass"
+Otherwise → verdict: "fail"
+
+After evaluation, update harness state:
+Set currentSprint.phase to "eval" (final), currentSprint.verdict, currentSprint.evaluatorNotes.
+Set currentSprint.updatedAt.`;
+}
+
+export function buildPromptForPhase(state: HarnessState): string {
+  switch (state.currentSprint.phase) {
+    case "research": return buildResearchPrompt(state);
+    case "plan": return buildPlanPrompt(state);
+    case "annotation": return buildAnnotationPrompt(state);
+    case "implementation": return buildImplementationPrompt(state);
+    case "eval": return buildEvaluatorPrompt(state);
+    default: throw new Error(`No prompt for phase: ${state.currentSprint.phase}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main orchestrator loop
+// ---------------------------------------------------------------------------
+
+export interface RunOptions {
+  projectPath: string;
+  projectName: string;
+  totalSprints?: number;
+  generatorModel?: string;
+  evaluatorModel?: string;
+  orchestratorModel?: string;
+  skillRoot?: string;
+  maxIterationsPerPhase?: number;
+}
+
+export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessState> {
+  const {
+    projectPath,
+    projectName,
+    totalSprints = 1,
+    generatorModel = "minimax/MiniMax-M2.7",
+    evaluatorModel = "minimax/MiniMax-M2.7",
+    orchestratorModel = "minimax/MiniMax-M2.7",
+    skillRoot,
+    maxIterationsPerPhase = 10,
+  } = opts;
+
+  // Initialize or resume state
+  let state = readState(projectPath);
+  if (!state) {
+    state = createInitialState(projectPath, projectName, totalSprints, generatorModel, evaluatorModel, orchestratorModel);
+    writeState(projectPath, state);
+  }
+
+  console.log(`[autonomous-harness] Starting loop for ${projectName} sprint ${state.currentSprint.sprintNumber} phase: ${state.currentSprint.phase}`);
+
+  while (state.currentSprint.phase !== "done") {
+    const phase = state.currentSprint.phase;
+    const sprint = state.currentSprint.sprintNumber;
+
+    console.log(`[autonomous-harness] Sprint ${sprint} Phase: ${phase}`);
+
+    // Build task prompt for current phase
+    const taskPrompt = buildPromptForPhase(state);
+
+    // Select model based on phase
+    const model = phase === "eval" || phase === "annotation"
+      ? evaluatorModel
+      : generatorModel;
+
+    const sessionName = `autonomous-s${sprint}-${phase}-${Date.now()}`;
+
+    // Spawn worker
+    const result = await spawnAOWorker({
+      model,
+      systemPrompt: getSystemPromptForPhase(phase),
+      taskPrompt,
+      workspace: projectPath,
+      sessionName,
+      skillRoot,
+    });
+
+    console.log(`[autonomous-harness] Worker exited: ${result.sessionName} code=${result.exitCode}`);
+
+    // Re-read state (worker may have updated it)
+    const newState = readState(projectPath);
+    if (!newState) throw new Error("State lost after worker run");
+    state = newState;
+
+    // Check for phase advancement
+    if (state.currentSprint.phase === phase) {
+      console.warn(`[autonomous-harness] Phase ${phase} did not advance — worker may have stalled`);
+      break;
+    }
+
+    // Advance to next phase
+    state = nextPhase(state);
+    writeState(projectPath, state);
+  }
+
+  console.log(`[autonomous-harness] All sprints complete. ${state.completedSprints.length}/${state.totalSprints} done.`);
+  return state;
+}
+
+// ---------------------------------------------------------------------------
+// System prompts per phase (minimal — actual logic is in skill prompts)
+// ---------------------------------------------------------------------------
+
+function getSystemPromptForPhase(phase: Phase): string {
+  switch (phase) {
+    case "research":
+      return "You are a Researcher agent. Deep-read all project files and produce a detailed research.md artifact.";
+    case "plan":
+      return "You are a Strategist agent. Produce spec.md and plan.md from the research artifact.";
+    case "annotation":
+      return "You are a Reviewer agent. Annotate the plan, negotiate a sprint contract.";
+    case "implementation":
+      return "You are a Generator agent. Implement per the sprint contract, then self-evaluate.";
+    case "eval":
+      return "You are an Evaluator agent. Judge EVIDENCE + QUALITY, produce dual verdict.";
+    default:
+      return "You are an autonomous agent.";
+  }
+}
