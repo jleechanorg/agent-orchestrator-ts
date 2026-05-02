@@ -45,7 +45,7 @@ else
 fi
 
 # Also check BASE_URL and MODEL are present
-for var in MINIMAX_BASE_URL MINIMAX_MODEL; do
+for var in MINIMAX_ANTHROPIC_BASE_URL MINIMAX_MODEL; do
   val=$(ps eww -p "$youngest_pid" 2>/dev/null | tr ' ' '\n' | grep "^${var}=" || true)
   if [ -z "$val" ]; then
     echo "FAIL: $var is not set in PID $youngest_pid"

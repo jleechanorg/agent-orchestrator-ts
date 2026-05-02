@@ -115,11 +115,13 @@ install_lifecycle_plist() {
     -e "s|@AO_CONFIG_PATH@|$(escape_sed "$config_path")|g" \
     -e "s|@AO_CLI_PATH@|$ao_cli_path_value|g" \
     -e "s|@PATH@|$path_value|g" \
-    -e "s|@AO_CLI_PATH@|$(escape_sed "$(ao_cli_path)")|g" \
+    -e "s|@MINIMAX_API_KEY@|$(escape_sed "${MINIMAX_API_KEY:-}")|g" \
+    -e "s|@MINIMAX_ANTHROPIC_BASE_URL@|$(escape_sed "${MINIMAX_ANTHROPIC_BASE_URL:-https://api.minimax.io/anthropic}")|g" \
+    -e "s|@MINIMAX_MODEL@|$(escape_sed "${MINIMAX_MODEL:-MiniMax-M2.7}")|g" \
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
-  install -m 644 "$tmp_plist" "$plist_path"
+  install -m 600 "$tmp_plist" "$plist_path"
   rm -f "$tmp_plist"
 
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
@@ -186,7 +188,7 @@ install_novel_plist() {
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
-  install -m 644 "$tmp_plist" "$plist_path"
+  install -m 600 "$tmp_plist" "$plist_path"
   rm -f "$tmp_plist"
 
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
@@ -243,7 +245,7 @@ install_watchdog_plist() {
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
-  install -m 644 "$tmp_plist" "$plist_path"
+  install -m 600 "$tmp_plist" "$plist_path"
   rm -f "$tmp_plist"
 
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
