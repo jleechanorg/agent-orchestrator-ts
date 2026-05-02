@@ -6,7 +6,7 @@
  *   ao autonomous-harness --project-path /tmp/mctrl_test --project-name mctrl_test --sprints 1
  */
 
-import { Command } from "commander";
+import type { Command } from "commander";
 import { runAutonomousHarness, type RunOptions } from "./orchestrator.js";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";

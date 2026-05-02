@@ -11,8 +11,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
-import type { HarnessState, Phase } from "./harness-state.js";
-import { createInitialState, nextPhase, PHASE_ORDER } from "./harness-state.js";
+import { createInitialState, nextPhase, type HarnessState, type Phase } from "./harness-state.js";
 
 function atomicWriteFileSync(filePath: string, content: string): void {
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
@@ -22,15 +21,12 @@ function atomicWriteFileSync(filePath: string, content: string): void {
 
 function execAsyncWithExitCode(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd: opts?.cwd, timeout: opts?.timeout }, (error, stdout, stderr) => {
+    execFile(cmd, args, { cwd: opts?.cwd, timeout: opts?.timeout }, (error, _stdout, _stderr) => {
       if (error) {
-        const exitCode = (error as NodeJS.ErrnoException).code
-          ? parseInt(String((error as NodeJS.ErrnoException).code), 10) || null
-          : null;
         reject(new Error(`execAsyncWithExitCode: ${(error as NodeJS.ErrnoException).code ?? error.message}`));
         return;
       }
-      resolve({ stdout, stderr, exitCode: 0 });
+      resolve({ stdout: _stdout, stderr: _stderr, exitCode: 0 });
     });
   });
 }
@@ -74,7 +70,7 @@ export async function spawnAOWorker(config: SpawnConfig): Promise<SpawnResult> {
     args.push("--skill-root", config.skillRoot);
   }
 
-  const { stdout, stderr } = await execAsyncWithExitCode("ao", args, {
+  await execAsyncWithExitCode("ao", args, {
     cwd: config.workspace,
     timeout: 600_000, // 10min
   });
