@@ -15,7 +15,7 @@ import { registerUpdate } from "./commands/update.js";
 import { registerSkeptic } from "./commands/skeptic.js";
 import { registerSkepticInstall } from "./commands/skeptic/install.js";
 import { getConfigInstruction } from "./lib/config-instruction.js";
-import { registerAutonomousHarness } from "../../../autonomous-harness/dist/cli.js";
+import { registerAutonomousHarness } from "@jleechanorg/ao-autonomous-harness";
 
 export function buildProgram(): Command {
   const program = new Command();
