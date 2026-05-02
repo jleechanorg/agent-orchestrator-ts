@@ -34,13 +34,18 @@
   <key>WorkingDirectory</key>
   <string>@REPO_ROOT@</string>
 
-  <!-- PATH needed for node (nvm) — secrets come from shell profile via launcher. -->
+  <!-- PATH needed for node (nvm). Non-secret defaults for MiniMax config.
+       Secrets (API keys) come from shell profile via launchd-launcher.sh. -->
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
     <string>@HOME@</string>
     <key>PATH</key>
     <string>@PATH@</string>
+    <key>MINIMAX_ANTHROPIC_BASE_URL</key>
+    <string>https://api.minimax.io/anthropic</string>
+    <key>MINIMAX_MODEL</key>
+    <string>MiniMax-M2.7</string>
   </dict>
 
   <key>StandardOutPath</key>
