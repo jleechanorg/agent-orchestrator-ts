@@ -101,6 +101,7 @@ export function nextPhase(state: HarnessState): HarnessState {
   }
 
   const nextPhase_ = PHASE_ORDER[idx + 1] ?? "done";
+  if (phase === "done") return state;
   return {
     ...state,
     currentSprint: {

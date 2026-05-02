@@ -58,13 +58,13 @@ export function registerAutonomousHarness(program: CommanderLike): void {
     }
 
     const sprints = parseInt(opts.sprints, 10);
-    if (!Number.isInteger(sprints) || sprints <= 0) {
+    if (!Number.isInteger(sprints) || sprints <= 0 || String(sprints) !== opts.sprints) {
       console.error(`[autonomous-harness] Error: --sprints must be a positive integer, got: ${opts.sprints}`);
       process.exit(1);
     }
 
     const maxIterations = parseInt(opts.maxIterationsPerPhase, 10);
-    if (!Number.isInteger(maxIterations) || maxIterations <= 0) {
+    if (!Number.isInteger(maxIterations) || maxIterations <= 0 || String(maxIterations) !== opts.maxIterationsPerPhase) {
       console.error(`[autonomous-harness] Error: --max-iterations-per-phase must be a positive integer, got: ${opts.maxIterationsPerPhase}`);
       process.exit(1);
     }
