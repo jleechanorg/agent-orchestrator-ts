@@ -8,13 +8,14 @@
  * Design: https://github.com/jleechanorg/jleechanclaw/blob/main/papers/experiment_autonomous_harness/technique.md
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, cpSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, renameSync, cpSync } from "node:fs";
 import { join, resolve as pathResolve } from "node:path";
 import { z } from "zod";
 import { loadConfig, createSessionManager, createPluginRegistry } from "@jleechanorg/ao-core";
 import {
   createInitialState,
   nextPhase,
+  SprintStateSchema,
   type HarnessState,
   type Phase,
 } from "./harness-state.js";
@@ -33,21 +34,11 @@ function atomicWriteFileSync(filePath: string, content: string): void {
 // Zod schema for runtime validation of worker-written state files
 // ---------------------------------------------------------------------------
 
-const PhaseSchema = z.enum(["research", "plan", "annotation", "implementation", "eval", "done"]);
-
 const HarnessStateSchema = z.object({
   projectPath: z.string(),
   projectName: z.string(),
-  currentSprint: z.object({
-    sprintNumber: z.number().int().positive(),
-    phase: PhaseSchema,
-    artifacts: z.record(z.string()),
-    startedAt: z.string(),
-    updatedAt: z.string(),
-    verdict: z.union([z.literal("pass"), z.literal("fail"), z.null()]).optional(),
-    evaluatorNotes: z.string().optional(),
-  }),
-  completedSprints: z.array(z.any()),
+  currentSprint: SprintStateSchema,
+  completedSprints: z.array(SprintStateSchema),
   totalSprints: z.number().int().positive(),
   generatorModel: z.string(),
   evaluatorModel: z.string(),
@@ -277,11 +268,13 @@ If score >= 7 and EVIDENCE pass → verdict: "pass"
 Otherwise → verdict: "fail"
 
 After evaluation, update ./harness_state.json:
-Set currentSprint.phase to "done", currentSprint.verdict, currentSprint.evaluatorNotes.
-Set currentSprint.updatedAt to current ISO timestamp.
+Set currentSprint.phase to "eval" (NOT "done" — the orchestrator handles that transition),
+currentSprint.verdict to "pass" or "fail", and currentSprint.evaluatorNotes to your
+analysis summary. Set currentSprint.updatedAt to current ISO timestamp.
 
-IMPORTANT: When the eval phase is complete, set currentSprint.phase to "done" to signal the
-orchestrator that the sprint is finished. Do not leave phase as "eval".`;
+IMPORTANT: Set phase to "eval" with verdict/notes. Do NOT set phase to "done" —
+the orchestrator will call nextPhase() to transition to "done" and record the
+completed sprint in completedSprints.`;
 }
 
 export function buildPromptForPhase(state: HarnessState): string {
@@ -408,10 +401,9 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
 
     const taskPrompt = buildPromptForPhase(state);
 
-    // annotation and eval are evaluation phases — use evaluatorModel.
-    // orchestratorModel is reserved for future orchestration-level decisions.
+    // annotation and eval are orchestration phases — use orchestratorModel.
     const model = (phase === "eval" || phase === "annotation")
-      ? evaluatorModel
+      ? orchestratorModel
       : generatorModel;
 
     // Spawn worker — AO creates a worktree and runs the worker there
@@ -429,13 +421,23 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     const worktreePath = result.worktreePath;
     console.log(`[autonomous-harness] Worker spawned: ${result.sessionName} worktree: ${worktreePath ?? "unknown"}`);
 
-    // Copy state file into the worktree so the worker can read current state
-    if (worktreePath && existsSync(statePath(projectPath))) {
+    // Copy state file and sprint artifacts into the worktree so the worker can read current state and prior phase outputs
+    if (worktreePath) {
       try {
-        cpSync(statePath(projectPath), statePath(worktreePath), { force: true });
-        console.log(`[autonomous-harness] State copied to worktree: ${statePath(worktreePath)}`);
+        if (existsSync(statePath(projectPath))) {
+          cpSync(statePath(projectPath), statePath(worktreePath), { force: true });
+          console.log(`[autonomous-harness] State copied to worktree: ${statePath(worktreePath)}`);
+        }
+        // Copy all existing sprint directories so phase prompts can read prior artifacts (research.md, plan.md, etc.)
+        const entries = readdirSync(projectPath);
+        for (const entry of entries) {
+          if (/^sprint_\d+$/.test(entry) && !existsSync(join(worktreePath, entry))) {
+            cpSync(join(projectPath, entry), join(worktreePath, entry), { recursive: true, force: true });
+            console.log(`[autonomous-harness] Sprint artifacts copied to worktree: ${entry}`);
+          }
+        }
       } catch (err) {
-        console.warn(`[autonomous-harness] Failed to copy state to worktree: ${err}`);
+        console.warn(`[autonomous-harness] Failed to copy state/artifacts to worktree: ${err}`);
       }
     }
 
