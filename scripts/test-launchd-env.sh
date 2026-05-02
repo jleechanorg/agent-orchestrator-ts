@@ -24,6 +24,10 @@ if [ -f "$PLIST_PATH" ]; then
     echo "Fix: re-run bash scripts/setup-launchd.sh lifecycle"
     exit 1
   fi
+else
+  echo "FAIL: Missing expected plist at $PLIST_PATH"
+  echo "Fix: bash scripts/setup-launchd.sh lifecycle"
+  exit 1
 fi
 
 # Find the youngest lifecycle-worker PID (most recently spawned).
