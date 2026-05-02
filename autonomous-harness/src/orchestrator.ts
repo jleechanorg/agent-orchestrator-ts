@@ -11,7 +11,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
-import { createInitialState, nextPhase, type HarnessState, type Phase } from "./harness-state.js";
+import { createInitialState, nextPhase, PHASE_ORDER, type HarnessState, type Phase } from "./harness-state.js";
 
 function atomicWriteFileSync(filePath: string, content: string): void {
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
@@ -340,8 +340,27 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     // Only call nextPhase if the worker didn't advance
     const workerAdvanced = newState.currentSprint.phase !== phase;
     if (workerAdvanced) {
-      console.log(`[autonomous-harness] Worker advanced phase: ${phase} → ${newState.currentSprint.phase}`);
-      state = newState;
+      // Validate transition using PHASE_ORDER
+      const fromIdx = PHASE_ORDER.indexOf(phase);
+      const toIdx = PHASE_ORDER.indexOf(newState.currentSprint.phase);
+      if (toIdx < 0) {
+        console.error(`[autonomous-harness] Unknown phase: ${newState.currentSprint.phase}`);
+        newState.currentSprint.verdict = "fail";
+        newState.currentSprint.evaluatorNotes = `Invalid phase transition: ${phase} → ${newState.currentSprint.phase}`;
+        state = nextPhase(newState);
+        writeState(projectPath, state);
+      } else if (toIdx > fromIdx + 1 || toIdx < fromIdx) {
+        // Skip (forward >1) or backwards — reject as invalid
+        console.error(`[autonomous-harness] Invalid phase transition: ${phase} → ${newState.currentSprint.phase}`);
+        newState.currentSprint.verdict = "fail";
+        newState.currentSprint.evaluatorNotes = `Invalid phase transition: ${phase} → ${newState.currentSprint.phase}`;
+        state = nextPhase(newState);
+        writeState(projectPath, state);
+      } else {
+        // Valid: same phase (artifact rewrite) or immediate next
+        console.log(`[autonomous-harness] Worker advanced phase: ${phase} → ${newState.currentSprint.phase}`);
+        state = newState;
+      }
     } else if (phase === "eval") {
       // Eval phase: worker writes verdict but keeps phase as "eval" (final marker)
       // Accept eval as complete once verdict is set, then advance to done
