@@ -48,14 +48,17 @@ fi
 echo -n "Check 3: installed plist has a real token... "
 if [ -f "$INSTALLED_PLIST" ]; then
   gh_token_value=$(plutil -p "$INSTALLED_PLIST" 2>/dev/null | grep '"GITHUB_TOKEN"' | sed 's/.*=> "//;s/".*//' || true)
-  if [ -z "$gh_token_value" ]; then
+  # Trim leading/trailing whitespace before checking emptiness
+  gh_token_value_trimmed="${gh_token_value#"${gh_token_value%%[![:space:]]*}"}"
+  gh_token_value_trimmed="${gh_token_value_trimmed%"${gh_token_value_trimmed##*[![:space:]]}"}"
+  if [ -z "$gh_token_value_trimmed" ]; then
     echo "FAIL — GITHUB_TOKEN is empty in installed plist"
     FAILED=1
-  elif echo "$gh_token_value" | grep -q '@'; then
+  elif echo "$gh_token_value_trimmed" | grep -q '@'; then
     echo "FAIL — GITHUB_TOKEN is unsubstituted @VAR@ in installed plist"
     FAILED=1
   else
-    echo "PASS (masked: $(mask_secret "$gh_token_value"))"
+    echo "PASS (masked: $(mask_secret "$gh_token_value_trimmed"))"
   fi
 else
   echo "SKIP — installed plist not found (may need install first)"
