@@ -1,0 +1,58 @@
+{
+  "version": "1.0",
+  "harness": "autonomous-long-running",
+  "brief": "",
+  "sprint": 0,
+  "phase": "research",
+  "started_at": "",
+  "last_reset": "",
+  "state": {
+    "research_complete": false,
+    "spec_complete": false,
+    "plan_review_complete": false,
+    "contract_signed": false,
+    "sprints_complete": 0
+  },
+  "artifacts": {
+    "research_md": "research.md",
+    "spec_md": "spec.md",
+    "plan_md": "plan.md",
+    "plan_review_md": "plan_review.md",
+    "sprint_contract_md": "sprint_contract.md",
+    "sprint_N_report_md": "sprint_N_report.md",
+    "sprint_N_eval_md": "sprint_N_eval.md",
+    "harness_state_json": "harness_state.json"
+  },
+  "evaluator": {
+    "type": "skeptic",
+    "model": "codex",
+    "calibration_run": false
+  },
+  "constraints": {
+    "max_sprints": 20,
+    "max_iterations_per_sprint": 5,
+    "max_evidence_remediation": 2,
+    "context_reset_threshold_pct": 80,
+    "sprint_timeout_minutes": 90
+  },
+  "scoring": {
+    "rubric_weights": {
+      "type_safety": 0.30,
+      "error_handling": 0.20,
+      "naming": 0.15,
+      "tests": 0.15,
+      "documentation": 0.10,
+      "evidence": 0.10
+    },
+    "thresholds": {
+      "type_safety": 0.70,
+      "error_handling": 0.70,
+      "naming": 0.70,
+      "tests": 0.70,
+      "documentation": 0.60,
+      "evidence": 0.70
+    },
+    "diff_similarity_weight": 0.30,
+    "rubric_weight": 0.70
+  }
+}
