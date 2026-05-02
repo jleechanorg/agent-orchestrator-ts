@@ -28,7 +28,7 @@ export interface SprintState {
 }
 
 // Zod schema for runtime validation — mirrors SprintState interface
-export const ArtifactSetSchema: z.ZodType<ArtifactSet> = z.object({
+export const ArtifactSetSchema = z.object({
   researchMd: z.string(),
   specMd: z.string(),
   planMd: z.string(),

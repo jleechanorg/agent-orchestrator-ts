@@ -493,7 +493,15 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     }
 
     if (!stateUpdated) {
-      throw new Error(`[autonomous-harness] Phase ${phase}: worker did not advance state — run failed`);
+      throw new Error(
+        `[autonomous-harness] Phase ${phase} did not advance after worker completion — treating as run failure.`,
+      );
+    }
+
+    // If eval completed (verdict written), advance to next phase
+    if (phase === "eval" && state.currentSprint.verdict) {
+      state = nextPhase(state);
+      console.log(`[autonomous-harness] Eval complete, verdict=${state.currentSprint.verdict}. Transitioned to ${state.currentSprint.phase}.`);
     }
 
     // Persist current state
@@ -533,7 +541,7 @@ function getSystemPromptForPhase(phase: Phase): string {
     case "implementation":
       return "You are a Generator agent. Implement per the sprint contract, then self-evaluate.";
     case "eval":
-      return "You are an Evaluator agent. Judge EVIDENCE + QUALITY, produce dual verdict. Keep phase as 'eval' — the orchestrator will advance state when the verdict is recorded.";
+      return "You are an Evaluator agent. Judge EVIDENCE + QUALITY, produce dual verdict. Leave phase at 'eval' — the orchestrator handles the 'done' transition.";
     default:
       return "You are an autonomous agent.";
   }
