@@ -140,9 +140,6 @@ async function tryModel(
   if (!postComment) args.push("--dry-run");
   if (triggerSha) {
     args.push("--trigger-sha", triggerSha);
-    // runLocalSkepticCron passes triggerSha but has no specific GHA cron request-id,
-    // so we must scope the lookup to cron-trigger comments to satisfy the CLI requirement.
-    args.push("--trigger-type", "cron");
   }
   if (excludePaths && excludePaths.length > 0) {
     for (const p of excludePaths) {
