@@ -15,9 +15,7 @@
     "sourceMap": true,
     "allowJs": true,
     "paths": {
-      "@jleechanorg/ao-core": ["../packages/core/dist/index.js"],
-      "@jleechanorg/ao-cli": ["../packages/cli/dist/index.js"],
-      "@jleechanorg/ao-cli/lib/*": ["../packages/cli/dist/lib/*"]
+      "@jleechanorg/ao-core": ["../packages/core/dist/index.js"]
     }
   },
   "include": ["src/**/*"],
