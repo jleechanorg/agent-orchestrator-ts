@@ -18,10 +18,13 @@
   <true/>
 
   <key>KeepAlive</key>
-  <true/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
 
   <key>ThrottleInterval</key>
-  <integer>60</integer>
+  <integer>300</integer>
 
   <key>WorkingDirectory</key>
   <string>@REPO_ROOT@</string>
