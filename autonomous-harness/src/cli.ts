@@ -7,6 +7,16 @@
  */
 
 import type { Command } from "commander";
+
+/** Minimal commander-like interface compatible with both v12 and v13 */
+interface CommanderLike {
+  command(name?: string): CommanderLike;
+  description(text?: string): CommanderLike;
+  requiredOption(name: string, ...args: unknown[]): CommanderLike;
+  option(name: string, ...args: unknown[]): CommanderLike;
+  action(handler: (...args: unknown[]) => unknown): CommanderLike;
+  opts<T>(): T;
+}
 import { runAutonomousHarness, type RunOptions } from "./orchestrator.js";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -21,7 +31,7 @@ interface AutonomousHarnessOptions {
   skillRoot?: string;
 }
 
-export function registerAutonomousHarness(program: Command): void {
+export function registerAutonomousHarness(program: CommanderLike): void {
   const cmd = program
     .command("autonomous-harness")
     .description("Run autonomous GAN-style generator/evaluator loop with file-based handoffs")
