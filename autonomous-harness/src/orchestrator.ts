@@ -317,16 +317,21 @@ async function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Poll AO session status until it reaches a terminal state.
- * This is more reliable than file-based state polling because workers
- * are LLM agents that may or may not update harness_state.json.
+ * Poll for phase completion using dual strategy:
+ * 1. Check AO session status (for sessions that properly transition)
+ * 2. Check worktree harness_state.json (for tmux sessions where status sticks at spawning)
+ *
+ * Returns as soon as EITHER the session reaches a terminal state OR the worker
+ * advances the phase in the state file.
  */
-async function pollSessionUntilComplete(
+async function pollUntilPhaseAdvance(
   projectId: string,
   sessionId: string,
+  currentPhase: string,
+  worktreePath: string | null,
   maxIterations: number,
-  pollIntervalMs = 30_000, // 30s between polls
-): Promise<{ status: string; activity: string | null }> {
+  pollIntervalMs = 30_000,
+): Promise<{ status: string; phaseAdvanced: boolean }> {
   const config_ = loadConfig();
   const registry = createPluginRegistry();
   await registry.loadBuiltins(config_);
@@ -335,31 +340,41 @@ async function pollSessionUntilComplete(
   for (let i = 0; i < maxIterations; i++) {
     await sleep(pollIntervalMs);
 
+    // Check 1: Session status
     try {
       const sessions = await sm.list(projectId);
       const session = sessions.find((s: { id: string }) => s.id === sessionId);
 
       if (!session) {
-        console.log(`[autonomous-harness] Session ${sessionId} not found in list — may have been cleaned up`);
-        return { status: "terminated", activity: null };
+        console.log(`[autonomous-harness] Session ${sessionId} not found — may have been cleaned up`);
+        return { status: "terminated", phaseAdvanced: false };
       }
 
       const status = session.status as string;
       const activity = session.activity as string | null;
 
       if (TERMINAL_SESSION_STATUSES.has(status)) {
-        console.log(`[autonomous-harness] Session ${sessionId} reached terminal status: ${status}`);
-        return { status, activity };
+        console.log(`[autonomous-harness] Session ${sessionId} terminal: ${status}`);
+        return { status, phaseAdvanced: false };
       }
 
-      console.log(`[autonomous-harness] Poll ${i + 1}/${maxIterations}: session ${sessionId} status=${status} activity=${activity ?? "unknown"}`);
+      // Check 2: Worktree state file for phase advance
+      if (worktreePath) {
+        const worktreeState = readState(worktreePath);
+        if (worktreeState && worktreeState.currentSprint.phase !== currentPhase) {
+          console.log(`[autonomous-harness] Phase advanced ${currentPhase} → ${worktreeState.currentSprint.phase} (poll ${i + 1})`);
+          return { status, phaseAdvanced: true };
+        }
+      }
+
+      console.log(`[autonomous-harness] Poll ${i + 1}/${maxIterations}: status=${status} activity=${activity ?? "?"} phase=${currentPhase}`);
     } catch (err) {
-      console.warn(`[autonomous-harness] Poll ${i + 1}/${maxIterations}: error checking session: ${err}`);
+      console.warn(`[autonomous-harness] Poll ${i + 1}/${maxIterations}: error: ${err}`);
     }
   }
 
   console.warn(`[autonomous-harness] Session ${sessionId} did not complete within max polls`);
-  return { status: "unknown", activity: null };
+  return { status: "unknown", phaseAdvanced: false };
 }
 
 export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessState> {
@@ -424,16 +439,18 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
       }
     }
 
-    console.log(`[autonomous-harness] Waiting for session ${result.sessionName} to complete (max ${maxIterationsPerPhase} × 30s)`);
+    console.log(`[autonomous-harness] Waiting for phase advance or session completion (max ${maxIterationsPerPhase} × 30s)`);
 
-    // Poll session status until terminal
-    const sessionResult = await pollSessionUntilComplete(
+    // Dual poll: session status + worktree state file
+    const pollResult = await pollUntilPhaseAdvance(
       projectId,
       result.sessionId,
+      phase,
+      worktreePath,
       maxIterationsPerPhase,
     );
 
-    console.log(`[autonomous-harness] Session ${result.sessionName} ended with status: ${sessionResult.status}`);
+    console.log(`[autonomous-harness] Session ${result.sessionName} ended: status=${pollResult.status} phaseAdvanced=${pollResult.phaseAdvanced}`);
 
     // Check if the worker updated harness_state.json in the worktree
     let stateUpdated = false;
