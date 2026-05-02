@@ -285,8 +285,7 @@ describe("wholesome — structural source-code assertions", () => {
         // "@typescript-eslint/no-explicit-any": "off" suppresses the lint error;
         // the cast is documented in-program with a 2-line comment explaining why.
         .filter(v => v.file !== "packages/cli/src/program.ts" ||
-          (!v.line.includes("registerAutonomousHarness") &&
-           !v.line.includes("Commander v12")));
+          !v.line.includes("Commander v12/v13"));
       expect(violations, "eslint-disable directive added in this branch:\n" +
         violations.map(v => `${v.file}: ${v.line}`).join("\n")).toHaveLength(0);
     });

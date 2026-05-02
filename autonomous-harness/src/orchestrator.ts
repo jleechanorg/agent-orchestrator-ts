@@ -15,6 +15,7 @@ import { loadConfig, createSessionManager, createPluginRegistry } from "@jleecha
 import {
   createInitialState,
   nextPhase,
+  PHASE_ORDER,
   SprintStateSchema,
   type HarnessState,
   type Phase,
@@ -231,7 +232,7 @@ Read: ./sprint_${state.currentSprint.sprintNumber}/sprint_contract.md
 
 Implement the full sprint per the contract. When done:
 1. Mark each completed task in the plan document
-2. Write a sprint_${state.currentSprint.sprintNumber}_report.md with what was built + self-eval
+2. Write ./sprint_${state.currentSprint.sprintNumber}/sprint_report.md with what was built + self-eval
 3. Do NOT add unnecessary comments or jsdocs
 4. Do NOT use any or unknown types
 5. Continuously run typecheck
@@ -458,39 +459,53 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     let stateUpdated = false;
     if (worktreePath) {
       const worktreeState = readState(worktreePath);
-      if (worktreeState && worktreeState.currentSprint.phase !== phase) {
-        state = worktreeState;
-        stateUpdated = true;
-        console.log(`[autonomous-harness] State advanced to ${state.currentSprint.phase} via worktree`);
+      if (worktreeState) {
+        const newPhase = worktreeState.currentSprint.phase;
+        const currentIdx = PHASE_ORDER.indexOf(phase as Phase);
+        const newIdx = PHASE_ORDER.indexOf(newPhase as Phase);
+
+        // Accept: phase advanced by exactly 1, OR eval phase wrote verdict/notes without advancing
+        const validTransition = (newIdx === currentIdx + 1) ||
+          (phase === "eval" && newPhase === "eval" && worktreeState.currentSprint.verdict != null);
+        if (validTransition) {
+          state = worktreeState;
+          stateUpdated = true;
+          console.log(`[autonomous-harness] State updated to ${newPhase} via worktree`);
+        }
       }
     }
 
     // Also check main project path
     if (!stateUpdated) {
       const mainState = readState(projectPath);
-      if (mainState && mainState.currentSprint.phase !== phase) {
-        state = mainState;
-        stateUpdated = true;
-        console.log(`[autonomous-harness] State advanced to ${state.currentSprint.phase} via main project`);
+      if (mainState) {
+        const newPhase = mainState.currentSprint.phase;
+        const currentIdx = PHASE_ORDER.indexOf(phase as Phase);
+        const newIdx = PHASE_ORDER.indexOf(newPhase as Phase);
+        const validTransition = (newIdx === currentIdx + 1) ||
+          (phase === "eval" && newPhase === "eval" && mainState.currentSprint.verdict != null);
+        if (validTransition) {
+          state = mainState;
+          stateUpdated = true;
+          console.log(`[autonomous-harness] State updated to ${newPhase} via main project`);
+        }
       }
     }
 
     if (!stateUpdated) {
-      // Worker stalled — advance phase and let the next loop iteration pick up the new phase
-      console.warn(`[autonomous-harness] Phase ${phase}: worker did not advance state — advancing manually`);
-      state = nextPhase(state);
+      throw new Error(`[autonomous-harness] Phase ${phase}: worker did not advance state — run failed`);
     }
 
     // Persist current state
     writeState(projectPath, state);
 
-    // Copy artifacts from worktree back to main project if they exist
+    // Copy artifacts from worktree back to main project
     if (worktreePath) {
       const sprintDir = join(worktreePath, `sprint_${sprint}`);
       const mainSprintDir = join(projectPath, `sprint_${sprint}`);
-      if (existsSync(sprintDir) && !existsSync(mainSprintDir)) {
+      if (existsSync(sprintDir)) {
         try {
-          cpSync(sprintDir, mainSprintDir, { recursive: true });
+          cpSync(sprintDir, mainSprintDir, { recursive: true, force: true });
           console.log(`[autonomous-harness] Artifacts copied from worktree to ${mainSprintDir}`);
         } catch (err) {
           console.warn(`[autonomous-harness] Failed to copy artifacts: ${err}`);
@@ -518,7 +533,7 @@ function getSystemPromptForPhase(phase: Phase): string {
     case "implementation":
       return "You are a Generator agent. Implement per the sprint contract, then self-evaluate.";
     case "eval":
-      return "You are an Evaluator agent. Judge EVIDENCE + QUALITY, produce dual verdict. When done, set phase to 'done'.";
+      return "You are an Evaluator agent. Judge EVIDENCE + QUALITY, produce dual verdict. Keep phase as 'eval' — the orchestrator will advance state when the verdict is recorded.";
     default:
       return "You are an autonomous agent.";
   }

@@ -41,7 +41,7 @@ export const ArtifactSetSchema: z.ZodType<ArtifactSet> = z.object({
 export const SprintStateSchema: z.ZodType<SprintState> = z.object({
   sprintNumber: z.number().int().positive(),
   phase: z.enum(["research", "plan", "annotation", "implementation", "eval", "done"]),
-  artifacts: z.record(z.string()),
+  artifacts: ArtifactSetSchema.partial().strict(),
   startedAt: z.string(),
   updatedAt: z.string(),
   verdict: z.union([z.literal("pass"), z.literal("fail"), z.null()]).optional(),
