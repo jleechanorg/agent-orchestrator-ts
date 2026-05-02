@@ -10,13 +10,55 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join, resolve as pathResolve } from "node:path";
+import { z } from "zod";
 import { loadConfig, createSessionManager, createPluginRegistry } from "@jleechanorg/ao-core";
-import { createInitialState, nextPhase, PHASE_ORDER, type HarnessState, type Phase } from "./harness-state.js";
+import type { HarnessState, Phase, SprintState } from "./harness-state.js";
+import { createInitialState, nextPhase, PHASE_ORDER } from "./harness-state.js";
+
+// ---------------------------------------------------------------------------
+// Atomic write — avoids truncated JSON when workers read concurrently
+// ---------------------------------------------------------------------------
 
 function atomicWriteFileSync(filePath: string, content: string): void {
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
   writeFileSync(tmpPath, content, "utf-8");
   renameSync(tmpPath, filePath);
+}
+
+// ---------------------------------------------------------------------------
+// Zod schema for runtime validation of worker-written state files
+// ---------------------------------------------------------------------------
+
+const PhaseSchema = z.enum(["research", "plan", "annotation", "implementation", "eval", "done"]);
+
+const HarnessStateSchema = z.object({
+  projectPath: z.string(),
+  projectName: z.string(),
+  currentSprint: z.object({
+    sprintNumber: z.number().int().positive(),
+    phase: PhaseSchema,
+    artifacts: z.record(z.string()),
+    startedAt: z.string(),
+    updatedAt: z.string(),
+    verdict: z.union([z.literal("pass"), z.literal("fail"), z.null()]).optional(),
+    evaluatorNotes: z.string().optional(),
+  }),
+  completedSprints: z.array(z.any()),
+  totalSprints: z.number().int().positive(),
+  generatorModel: z.string(),
+  evaluatorModel: z.string(),
+  orchestratorModel: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+function safeParseState(raw: unknown): HarnessState | null {
+  const result = HarnessStateSchema.safeParse(raw);
+  if (!result.success) {
+    console.warn("[autonomous-harness] State validation failed:", result.error.message);
+    return null;
+  }
+  return result.data;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,15 +90,14 @@ export interface SpawnResult {
  * - agent: agent plugin override
  * - runtimeOverride: runtime override
  *
- * The projectId is resolved by matching config.workspace against project paths.
+ * The projectId is resolved by matching workspace path against project paths in AO config.
  */
 export async function spawnAOWorker(config: SpawnConfig): Promise<SpawnResult> {
-  const sessionName = config.sessionName || `autonomous-${Date.now()}`;
   const workspacePath = pathResolve(config.workspace);
 
   // Load AO config to resolve projectId from workspace path
   const config_ = loadConfig();
-  const projectIds = Object.keys(config_.projects);
+  const projectIds = Object.keys(config_.projects ?? {});
 
   // Find project by matching workspace path
   const matchedProjectId = projectIds.find((id) => {
@@ -66,7 +107,6 @@ export async function spawnAOWorker(config: SpawnConfig): Promise<SpawnResult> {
   });
 
   if (!matchedProjectId) {
-    // Fallback: use first project if only one configured
     if (projectIds.length === 1) {
       console.warn(`[autonomous-harness] Workspace ${workspacePath} not in AO config — using default project`);
     } else {
@@ -78,7 +118,6 @@ export async function spawnAOWorker(config: SpawnConfig): Promise<SpawnResult> {
   }
 
   const projectId = matchedProjectId ?? projectIds[0];
-  const resolvedWorkspace = pathResolve(config_.projects[projectId]?.path ?? config_.defaults?.workspace ?? ".");
 
   // Build full prompt: system context + task
   const fullPrompt = `${config.systemPrompt}\n\nTask: ${config.taskPrompt}`;
@@ -118,7 +157,8 @@ export function readState(workspace: string): HarnessState | null {
   const p = statePath(workspace);
   if (!existsSync(p)) return null;
   try {
-    return JSON.parse(readFileSync(p, "utf-8")) as HarnessState;
+    const raw = JSON.parse(readFileSync(p, "utf-8"));
+    return safeParseState(raw);
   } catch {
     return null;
   }
@@ -140,7 +180,7 @@ export function writeArtifact(
   workspace: string,
   sprint: number,
   artifact: string,
-  content: string
+  content: string,
 ): void {
   const dir = join(workspace, `sprint_${sprint}`);
   mkdirSync(dir, { recursive: true });
@@ -253,8 +293,11 @@ If score >= 7 and EVIDENCE pass → verdict: "pass"
 Otherwise → verdict: "fail"
 
 After evaluation, update harness state:
-Set currentSprint.phase to "eval" (final), currentSprint.verdict, currentSprint.evaluatorNotes.
-Set currentSprint.updatedAt.`;
+Set currentSprint.phase to "done" (final phase complete), currentSprint.verdict, currentSprint.evaluatorNotes.
+Set currentSprint.updatedAt.
+
+IMPORTANT: When the eval phase is complete, set currentSprint.phase to "done" to signal the
+orchestrator that the sprint is finished. Do not leave phase as "eval".`;
 }
 
 export function buildPromptForPhase(state: HarnessState): string {
@@ -274,6 +317,7 @@ export function buildPromptForPhase(state: HarnessState): string {
 
 export interface RunOptions {
   projectPath: string;
+  projectId: string;
   projectName: string;
   totalSprints?: number;
   generatorModel?: string;
@@ -290,7 +334,7 @@ async function sleep(ms: number): Promise<void> {
 async function pollStateUntilPhaseChange(
   workspace: string,
   phase: string,
-  maxIterations: number
+  maxIterations: number,
 ): Promise<HarnessState | null> {
   const POLL_INTERVAL_MS = 15_000; // 15s between polls
   for (let i = 0; i < maxIterations; i++) {
@@ -306,6 +350,7 @@ async function pollStateUntilPhaseChange(
 export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessState> {
   const {
     projectPath,
+    projectId,
     projectName,
     totalSprints = 1,
     generatorModel = "minimax/MiniMax-M2.7",
@@ -340,7 +385,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
 
     const sessionName = `autonomous-s${sprint}-${phase}-${Date.now()}`;
 
-    // Spawn worker
+    // Spawn worker via SessionManager (not raw CLI — avoids unsupported flag errors)
     const result = await spawnAOWorker({
       model,
       systemPrompt: getSystemPromptForPhase(phase),
@@ -356,41 +401,29 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     const newState = await pollStateUntilPhaseChange(projectPath, phase, maxIterationsPerPhase);
     if (!newState) throw new Error("State lost after worker run");
 
-    // Worker may have already advanced the phase via writeState
-    // Only call nextPhase if the worker didn't advance
-    const workerAdvanced = newState.currentSprint.phase !== phase;
-    if (workerAdvanced) {
-      // Validate transition using PHASE_ORDER
-      const fromIdx = PHASE_ORDER.indexOf(phase);
-      const toIdx = PHASE_ORDER.indexOf(newState.currentSprint.phase);
-      if (toIdx < 0) {
-        console.error(`[autonomous-harness] Unknown phase: ${newState.currentSprint.phase}`);
-        newState.currentSprint.verdict = "fail";
-        newState.currentSprint.evaluatorNotes = `Invalid phase transition: ${phase} → ${newState.currentSprint.phase}`;
-        state = nextPhase(newState);
-        writeState(projectPath, state);
-      } else if (toIdx > fromIdx + 1 || toIdx < fromIdx) {
-        // Skip (forward >1) or backwards — reject as invalid
-        console.error(`[autonomous-harness] Invalid phase transition: ${phase} → ${newState.currentSprint.phase}`);
-        newState.currentSprint.verdict = "fail";
-        newState.currentSprint.evaluatorNotes = `Invalid phase transition: ${phase} → ${newState.currentSprint.phase}`;
-        state = nextPhase(newState);
-        writeState(projectPath, state);
+    // Phase hasn't changed — check if it's the eval phase (which is "final" and doesn't advance)
+    if (newState.currentSprint.phase === phase) {
+      if (phase === "eval") {
+        // Eval phase is the final phase — it signals completion by staying at "eval"
+        // (worker sets phase to "done" per buildEvaluatorPrompt)
+        // If we're still at "eval" after polling, the worker may have stalled on eval.
+        // Fall through to normal stall handling.
+        console.warn(`[autonomous-harness] Eval phase did not advance after max polls — treating as stalled`);
       } else {
-        // Valid: same phase (artifact rewrite) or immediate next
-        console.log(`[autonomous-harness] Worker advanced phase: ${phase} → ${newState.currentSprint.phase}`);
-        state = newState;
+        // Non-eval phase stalled — advance to next phase
+        console.warn(`[autonomous-harness] Phase ${phase} did not advance — advancing manually`);
       }
-    } else if (phase === "eval") {
-      // Eval phase: worker writes verdict but keeps phase as "eval" (final marker)
-      // Accept eval as complete once verdict is set, then advance to done
-      console.log(`[autonomous-harness] Eval complete — verdict: ${newState.currentSprint.verdict ?? "(none)"}`);
-      state = nextPhase(newState);
-      writeState(projectPath, state);
-    } else {
-      // Worker stalled — advance and continue to next phase
-      console.warn(`[autonomous-harness] Phase ${phase} did not advance — advancing manually`);
-      state = nextPhase(newState);
+    }
+
+    // Persist worker-updated state as-is. Exactly one actor (the worker) owns phase
+    // transitions; the orchestrator only advances manually on stall.
+    state = newState;
+    writeState(projectPath, state);
+
+    // If the phase stalled (didn't advance), manually advance once.
+    // The worker is the sole phase-advancer when things work; we only step in on stall.
+    if (state.currentSprint.phase === phase) {
+      state = nextPhase(state);
       writeState(projectPath, state);
     }
   }
@@ -414,7 +447,7 @@ function getSystemPromptForPhase(phase: Phase): string {
     case "implementation":
       return "You are a Generator agent. Implement per the sprint contract, then self-evaluate.";
     case "eval":
-      return "You are an Evaluator agent. Judge EVIDENCE + QUALITY, produce dual verdict.";
+      return "You are an Evaluator agent. Judge EVIDENCE + QUALITY, produce dual verdict. When done, set phase to 'done'.";
     default:
       return "You are an autonomous agent.";
   }
