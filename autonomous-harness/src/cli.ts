@@ -11,6 +11,16 @@ import { runAutonomousHarness, type RunOptions } from "./orchestrator.js";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
+interface AutonomousHarnessOptions {
+  projectPath: string;
+  projectName: string;
+  sprints: string;
+  generatorModel: string;
+  evaluatorModel: string;
+  orchestratorModel: string;
+  skillRoot?: string;
+}
+
 export function registerAutonomousHarness(program: Command): void {
   const cmd = program
     .command("autonomous-harness")
@@ -20,10 +30,11 @@ export function registerAutonomousHarness(program: Command): void {
     .option("--sprints <n>", "Number of sprints", "1")
     .option("--generator-model <model>", "Model for generator phases", "minimax/MiniMax-M2.7")
     .option("--evaluator-model <model>", "Model for evaluator phases", "minimax/MiniMax-M2.7")
+    .option("--orchestrator-model <model>", "Model for orchestrator (evaluation/annotation phases)", "minimax/MiniMax-M2.7")
     .option("--skill-root <path>", "Path to skills directory (for skill prompts)");
 
   cmd.action(async () => {
-    const opts = cmd.opts();
+    const opts = cmd.opts<AutonomousHarnessOptions>();
     const projectPath = resolve(opts.projectPath);
 
     if (!existsSync(projectPath)) {
@@ -43,6 +54,7 @@ export function registerAutonomousHarness(program: Command): void {
       totalSprints: sprints,
       generatorModel: opts.generatorModel,
       evaluatorModel: opts.evaluatorModel,
+      orchestratorModel: opts.orchestratorModel,
       skillRoot: opts.skillRoot,
     };
 
