@@ -45,10 +45,13 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Build all non-web packages
-      - run: pnpm -r --filter '!@jleechanorg/ao-web' build
-      # Typecheck all non-web packages
-      - run: pnpm -r --filter '!@jleechanorg/ao-web' typecheck
+      # autonomous-harness must be built before ao-cli (CLI imports dist/cli.js)
+      - run: pnpm --filter '@jleechanorg/ao-autonomous-harness' build
+      # Build all non-web packages (excluding autonomous-harness which was built above)
+      - run: pnpm -r --filter '!@jleechanorg/ao-web' --filter '!@jleechanorg/ao-autonomous-harness' build
+      # Typecheck all non-web packages + autonomous-harness
+      - run: pnpm -r --filter '!@jleechanorg/ao-web' --filter '!@jleechanorg/ao-autonomous-harness' typecheck
+      - run: pnpm --filter '@jleechanorg/ao-autonomous-harness' typecheck
       # Build web (Next.js build includes its own typecheck)
       - run: pnpm --filter @jleechanorg/ao-web build
 

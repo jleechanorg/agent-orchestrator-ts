@@ -23,7 +23,7 @@
   "dependencies": {
     "@jleechanorg/ao-core": "workspace:*",
     "@jleechanorg/ao-cli": "workspace:*",
-    "commander": "^12.0.0",
+    "commander": "^13.0.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
