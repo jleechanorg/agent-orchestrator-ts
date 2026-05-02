@@ -3,6 +3,9 @@
 #
 # lifecycle-all keeps AO lifecycle workers running/restarting when needed.
 # novel-daily runs a deterministic prose aggregation once per day.
+#
+# All plists use scripts/launchd-launcher.sh which sources the shell profile
+# for env vars — no API keys or PATH duplicated in the plist.
 
 set -euo pipefail
 
@@ -24,7 +27,6 @@ REPO_ROOT="$(_resolve_repo_root)"
 TEMPLATE_DIR="$REPO_ROOT/launchd"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 BASE_LOG_DIR="$HOME/.openclaw/logs"
-BASE_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 action_script="${1:-all}"
 
@@ -36,51 +38,21 @@ escape_sed() {
     | sed 's/[\&\\|]/\\&/g'
 }
 
-# Escape for shell double-quote context: $, `, \, ", !
-# Handle \ first so that subsequent replacements (which may introduce new \ chars) are not double-escaped.
-escape_shell() {
-  printf '%s' "$1" \
-    | sed 's/\\/\\\\/g; s/'"'"'/'"'"'"'"'"'"'"'"'/g; s/\$/\\$/g; s/"/\\"/g; s/`/\\`/g; s/!/\\!/g'
-}
-
-path_for_launchd() {
-  AO_BIN="$(command -v ao 2>/dev/null || true)"
-  if [ -n "$AO_BIN" ]; then
-    AO_DIR="$(dirname "$AO_BIN")"
-    echo "${AO_DIR}:${BASE_PATH}"
-  else
-    echo "$BASE_PATH"
-  fi
-}
-
-# Returns the path to the CLI binary for AO_CLI_PATH env var.
-# Prefers the source tree (repo-local packages/cli/dist/index.js) when running
-# from a repo checkout, since the global npm ao may not include fork subcommands.
-# Falls back to the PATH-resolved ao binary if called from outside the repo.
-ao_cli_path() {
-  # Use the source tree if REPO_ROOT is set and the dist exists
-  if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/packages/cli/dist/index.js" ]; then
-    echo "$REPO_ROOT/packages/cli/dist/index.js"
-  else
-    # Fallback: resolve ao from PATH (e.g., global npm install)
-    command -v ao 2>/dev/null || echo "ao"
-  fi
-}
-
 install_lifecycle_plist() {
   local template="$TEMPLATE_DIR/ai.agento.lifecycle-all.plist.template"
   local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.lifecycle-all.plist"
   local script="$REPO_ROOT/scripts/start-all.sh"
+  local launcher="$REPO_ROOT/scripts/launchd-launcher.sh"
   local log_file="$BASE_LOG_DIR/ao-lifecycle.log"
-  local config_path="${AO_CONFIG_PATH:-$HOME/.openclaw_prod/agent-orchestrator.yaml}"
   local label="ai.agento.lifecycle-all"
-
-  if [ ! -f "$config_path" ] && [ -f "$HOME/.openclaw/agent-orchestrator.yaml" ]; then
-    config_path="$HOME/.openclaw/agent-orchestrator.yaml"
-  fi
 
   if [ ! -f "$template" ]; then
     echo "ERROR: Missing template at $template"
+    return 1
+  fi
+
+  if [ ! -x "$launcher" ]; then
+    echo "ERROR: Missing or non-executable launcher: $launcher"
     return 1
   fi
 
@@ -102,23 +74,13 @@ install_lifecycle_plist() {
 
   local tmp_plist
   tmp_plist="$(mktemp)"
-  local path_value
-  path_value="$(escape_sed "$(path_for_launchd)")"
-  local ao_cli_path_value
-  ao_cli_path_value="$(escape_sed "$(ao_cli_path)")"
 
   sed \
     -e "s|@HOME@|$(escape_sed "$HOME")|g" \
     -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
+    -e "s|@LAUNCHER_SCRIPT@|$(escape_sed "$launcher")|g" \
     -e "s|@START_ALL_SCRIPT@|$(escape_sed "$script")|g" \
     -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
-    -e "s|@AO_CONFIG_PATH@|$(escape_sed "$config_path")|g" \
-    -e "s|@AO_CLI_PATH@|$ao_cli_path_value|g" \
-    -e "s|@PATH@|$path_value|g" \
-    -e "s|@MINIMAX_API_KEY@|$(escape_sed "${MINIMAX_API_KEY:-}")|g" \
-    -e "s|@MINIMAX_ANTHROPIC_BASE_URL@|$(escape_sed "${MINIMAX_ANTHROPIC_BASE_URL:-https://api.minimax.io/anthropic}")|g" \
-    -e "s|@MINIMAX_MODEL@|$(escape_sed "${MINIMAX_MODEL:-MiniMax-M2.7}")|g" \
-    -e "s|@GITHUB_TOKEN@|$(escape_sed "${GITHUB_TOKEN:-}")|g" \
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
@@ -130,7 +92,7 @@ install_lifecycle_plist() {
   launchctl enable "gui/$(id -u)/$label" >/dev/null 2>&1 || true
   launchctl kickstart -k "gui/$(id -u)/$label"
 
-  # Post-install verification: confirm MINIMAX_API_KEY propagated to workers
+  # Post-install verification: confirm env vars propagated from shell profile
   if [ -x "$REPO_ROOT/scripts/test-launchd-env.sh" ]; then
     echo "Verifying env var propagation..."
     "$REPO_ROOT/scripts/test-launchd-env.sh" || echo "WARNING: env var check failed — workers may not authenticate with MiniMax"
@@ -142,6 +104,7 @@ install_lifecycle_plist() {
 install_novel_plist() {
   local template="$TEMPLATE_DIR/ai.agento.novel-daily.plist.template"
   local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.novel-daily.plist"
+  local launcher="$REPO_ROOT/scripts/launchd-launcher.sh"
   local log_file="$BASE_LOG_DIR/ao-novel-daily.log"
   local label="ai.agento.novel-daily"
 
@@ -167,12 +130,8 @@ install_novel_plist() {
 
   local tmp_plist
   tmp_plist="$(mktemp)"
-  local path_value
-  path_value="$(escape_sed "$(path_for_launchd)")"
 
   # Build the run command — delegates date-computation and node-resolution to run-daily.sh.
-  # The wrapper computes today's date at RUNTIME (not at plist-install time), ensuring
-  # each daily run writes to the correct novel/workers/{YYYY-MM-DD}.md file.
   local run_wrapper="$REPO_ROOT/scripts/novel/run-daily.sh"
   local run_cmd
   printf -v run_cmd \
@@ -183,9 +142,9 @@ install_novel_plist() {
   sed \
     -e "s|@HOME@|$(escape_sed "$HOME")|g" \
     -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
+    -e "s|@LAUNCHER_SCRIPT@|$(escape_sed "$launcher")|g" \
     -e "s|@GENERATE_DAILY_SCRIPT@|$(escape_sed "$run_cmd")|g" \
     -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
-    -e "s|@PATH@|$path_value|g" \
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
@@ -203,19 +162,9 @@ install_watchdog_plist() {
   local template="$TEMPLATE_DIR/ai.agento.lw-watchdog.plist.template"
   local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.lw-watchdog.plist"
   local script="$REPO_ROOT/scripts/lw-watchdog.sh"
+  local launcher="$REPO_ROOT/scripts/launchd-launcher.sh"
   local log_file="$BASE_LOG_DIR/lw-watchdog.log"
-  local config_path
   local label="ai.agento.lw-watchdog"
-
-  if [ -n "${AO_CONFIG_PATH:-}" ]; then
-    config_path="$AO_CONFIG_PATH"
-  elif [ -f "$HOME/.openclaw_prod/agent-orchestrator.yaml" ]; then
-    config_path="$HOME/.openclaw_prod/agent-orchestrator.yaml"
-  elif [ -f "$HOME/.openclaw/agent-orchestrator.yaml" ]; then
-    config_path="$HOME/.openclaw/agent-orchestrator.yaml"
-  else
-    config_path="$HOME/.openclaw_prod/agent-orchestrator.yaml"
-  fi
 
   if [ ! -f "$template" ]; then
     echo "WARN: Missing watchdog template at $template — skipping"
@@ -233,16 +182,13 @@ install_watchdog_plist() {
 
   local tmp_plist
   tmp_plist="$(mktemp)"
-  local path_value
-  path_value="$(escape_sed "$(path_for_launchd)")"
 
   sed \
     -e "s|@HOME@|$(escape_sed "$HOME")|g" \
     -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
+    -e "s|@LAUNCHER_SCRIPT@|$(escape_sed "$launcher")|g" \
     -e "s|@WATCHDOG_SCRIPT@|$(escape_sed "$script")|g" \
     -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
-    -e "s|@AO_CONFIG_PATH@|$(escape_sed "$config_path")|g" \
-    -e "s|@PATH@|$path_value|g" \
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null

@@ -5,9 +5,12 @@
   <key>Label</key>
   <string>ai.agento.lifecycle-all</string>
 
+  <!-- Uses launchd-launcher.sh which sources shell profile for all env vars.
+       No need to duplicate API keys or PATH in the plist. -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
+    <string>@LAUNCHER_SCRIPT@</string>
     <string>@START_ALL_SCRIPT@</string>
   </array>
 
@@ -35,24 +38,6 @@
   <dict>
     <key>HOME</key>
     <string>@HOME@</string>
-    <key>PATH</key>
-    <string>@PATH@</string>
-    <key>AO_CONFIG_PATH</key>
-    <string>@AO_CONFIG_PATH@</string>
-    <key>AO_CLI_PATH</key>
-    <string>@AO_CLI_PATH@</string>
-    <key>AO_START_STOP_FIRST</key>
-    <string>0</string>
-    <key>AO_START_DASHBOARD</key>
-    <string>0</string>
-    <key>MINIMAX_API_KEY</key>
-    <string>@MINIMAX_API_KEY@</string>
-    <key>MINIMAX_ANTHROPIC_BASE_URL</key>
-    <string>@MINIMAX_ANTHROPIC_BASE_URL@</string>
-    <key>MINIMAX_MODEL</key>
-    <string>@MINIMAX_MODEL@</string>
-    <key>GITHUB_TOKEN</key>
-    <string>@GITHUB_TOKEN@</string>
   </dict>
 
   <key>StandardOutPath</key>
