@@ -78,6 +78,7 @@ export default tseslint.config(
     files: ["packages/cli/**/*.ts"],
     rules: {
       "no-console": "off",
+      "@typescript-eslint/no-explicit-any": "off", // CLI uses commander API with type-bridged cast
     },
   },
 
