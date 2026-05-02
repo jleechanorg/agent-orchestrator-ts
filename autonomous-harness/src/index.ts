@@ -4,4 +4,4 @@
 export { registerAutonomousHarness } from "./cli.js";
 export type { RunOptions } from "./orchestrator.js";
 export type { Phase, ArtifactSet, SprintState, HarnessState } from "./harness-state.js";
-export { createInitialState, nextPhase, PHASE_ORDER } from "./harness-state.js";
+export { createInitialState, nextPhase, PHASE_ORDER, SprintStateSchema } from "./harness-state.js";

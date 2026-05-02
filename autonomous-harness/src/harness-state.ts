@@ -3,6 +3,8 @@
  * Each sprint produces artifacts read by the next phase agent.
  */
 
+import { z } from "zod";
+
 export type Phase = "research" | "plan" | "annotation" | "implementation" | "eval" | "done";
 
 export interface ArtifactSet {
@@ -24,6 +26,27 @@ export interface SprintState {
   verdict?: "pass" | "fail" | null;
   evaluatorNotes?: string;
 }
+
+// Zod schema for runtime validation — mirrors SprintState interface
+export const ArtifactSetSchema: z.ZodType<ArtifactSet> = z.object({
+  researchMd: z.string(),
+  specMd: z.string(),
+  planMd: z.string(),
+  planReviewMd: z.string(),
+  sprintContractMd: z.string(),
+  sprintReportMd: z.string(),
+  sprintEvalMd: z.string(),
+});
+
+export const SprintStateSchema: z.ZodType<SprintState> = z.object({
+  sprintNumber: z.number().int().positive(),
+  phase: z.enum(["research", "plan", "annotation", "implementation", "eval", "done"]),
+  artifacts: z.record(z.string()),
+  startedAt: z.string(),
+  updatedAt: z.string(),
+  verdict: z.union([z.literal("pass"), z.literal("fail"), z.null()]).optional(),
+  evaluatorNotes: z.string().optional(),
+});
 
 export interface HarnessState {
   projectPath: string;
