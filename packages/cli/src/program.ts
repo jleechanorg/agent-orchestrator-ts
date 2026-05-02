@@ -61,8 +61,9 @@ export function buildProgram(): Command {
   const skepticCmd = registerSkeptic(program);
   registerSkepticInstall(skepticCmd);
   // Commander v12 vs v13 has incompatible opts<T>() return type variance.
-  // The runtime behavior is identical — this is a TypeScript variance issue only.
-  registerAutonomousHarness(program as any);
+  // The runtime behavior is identical — use the same interface the function declares.
+  type CmdProgram = Parameters<typeof registerAutonomousHarness>[0];
+  registerAutonomousHarness(program as CmdProgram);
 
   program
     .command("config-help")
