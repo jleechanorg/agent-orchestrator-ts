@@ -20,7 +20,7 @@ TARGET="$1"
 shift
 
 # Source shell profile in login+interactive mode to get all exports (API keys, nvm, etc.)
-# -l: login shell → sources .bash_profile if it exists, falling back to .bashrc
+# -l: login shell → sources .bash_profile if it exists
 # -i: interactive → bypasses .bashrc's "case $- in *i*) ;; *) return;; esac" guard
 #
 # IMPORTANT: On macOS, a login shell (.bash_profile) does NOT automatically source .bashrc.
@@ -28,8 +28,8 @@ shift
 #
 # Filter to only non-empty values to avoid overriding plist defaults with empties.
 # Error handling: if shell profile fails to load, log the failure but continue (plist defaults remain).
-exit_code=0
-_init_output=$(bash -lic 'declare -x' 2>&1; echo "exit:$?") || exit_code=$?
+_exit_code=0
+_init_output=$(bash -lic 'declare -x' 2>&1; echo "exit:$?") || _exit_code=$?
 # Also explicitly source .bashrc since login shell may not have sourced it
 # bash -lic sources .bash_profile which typically sources .bashrc, but not guaranteed.
 # Doing it explicitly ensures we get .bashrc-only exports regardless of .bash_profile content.
@@ -53,15 +53,23 @@ case "$_actual_exit" in
 esac
 _init_output=$(echo "$_init_output" | grep -v '^exit:')
 if [ "$_actual_exit" -ne 0 ]; then
-  echo "WARNING: shell profile init exited with code $_actual_exit" >&2
+  echo "WARNING: shell profile init exited with code $_actual_exit, continuing with plist defaults" >&2
 fi
 if [ -z "$_init_output" ]; then
   echo "WARNING: shell profile produced no exports, continuing with plist defaults" >&2
 fi
-# Only accept exports with non-empty values: quoted ("..." or '...') must have content,
-# unquoted values must have at least one non-whitespace character (not just empty quotes).
-eval "$(echo "$_init_output" | grep -E 'declare -x [A-Za-z_][A-Za-z0-9_]*="[^"]+"[[:space:]]*$|declare -x [A-Za-z_][A-Za-z0-9_]*='"'"'[^'"'"']+'"'"'[[:space:]]*$|declare -x [A-Za-z_][A-Za-z0-9_]*=[^[:space:]]' || true)" || {
-  echo "WARNING: failed to parse shell exports, continuing with plist defaults" >&2
-}
+
+# Build the filtered export list, handling all three quoting cases robustly.
+# Rejects empty-valued exports (MINIMAX_MODEL="" or MINIMAX_MODEL='') so plist defaults survive.
+_filtered=$(echo "$_init_output" | grep -E \
+  'declare -x [A-Za-z_][A-Za-z0-9_]*="[^"]+"[[:space:]]*$|declare -x [A-Za-z_][A-Za-z0-9_]*='\''[^'\'']+'\''[[:space:]]*$|declare -x [A-Za-z_][A-Za-z0-9_]*=[^[:space:]]' \
+  || true)
+if [ -n "$_filtered" ]; then
+  eval "$_filtered" || {
+    echo "WARNING: failed to parse shell exports, continuing with plist defaults" >&2
+  }
+else
+  echo "WARNING: shell profile exports were all empty-valued, continuing with plist defaults" >&2
+fi
 
 exec "$TARGET" "$@"
