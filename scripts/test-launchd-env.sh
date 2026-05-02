@@ -11,10 +11,10 @@
 set -euo pipefail
 
 FAILED=0
-PLIST_PATH="$HOME/Library/LaunchAgents/ai.agento.lifecycle-all.plist"
+PLIST_PATH="${HOME}/Library/LaunchAgents/ai.agento.lifecycle-all.plist"
 
 # Step 0: Verify no unsubstituted @VAR@ tokens remain in the plist.
-# If bash expanded an undefined @VAR@ to empty string, workers get 401 on every API call.
+# If bash expands an undefined @VAR@ to empty string, workers get 401 on every API call.
 if [ -f "$PLIST_PATH" ]; then
   unsubstituted=$(grep -o '@[A-Z_][A-Z0-9_]*@' "$PLIST_PATH" 2>/dev/null | sort -u || true)
   if [ -n "$unsubstituted" ]; then
@@ -43,15 +43,25 @@ fi
 echo "Checking youngest lifecycle-worker PID: $youngest_pid"
 
 # Check GITHUB_TOKEN (needed for gh auth in skeptic-cron)
+mask_secret() {
+  local v="${1:-}"
+  if [ -z "$v" ]; then
+    printf '%s' "<empty>"
+  else
+    printf '%s' "${v:0:4}***"
+  fi
+}
+
 gh_token=$(ps eww -p "$youngest_pid" 2>/dev/null | tr ' ' '\n' | grep "^GITHUB_TOKEN=" || true)
-if [ -z "$gh_token" ]; then
+gh_token_value="${gh_token#*=}"
+if [ -z "$gh_token_value" ]; then
   echo "FAIL: GITHUB_TOKEN is not set in PID $youngest_pid"
   echo "  gh CLI will fail inside skeptic-cron — no VERDICT comments posted on PRs"
   FAILED=1
-elif echo "$gh_token" | grep -q 'ghp_'; then
-  echo "PASS: GITHUB_TOKEN is present in PID $youngest_pid"
+elif [ -n "$(echo "$gh_token_value" | tr -d ' \n')" ]; then
+  echo "PASS: GITHUB_TOKEN is present in PID $youngest_pid ($(mask_secret "$gh_token_value"))"
 else
-  echo "FAIL: GITHUB_TOKEN is present but wrong: $gh_token"
+  echo "FAIL: GITHUB_TOKEN is present but empty in PID $youngest_pid"
   FAILED=1
 fi
 
