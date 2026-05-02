@@ -31,10 +31,16 @@ export function registerAutonomousHarness(program: Command): void {
       process.exit(1);
     }
 
+    const sprints = parseInt(opts.sprints, 10);
+    if (!Number.isInteger(sprints) || sprints <= 0) {
+      console.error(`[autonomous-harness] Error: --sprints must be a positive integer, got: ${opts.sprints}`);
+      process.exit(1);
+    }
+
     const runOpts: RunOptions = {
       projectPath,
       projectName: opts.projectName,
-      totalSprints: parseInt(opts.sprints, 10),
+      totalSprints: sprints,
       generatorModel: opts.generatorModel,
       evaluatorModel: opts.evaluatorModel,
       skillRoot: opts.skillRoot,

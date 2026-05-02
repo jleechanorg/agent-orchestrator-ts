@@ -15,6 +15,7 @@ import { registerUpdate } from "./commands/update.js";
 import { registerSkeptic } from "./commands/skeptic.js";
 import { registerSkepticInstall } from "./commands/skeptic/install.js";
 import { getConfigInstruction } from "./lib/config-instruction.js";
+import { registerAutonomousHarness } from "../../autonomous-harness/src/cli.js";
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -59,6 +60,7 @@ export function buildProgram(): Command {
   registerUpdate(program);
   const skepticCmd = registerSkeptic(program);
   registerSkepticInstall(skepticCmd);
+  registerAutonomousHarness(program);
 
   program
     .command("config-help")
