@@ -9,8 +9,8 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { join } from "node:path";
-import { execFile } from "node:child_process";
+import { join, resolve as pathResolve } from "node:path";
+import { loadConfig, createSessionManager, createPluginRegistry } from "@jleechanorg/ao-core";
 import { createInitialState, nextPhase, PHASE_ORDER, type HarnessState, type Phase } from "./harness-state.js";
 
 function atomicWriteFileSync(filePath: string, content: string): void {
@@ -19,20 +19,8 @@ function atomicWriteFileSync(filePath: string, content: string): void {
   renameSync(tmpPath, filePath);
 }
 
-function execAsyncWithExitCode(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd: opts?.cwd, timeout: opts?.timeout }, (error, _stdout, _stderr) => {
-      if (error) {
-        reject(new Error(`execAsyncWithExitCode: ${(error as NodeJS.ErrnoException).code ?? error.message}`));
-        return;
-      }
-      resolve({ stdout: _stdout, stderr: _stderr, exitCode: 0 });
-    });
-  });
-}
-
 // ---------------------------------------------------------------------------
-// AO Worker spawn via CLI
+// AO Worker spawn via SessionManager API
 // ---------------------------------------------------------------------------
 
 export interface SpawnConfig {
@@ -52,33 +40,65 @@ export interface SpawnResult {
 }
 
 /**
- * Spawn an AO worker using the `ao` CLI. The worker reads the harness_state.json
- * and produces artifacts according to its phase.
+ * Spawn an AO worker using the SessionManager API (not CLI).
+ * The worker reads the harness_state.json and produces artifacts according to its phase.
+ *
+ * Uses ao-core's SessionManager.spawn() which supports:
+ * - prompt: free-form task prompt (unlike ao spawn CLI which is issue-based)
+ * - agent: agent plugin override
+ * - runtimeOverride: runtime override
+ *
+ * The projectId is resolved by matching config.workspace against project paths.
  */
 export async function spawnAOWorker(config: SpawnConfig): Promise<SpawnResult> {
   const sessionName = config.sessionName || `autonomous-${Date.now()}`;
-  const args = [
-    "spawn",
-    "--model", config.model,
-    "--session", sessionName,
-    "--workspace", config.workspace,
-    "--system-prompt", config.systemPrompt,
-    "--task-prompt", config.taskPrompt,
-  ];
+  const workspacePath = pathResolve(config.workspace);
 
-  if (config.skillRoot) {
-    args.push("--skill-root", config.skillRoot);
+  // Load AO config to resolve projectId from workspace path
+  const config_ = loadConfig();
+  const projectIds = Object.keys(config_.projects);
+
+  // Find project by matching workspace path
+  const matchedProjectId = projectIds.find((id) => {
+    const proj = config_.projects[id];
+    if (!proj?.path) return false;
+    return pathResolve(proj.path) === workspacePath;
+  });
+
+  if (!matchedProjectId) {
+    // Fallback: use first project if only one configured
+    if (projectIds.length === 1) {
+      console.warn(`[autonomous-harness] Workspace ${workspacePath} not in AO config — using default project`);
+    } else {
+      throw new Error(
+        `[autonomous-harness] Project not found in AO config for workspace: ${workspacePath}\n` +
+          `Configured projects: ${projectIds.join(", ")}`,
+      );
+    }
   }
 
-  await execAsyncWithExitCode("ao", args, {
-    cwd: config.workspace,
-    timeout: 600_000, // 10min
+  const projectId = matchedProjectId ?? projectIds[0];
+  const resolvedWorkspace = pathResolve(config_.projects[projectId]?.path ?? config_.defaults?.workspace ?? ".");
+
+  // Build full prompt: system context + task
+  const fullPrompt = `${config.systemPrompt}\n\nTask: ${config.taskPrompt}`;
+
+  // Extract agent plugin name from model string (e.g., "minimax/MiniMax-M2.7" → "minimax")
+  const agentPlugin = config.model.split("/")[0];
+
+  const sm = await createSessionManager({ config: config_, registry: createPluginRegistry() });
+  const session = await sm.spawn({
+    projectId,
+    prompt: fullPrompt,
+    agent: agentPlugin,
+    runtimeOverride: undefined,
+    skipPrBoilerplate: true,
   });
 
   return {
-    sessionId: sessionName,
-    sessionName,
-    exitCode: null, // ao spawn is fire-and-forget; exit code reflects CLI, not worker
+    sessionId: session.id,
+    sessionName: session.id,
+    exitCode: null,
   };
 }
 
