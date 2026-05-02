@@ -75,10 +75,10 @@ export default tseslint.config(
 
   // CLI package uses console.log/error for user output
   {
-    files: ["packages/cli/src/program.ts"],
+    files: ["packages/cli/**/*.ts"],
     rules: {
       "no-console": "off",
-      "@typescript-eslint/no-explicit-any": "off", // commander v12/v13 opts<T>() type variance — single cast site
+      "@typescript-eslint/no-explicit-any": "off", // CLI uses commander API with type-bridged cast
     },
   },
 
