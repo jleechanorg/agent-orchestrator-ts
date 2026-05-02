@@ -8,21 +8,33 @@
  * Design: https://github.com/jleechanorg/jleechanclaw/blob/main/papers/experiment_autonomous_harness/technique.md
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { HarnessState, Phase, SprintState } from "./harness-state.js";
-import { createInitialState, nextPhase } from "./harness-state.js";
+import { createInitialState, nextPhase, PHASE_ORDER } from "./harness-state.js";
+
+function atomicWriteFileSync(filePath: string, content: string): void {
+  const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmpPath, content, "utf-8");
+  renameSync(tmpPath, filePath);
+}
 
 const execAsync = promisify(execFile);
 
 function execAsyncWithExitCode(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     execFile(cmd, args, { cwd: opts?.cwd, timeout: opts?.timeout }, (error, stdout, stderr) => {
-      const exitCode = error ? (parseInt(String((error as NodeJS.ErrnoException).code ?? "0"), 10) || 0) : 0;
-      resolve({ stdout, stderr, exitCode });
+      if (error) {
+        const exitCode = (error as NodeJS.ErrnoException).code
+          ? parseInt(String((error as NodeJS.ErrnoException).code), 10) || null
+          : null;
+        reject(new Error(`execAsyncWithExitCode: ${(error as NodeJS.ErrnoException).code ?? error.message}`));
+        return;
+      }
+      resolve({ stdout, stderr, exitCode: 0 });
     });
   });
 }
@@ -103,7 +115,7 @@ export function readState(workspace: string): HarnessState | null {
 export function writeState(workspace: string, state: HarnessState): void {
   const p = statePath(workspace);
   mkdirSync(workspace, { recursive: true });
-  writeFileSync(p, JSON.stringify(state, null, 2));
+  atomicWriteFileSync(p, JSON.stringify(state, null, 2));
 }
 
 export function readArtifact(workspace: string, sprint: number, artifact: string): string | null {
@@ -259,6 +271,26 @@ export interface RunOptions {
   maxIterationsPerPhase?: number;
 }
 
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollStateUntilPhaseChange(
+  workspace: string,
+  phase: string,
+  maxIterations: number
+): Promise<HarnessState | null> {
+  const POLL_INTERVAL_MS = 15_000; // 15s between polls
+  for (let i = 0; i < maxIterations; i++) {
+    await sleep(POLL_INTERVAL_MS);
+    const state = readState(workspace);
+    if (!state) return null;
+    if (state.currentSprint.phase !== phase) return state;
+    console.log(`[autonomous-harness] Poll ${i + 1}/${maxIterations}: phase still ${phase}, waiting...`);
+  }
+  return readState(workspace); // return last known state (may be stalled)
+}
+
 export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessState> {
   const {
     projectPath,
@@ -306,22 +338,24 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
       skillRoot,
     });
 
-    console.log(`[autonomous-harness] Worker exited: ${result.sessionName} code=${result.exitCode}`);
+    console.log(`[autonomous-harness] Worker spawned: ${result.sessionName} — polling for phase advance`);
 
-    // Re-read state (worker may have updated it)
-    const newState = readState(projectPath);
+    // Poll until phase advances or retry limit reached
+    const newState = await pollStateUntilPhaseChange(projectPath, phase, maxIterationsPerPhase);
     if (!newState) throw new Error("State lost after worker run");
-    state = newState;
 
-    // Check for phase advancement
-    if (state.currentSprint.phase === phase) {
-      console.warn(`[autonomous-harness] Phase ${phase} did not advance — worker may have stalled`);
-      break;
+    // Worker may have already advanced the phase via writeState
+    // Only call nextPhase if the worker didn't advance
+    const workerAdvanced = newState.currentSprint.phase !== phase;
+    if (workerAdvanced) {
+      console.log(`[autonomous-harness] Worker advanced phase: ${phase} → ${newState.currentSprint.phase}`);
+      state = newState;
+    } else {
+      // Worker stalled — advance and continue to next phase
+      console.warn(`[autonomous-harness] Phase ${phase} did not advance — advancing manually`);
+      state = nextPhase(newState);
+      writeState(projectPath, state);
     }
-
-    // Advance to next phase
-    state = nextPhase(state);
-    writeState(projectPath, state);
   }
 
   console.log(`[autonomous-harness] All sprints complete. ${state.completedSprints.length}/${state.totalSprints} done.`);
