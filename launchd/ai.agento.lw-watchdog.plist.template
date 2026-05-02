@@ -5,9 +5,11 @@
   <key>Label</key>
   <string>ai.agento.lw-watchdog</string>
 
+  <!-- Uses launchd-launcher.sh which sources shell profile for all env vars. -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
+    <string>@LAUNCHER_SCRIPT@</string>
     <string>@WATCHDOG_SCRIPT@</string>
   </array>
 
@@ -33,10 +35,6 @@
   <dict>
     <key>HOME</key>
     <string>@HOME@</string>
-    <key>PATH</key>
-    <string>@PATH@</string>
-    <key>AO_CONFIG_PATH</key>
-    <string>@AO_CONFIG_PATH@</string>
   </dict>
 
   <key>StandardOutPath</key>
