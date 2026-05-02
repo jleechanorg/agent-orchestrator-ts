@@ -6,8 +6,6 @@
  *   ao autonomous-harness --project-id agent-orchestrator --project-path /tmp/mctrl_test --project-name mctrl_test --sprints 1
  */
 
-import type { Command } from "commander";
-
 /** Minimal commander-like interface compatible with both v12 and v13 */
 interface CommanderLike {
   command(name?: string): CommanderLike;
