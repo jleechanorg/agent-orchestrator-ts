@@ -65,6 +65,7 @@
     "@jleechanorg/ao-plugin-tracker-linear": "workspace:*",
     "@jleechanorg/ao-plugin-workspace-clone": "workspace:*",
     "@jleechanorg/ao-plugin-workspace-worktree": "workspace:*",
+    "@jleechanorg/ao-autonomous-harness": "workspace:*",
     "@jleechanorg/ao-web": "workspace:*",
     "chalk": "^5.4.0",
     "commander": "^13.0.0",
