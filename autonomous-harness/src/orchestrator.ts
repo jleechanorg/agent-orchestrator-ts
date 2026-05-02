@@ -10,10 +10,8 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import type { HarnessState, Phase, SprintState } from "./harness-state.js";
+import type { HarnessState, Phase } from "./harness-state.js";
 import { createInitialState, nextPhase, PHASE_ORDER } from "./harness-state.js";
 
 function atomicWriteFileSync(filePath: string, content: string): void {
@@ -21,8 +19,6 @@ function atomicWriteFileSync(filePath: string, content: string): void {
   writeFileSync(tmpPath, content, "utf-8");
   renameSync(tmpPath, filePath);
 }
-
-const execAsync = promisify(execFile);
 
 function execAsyncWithExitCode(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve, reject) => {
@@ -350,6 +346,12 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     if (workerAdvanced) {
       console.log(`[autonomous-harness] Worker advanced phase: ${phase} → ${newState.currentSprint.phase}`);
       state = newState;
+    } else if (phase === "eval") {
+      // Eval phase: worker writes verdict but keeps phase as "eval" (final marker)
+      // Accept eval as complete once verdict is set, then advance to done
+      console.log(`[autonomous-harness] Eval complete — verdict: ${newState.currentSprint.verdict ?? "(none)"}`);
+      state = nextPhase(newState);
+      writeState(projectPath, state);
     } else {
       // Worker stalled — advance and continue to next phase
       console.warn(`[autonomous-harness] Phase ${phase} did not advance — advancing manually`);
