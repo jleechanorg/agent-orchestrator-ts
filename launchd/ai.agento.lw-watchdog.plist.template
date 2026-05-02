@@ -17,6 +17,12 @@
   <key>RunAtLoad</key>
   <true/>
 
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
   <key>WorkingDirectory</key>
   <string>@REPO_ROOT@</string>
 
