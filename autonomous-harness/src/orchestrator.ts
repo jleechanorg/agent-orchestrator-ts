@@ -12,8 +12,12 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "
 import { join, resolve as pathResolve } from "node:path";
 import { z } from "zod";
 import { loadConfig, createSessionManager, createPluginRegistry } from "@jleechanorg/ao-core";
-import type { HarnessState, Phase, SprintState } from "./harness-state.js";
-import { createInitialState, nextPhase, PHASE_ORDER } from "./harness-state.js";
+import {
+  createInitialState,
+  nextPhase,
+  type HarnessState,
+  type Phase,
+} from "./harness-state.js";
 
 // ---------------------------------------------------------------------------
 // Atomic write — avoids truncated JSON when workers read concurrently
@@ -367,7 +371,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     writeState(projectPath, state);
   }
 
-  console.log(`[autonomous-harness] Starting loop for ${projectName} sprint ${state.currentSprint.sprintNumber} phase: ${state.currentSprint.phase}`);
+  console.log(`[autonomous-harness] Starting loop for ${projectId}/${projectName} sprint ${state.currentSprint.sprintNumber} phase: ${state.currentSprint.phase}`);
 
   while (state.currentSprint.phase !== "done") {
     const phase = state.currentSprint.phase;
@@ -383,7 +387,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
       ? evaluatorModel
       : generatorModel;
 
-    const sessionName = `autonomous-s${sprint}-${phase}-${Date.now()}`;
+    const sessionName = `autonomous-${projectId}-s${sprint}-${phase}-${Date.now()}`;
 
     // Spawn worker via SessionManager (not raw CLI — avoids unsupported flag errors)
     const result = await spawnAOWorker({
