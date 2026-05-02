@@ -154,10 +154,6 @@ export function statePath(workspace: string): string {
   return join(workspace, "harness_state.json");
 }
 
-export function artifactPath(workspace: string, sprint: number, artifact: string): string {
-  return join(workspace, `sprint_${sprint}`, artifact);
-}
-
 export function readState(workspace: string): HarnessState | null {
   const p = statePath(workspace);
   if (!existsSync(p)) return null;
@@ -173,23 +169,6 @@ export function writeState(workspace: string, state: HarnessState): void {
   const p = statePath(workspace);
   mkdirSync(workspace, { recursive: true });
   atomicWriteFileSync(p, JSON.stringify(state, null, 2));
-}
-
-export function readArtifact(workspace: string, sprint: number, artifact: string): string | null {
-  const p = artifactPath(workspace, sprint, artifact);
-  if (!existsSync(p)) return null;
-  return readFileSync(p, "utf-8");
-}
-
-export function writeArtifact(
-  workspace: string,
-  sprint: number,
-  artifact: string,
-  content: string,
-): void {
-  const dir = join(workspace, `sprint_${sprint}`);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, artifact), content, "utf-8");
 }
 
 // ---------------------------------------------------------------------------
@@ -414,7 +393,9 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
 
     const taskPrompt = buildPromptForPhase(state);
 
-    const model = phase === "eval" || phase === "annotation"
+    // annotation and eval are evaluation phases — use evaluatorModel.
+    // orchestratorModel is reserved for future orchestration-level decisions.
+    const model = (phase === "eval" || phase === "annotation")
       ? evaluatorModel
       : generatorModel;
 
