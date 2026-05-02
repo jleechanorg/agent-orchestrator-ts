@@ -14,7 +14,7 @@ FAILED=0
 PLIST_PATH="${HOME}/Library/LaunchAgents/ai.agento.lifecycle-all.plist"
 
 # Step 0: Verify no unsubstituted @VAR@ tokens remain in the plist.
-# If bash expands an undefined @VAR@ to empty string, workers get 401 on every API call.
+# If @VAR@ placeholders remain unsubstituted, launchd passes invalid env values and workers get 401 on every API call.
 if [ -f "$PLIST_PATH" ]; then
   unsubstituted=$(grep -o '@[A-Z_][A-Z0-9_]*@' "$PLIST_PATH" 2>/dev/null | sort -u || true)
   if [ -n "$unsubstituted" ]; then
