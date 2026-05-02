@@ -45,8 +45,8 @@ export function registerAutonomousHarness(program: CommanderLike): void {
     .option("--evaluator-model <model>", "Model for evaluator phases", "minimax/MiniMax-M2.7")
     .option("--orchestrator-model <model>", "Model for orchestrator (evaluation/annotation phases)", "minimax/MiniMax-M2.7")
     .option("--skill-root <path>", "Path to skills directory (for skill prompts)")
-    .option("--runtime <name>", "Runtime plugin (process, tmux, antigravity)", "process")
-    .option("--max-iterations-per-phase <n>", "Max poll iterations per phase (each is 15s)", "40");
+    .option("--runtime <name>", "Runtime plugin (tmux, process, antigravity)", "tmux")
+    .option("--max-iterations-per-phase <n>", "Max poll iterations per phase (each is 30s)", "40");
 
   cmd.action(async () => {
     const opts = cmd.opts<AutonomousHarnessOptions>();
