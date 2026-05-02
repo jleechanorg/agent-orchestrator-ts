@@ -2,13 +2,13 @@
  * Autonomous Harness Orchestrator
  *
  * GAN-style generator/evaluator loop driven by file-based handoffs.
- * The orchestrator (MiniMax M2.7) spawns workers for each phase,
- * polls for artifact completion, and advances the state machine.
+ * The orchestrator spawns AO workers for each phase, polls the worktree
+ * for artifact/state completion, and advances the state machine.
  *
  * Design: https://github.com/jleechanorg/jleechanclaw/blob/main/papers/experiment_autonomous_harness/technique.md
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, cpSync } from "node:fs";
 import { join, resolve as pathResolve } from "node:path";
 import { z } from "zod";
 import { loadConfig, createSessionManager, createPluginRegistry } from "@jleechanorg/ao-core";
@@ -77,71 +77,72 @@ export interface SpawnConfig {
   sessionName: string;
   skillRoot?: string;
   evidenceDir?: string;
+  runtime?: string;
+  projectId?: string;
 }
 
 export interface SpawnResult {
   sessionId: string;
   sessionName: string;
-  exitCode: number | null;
+  worktreePath: string | null;
 }
+
+const TERMINAL_SESSION_STATUSES: ReadonlySet<string> = new Set([
+  "done", "terminated", "killed", "errored", "merged", "cleanup",
+]);
 
 /**
  * Spawn an AO worker using the SessionManager API (not CLI).
- * The worker reads the harness_state.json and produces artifacts according to its phase.
+ * Returns the session ID and worktree path (if available).
  *
- * Uses ao-core's SessionManager.spawn() which supports:
- * - prompt: free-form task prompt (unlike ao spawn CLI which is issue-based)
- * - agent: agent plugin override
- * - runtimeOverride: runtime override
- *
- * The projectId is resolved by matching workspace path against project paths in AO config.
+ * AO creates an isolated git worktree for each session. The worker's CWD
+ * is the worktree, not the main project path.
  */
 export async function spawnAOWorker(config: SpawnConfig): Promise<SpawnResult> {
   const workspacePath = pathResolve(config.workspace);
 
-  // Load AO config to resolve projectId from workspace path
   const config_ = loadConfig();
   const projectIds = Object.keys(config_.projects ?? {});
 
-  // Find project by matching workspace path
-  const matchedProjectId = projectIds.find((id) => {
-    const proj = config_.projects[id];
-    if (!proj?.path) return false;
-    return pathResolve(proj.path) === workspacePath;
-  });
+  let projectId = config.projectId;
+  if (!projectId || !config_.projects[projectId]) {
+    const matchedProjectId = projectIds.find((id) => {
+      const proj = config_.projects[id];
+      if (!proj?.path) return false;
+      return pathResolve(proj.path) === workspacePath;
+    });
 
-  if (!matchedProjectId) {
-    if (projectIds.length === 1) {
-      console.warn(`[autonomous-harness] Workspace ${workspacePath} not in AO config — using default project`);
-    } else {
-      throw new Error(
-        `[autonomous-harness] Project not found in AO config for workspace: ${workspacePath}\n` +
-          `Configured projects: ${projectIds.join(", ")}`,
-      );
+    if (!matchedProjectId) {
+      if (projectIds.length === 1) {
+        console.warn(`[autonomous-harness] Workspace ${workspacePath} not in AO config — using default project`);
+      } else {
+        throw new Error(
+          `[autonomous-harness] Project not found in AO config for workspace: ${workspacePath}\n` +
+            `Configured projects: ${projectIds.join(", ")}`,
+        );
+      }
     }
+    projectId = matchedProjectId ?? projectIds[0];
   }
 
-  const projectId = matchedProjectId ?? projectIds[0];
-
-  // Build full prompt: system context + task
   const fullPrompt = `${config.systemPrompt}\n\nTask: ${config.taskPrompt}`;
-
-  // Extract agent plugin name from model string (e.g., "minimax/MiniMax-M2.7" → "minimax")
   const agentPlugin = config.model.split("/")[0];
 
-  const sm = await createSessionManager({ config: config_, registry: createPluginRegistry() });
+  const registry = createPluginRegistry();
+  await registry.loadBuiltins(config_);
+  const sm = await createSessionManager({ config: config_, registry });
   const session = await sm.spawn({
     projectId,
     prompt: fullPrompt,
     agent: agentPlugin,
-    runtimeOverride: undefined,
+    runtimeOverride: config.runtime ?? "process",
     skipPrBoilerplate: true,
   });
 
   return {
     sessionId: session.id,
     sessionName: session.id,
-    exitCode: null,
+    worktreePath: session.workspacePath ?? null,
   };
 }
 
@@ -193,70 +194,70 @@ export function writeArtifact(
 
 // ---------------------------------------------------------------------------
 // Phase prompt builders
+//
+// Workers run in AO worktrees (separate dirs from the main project).
+// Prompts use "." (CWD-relative) paths so workers write artifacts to their
+// worktree. The orchestrator copies state to/from the worktree.
 // ---------------------------------------------------------------------------
 
 export function buildResearchPrompt(state: HarnessState): string {
   return `You are the Researcher agent for sprint ${state.currentSprint.sprintNumber}.
 
-Research the project at: ${state.projectPath}
+Research the project files in your current working directory.
 
 Your job:
 1. Deep-read ALL existing files — understand the architecture, patterns, and constraints
 2. Write a research.md file (>50 lines) with the tag "research"
-3. Use words like "deeply", "intricacies" to ensure thorough analysis
-4. If research is wrong, the plan is wrong, implementation is wrong
+3. If research is wrong, the plan is wrong, implementation is wrong
 
-Output: Write ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "research.md")}
+Output: Write ./sprint_${state.currentSprint.sprintNumber}/research.md
 
-After completing research, update the harness state by writing ${statePath(state.projectPath)}.
-Set currentSprint.phase to "plan" and currentSprint.artifacts.researchMd to the path you wrote.
-Set currentSprint.updatedAt to ${new Date().toISOString()}.`;
+After completing research, update the harness state file ./harness_state.json:
+Set currentSprint.phase to "plan" and currentSprint.artifacts.researchMd to "sprint_${state.currentSprint.sprintNumber}/research.md".
+Set currentSprint.updatedAt to current ISO timestamp.`;
 }
 
 export function buildPlanPrompt(state: HarnessState): string {
   return `You are the Strategist agent for sprint ${state.currentSprint.sprintNumber}.
 
-Read: ${state.projectPath}/sprint_${state.currentSprint.sprintNumber}/research.md
+Read: ./sprint_${state.currentSprint.sprintNumber}/research.md
 
 Your job:
 1. Write a full spec.md covering all functionality
 2. Write a plan.md with feature breakdown and priorities
-3. Use your own .md files (not built-in plan mode) for full control
 
 Output paths:
-- ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "spec.md")}
-- ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "plan.md")}
+- ./sprint_${state.currentSprint.sprintNumber}/spec.md
+- ./sprint_${state.currentSprint.sprintNumber}/plan.md
 
-After completing the plan, update harness state:
+After completing the plan, update ./harness_state.json:
 Set currentSprint.phase to "annotation" and currentSprint.artifacts.specMd + planMd to their paths.
-Set currentSprint.updatedAt.`;
+Set currentSprint.updatedAt to current ISO timestamp.`;
 }
 
 export function buildAnnotationPrompt(state: HarnessState): string {
   return `You are the Reviewer agent for sprint ${state.currentSprint.sprintNumber}.
 
-Read the plan: ${state.projectPath}/sprint_${state.currentSprint.sprintNumber}/plan.md
+Read: ./sprint_${state.currentSprint.sprintNumber}/plan.md
 
 Your job:
-1. Open the plan in your editor
-2. Add inline annotations (correcting assumptions, rejecting approaches, adding constraints)
-3. Send Claude back to address notes — repeat until the plan is validated
-4. Write a plan_review.md summarizing your annotations
-5. Write sprint_contract.md with agreed "done" criteria before the sprint
+1. Review the plan for completeness and correctness
+2. Write a plan_review.md summarizing your review
+3. Write sprint_contract.md with agreed "done" criteria
 
 Output paths:
-- ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "plan_review.md")}
-- ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "sprint_contract.md")}
+- ./sprint_${state.currentSprint.sprintNumber}/plan_review.md
+- ./sprint_${state.currentSprint.sprintNumber}/sprint_contract.md
 
-After completing annotation cycle, update harness state:
+After completing review, update ./harness_state.json:
 Set currentSprint.phase to "implementation" and currentSprint.artifacts.planReviewMd + sprintContractMd.
-Set currentSprint.updatedAt.`;
+Set currentSprint.updatedAt to current ISO timestamp.`;
 }
 
 export function buildImplementationPrompt(state: HarnessState): string {
   return `You are the Generator agent for sprint ${state.currentSprint.sprintNumber}.
 
-Read: ${state.projectPath}/sprint_${state.currentSprint.sprintNumber}/sprint_contract.md
+Read: ./sprint_${state.currentSprint.sprintNumber}/sprint_contract.md
 
 Implement the full sprint per the contract. When done:
 1. Mark each completed task in the plan document
@@ -265,12 +266,12 @@ Implement the full sprint per the contract. When done:
 4. Do NOT use any or unknown types
 5. Continuously run typecheck
 
-Output: ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "sprint_report.md")}
+Output: ./sprint_${state.currentSprint.sprintNumber}/sprint_report.md
 
-After implementation, update harness state:
+After implementation, update ./harness_state.json:
 Set currentSprint.phase to "eval".
 Set currentSprint.artifacts.sprintReportMd.
-Set currentSprint.updatedAt.`;
+Set currentSprint.updatedAt to current ISO timestamp.`;
 }
 
 export function buildEvaluatorPrompt(state: HarnessState): string {
@@ -289,16 +290,16 @@ QUALITY: Score 1-10 on:
 Final score = 0.7 × rubric + 0.3 × diff_similarity
 Diff similarity = 1 - (lines_changed / 1000)
 
-Read the sprint report: ${state.projectPath}/sprint_${state.currentSprint.sprintNumber}/sprint_report.md
+Read the sprint report: ./sprint_${state.currentSprint.sprintNumber}/sprint_report.md
 
-Output: ${artifactPath(state.projectPath, state.currentSprint.sprintNumber, "sprint_eval.md")}
+Output: ./sprint_${state.currentSprint.sprintNumber}/sprint_eval.md
 
 If score >= 7 and EVIDENCE pass → verdict: "pass"
 Otherwise → verdict: "fail"
 
-After evaluation, update harness state:
-Set currentSprint.phase to "done" (final phase complete), currentSprint.verdict, currentSprint.evaluatorNotes.
-Set currentSprint.updatedAt.
+After evaluation, update ./harness_state.json:
+Set currentSprint.phase to "done", currentSprint.verdict, currentSprint.evaluatorNotes.
+Set currentSprint.updatedAt to current ISO timestamp.
 
 IMPORTANT: When the eval phase is complete, set currentSprint.phase to "done" to signal the
 orchestrator that the sprint is finished. Do not leave phase as "eval".`;
@@ -329,26 +330,57 @@ export interface RunOptions {
   orchestratorModel?: string;
   skillRoot?: string;
   maxIterationsPerPhase?: number;
+  runtime?: string;
 }
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function pollStateUntilPhaseChange(
-  workspace: string,
-  phase: string,
+/**
+ * Poll AO session status until it reaches a terminal state.
+ * This is more reliable than file-based state polling because workers
+ * are LLM agents that may or may not update harness_state.json.
+ */
+async function pollSessionUntilComplete(
+  projectId: string,
+  sessionId: string,
   maxIterations: number,
-): Promise<HarnessState | null> {
-  const POLL_INTERVAL_MS = 15_000; // 15s between polls
+  pollIntervalMs = 30_000, // 30s between polls
+): Promise<{ status: string; activity: string | null }> {
+  const config_ = loadConfig();
+  const registry = createPluginRegistry();
+  await registry.loadBuiltins(config_);
+  const sm = await createSessionManager({ config: config_, registry });
+
   for (let i = 0; i < maxIterations; i++) {
-    await sleep(POLL_INTERVAL_MS);
-    const state = readState(workspace);
-    if (!state) return null;
-    if (state.currentSprint.phase !== phase) return state;
-    console.log(`[autonomous-harness] Poll ${i + 1}/${maxIterations}: phase still ${phase}, waiting...`);
+    await sleep(pollIntervalMs);
+
+    try {
+      const sessions = await sm.list(projectId);
+      const session = sessions.find((s: { id: string }) => s.id === sessionId);
+
+      if (!session) {
+        console.log(`[autonomous-harness] Session ${sessionId} not found in list — may have been cleaned up`);
+        return { status: "terminated", activity: null };
+      }
+
+      const status = session.status as string;
+      const activity = session.activity as string | null;
+
+      if (TERMINAL_SESSION_STATUSES.has(status)) {
+        console.log(`[autonomous-harness] Session ${sessionId} reached terminal status: ${status}`);
+        return { status, activity };
+      }
+
+      console.log(`[autonomous-harness] Poll ${i + 1}/${maxIterations}: session ${sessionId} status=${status} activity=${activity ?? "unknown"}`);
+    } catch (err) {
+      console.warn(`[autonomous-harness] Poll ${i + 1}/${maxIterations}: error checking session: ${err}`);
+    }
   }
-  return readState(workspace); // return last known state (may be stalled)
+
+  console.warn(`[autonomous-harness] Session ${sessionId} did not complete within max polls`);
+  return { status: "unknown", activity: null };
 }
 
 export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessState> {
@@ -361,7 +393,8 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     evaluatorModel = "minimax/MiniMax-M2.7",
     orchestratorModel = "minimax/MiniMax-M2.7",
     skillRoot,
-    maxIterationsPerPhase = 10,
+    maxIterationsPerPhase = 40, // 40 × 30s = 20 min per phase
+    runtime,
   } = opts;
 
   // Initialize or resume state
@@ -379,56 +412,90 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
 
     console.log(`[autonomous-harness] Sprint ${sprint} Phase: ${phase}`);
 
-    // Build task prompt for current phase
     const taskPrompt = buildPromptForPhase(state);
 
-    // Select model based on phase
     const model = phase === "eval" || phase === "annotation"
       ? evaluatorModel
       : generatorModel;
 
-    const sessionName = `autonomous-${projectId}-s${sprint}-${phase}-${Date.now()}`;
-
-    // Spawn worker via SessionManager (not raw CLI — avoids unsupported flag errors)
+    // Spawn worker — AO creates a worktree and runs the worker there
     const result = await spawnAOWorker({
       model,
       systemPrompt: getSystemPromptForPhase(phase),
       taskPrompt,
       workspace: projectPath,
-      sessionName,
+      sessionName: `autonomous-${projectId}-s${sprint}-${phase}-${Date.now()}`,
       skillRoot,
+      runtime,
+      projectId,
     });
 
-    console.log(`[autonomous-harness] Worker spawned: ${result.sessionName} — polling for phase advance`);
+    const worktreePath = result.worktreePath;
+    console.log(`[autonomous-harness] Worker spawned: ${result.sessionName} worktree: ${worktreePath ?? "unknown"}`);
 
-    // Poll until phase advances or retry limit reached
-    const newState = await pollStateUntilPhaseChange(projectPath, phase, maxIterationsPerPhase);
-    if (!newState) throw new Error("State lost after worker run");
-
-    // Phase hasn't changed — check if it's the eval phase (which is "final" and doesn't advance)
-    if (newState.currentSprint.phase === phase) {
-      if (phase === "eval") {
-        // Eval phase is the final phase — it signals completion by staying at "eval"
-        // (worker sets phase to "done" per buildEvaluatorPrompt)
-        // If we're still at "eval" after polling, the worker may have stalled on eval.
-        // Fall through to normal stall handling.
-        console.warn(`[autonomous-harness] Eval phase did not advance after max polls — treating as stalled`);
-      } else {
-        // Non-eval phase stalled — advance to next phase
-        console.warn(`[autonomous-harness] Phase ${phase} did not advance — advancing manually`);
+    // Copy state file into the worktree so the worker can read current state
+    if (worktreePath && existsSync(statePath(projectPath))) {
+      try {
+        cpSync(statePath(projectPath), statePath(worktreePath), { force: true });
+        console.log(`[autonomous-harness] State copied to worktree: ${statePath(worktreePath)}`);
+      } catch (err) {
+        console.warn(`[autonomous-harness] Failed to copy state to worktree: ${err}`);
       }
     }
 
-    // Persist worker-updated state as-is. Exactly one actor (the worker) owns phase
-    // transitions; the orchestrator only advances manually on stall.
-    state = newState;
+    console.log(`[autonomous-harness] Waiting for session ${result.sessionName} to complete (max ${maxIterationsPerPhase} × 30s)`);
+
+    // Poll session status until terminal
+    const sessionResult = await pollSessionUntilComplete(
+      projectId,
+      result.sessionId,
+      maxIterationsPerPhase,
+    );
+
+    console.log(`[autonomous-harness] Session ${result.sessionName} ended with status: ${sessionResult.status}`);
+
+    // Check if the worker updated harness_state.json in the worktree
+    let stateUpdated = false;
+    if (worktreePath) {
+      const worktreeState = readState(worktreePath);
+      if (worktreeState && worktreeState.currentSprint.phase !== phase) {
+        state = worktreeState;
+        stateUpdated = true;
+        console.log(`[autonomous-harness] State advanced to ${state.currentSprint.phase} via worktree`);
+      }
+    }
+
+    // Also check main project path
+    if (!stateUpdated) {
+      const mainState = readState(projectPath);
+      if (mainState && mainState.currentSprint.phase !== phase) {
+        state = mainState;
+        stateUpdated = true;
+        console.log(`[autonomous-harness] State advanced to ${state.currentSprint.phase} via main project`);
+      }
+    }
+
+    if (!stateUpdated) {
+      // Worker stalled — advance phase and let the next loop iteration pick up the new phase
+      console.warn(`[autonomous-harness] Phase ${phase}: worker did not advance state — advancing manually`);
+      state = nextPhase(state);
+    }
+
+    // Persist current state
     writeState(projectPath, state);
 
-    // If the phase stalled (didn't advance), manually advance once.
-    // The worker is the sole phase-advancer when things work; we only step in on stall.
-    if (state.currentSprint.phase === phase) {
-      state = nextPhase(state);
-      writeState(projectPath, state);
+    // Copy artifacts from worktree back to main project if they exist
+    if (worktreePath) {
+      const sprintDir = join(worktreePath, `sprint_${sprint}`);
+      const mainSprintDir = join(projectPath, `sprint_${sprint}`);
+      if (existsSync(sprintDir) && !existsSync(mainSprintDir)) {
+        try {
+          cpSync(sprintDir, mainSprintDir, { recursive: true });
+          console.log(`[autonomous-harness] Artifacts copied from worktree to ${mainSprintDir}`);
+        } catch (err) {
+          console.warn(`[autonomous-harness] Failed to copy artifacts: ${err}`);
+        }
+      }
     }
   }
 
@@ -437,7 +504,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
 }
 
 // ---------------------------------------------------------------------------
-// System prompts per phase (minimal — actual logic is in skill prompts)
+// System prompts per phase (minimal — actual logic is in task prompts)
 // ---------------------------------------------------------------------------
 
 function getSystemPromptForPhase(phase: Phase): string {

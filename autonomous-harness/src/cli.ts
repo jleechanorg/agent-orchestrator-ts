@@ -30,6 +30,7 @@ interface AutonomousHarnessOptions {
   orchestratorModel: string;
   skillRoot?: string;
   maxIterationsPerPhase: string;
+  runtime: string;
 }
 
 export function registerAutonomousHarness(program: CommanderLike): void {
@@ -44,7 +45,8 @@ export function registerAutonomousHarness(program: CommanderLike): void {
     .option("--evaluator-model <model>", "Model for evaluator phases", "minimax/MiniMax-M2.7")
     .option("--orchestrator-model <model>", "Model for orchestrator (evaluation/annotation phases)", "minimax/MiniMax-M2.7")
     .option("--skill-root <path>", "Path to skills directory (for skill prompts)")
-    .option("--max-iterations-per-phase <n>", "Max poll iterations per phase", "10");
+    .option("--runtime <name>", "Runtime plugin (process, tmux, antigravity)", "process")
+    .option("--max-iterations-per-phase <n>", "Max poll iterations per phase (each is 15s)", "40");
 
   cmd.action(async () => {
     const opts = cmd.opts<AutonomousHarnessOptions>();
@@ -77,6 +79,7 @@ export function registerAutonomousHarness(program: CommanderLike): void {
       orchestratorModel: opts.orchestratorModel,
       skillRoot: opts.skillRoot,
       maxIterationsPerPhase: maxIterations,
+      runtime: opts.runtime,
     };
 
     console.log(`[autonomous-harness] Starting harness for ${opts.projectName} (id=${opts.projectId}) at ${projectPath}`);
