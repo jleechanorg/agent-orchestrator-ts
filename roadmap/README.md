@@ -4,6 +4,11 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-05-01
+
+- **MiniMax 401 root cause fixed** — `setup-launchd.sh` was missing sed substitutions for `MINIMAX_API_KEY`, `MINIMAX_BASE_URL`, `MINIMAX_MODEL`, `MINIMAX_ANTHROPIC_BASE_URL` in `install_lifecycle_plist()`. Installed plist had literal `@MINIMAX_API_KEY@` strings → bash expanded to empty → 401 on every MiniMax API call → `/login` stall. PR **#510 MERGED** (sed substitutions + AO_CLI_PATH). PR **#512 OPEN** (fail-fast `@VAR@` check in `test-launchd-env.sh`). Skill `minimax-401-diagnostic/SKILL.md` updated with Step 0. Pattern recurred 6+ times — harness fix: `@VAR@` check added to test script.
+- **PR #511 still open** — KeepAlive:true on lifecycle-all correctly flagged by all 3 CRs as causing 60-second kill/restart churn loop. PR needs revision: revert `KeepAlive: true` on lifecycle-all, keep only on watchdog.
+
 ### 2026-04-25
 
 - **ao-core global dist stale — enum mismatch** — Global npm `@jleechanorg/ao-core@0.1.0` dist (built 08:04) missing `skeptic-review`, `respawn-for-review`, `claim-verification` from `ReactionConfigSchema.action` enum. Source dist (built 10:38) has all 8 values. Workers crashed with `ZodError: Invalid enum value 'skeptic-review'`. Fix: synced key files (config.js, lifecycle-manager.js, skeptic-reviewer.js, fork-skeptic-extension.js, index.js, worktree-git.js) from source to global npm location. Workaround: workers running from source `packages/cli/dist` (PID 3035 agent-orchestrator, PID 77098 worldarchitect).
