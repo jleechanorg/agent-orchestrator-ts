@@ -34,10 +34,13 @@
   <key>WorkingDirectory</key>
   <string>@REPO_ROOT@</string>
 
+  <!-- PATH needed for node (nvm) — secrets come from shell profile via launcher. -->
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
     <string>@HOME@</string>
+    <key>PATH</key>
+    <string>@PATH@</string>
   </dict>
 
   <key>StandardOutPath</key>

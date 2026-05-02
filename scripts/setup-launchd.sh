@@ -5,7 +5,8 @@
 # novel-daily runs a deterministic prose aggregation once per day.
 #
 # All plists use scripts/launchd-launcher.sh which sources the shell profile
-# for env vars — no API keys or PATH duplicated in the plist.
+# for secrets (API keys). PATH is still set in the plist because nvm/node
+# init requires more than just HOME in the launchd minimal env.
 
 set -euo pipefail
 
@@ -27,6 +28,7 @@ REPO_ROOT="$(_resolve_repo_root)"
 TEMPLATE_DIR="$REPO_ROOT/launchd"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 BASE_LOG_DIR="$HOME/.openclaw/logs"
+BASE_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 action_script="${1:-all}"
 
@@ -36,6 +38,16 @@ escape_sed() {
   printf '%s' "$1" \
     | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' \
     | sed 's/[\&\\|]/\\&/g'
+}
+
+path_for_launchd() {
+  AO_BIN="$(command -v ao 2>/dev/null || true)"
+  if [ -n "$AO_BIN" ]; then
+    AO_DIR="$(dirname "$AO_BIN")"
+    echo "${AO_DIR}:${BASE_PATH}"
+  else
+    echo "$BASE_PATH"
+  fi
 }
 
 install_lifecycle_plist() {
@@ -74,6 +86,8 @@ install_lifecycle_plist() {
 
   local tmp_plist
   tmp_plist="$(mktemp)"
+  local path_value
+  path_value="$(escape_sed "$(path_for_launchd)")"
 
   sed \
     -e "s|@HOME@|$(escape_sed "$HOME")|g" \
@@ -81,6 +95,7 @@ install_lifecycle_plist() {
     -e "s|@LAUNCHER_SCRIPT@|$(escape_sed "$launcher")|g" \
     -e "s|@START_ALL_SCRIPT@|$(escape_sed "$script")|g" \
     -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
+    -e "s|@PATH@|$path_value|g" \
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
@@ -130,6 +145,8 @@ install_novel_plist() {
 
   local tmp_plist
   tmp_plist="$(mktemp)"
+  local path_value
+  path_value="$(escape_sed "$(path_for_launchd)")"
 
   # Build the run command — delegates date-computation and node-resolution to run-daily.sh.
   local run_wrapper="$REPO_ROOT/scripts/novel/run-daily.sh"
@@ -145,6 +162,7 @@ install_novel_plist() {
     -e "s|@LAUNCHER_SCRIPT@|$(escape_sed "$launcher")|g" \
     -e "s|@GENERATE_DAILY_SCRIPT@|$(escape_sed "$run_cmd")|g" \
     -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
+    -e "s|@PATH@|$path_value|g" \
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
@@ -182,6 +200,8 @@ install_watchdog_plist() {
 
   local tmp_plist
   tmp_plist="$(mktemp)"
+  local path_value
+  path_value="$(escape_sed "$(path_for_launchd)")"
 
   sed \
     -e "s|@HOME@|$(escape_sed "$HOME")|g" \
@@ -189,6 +209,7 @@ install_watchdog_plist() {
     -e "s|@LAUNCHER_SCRIPT@|$(escape_sed "$launcher")|g" \
     -e "s|@WATCHDOG_SCRIPT@|$(escape_sed "$script")|g" \
     -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
+    -e "s|@PATH@|$path_value|g" \
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
