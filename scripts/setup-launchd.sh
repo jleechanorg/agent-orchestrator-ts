@@ -118,6 +118,7 @@ install_lifecycle_plist() {
     -e "s|@MINIMAX_API_KEY@|$(escape_sed "${MINIMAX_API_KEY:-}")|g" \
     -e "s|@MINIMAX_ANTHROPIC_BASE_URL@|$(escape_sed "${MINIMAX_ANTHROPIC_BASE_URL:-https://api.minimax.io/anthropic}")|g" \
     -e "s|@MINIMAX_MODEL@|$(escape_sed "${MINIMAX_MODEL:-MiniMax-M2.7}")|g" \
+    -e "s|@GITHUB_TOKEN@|$(escape_sed "${GITHUB_TOKEN:-}")|g" \
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
