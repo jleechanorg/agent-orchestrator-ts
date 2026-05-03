@@ -24,11 +24,19 @@ shift
 # -i: interactive → bypasses .bashrc's "case $- in *i*) ;; *) return;; esac" guard
 # Filter to only values (both single- and double-quoted) to avoid overriding plist defaults with empties.
 # Error handling: if shell profile fails to load, log the failure but continue (plist defaults remain).
-init_output=$(bash -lic 'declare -x' 2>&1) || true
-if [ -n "$init_output" ] && ! grep -qE 'declare -x' <<< "$init_output"; then
-  echo "WARNING: shell profile init produced no exports (exit code: $?)" >&2
+exit_code=0
+_init_output=$(bash -lic 'declare -x' 2>&1; echo "exit:$?") || exit_code=$?
+# Extract the bash exit code from the trailing "exit:N" marker
+_marker=$(echo "$_init_output" | grep '^exit:' || true)
+_actual_exit=${_marker#exit:}
+_init_output=$(echo "$_init_output" | grep -v '^exit:')
+if [ "$_actual_exit" -ne 0 ]; then
+  echo "WARNING: shell profile init exited with code $_actual_exit" >&2
 fi
-eval "$(echo "$init_output" | grep -E 'declare -x [A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+')" || {
+if [ -z "$_init_output" ]; then
+  echo "WARNING: shell profile produced no exports, continuing with plist defaults" >&2
+fi
+eval "$(echo "$_init_output" | grep -E 'declare -x [A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+')" || {
   echo "WARNING: failed to parse shell exports, continuing with plist defaults" >&2
 }
 

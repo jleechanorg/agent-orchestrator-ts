@@ -67,15 +67,17 @@ fi
 # Extract PR body — gh pr create uses --body flag or stdin
 # ---------------------------------------------------------------------------
 
+BODY=''
+
 # Try --body flag first (single-quoted body)
 MATCH=$(echo "$CMD" | grep -oE '\-\-body[[:space:]]+'"'"'[^'"'"']*'"'"'([^[:space:]]+)?' 2>/dev/null || true)
 if [ -n "$MATCH" ]; then
   BODY=$(echo "$MATCH" | sed "s/--body[[:space:]]*'"'"'//; s/'"'"'$//" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
 fi
 
-# Fallback: try double-quoted body
+# Fallback: try double-quoted body (escape leading -- so grep doesn't treat as option)
 if [ -z "$BODY" ]; then
-  MATCH=$(echo "$CMD" | grep -oE '--body[[:space:]]+"[^"]*"' 2>/dev/null || true)
+  MATCH=$(echo "$CMD" | grep -oE -- '--body[[:space:]]+"[^"]*"' 2>/dev/null || true)
   if [ -n "$MATCH" ]; then
     BODY=$(echo "$MATCH" | sed 's/--body[[:space:]]*"//; s/"$//' | tr '\n' ' ' | sed 's/[[:space:]]*$//')
   fi
