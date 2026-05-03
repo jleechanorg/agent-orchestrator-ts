@@ -19,10 +19,25 @@ fi
 TARGET="$1"
 shift
 
-# Source shell profile in interactive mode to get all exports (API keys, nvm, etc.)
-# bashrc has a "case $- in *i*) ;; *) return;; esac" guard that skips exports
-# when not interactive. The -i flag forces past it.
-# Filter to only non-empty values to avoid overriding plist defaults with empties.
-eval "$(bash -ic 'declare -x' 2>/dev/null | grep -E 'declare -x [A-Za-z_]+="[^"]"' || true)" || true
+# Source shell profile in login+interactive mode to get all exports (API keys, nvm, etc.)
+# -l: login shell → sources .bash_profile if it exists, falling back to .bashrc
+# -i: interactive → bypasses .bashrc's "case $- in *i*) ;; *) return;; esac" guard
+# Filter to only values (both single- and double-quoted) to avoid overriding plist defaults with empties.
+# Error handling: if shell profile fails to load, log the failure but continue (plist defaults remain).
+exit_code=0
+_init_output=$(bash -lic 'declare -x' 2>&1; echo "exit:$?") || exit_code=$?
+# Extract the bash exit code from the trailing "exit:N" marker
+_marker=$(echo "$_init_output" | grep '^exit:' || true)
+_actual_exit=${_marker#exit:}
+_init_output=$(echo "$_init_output" | grep -v '^exit:')
+if [ "$_actual_exit" -ne 0 ]; then
+  echo "WARNING: shell profile init exited with code $_actual_exit" >&2
+fi
+if [ -z "$_init_output" ]; then
+  echo "WARNING: shell profile produced no exports, continuing with plist defaults" >&2
+fi
+eval "$(echo "$_init_output" | grep -E 'declare -x [A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+')" || {
+  echo "WARNING: failed to parse shell exports, continuing with plist defaults" >&2
+}
 
 exec "$TARGET" "$@"
