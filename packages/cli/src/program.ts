@@ -63,6 +63,7 @@ export function buildProgram(): Command {
   // Commander v12 vs v13 has incompatible opts<T>() return type variance.
   // The runtime behavior is identical — use the same interface the function declares.
   type CmdProgram = Parameters<typeof registerAutonomousHarness>[0];
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument,@typescript-eslint/no-explicit-any -- intentionally bridging commander type variance
   registerAutonomousHarness(program as CmdProgram);
 
   program
