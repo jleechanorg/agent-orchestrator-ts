@@ -84,7 +84,7 @@ export async function spawnStandbyWorker(
   const nextPhaseIdx = currentIdx + 1;
   if (nextPhaseIdx >= PHASE_ORDER.length) return null; // No next phase
 
-  const nextPhase = PHASE_ORDER[nextPhaseIdx];
+  const nextPhase: Phase = PHASE_ORDER[nextPhaseIdx]!;
   const nextSprint = currentPhase === "eval"
     ? state.currentSprint.sprintNumber + 1
     : state.currentSprint.sprintNumber;
@@ -428,7 +428,7 @@ currentSprint.verdict to "pass" or "fail", and currentSprint.evaluatorNotes to y
 analysis summary. Set currentSprint.updatedAt to current ISO timestamp.
 
 IMPORTANT: Set phase to "eval" with verdict/notes. Do NOT set phase to "done" —
-the orchestrator will call nextPhase() to transition to "done" and record the
+the orchestrator will call standbyHandle.phase() to transition to "done" and record the
 completed sprint in completedSprints.`;
 }
 
@@ -548,13 +548,14 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
 
   console.log(`[autonomous-harness] Starting loop for ${projectId}/${projectName} sprint ${state.currentSprint.sprintNumber} phase: ${state.currentSprint.phase}`);
 
-  while (state.currentSprint.phase !== "done") {
-    const phase = state.currentSprint.phase;
-    const sprint = state.currentSprint.sprintNumber;
+  // state is always non-null after the initialization guard above
+  while (state!.currentSprint.phase !== "done") {
+    const phase = state!.currentSprint.phase;
+    const sprint = state!.currentSprint.sprintNumber;
 
     console.log(`[autonomous-harness] Sprint ${sprint} Phase: ${phase}`);
 
-    const taskPrompt = buildPromptForPhase(state);
+    const taskPrompt = buildPromptForPhase(state!);
 
     // annotation uses orchestratorModel; eval uses evaluatorModel.
     const model = phase === "eval"
@@ -599,7 +600,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     }
 
     // PRE-SPAWN standby worker for next phase (multi-worker pipelining)
-    const standbyHandle = await spawnStandbyWorker(phase, state, {
+    const standbyHandle = await spawnStandbyWorker(phase, state!, {
       generatorModel,
       evaluatorModel,
       orchestratorModel,
@@ -665,13 +666,13 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     }
 
     // If eval completed (verdict written), advance to next phase
-    if (phase === "eval" && state.currentSprint.verdict) {
-      state = nextPhase(state);
-      console.log(`[autonomous-harness] Eval complete, verdict=${state.currentSprint.verdict}. Transitioned to ${state.currentSprint.phase}.`);
+    if (phase === "eval" && state!.currentSprint.verdict) {
+      state = nextPhase(state!);
+      console.log(`[autonomous-harness] Eval complete, verdict=${state!.currentSprint.verdict}. Transitioned to ${state!.currentSprint.phase}.`);
     }
 
     // Persist current state
-    writeState(projectPath, state);
+    writeState(projectPath, state!);
 
     // Copy artifacts from worktree back to main project
     if (worktreePath) {
@@ -689,7 +690,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
 
     // If standby was pre-spawned, wait for it to activate and complete
     if (standbyHandle) {
-      const nextPhase = state.currentSprint.phase;
+      const currentPhase = state!.currentSprint.phase;
       // Sync latest state/artifacts to standby worktree before polling —
       // the standby worktree may not have received updates yet.
       if (standbyHandle.worktreePath) {
@@ -707,24 +708,24 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
           console.warn(`[autonomous-harness] Failed to sync state/artifacts to standby worktree: ${err}`);
         }
       }
-      console.log(`[autonomous-harness] Waiting for standby ${standbyHandle.sessionName} to activate for ${nextPhase}`);
+      console.log(`[autonomous-harness] Waiting for standby ${standbyHandle.sessionName} to activate for ${standbyHandle.phase}`);
 
       // Wait for standby to activate (previous phase completing triggers it)
       const standbyPollResult = await pollUntilActive(
         projectId,
         standbyHandle,
-        nextPhase,
+        standbyHandle.phase,
         maxIterationsPerPhase,
       );
 
       if (standbyPollResult.activated) {
-        console.log(`[autonomous-harness] Standby activated and is working on ${nextPhase}`);
+        console.log(`[autonomous-harness] Standby activated and is working on ${standbyHandle.phase}`);
 
         // Now wait for the standby (now active) to complete
         const standbyComplete = await pollUntilPhaseAdvance(
           projectId,
           standbyHandle.sessionId,
-          nextPhase,
+          standbyHandle.phase,
           standbyHandle.worktreePath,
           maxIterationsPerPhase,
         );
@@ -756,7 +757,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
           if (standbyState) {
             const standbyPhase = standbyState.currentSprint.phase;
             const standbyIdx = PHASE_ORDER.indexOf(standbyPhase as Phase);
-            const currentIdx = PHASE_ORDER.indexOf(state.currentSprint.phase as Phase);
+            const currentIdx = PHASE_ORDER.indexOf(state!.currentSprint.phase as Phase);
             // Valid: standby advanced by exactly 1, OR eval wrote verdict without advancing
             const validTransition =
               (standbyIdx === currentIdx + 1) ||
@@ -773,10 +774,10 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
         // Only skip normal spawn if standby was successfully activated and state accepted
         if (standbyAccepted) {
           // If standby completed eval with a verdict, run the same completion
-          // bookkeeping that the normal worker path performs (nextPhase + persist)
+          // bookkeeping that the normal worker path performs (standbyHandle.phase + persist)
           // so the sprint is recorded in completedSprints before the next iteration.
           if (state && state.currentSprint.phase === "eval" && state.currentSprint.verdict) {
-            const nextState = nextPhase(state);
+            const nextState: HarnessState = nextPhase(state!);
             writeState(projectPath, nextState);
             state = nextState;
             console.log(`[autonomous-harness] Standby eval complete (verdict=${state.currentSprint.verdict}), transitioned to ${state.currentSprint.phase}.`);
@@ -790,8 +791,8 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     }
   }
 
-  console.log(`[autonomous-harness] All sprints complete. ${state.completedSprints.length}/${state.totalSprints} done.`);
-  return state;
+  console.log(`[autonomous-harness] All sprints complete. ${state!.completedSprints.length}/${state!.totalSprints} done.`);
+  return state!;
 }
 
 // ---------------------------------------------------------------------------
