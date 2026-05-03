@@ -67,14 +67,18 @@ fi
 # Extract PR body — gh pr create uses --body flag or stdin
 # ---------------------------------------------------------------------------
 
-# Try --body flag first
-BODY=$(echo "$CMD" | grep -oE '\-\-body[[:space:]]+'"'"'[^'"'"']*'"'"'([^[:space:]]+)?' | \
-       sed "s/--body[[:space:]]*'"'"'//; s/'"'"'$//" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+# Try --body flag first (single-quoted body)
+MATCH=$(echo "$CMD" | grep -oE '\-\-body[[:space:]]+'"'"'[^'"'"']*'"'"'([^[:space:]]+)?' 2>/dev/null || true)
+if [ -n "$MATCH" ]; then
+  BODY=$(echo "$MATCH" | sed "s/--body[[:space:]]*'"'"'//; s/'"'"'$//" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+fi
 
 # Fallback: try double-quoted body
 if [ -z "$BODY" ]; then
-  BODY=$(echo "$CMD" | grep -oE '--body[[:space:]]+"[^"]*"' | \
-         sed 's/--body[[:space:]]*"//; s/"$//' | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+  MATCH=$(echo "$CMD" | grep -oE '--body[[:space:]]+"[^"]*"' 2>/dev/null || true)
+  if [ -n "$MATCH" ]; then
+    BODY=$(echo "$MATCH" | sed 's/--body[[:space:]]*"//; s/"$//' | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+  fi
 fi
 
 # ---------------------------------------------------------------------------
