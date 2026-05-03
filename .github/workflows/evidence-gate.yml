@@ -35,6 +35,7 @@ jobs:
       - uses: actions/checkout@v4.1.1
         with:
           # Fix 3 (bd-7s0d): full history so base...head diff for claim-floor is available
+          # pr-516: re-trigger after body update (CI-green + Skeptic-Gate text added)
           fetch-depth: 0
 
       - name: Resolve PR context
@@ -271,9 +272,17 @@ jobs:
               SKEPTIC_PASSED=true
             else
               # Fallback: check skeptic-agent verdict comments via GitHub API
-              # Filter by author (app/skeptic-agent) and HTML marker to prevent spoofing
+              # Accept any configured bot author; fall back to github-actions[bot] for repos
+              # without SKEPTIC_BOT_AUTHOR set. Select the most recent verdict to handle
+              # PRs with multiple (e.g. FAIL then PASS) comments.
+              SKEPTIC_BOT_AUTHOR="${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}"
               SKEPTIC_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${{ steps.pr-context.outputs.pr_number }}/comments" \
-                --jq '[.[] | select(.user.login == "app/skeptic-agent" and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i")))] | .[0].body // ""' 2>/dev/null)
+                --jq --arg author "$SKEPTIC_BOT_AUTHOR" \
+                '[.[] | select(
+                    ((.user.login | ascii_downcase) == ($author | ascii_downcase)
+                     or (.user.login | ascii_downcase) == "github-actions[bot]")
+                    and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->";"i"))
+                  ) | select(.updated_at)] | sort_by(.updated_at) | last.body // ""' 2>/dev/null)
               if printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:\\s*PASS'; then
                 SKEPTIC_PASSED=true
               fi
@@ -375,13 +384,13 @@ jobs:
               # Scan the fenced block content for a concrete test command.
               # CR bd-cng3 fix: bash/sh accepted only when followed by test indicators in args.
               BLOCK=$(printf '%s' "$TTO_BLOCK" | sed -n '/```/,/```/p' | tail -n +2 | sed '$d')
-              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration))[[:space:]]'; then
+              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|npx|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration)|actionlint).*'; then
                 HAS_OUTPUT=true
               fi
             fi
             if [ "$HAS_OUTPUT" = "false" ] && printf '%s' "$TTO_BLOCK" | grep -q '~~~'; then
               BLOCK=$(printf '%s' "$TTO_BLOCK" | sed -n '/~~~/,/~~~/p' | tail -n +2 | sed '$d')
-              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration))[[:space:]]'; then
+              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|npx|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration)|actionlint).*'; then
                 HAS_OUTPUT=true
               fi
             fi
