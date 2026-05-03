@@ -32,14 +32,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockExecFileSync.mockReset();
   mockResolveCodexBinary.mockReset();
-  // "/mock/claude" is executable
-  mockAccessSync.mockImplementation((path) => {
-    if (path === MOCK_CLAUDE_BINARY || path === "claude") return undefined;
-    const err = new Error("ENOENT: no such file or directory") as NodeJS.ErrnoException;
+  // accessSync: throw ENOENT for all candidates (binary not found).
+  // This makes tryClaudePrint skip every candidate without succeeding,
+  // so the rotation advances to the next tool (not a 2nd claude candidate).
+  mockAccessSync.mockImplementation((path: unknown) => {
+    const err = new Error("ENOENT: no such file") as NodeJS.ErrnoException;
     err.code = "ENOENT";
     throw err;
   });
-  // Default behavior: throw ENOENT
+  // Default: throw ENOENT for ALL execFileSync calls.
+  // Each test queues specific return values for the calls it cares about.
   mockExecFileSync.mockImplementation(() => {
     const err = new Error("ENOENT") as NodeJS.ErrnoException;
     err.code = "ENOENT";
@@ -54,7 +56,19 @@ function makeErrnoError(message: string, code?: string): NodeJS.ErrnoException {
 }
 
 describe("tryClaudePrint", () => {
+  // Override accessSync to allow /mock/claude (first candidate) through.
+  // Without this, accessSync throws ENOENT and tryClaudePrint skips all candidates.
+  const allowFirstCandidate = () => {
+    mockAccessSync.mockImplementation((path: unknown) => {
+      if (path === "/mock/claude" || path === "claude") return undefined;
+      const err = new Error("ENOENT: no such file") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+  };
+
   it("returns validVerdict=true for output containing VERDICT: PASS", async () => {
+    allowFirstCandidate();
     mockExecFileSync.mockReturnValue(PASS_VERDICT);
     const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(true);
@@ -73,6 +87,7 @@ describe("tryClaudePrint", () => {
   });
 
   it("returns validVerdict=false with error string when VERDICT is missing", async () => {
+    allowFirstCandidate();
     mockExecFileSync.mockReturnValue("Some analysis without verdict");
     const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(false);
@@ -102,6 +117,7 @@ describe("tryClaudePrint", () => {
   });
 
   it("returns validVerdict=true for markdown-prefixed ## VERDICT: PASS", async () => {
+    allowFirstCandidate();
     mockExecFileSync.mockReturnValue("## VERDICT: PASS");
     const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(true);
@@ -109,6 +125,7 @@ describe("tryClaudePrint", () => {
   });
 
   it("returns validVerdict=false for VERDICT: SKIPPED", async () => {
+    allowFirstCandidate();
     mockExecFileSync.mockReturnValue(SKIPPED_VERDICT);
     const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(false);
@@ -116,6 +133,7 @@ describe("tryClaudePrint", () => {
   });
 
   it("rejects embedded mid-sentence verdicts", async () => {
+    allowFirstCandidate();
     mockExecFileSync.mockReturnValue("Analysis complete. VERDICT: PASS");
     const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(false);
@@ -123,6 +141,7 @@ describe("tryClaudePrint", () => {
   });
 
   it("accepts indented verdict lines", async () => {
+    allowFirstCandidate();
     mockExecFileSync.mockReturnValue("\tVERDICT: PASS");
     const result = await tryClaudePrint("evaluate this");
     expect(result.validVerdict).toBe(true);
