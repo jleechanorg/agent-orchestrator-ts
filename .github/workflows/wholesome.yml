@@ -91,9 +91,9 @@ jobs:
             exit 1
           fi
 
-          # Use anchored regex: ## must be at start of line, followed by space + "Evidence" + space or EOL
-          # grep -E enables extended regex; anchors ensure this is a markdown H2, not a word-in-sentence
-          if printf '%s' "$BODY" | grep -qiE '^[[:space:]]*##[[:space:]]+[Ee]vidence([[:space:]]|$)'; then
+          # Note: PR body from gh api JSON encodes newlines as literal \n sequences.
+          # grep -qiE '## Evidence' (no anchor) matches both literal-\n and actual-newline formats.
+          if printf '%s' "$BODY" | grep -qiE '## Evidence'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
             echo "reason=evidence_section_found" >> "$GITHUB_OUTPUT"
             echo "PASS: ## Evidence section found"
@@ -204,8 +204,10 @@ jobs:
           echo "frontend_touch=$FRONTEND_TOUCH"
 
           # Extract Evidence section — merged approach:
-          # bd-ara.2's tolower() for mawk portability + HTML comment stripping
-          EVIDENCE_SECTION=$(printf '%s\n' "$BODY" | awk '
+          # bd-ara.2's tolower() for mawk portability + HTML comment stripping.
+          # PRE-PROCESS: gh api JSON-encodes PR body with literal \n sequences
+          # (bytes 0x5C 0x6E, not real newlines). Convert them so awk sees real lines.
+          EVIDENCE_SECTION=$(printf '%s' "$BODY" | sed 's/\\n/\n/g' | awk '
             # Strip single-line HTML comments inline (CR bd-357-fix).
             # gsub replaces <!--...--> with nothing rather than { next }, preserving
             # surrounding text so downstream label checks (e.g. **UI media:) work.
