@@ -451,7 +451,8 @@ describe("wholesome — structural source-code assertions", () => {
       "39937c6b52e36aee3d6a70ad31f9e9a5c82b2c6e", // fix(metadata-updater): remove duplicate git switch block
       "f106b31f97aab5f3c2e8d1a6b4c7e9f0d3a2b5c8", // fix(metadata-updater): fail-closed on deny + git switch
       "7c8a0d844c5fe642ae5ee2c119850f4067913879", // fix(core): suppress feat/ prefix for free-form issueId
-      // PR #513: autonomous-harness (PR #513) — pre-[agento] development loop commits
+      // PR #513: autonomous-harness (PR #513) — all pre-[agento] development loop commits
+      // Test uses %H (full SHA); all entries here are full 40-char SHAs for exact Set lookup.
       "bff791d6be108d4cd194fc717f776eb49b2939e9", // fix(cli): add autonomous-harness as runtime dependency
       "d4ed2af370153d7e967a5c61c6e583719669eb36", // fix(ci): restore topological build now that circular dep is resolved
       "492455c6d16d97f1d592a594e16d99751438d810", // chore: update pnpm-lock.yaml after removing ao-cli dependency
@@ -469,6 +470,34 @@ describe("wholesome — structural source-code assertions", () => {
       "efd7ff7ed457db9c738c04d472ed0d78d1d42f4b", // fix: address CR review comments - cli registration, sprint validation, atomic writes
       "e08ce8c95f7805ac5e962660ec7ea8ed9b5ec674", // chore: add autonomous-harness to pnpm lockfile
       "d4194fc83267fb64dc51eafd20cf8c2c45306538", // feat(autonomous-harness): initial TypeScript implementation
+      "9254a6c5440e384a8d9d1a4bea04ef2e706048fd", // fix(autonomous-harness): use package import instead of repo-relative path
+      "3b6496dba709d781af9a3986b03db1197afe2137", // fix(cli): replace eslint-disable with type-safe cast for commander variance
+      "b9224d78793e61b64335bd58018bb08caaa9bb6a", // fix(autonomous-harness): pass jest with no tests
+      "191c5d2f0f1a26d3d81bee323ba489852bf5b76b", // fix(autonomous-harness): default runtime to tmux, fix poll interval description
+      "c78f23208aab9f507e6209a30839b0b4eceee3f6", // fix(autonomous-harness): dual poll for phase advance detection
+      "526f2430c8e24b8ede636b7912b5127c5116aaf3", // refactor(autonomous-harness): schema dedup, eval prompt fix, sprint artifact copy
+      "481d1df796f4197ae2b35328786a799c5af2098b", // fix(autonomous-harness): resolve remaining CR review issues
+      "6f72b2634ed208c407bf4057822170dbd7ac50a3", // fix(autonomous-harness): address CodeRabbit review comments
+      "2b14d4953f3366a489f087aa2ce7fc3aed23db9d", // fix(autonomous-harness): use !== instead of != for null comparison
+      "3b0988b50254fa1ab7701fbcfd3002fd1caa5563", // beads(br): add bd-ts01 for AO TS harness PR tracking
+      "88fa7bfcfd827f22d587eb0bad32c26690807ca8", // feat(autonomous-harness): add pipelined multi-worker support
+      "55c9b52550fd8594a2eb8144653e47aad3cdd262", // feat(autonomous-harness): add pipelined multi-worker support
+      "d23592bc49a3c7486b2babba9b2b4903cc4ff984", // fix(launchd): propagate GITHUB_TOKEN to lifecycle workers for skeptic-cron
+      "7de2b0cea4a08162b9dc109503bb6b8b9c2a7751", // fix(skeptic): remove unsupported --trigger-type cron arg from tryModel (#514)
+      "01f071ae03abce69432b34071fcdbb02c7b78961", // fix(launchd): replace plist env var duplication with launcher script
+      "29b41059b4a407f973cc5bf92e2d84c5eb7234cf", // fix(launchd): add PATH back to plist templates for nvm/node resolution
+      "d60796626f5d37624f648a241b198295c299817f", // fix(launchd): source bashrc in interactive mode for API key exports
+      "064b8f7736cc7b3b6f08f3754a8250ec4a602f79", // fix(launchd): add MiniMax config defaults to plist
+      "fd2004e9b84a2b7ed6fee807a539c32f3a069c0b", // fix(launchd): filter empty env vars from interactive eval
+      "dbd0cc69218d32dd76fc8b1df13f18688788d773", // fix(start-all): use global npm ao binary, not source tree
+      "94a858bc0f1f1de6b0bde7ca0310f133c54138e4", // a
+      "1f2c303ba9559c34560d311fddd57c2add472823", // fix(launchd): capture bash -lic exit code explicitly, fix grep -- option safety
+      "b127686f787ef822de01410f77cd944df049504f", // fix(launchd): source .bashrc explicitly, require non-empty export values
+      "eb793fe9dcf55b4dae8a8538815d86693fdd41e1", // fix(launchd): guard _actual_exit against multiline markers, fix == error
+      "4bc401b0801b06e27776d4b48df6c08f9ddde52d", // fix(llm-eval): disable gemini + cursor-agent in LLM fallback chain
+      "5c4559d0a796a771546a6042be282d860842fd39", // fix(llm-eval): pass MINIMAX_API_KEY env to codex/claude exec calls
+      "13e116ddfdf9c5a3f16c4ae071ff2f4943970378", // fix(llm-eval): default ANTHROPIC_BASE_URL to minimax endpoint when unset
+      "4f37a88ae3681ce63e3b3a7afec612fe7f911ae0", // fix(llm-eval): silence lint errors on disabled gemini/cursor stubs
       // PR #513: eslint-disable needed for Commander v12/v13 opts<T>() type variance
       // Bridge casting is unavoidable due to incompatible return types between versions;
       // runtime behavior is identical. Explained in code with 2-line comment.
