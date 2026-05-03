@@ -40,8 +40,17 @@ _init_output="${_init_output}
 ${_bashrc_output}"
 
 # Extract the bash exit code from the trailing "exit:N" marker
-_marker=$(echo "$_init_output" | grep '^exit:' || true)
+# Only take the first matching line to handle the case where both bash -lic
+# and bash -ic produce exit markers (would otherwise give "0\n0" → integer error).
+_marker=$(echo "$_init_output" | grep '^exit:' | head -1 || true)
 _actual_exit=${_marker#exit:}
+# Strip ALL whitespace characters (not just trailing) since the marker may contain
+# literal newlines when both bash -lic and bash -ic output markers.
+_actual_exit=${_actual_exit//[[:space:]]}
+# Guard: ensure _actual_exit is a valid non-negative integer (handle empty/corrupt markers)
+case "$_actual_exit" in
+  ''|*[^0-9]*) _actual_exit=0 ;;
+esac
 _init_output=$(echo "$_init_output" | grep -v '^exit:')
 if [ "$_actual_exit" -ne 0 ]; then
   echo "WARNING: shell profile init exited with code $_actual_exit" >&2
