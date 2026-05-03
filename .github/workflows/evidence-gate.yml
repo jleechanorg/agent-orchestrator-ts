@@ -271,9 +271,9 @@ jobs:
               SKEPTIC_PASSED=true
             else
               # Fallback: check skeptic-agent verdict comments via GitHub API
-              # Filter by author (app/skeptic-agent) and HTML marker to prevent spoofing
+              # Filter by author (github-actions[bot]) and HTML marker to prevent spoofing
               SKEPTIC_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${{ steps.pr-context.outputs.pr_number }}/comments" \
-                --jq '[.[] | select(.user.login == "app/skeptic-agent" and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i")))] | .[0].body // ""' 2>/dev/null)
+                --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i")))] | .[0].body // ""' 2>/dev/null)
               if printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:\\s*PASS'; then
                 SKEPTIC_PASSED=true
               fi
