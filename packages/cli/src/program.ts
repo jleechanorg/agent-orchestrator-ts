@@ -15,6 +15,7 @@ import { registerUpdate } from "./commands/update.js";
 import { registerSkeptic } from "./commands/skeptic.js";
 import { registerSkepticInstall } from "./commands/skeptic/install.js";
 import { getConfigInstruction } from "./lib/config-instruction.js";
+import { registerAutonomousHarness } from "@jleechanorg/ao-autonomous-harness";
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -59,6 +60,11 @@ export function buildProgram(): Command {
   registerUpdate(program);
   const skepticCmd = registerSkeptic(program);
   registerSkepticInstall(skepticCmd);
+  // Commander v12 vs v13 has incompatible opts<T>() return type variance.
+  // The runtime behavior is identical — use the same interface the function declares.
+  type CmdProgram = Parameters<typeof registerAutonomousHarness>[0];
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument,@typescript-eslint/no-explicit-any -- intentionally bridging commander type variance
+  registerAutonomousHarness(program as CmdProgram);
 
   program
     .command("config-help")

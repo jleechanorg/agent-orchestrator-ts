@@ -21,9 +21,23 @@ import { accessSync, constants as fsConstants } from "node:fs";
 import { buildVerdictLineRe } from "../commands/skeptic/verdict-utils.js";
 
 const LLM_EVAL_TIMEOUT_MS = 300_000;
-const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.4";
+const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.5";
 const DEFAULT_CLAUDE_MODEL =
   process.env["AO_LLM_EVAL_CLAUDE_MODEL"] ?? "claude-sonnet-4-6";
+const DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/anthropic";
+
+/** Env vars to propagate minimax credentials to codex/claude exec calls.
+ * Only overrides ANTHROPIC_API_KEY when MINIMAX_API_KEY is actually set —
+ * otherwise the child inherits the parent's env (e.g. AO_WORKER_ANTHROPIC_KEY). */
+function minimaxEnv(): Record<string, string> {
+  const apiKey = process.env["MINIMAX_API_KEY"];
+  const baseUrl = process.env["MINIMAX_ANTHROPIC_BASE_URL"];
+  if (!apiKey) return {}; // No override — child inherits parent env including ANTHROPIC_API_KEY
+  return {
+    ANTHROPIC_API_KEY: apiKey,
+    ANTHROPIC_BASE_URL: baseUrl || DEFAULT_MINIMAX_BASE_URL,
+  };
+}
 
 /** Known claude binary locations, tried in order. */
 const CLAUDE_BINARY_CANDIDATES = [
@@ -110,6 +124,10 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
         timeout: LLM_EVAL_TIMEOUT_MS,
         maxBuffer: 1 << 20, // 1 MB — prevent stderr maxBuffer overflow
         stdio: ["pipe", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          ...minimaxEnv(),
+        },
       },
     );
     const output = result.trim();
@@ -142,41 +160,19 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
  * Run cursor-agent (stdin) for headless evaluation via Cursor's CLI.
  * Fail-closed: missing VERDICT = failure.
  *
- * Prompt is passed via stdin to avoid exposing contents in process listings
- * and to prevent OS argv length overflows on large skeptic prompts.
+ * Cursor Agent requires interactive "Workspace Trust" confirmation — it blocks on
+ * stdin waiting for the user to confirm trust before any prompt can execute.
+ * In headless contexts (launchd, GHA, tmux), this hangs indefinitely even with
+ * --print flag. No fix exists without patching cursor-agent itself.
  */
-export async function tryCursorAgentPrint(prompt: string): Promise<LlmEvalResult> {
-  const { execFileSync } = await import("node:child_process");
-
-  try {
-    const result = execFileSync(
-      "cursor-agent",
-      ["--print"],
-      {
-        input: prompt,
-        encoding: "utf-8",
-        timeout: LLM_EVAL_TIMEOUT_MS,
-        stdio: ["pipe", "pipe", "ignore"],
-        cwd: "/tmp",
-      },
-    );
-    const output = result.trim();
-    if (!STRICT_VERDICT_RE.test(output)) {
-      return {
-        validVerdict: false,
-        output,
-        error: `Cursor Agent output missing VERDICT line (got ${output.slice(0, 100)}...)`,
-      };
-    }
-    return { validVerdict: true, output };
-  } catch (err: unknown) {
-    const errno = (err as NodeJS.ErrnoException).code;
-    const msg = err instanceof Error ? err.message : String(err);
-    if (errno === "ENOENT" || isUnavailable(msg, errno as string | undefined)) {
-      return { validVerdict: false, output: "", error: undefined };
-    }
-    return { validVerdict: false, output: "", error: msg };
-  }
+export async function tryCursorAgentPrint(_prompt: string): Promise<LlmEvalResult> {
+  // cursor-agent --print hangs on "Workspace Trust Required" prompt in headless mode.
+  // Return immediate infra error so chain falls through to next tool without delay.
+  return {
+    validVerdict: false,
+    output: "",
+    error: "cursor-agent --print hung on Workspace Trust prompt in headless context — not usable for headless LLM evaluation",
+  };
 }
 
 /**
@@ -185,37 +181,25 @@ export async function tryCursorAgentPrint(prompt: string): Promise<LlmEvalResult
  *
  * Prompt is passed via stdin to avoid exposing contents in process listings
  * and to prevent OS argv length overflows on large skeptic prompts.
+ * Uses --prompt to activate headless/non-interactive mode — without this flag,
+ * `gemini` with stdin input falls into interactive mode and ignores stdin entirely.
  */
-export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
-  const { execFileSync } = await import("node:child_process");
-
+export async function tryGeminiPrint(_prompt: string): Promise<LlmEvalResult> {
   try {
-    const result = execFileSync(
-      "gemini",
-      [],
-      {
-        input: prompt,
-        encoding: "utf-8",
-        timeout: LLM_EVAL_TIMEOUT_MS,
-        stdio: ["pipe", "pipe", "ignore"],
-        cwd: "/tmp",
-      },
-    );
-    const output = result.trim();
-    if (!STRICT_VERDICT_RE.test(output)) {
-      return {
-        validVerdict: false,
-        output,
-        error: `Gemini output missing VERDICT line (got ${output.slice(0, 100)}...)`,
-      };
-    }
-    return { validVerdict: true, output };
+    // gemini CLI requires --prompt with an explicit non-empty string argument to activate
+    // headless mode. stdin-only pipe is ignored (gemini enters interactive mode and ignores
+    // stdin). An empty --prompt value crashes the binary (exit 1 "Command failed: gemini
+    // --prompt"). Since we cannot pass the evaluation prompt as a CLI arg (too long for
+    // argv, and --prompt "" is broken), gemini cannot be used for headless LLM evaluation.
+    // Remove gemini from the chain; codex + claude are sufficient.
+    return {
+      validVerdict: false,
+      output: "",
+      error: "gemini CLI headless mode broken: --prompt requires explicit value and crashes with empty string, stdin ignored",
+    };
   } catch (err: unknown) {
-    const errno = (err as NodeJS.ErrnoException).code;
+    const _errno = (err as NodeJS.ErrnoException).code;
     const msg = err instanceof Error ? err.message : String(err);
-    if (errno === "ENOENT" || isUnavailable(msg, errno as string | undefined)) {
-      return { validVerdict: false, output: "", error: undefined };
-    }
     return { validVerdict: false, output: "", error: msg };
   }
 }
@@ -264,6 +248,10 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
           // git-header appended to every response) from polluting the output and
           // hiding the VERDICT line from the regex check.
           cwd: "/tmp",
+          env: {
+            ...process.env,
+            ...minimaxEnv(),
+          },
         },
       );
       const output = result.trim();
