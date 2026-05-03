@@ -92,7 +92,9 @@ export async function spawnStandbyWorker(
   // Only pre-spawn if there's meaningful work to do
   if (nextPhase === "done") return null;
 
-  const model: string = (nextPhase === "eval" || nextPhase === "annotation")
+  const model: string = nextPhase === "eval"
+    ? (opts.evaluatorModel ?? opts.orchestratorModel ?? "minimax/MiniMax-M2.7")
+    : nextPhase === "annotation"
     ? (opts.orchestratorModel ?? "minimax/MiniMax-M2.7")
     : (opts.generatorModel ?? "minimax/MiniMax-M2.7");
 
@@ -267,7 +269,12 @@ export async function spawnAOWorker(config: SpawnConfig): Promise<SpawnResult> {
   }
 
   const fullPrompt = `${config.systemPrompt}\n\nTask: ${config.taskPrompt}`;
-  const agentPlugin = config.model.split("/")[0];
+  const [agentPlugin, modelName] = config.model.split("/", 2);
+  if (!agentPlugin || !modelName) {
+    throw new Error(
+      `[autonomous-harness] Invalid model format: "${config.model}" — expected "provider/model" (e.g. "minimax/MiniMax-M2.7")`,
+    );
+  }
 
   const registry = createPluginRegistry();
   await registry.loadBuiltins(config_);
@@ -551,8 +558,10 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
 
     const taskPrompt = buildPromptForPhase(state);
 
-    // annotation and eval are orchestration phases — use orchestratorModel.
-    const model = (phase === "eval" || phase === "annotation")
+    // annotation uses orchestratorModel; eval uses evaluatorModel.
+    const model = phase === "eval"
+      ? evaluatorModel
+      : phase === "annotation"
       ? orchestratorModel
       : generatorModel;
 
@@ -732,7 +741,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
           if (standbyState) {
             const standbyPhase = standbyState.currentSprint.phase;
             const standbyIdx = PHASE_ORDER.indexOf(standbyPhase as Phase);
-            const currentIdx = PHASE_ORDER.indexOf(phase as Phase);
+            const currentIdx = PHASE_ORDER.indexOf(state.currentSprint.phase as Phase);
             // Valid: standby advanced by exactly 1, OR eval wrote verdict without advancing
             const validTransition =
               (standbyIdx === currentIdx + 1) ||
