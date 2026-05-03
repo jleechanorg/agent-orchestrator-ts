@@ -35,7 +35,6 @@ jobs:
       - uses: actions/checkout@v4.1.1
         with:
           # Fix 3 (bd-7s0d): full history so base...head diff for claim-floor is available
-          # pr-516: re-trigger after body update (CI-green + Skeptic-Gate text added)
           fetch-depth: 0
 
       - name: Resolve PR context
@@ -264,26 +263,44 @@ jobs:
             echo "Condition 6/7 (evidence review passed): PASS"
 
             # Condition 7/7: Skeptic gate CI passed
-            # Check both PR body (evidence bundle) AND skeptic-agent verdict comments.
-            # The verdict may be in the evidence bundle text OR posted by skeptic-gate
+            # Check both PR body (evidence bundle) AND skeptic verdict comments.
+            # The verdict may be in the evidence bundle text OR posted by skeptic-cron
             # as a PR comment (<!-- skeptic-agent-verdict -->). Either source is valid.
+            # Uses SKEPTIC_BOT_AUTHOR (defaults to jleechan2015) with github-actions[bot] fallback,
+            # and selects the MOST RECENT verdict to handle FAIL-then-PASS ordering correctly.
             SKEPTIC_PASSED=false
             if printf '%s' "$BODY" | grep -qiE 'skeptic.*(verdict|gate).*pass'; then
               SKEPTIC_PASSED=true
             else
-              # Fallback: check skeptic-agent verdict comments via GitHub API
-              # Accept any configured bot author; fall back to github-actions[bot] for repos
-              # without SKEPTIC_BOT_AUTHOR set. Select the most recent verdict to handle
-              # PRs with multiple (e.g. FAIL then PASS) comments.
-              SKEPTIC_BOT_AUTHOR="${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}"
-              SKEPTIC_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${{ steps.pr-context.outputs.pr_number }}/comments" \
-                --jq --arg author "$SKEPTIC_BOT_AUTHOR" \
-                '[.[] | select(
-                    ((.user.login | ascii_downcase) == ($author | ascii_downcase)
-                     or (.user.login | ascii_downcase) == "github-actions[bot]")
-                    and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->";"i"))
-                  ) | select(.updated_at)] | sort_by(.updated_at) | last.body // ""' 2>/dev/null)
-              if printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:\\s*PASS'; then
+              # Fallback: check skeptic verdict comments via GitHub API
+              # Honor SKEPTIC_BOT_AUTHOR (from repo vars, defaults to jleechan2015),
+              # allow github-actions[bot] as fallback (when not the PR author),
+              # require HTML verdict marker, and select the most recent verdict.
+              SKEPTIC_BOT_AUTHOR="${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}"
+              PR_AUTHOR="${{ steps.pr-context.outputs.pr_author }}"
+              SKEPTIC_COMMENT=$(
+                gh api "repos/${{ github.repository }}/issues/${{ steps.pr-context.outputs.pr_number }}/comments" \
+                  --paginate 2>/dev/null \
+                | jq -s \
+                  --arg author "$SKEPTIC_BOT_AUTHOR" \
+                  --arg pr_author "$PR_AUTHOR" \
+                  'add
+                  | map(. + {is_gh_bot: (.user.login | ascii_downcase) == "github-actions[bot]"})
+                  | map(select(
+                      (
+                        ((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                        or (
+                          (.is_gh_bot == true)
+                          and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                        )
+                      )
+                      and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
+                      and (.body | test("VERDICT:\\s*PASS"; "i"))
+                    ))
+                  | sort_by(.updated_at)
+                  | last.body // ""' 2>/dev/null || echo ""
+              )
+              if [ -n "$SKEPTIC_COMMENT" ] && printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:\\s*PASS'; then
                 SKEPTIC_PASSED=true
               fi
             fi
@@ -384,13 +401,13 @@ jobs:
               # Scan the fenced block content for a concrete test command.
               # CR bd-cng3 fix: bash/sh accepted only when followed by test indicators in args.
               BLOCK=$(printf '%s' "$TTO_BLOCK" | sed -n '/```/,/```/p' | tail -n +2 | sed '$d')
-              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|npx|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration)|actionlint).*'; then
+              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration))[[:space:]]'; then
                 HAS_OUTPUT=true
               fi
             fi
             if [ "$HAS_OUTPUT" = "false" ] && printf '%s' "$TTO_BLOCK" | grep -q '~~~'; then
               BLOCK=$(printf '%s' "$TTO_BLOCK" | sed -n '/~~~/,/~~~/p' | tail -n +2 | sed '$d')
-              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|npx|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration)|actionlint).*'; then
+              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration))[[:space:]]'; then
                 HAS_OUTPUT=true
               fi
             fi
