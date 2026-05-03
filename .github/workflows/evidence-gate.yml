@@ -304,7 +304,8 @@ jobs:
           # bd-vidcap: detect frontend-touched paths for UI video enforcement (deterministic paths, not LLM routing).
           FRONTEND_TOUCH=false
           if [ "$REQUIRES_STRONG_ARTIFACTS" = "true" ]; then
-            if ! FILES="$(gh api "repos/${{ github.repository }}/pulls/${{ steps.pr-context.outputs.pr_number }}/files" --paginate --jq '.[].filename' 2>/dev/null)"; then
+            FILES="$(gh api "repos/${{ github.repository }}/pulls/${{ steps.pr-context.outputs.pr_number }}/files" --paginate --jq '.[].filename' 2>/dev/null || true)"
+            if [ -z "$FILES" ]; then
               echo "ERROR: Could not list PR files (required for frontend UI media enforcement on integration+ claims)."
               exit 1
             fi
