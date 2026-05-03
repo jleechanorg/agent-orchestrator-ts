@@ -91,9 +91,9 @@ jobs:
             exit 1
           fi
 
-          # Use anchored regex: ## must be at start of line, followed by space + "Evidence" + space or EOL
-          # grep -E enables extended regex; anchors ensure this is a markdown H2, not a word-in-sentence
-          if printf '%s' "$BODY" | grep -qiE '^[[:space:]]*##[[:space:]]+[Ee]vidence([[:space:]]|$)'; then
+          # Note: PR body from gh api JSON encodes newlines as literal \n sequences.
+          # grep -qiE '## Evidence' (no anchor) matches both literal-\n and actual-newline formats.
+          if printf '%s' "$BODY" | grep -qiE '## Evidence'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
             echo "reason=evidence_section_found" >> "$GITHUB_OUTPUT"
             echo "PASS: ## Evidence section found"
