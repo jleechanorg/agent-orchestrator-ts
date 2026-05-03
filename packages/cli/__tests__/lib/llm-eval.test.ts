@@ -156,6 +156,39 @@ describe("tryCodexPrint", () => {
     expect(result.output).toBe("# VERDICT: PASS");
   });
 
+  it("preserves existing ANTHROPIC_API_KEY/BASE_URL when MINIMAX_API_KEY is unset", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue(PASS_VERDICT);
+    // MINIMAX_API_KEY unset → minimaxEnv() returns {} → child inherits parent env
+    delete process.env["MINIMAX_API_KEY"];
+    delete process.env["MINIMAX_ANTHROPIC_BASE_URL"];
+    process.env["ANTHROPIC_API_KEY"] = "anthropic-existing";
+    process.env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com";
+    await tryCodexPrint("evaluate this");
+    const calls = mockExecFileSync.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const envArg = calls[0][2]?.env as Record<string, string>;
+    expect(envArg["ANTHROPIC_API_KEY"]).toBe("anthropic-existing");
+    expect(envArg["ANTHROPIC_BASE_URL"]).toBe("https://api.anthropic.com");
+    expect("MINIMAX_API_KEY" in envArg).toBe(false);
+  });
+
+  it("overrides ANTHROPIC_API_KEY and BASE_URL when MINIMAX_API_KEY is set", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue(PASS_VERDICT);
+    process.env["MINIMAX_API_KEY"] = "minimax-key";
+    process.env["MINIMAX_ANTHROPIC_BASE_URL"] = "https://api.minimax.io/anthropic";
+    process.env["ANTHROPIC_API_KEY"] = "anthropic-existing";
+    await tryCodexPrint("evaluate this");
+    const calls = mockExecFileSync.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const envArg = calls[0][2]?.env as Record<string, string>;
+    expect(envArg["ANTHROPIC_API_KEY"]).toBe("minimax-key");
+    expect(envArg["ANTHROPIC_BASE_URL"]).toBe("https://api.minimax.io/anthropic");
+    delete process.env["MINIMAX_API_KEY"];
+    delete process.env["MINIMAX_ANTHROPIC_BASE_URL"];
+  });
+
   it("returns validVerdict=false for VERDICT: SKIPPED (not a valid merge-gate verdict)", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     mockExecFileSync.mockReturnValue(SKIPPED_VERDICT);
