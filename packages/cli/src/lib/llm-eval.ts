@@ -26,11 +26,16 @@ const DEFAULT_CLAUDE_MODEL =
   process.env["AO_LLM_EVAL_CLAUDE_MODEL"] ?? "claude-sonnet-4-6";
 const DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/anthropic";
 
-/** Env vars to propagate minimax credentials to codex/claude exec calls. */
+/** Env vars to propagate minimax credentials to codex/claude exec calls.
+ * Only overrides ANTHROPIC_API_KEY when MINIMAX_API_KEY is actually set —
+ * otherwise the child inherits the parent's env (e.g. AO_WORKER_ANTHROPIC_KEY). */
 function minimaxEnv(): Record<string, string> {
+  const apiKey = process.env["MINIMAX_API_KEY"];
+  const baseUrl = process.env["MINIMAX_ANTHROPIC_BASE_URL"];
+  if (!apiKey) return {}; // No override — child inherits parent env including ANTHROPIC_API_KEY
   return {
-    ANTHROPIC_API_KEY: process.env["MINIMAX_API_KEY"] ?? "",
-    ANTHROPIC_BASE_URL: process.env["MINIMAX_ANTHROPIC_BASE_URL"] || DEFAULT_MINIMAX_BASE_URL,
+    ANTHROPIC_API_KEY: apiKey,
+    ANTHROPIC_BASE_URL: baseUrl || DEFAULT_MINIMAX_BASE_URL,
   };
 }
 

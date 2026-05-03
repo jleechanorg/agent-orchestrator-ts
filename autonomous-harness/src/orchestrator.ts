@@ -723,15 +723,34 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
         }
 
         // Skip the normal spawn for this phase since standby is already working
-        // Update state from standby's worktree
+        // Update state from standby's worktree (with the same phase-validation guard
+        // used in the primary worker path — prevent stale/malformed harness_state.json
+        // from regressing or jumping phases)
+        let standbyAccepted = false;
         if (standbyHandle.worktreePath) {
           const standbyState = readState(standbyHandle.worktreePath);
           if (standbyState) {
-            state = standbyState;
-            writeState(projectPath, state);
+            const standbyPhase = standbyState.currentSprint.phase;
+            const standbyIdx = PHASE_ORDER.indexOf(standbyPhase as Phase);
+            const currentIdx = PHASE_ORDER.indexOf(phase as Phase);
+            // Valid: standby advanced by exactly 1, OR eval wrote verdict without advancing
+            const validTransition =
+              (standbyIdx === currentIdx + 1) ||
+              (phase === "eval" && standbyPhase === "eval" && standbyState.currentSprint.verdict !== null);
+            if (validTransition) {
+              state = standbyState;
+              writeState(projectPath, state);
+              standbyAccepted = true;
+            } else {
+              console.warn(`[autonomous-harness] Standby state rejected: phase=${standbyPhase} (expected standby.phase=${standbyHandle.phase}), treating as failure — will retry normally`);
+            }
           }
         }
-        continue; // Skip to next iteration — don't spawn another worker
+        // Only skip normal spawn if standby was successfully activated and state accepted
+        if (standbyAccepted) {
+          continue; // Skip to next iteration — don't spawn another worker
+        }
+        // else: fall through to normal spawn below
       } else {
         console.log(`[autonomous-harness] Standby did not activate in time, will spawn normally`);
       }
