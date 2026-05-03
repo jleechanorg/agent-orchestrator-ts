@@ -263,18 +263,44 @@ jobs:
             echo "Condition 6/7 (evidence review passed): PASS"
 
             # Condition 7/7: Skeptic gate CI passed
-            # Check both PR body (evidence bundle) AND skeptic-agent verdict comments.
-            # The verdict may be in the evidence bundle text OR posted by skeptic-gate
+            # Check both PR body (evidence bundle) AND skeptic verdict comments.
+            # The verdict may be in the evidence bundle text OR posted by skeptic-cron
             # as a PR comment (<!-- skeptic-agent-verdict -->). Either source is valid.
+            # Uses SKEPTIC_BOT_AUTHOR (defaults to jleechan2015) with github-actions[bot] fallback,
+            # and selects the MOST RECENT verdict to handle FAIL-then-PASS ordering correctly.
             SKEPTIC_PASSED=false
             if printf '%s' "$BODY" | grep -qiE 'skeptic.*(verdict|gate).*pass'; then
               SKEPTIC_PASSED=true
             else
-              # Fallback: check skeptic-agent verdict comments via GitHub API
-              # Filter by author (app/skeptic-agent) and HTML marker to prevent spoofing
-              SKEPTIC_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${{ steps.pr-context.outputs.pr_number }}/comments" \
-                --jq '[.[] | select(.user.login == "app/skeptic-agent" and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i")))] | .[0].body // ""' 2>/dev/null)
-              if printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:\\s*PASS'; then
+              # Fallback: check skeptic verdict comments via GitHub API
+              # Honor SKEPTIC_BOT_AUTHOR (from repo vars, defaults to jleechan2015),
+              # allow github-actions[bot] as fallback (when not the PR author),
+              # require HTML verdict marker, and select the most recent verdict.
+              SKEPTIC_BOT_AUTHOR="${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}"
+              PR_AUTHOR="${{ steps.pr-context.outputs.pr_author }}"
+              SKEPTIC_COMMENT=$(
+                gh api "repos/${{ github.repository }}/issues/${{ steps.pr-context.outputs.pr_number }}/comments" \
+                  --paginate 2>/dev/null \
+                | jq -s \
+                  --arg author "$SKEPTIC_BOT_AUTHOR" \
+                  --arg pr_author "$PR_AUTHOR" \
+                  'add
+                  | map(. + {is_gh_bot: (.user.login | ascii_downcase) == "github-actions[bot]"})
+                  | map(select(
+                      (
+                        ((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                        or (
+                          (.is_gh_bot == true)
+                          and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                        )
+                      )
+                      and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
+                      and (.body | test("VERDICT:\\s*PASS"; "i"))
+                    ))
+                  | sort_by(.updated_at)
+                  | last.body // ""' 2>/dev/null || echo ""
+              )
+              if [ -n "$SKEPTIC_COMMENT" ] && printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:\\s*PASS'; then
                 SKEPTIC_PASSED=true
               fi
             fi
