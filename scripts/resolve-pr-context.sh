@@ -67,9 +67,12 @@ head_sha="$(jq -r '.head.sha' <<<"${pr_json}")"
 merged="$(jq -r '.merged // false' <<<"${pr_json}")"
 state="$(jq -r '.state // ""' <<<"${pr_json}")"
 
+pr_author="$(jq -r '.user.login // ""' <<<"${pr_json}")"
+
 write_output "pr_number" "${pr_number}"
 write_output "pr_title" "${pr_title}"
 write_output "pr_body" "${pr_body}"
+write_output "pr_author" "${pr_author}"
 write_output "base_ref" "${base_ref}"
 write_output "base_sha" "${base_sha}"
 write_output "head_sha" "${head_sha}"

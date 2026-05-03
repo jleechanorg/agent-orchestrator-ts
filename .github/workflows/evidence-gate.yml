@@ -278,14 +278,16 @@ jobs:
               # require HTML verdict marker, and select the most recent verdict.
               SKEPTIC_BOT_AUTHOR="${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}"
               PR_AUTHOR="${{ steps.pr-context.outputs.pr_author }}"
+              HEAD_SHA="${{ steps.pr-context.outputs.head_sha }}"
               SKEPTIC_COMMENT=$(
                 gh api "repos/${{ github.repository }}/issues/${{ steps.pr-context.outputs.pr_number }}/comments" \
                   --paginate 2>/dev/null \
                 | jq -s \
+                  --arg head_sha "$HEAD_SHA" \
                   --arg author "$SKEPTIC_BOT_AUTHOR" \
                   --arg pr_author "$PR_AUTHOR" \
                   'add
-                  | map(. + {is_gh_bot: (.user.login | ascii_downcase) == "github-actions[bot]"})
+                  | map(. + {is_gh_bot: ((.user.login | ascii_downcase) == "github-actions[bot]")})
                   | map(select(
                       (
                         ((.user.login | ascii_downcase) == ($author | ascii_downcase))
@@ -295,12 +297,12 @@ jobs:
                         )
                       )
                       and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
-                      and (.body | test("VERDICT:\\s*PASS"; "i"))
+                      and (.body | test("<!--\\s*skeptic-head-sha-" + $head_sha + "\\s*-->"; "i"))
                     ))
                   | sort_by(.updated_at)
                   | last.body // ""' 2>/dev/null || echo ""
               )
-              if [ -n "$SKEPTIC_COMMENT" ] && printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:\\s*PASS'; then
+              if [ -n "$SKEPTIC_COMMENT" ] && printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:[[:space:]]*PASS'; then
                 SKEPTIC_PASSED=true
               fi
             fi
