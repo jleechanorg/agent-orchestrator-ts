@@ -524,6 +524,7 @@ describe("wholesome — structural source-code assertions", () => {
       "bae7becc33102420d6d2f136b8ddea293c3737c5", // chore(tests): remove unused helpers and lint cleanup
       "d59f8958e9c9e1fde826b5ca162742947a29d342", // fix(tests): correct llmEval claude-preferred rotation expectations
       "7e2ee1f563bc1b08350279598e9d40409d873dd6", // fix(hook): claim-verifier.sh safe grep extraction for PR body
+      "969807a1d7cd7f42f86421e36ecaa63c5700cae7", // [agento] fix(wholesome): add missing SHAs for post-271443566 test-fix commits
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
