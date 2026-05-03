@@ -378,13 +378,13 @@ jobs:
               # Scan the fenced block content for a concrete test command.
               # CR bd-cng3 fix: bash/sh accepted only when followed by test indicators in args.
               BLOCK=$(printf '%s' "$TTO_BLOCK" | sed -n '/```/,/```/p' | tail -n +2 | sed '$d')
-              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration)|actionlint)[[:space:]]'; then
+              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration)|actionlint)([[:space:]]+|$)'; then
                 HAS_OUTPUT=true
               fi
             fi
             if [ "$HAS_OUTPUT" = "false" ] && printf '%s' "$TTO_BLOCK" | grep -q '~~~'; then
               BLOCK=$(printf '%s' "$TTO_BLOCK" | sed -n '/~~~/,/~~~/p' | tail -n +2 | sed '$d')
-              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration)|actionlint)[[:space:]]'; then
+              if printf '%s' "$BLOCK" | grep -qiE '\$[[:space:]]*(pnpm|npm|pytest|vitest|jest|go[[:space:]]+test|ruby[[:space:]].*test|bundle[[:space:]]exec[[:space:]]rspec|(bash|shell|sh)[[:space:]]+[^)]*(test|spec|e2e|integration)|actionlint)([[:space:]]+|$)'; then
                 HAS_OUTPUT=true
               fi
             fi
