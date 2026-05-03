@@ -160,7 +160,7 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
  * In headless contexts (launchd, GHA, tmux), this hangs indefinitely even with
  * --print flag. No fix exists without patching cursor-agent itself.
  */
-export async function tryCursorAgentPrint(prompt: string): Promise<LlmEvalResult> {
+export async function tryCursorAgentPrint(_prompt: string): Promise<LlmEvalResult> {
   // cursor-agent --print hangs on "Workspace Trust Required" prompt in headless mode.
   // Return immediate infra error so chain falls through to next tool without delay.
   return {
@@ -179,7 +179,7 @@ export async function tryCursorAgentPrint(prompt: string): Promise<LlmEvalResult
  * Uses --prompt to activate headless/non-interactive mode — without this flag,
  * `gemini` with stdin input falls into interactive mode and ignores stdin entirely.
  */
-export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
+export async function tryGeminiPrint(_prompt: string): Promise<LlmEvalResult> {
   try {
     // gemini CLI requires --prompt with an explicit non-empty string argument to activate
     // headless mode. stdin-only pipe is ignored (gemini enters interactive mode and ignores
@@ -193,7 +193,7 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
       error: "gemini CLI headless mode broken: --prompt requires explicit value and crashes with empty string, stdin ignored",
     };
   } catch (err: unknown) {
-    const errno = (err as NodeJS.ErrnoException).code;
+    const _errno = (err as NodeJS.ErrnoException).code;
     const msg = err instanceof Error ? err.message : String(err);
     return { validVerdict: false, output: "", error: msg };
   }
