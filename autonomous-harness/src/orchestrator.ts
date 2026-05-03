@@ -14,7 +14,7 @@ import { z } from "zod";
 import { loadConfig, createSessionManager, createPluginRegistry } from "@jleechanorg/ao-core";
 import {
   createInitialState,
-  nextPhase,
+  nextPhase as transitionState,
   PHASE_ORDER,
   SprintStateSchema,
   type HarnessState,
@@ -667,7 +667,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
 
     // If eval completed (verdict written), advance to next phase
     if (phase === "eval" && state!.currentSprint.verdict) {
-      state = nextPhase(state!);
+      state = transitionState(state!);
       console.log(`[autonomous-harness] Eval complete, verdict=${state!.currentSprint.verdict}. Transitioned to ${state!.currentSprint.phase}.`);
     }
 
@@ -690,7 +690,8 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
 
     // If standby was pre-spawned, wait for it to activate and complete
     if (standbyHandle) {
-      const currentPhase = state!.currentSprint.phase;
+      // Capture phase before sync (comment reference only)
+      const _currentPhase = state!.currentSprint.phase;
       // Sync latest state/artifacts to standby worktree before polling —
       // the standby worktree may not have received updates yet.
       if (standbyHandle.worktreePath) {
@@ -777,7 +778,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
           // bookkeeping that the normal worker path performs (standbyHandle.phase + persist)
           // so the sprint is recorded in completedSprints before the next iteration.
           if (state && state.currentSprint.phase === "eval" && state.currentSprint.verdict) {
-            const nextState: HarnessState = nextPhase(state!);
+            const nextState: HarnessState = transitionState(state!);
             writeState(projectPath, nextState);
             state = nextState;
             console.log(`[autonomous-harness] Standby eval complete (verdict=${state.currentSprint.verdict}), transitioned to ${state.currentSprint.phase}.`);
