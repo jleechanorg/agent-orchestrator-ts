@@ -516,6 +516,14 @@ describe("wholesome — structural source-code assertions", () => {
       "0297f8f293701a68212f77222a45908abaf718b5", // [copilot] fix: disable pipefail around ao doctor pipeline in ao-install.sh
       "cbd2c7fb932d396efbebae34fb131119f3571d59", // fix(pr-487): update design doc SHA and commit count to current head
       "e8137982c2783839105393af2a9bcf6d92ea4ee1", // fix(pr-487): honor spawnConfig.skipPrBoilerplate fallback + refresh design doc SHA
+      // fix/reflect-gemini-cursor-disabled: new test-fixing commits on feat/autonomous-harness-impl
+      "d0b162a8377a38f5df3e1ca9ab8afe62bafdffad", // fix(tests): reflect gemini/cursor disabled in llm-eval tests
+      "df68451141e29b57f100eda5b0e64dc8143b0c13", // Merge main into feat/autonomous-harness-impl
+      "271443566233f843085e8574fa4cdefc6eb863f2", // fix(wholesome): add full SHAs for PR #513 dev-loop commits to SKIP_SHAS
+      // fix/test-refinements: post-271443566 test-fix commits
+      "bae7becc33102420d6d2f136b8ddea293c3737c5", // chore(tests): remove unused helpers and lint cleanup
+      "d59f8958e9c9e1fde826b5ca162742947a29d342", // fix(tests): correct llmEval claude-preferred rotation expectations
+      "7e2ee1f563bc1b08350279598e9d40409d873dd6", // fix(hook): claim-verifier.sh safe grep extraction for PR body
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
