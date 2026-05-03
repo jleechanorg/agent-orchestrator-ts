@@ -271,9 +271,11 @@ jobs:
               SKEPTIC_PASSED=true
             else
               # Fallback: check skeptic-agent verdict comments via GitHub API
-              # Filter by author (github-actions[bot]) and HTML marker to prevent spoofing
+              # Accept any configured bot author; fall back to github-actions[bot] for repos
+              # without SKEPTIC_BOT_AUTHOR set. Select the most recent verdict to handle
+              # PRs with multiple (e.g. FAIL then PASS) comments.
               SKEPTIC_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${{ steps.pr-context.outputs.pr_number }}/comments" \
-                --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i")))] | .[0].body // ""' 2>/dev/null)
+                --jq '[.[] | select(.user.login == "${{ vars.SKEPTIC_BOT_AUTHOR || '\''github-actions[bot]'\'' }}" and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))) | select(.updated_at)] | sort_by(.updated_at) | last.body // ""' 2>/dev/null)
               if printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:\\s*PASS'; then
                 SKEPTIC_PASSED=true
               fi
