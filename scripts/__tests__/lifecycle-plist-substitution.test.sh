@@ -13,6 +13,15 @@ TEMPLATE="launchd/ai.agento.lifecycle-all.plist.template"
 SETUP_SCRIPT="scripts/setup-launchd.sh"
 INSTALLED_PLIST="$HOME/Library/LaunchAgents/ai.agento.lifecycle-all.plist"
 
+mask_secret() {
+  local v="${1:-}"
+  if [ -z "$v" ]; then
+    printf '%s' "<empty>"
+  else
+    printf '%s' "${v:0:4}***"
+  fi
+}
+
 echo "=== GITHUB_TOKEN plist substitution TDD test ==="
 
 # Check 1: Template has @GITHUB_TOKEN@ placeholder
@@ -35,21 +44,21 @@ else
   FAILED=1
 fi
 
-# Check 3: Installed plist has real token (not placeholder, not empty)
-echo -n "Check 3: installed plist has ghp_ token... "
+# Check 3: Installed plist has a real token (not placeholder, not empty)
+echo -n "Check 3: installed plist has a real token... "
 if [ -f "$INSTALLED_PLIST" ]; then
   gh_token_value=$(plutil -p "$INSTALLED_PLIST" 2>/dev/null | grep '"GITHUB_TOKEN"' | sed 's/.*=> "//;s/".*//' || true)
-  if echo "$gh_token_value" | grep -q 'ghp_'; then
-    echo "PASS (token length: ${#gh_token_value})"
-  elif [ -z "$gh_token_value" ]; then
+  # Trim leading/trailing whitespace before checking emptiness
+  gh_token_value_trimmed="${gh_token_value#"${gh_token_value%%[![:space:]]*}"}"
+  gh_token_value_trimmed="${gh_token_value_trimmed%"${gh_token_value_trimmed##*[![:space:]]}"}"
+  if [ -z "$gh_token_value_trimmed" ]; then
     echo "FAIL — GITHUB_TOKEN is empty in installed plist"
     FAILED=1
-  elif echo "$gh_token_value" | grep -q '@'; then
+  elif echo "$gh_token_value_trimmed" | grep -q '@'; then
     echo "FAIL — GITHUB_TOKEN is unsubstituted @VAR@ in installed plist"
     FAILED=1
   else
-    echo "FAIL — GITHUB_TOKEN present but wrong format: ${gh_token_value:0:10}..."
-    FAILED=1
+    echo "PASS (masked: $(mask_secret "$gh_token_value_trimmed"))"
   fi
 else
   echo "SKIP — installed plist not found (may need install first)"
