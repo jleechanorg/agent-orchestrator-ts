@@ -110,6 +110,11 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
         timeout: LLM_EVAL_TIMEOUT_MS,
         maxBuffer: 1 << 20, // 1 MB — prevent stderr maxBuffer overflow
         stdio: ["pipe", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          ANTHROPIC_API_KEY: process.env["MINIMAX_API_KEY"],
+          ANTHROPIC_BASE_URL: process.env["MINIMAX_ANTHROPIC_BASE_URL"],
+        },
       },
     );
     const output = result.trim();
@@ -230,6 +235,11 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
           // git-header appended to every response) from polluting the output and
           // hiding the VERDICT line from the regex check.
           cwd: "/tmp",
+          env: {
+            ...process.env,
+            ANTHROPIC_API_KEY: process.env["MINIMAX_API_KEY"],
+            ANTHROPIC_BASE_URL: process.env["MINIMAX_ANTHROPIC_BASE_URL"],
+          },
         },
       );
       const output = result.trim();
