@@ -58,6 +58,155 @@ function safeParseState(raw: unknown): HarnessState | null {
 }
 
 // ---------------------------------------------------------------------------
+// Pipelined multi-worker support
+// ---------------------------------------------------------------------------
+
+export interface WorkerHandle {
+  sessionId: string;
+  sessionName: string;
+  worktreePath: string | null;
+  phase: Phase;
+  sprintNumber: number;
+}
+
+/**
+ * Pre-spawn the next phase worker while current phase is running.
+ * The standby worker WAITS until the harness state shows the next phase
+ * is active, then proceeds with its assigned task.
+ */
+export async function spawnStandbyWorker(
+  currentPhase: Phase,
+  state: HarnessState,
+  opts: Pick<RunOptions, "generatorModel" | "evaluatorModel" | "orchestratorModel" | "skillRoot" | "runtime" | "projectId">,
+  projectPath: string,
+): Promise<WorkerHandle | null> {
+  const currentIdx = PHASE_ORDER.indexOf(currentPhase);
+  const nextPhaseIdx = currentIdx + 1;
+  if (nextPhaseIdx >= PHASE_ORDER.length) return null; // No next phase
+
+  const nextPhase = PHASE_ORDER[nextPhaseIdx];
+  const nextSprint = currentPhase === "eval"
+    ? state.currentSprint.sprintNumber + 1
+    : state.currentSprint.sprintNumber;
+
+  // Only pre-spawn if there's meaningful work to do
+  if (nextPhase === "done") return null;
+
+  const model = (nextPhase === "eval" || nextPhase === "annotation")
+    ? opts.orchestratorModel
+    : opts.generatorModel;
+
+  // Build the actual current state (NOT advanced) - the worker will poll until phase advances
+  const taskPrompt = buildWaitThenActPrompt(nextPhase, state);
+  const sessionName = `standby-${opts.projectId}-s${nextSprint}-${nextPhase}-${Date.now()}`;
+
+  try {
+    const result = await spawnAOWorker({
+      model,
+      systemPrompt: getSystemPromptForPhase(nextPhase),
+      taskPrompt,
+      workspace: projectPath,
+      sessionName,
+      skillRoot: opts.skillRoot,
+      runtime: opts.runtime,
+      projectId: opts.projectId,
+    });
+
+    console.log(`[autonomous-harness] Standby spawned for ${nextPhase}: ${result.sessionName}`);
+
+    return {
+      sessionId: result.sessionId,
+      sessionName: result.sessionName,
+      worktreePath: result.worktreePath,
+      phase: nextPhase,
+      sprintNumber: nextSprint,
+    };
+  } catch (err) {
+    console.warn(`[autonomous-harness] Failed to spawn standby for ${nextPhase}: ${err}`);
+    return null;
+  }
+}
+
+/**
+ * Build a prompt that instructs the worker to wait for phase activation
+ * before executing the actual task.
+ */
+function buildWaitThenActPrompt(targetPhase: Phase, state: HarnessState): string {
+  const basePrompt = buildPromptForPhase({
+    ...state,
+    currentSprint: {
+      ...state.currentSprint,
+      phase: targetPhase,
+    },
+  });
+
+  // Prepend wait instruction to the base prompt
+  return `IMPORTANT: Before starting, check ./harness_state.json.
+If currentSprint.phase is NOT "${targetPhase}", wait and poll every 30 seconds
+until the phase transitions to "${targetPhase}".
+
+This is a PRE-SPAWNED standby worker. The previous phase is still running.
+Wait for activation before doing any real work.
+
+${basePrompt}`;
+}
+
+/**
+ * Poll until a phase transition occurs OR session terminates.
+ * Used for standby workers that auto-activate when previous phase completes.
+ */
+async function pollUntilActive(
+  projectId: string,
+  handle: WorkerHandle,
+  targetPhase: Phase,
+  maxIterations: number,
+  pollIntervalMs = 30_000,
+): Promise<{ status: string; activated: boolean }> {
+  const config_ = loadConfig();
+  const registry = createPluginRegistry();
+  await registry.loadBuiltins(config_);
+  const sm = await createSessionManager({ config: config_, registry });
+
+  for (let i = 0; i < maxIterations; i++) {
+    await sleep(pollIntervalMs);
+
+    try {
+      const sessions = await sm.list(projectId);
+      const session = sessions.find((s: { id: string }) => s.id === handle.sessionId);
+
+      if (!session) {
+        console.log(`[autonomous-harness] Standby session ${handle.sessionId} not found`);
+        return { status: "terminated", activated: false };
+      }
+
+      const status = session.status as string;
+      if (TERMINAL_SESSION_STATUSES.has(status)) {
+        return { status, activated: false };
+      }
+
+      // Check if worktree state shows this phase is now active
+      if (handle.worktreePath) {
+        const worktreeState = readState(handle.worktreePath);
+        if (worktreeState && worktreeState.currentSprint.phase === targetPhase) {
+          const currentPhase = PHASE_ORDER[PHASE_ORDER.indexOf(targetPhase) - 1];
+          // Verify the previous phase actually completed
+          if (currentPhase && worktreeState.currentSprint.phase !== currentPhase) {
+            console.log(`[autonomous-harness] Standby ${targetPhase} activated (poll ${i + 1})`);
+            return { status, activated: true };
+          }
+        }
+      }
+
+      console.log(`[autonomous-harness] Standby poll ${i + 1}/${maxIterations}: waiting for ${targetPhase}`);
+    } catch (err) {
+      console.warn(`[autonomous-harness] Standby poll ${i + 1} error: ${err}`);
+    }
+  }
+
+  return { status: "unknown", activated: false };
+}
+
+// ---------------------------------------------------------------------------
 // AO Worker spawn via SessionManager API
 // ---------------------------------------------------------------------------
 
@@ -442,9 +591,19 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
       }
     }
 
+    // PRE-SPAWN standby worker for next phase (multi-worker pipelining)
+    const standbyHandle = await spawnStandbyWorker(phase, state, {
+      generatorModel,
+      evaluatorModel,
+      orchestratorModel,
+      skillRoot,
+      runtime,
+      projectId,
+    }, projectPath);
+
     console.log(`[autonomous-harness] Waiting for phase advance or session completion (max ${maxIterationsPerPhase} × 30s)`);
 
-    // Dual poll: session status + worktree state file
+    // Poll until active worker completes
     const pollResult = await pollUntilPhaseAdvance(
       projectId,
       result.sessionId,
@@ -518,6 +677,63 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
         } catch (err) {
           console.warn(`[autonomous-harness] Failed to copy artifacts: ${err}`);
         }
+      }
+    }
+
+    // If standby was pre-spawned, wait for it to activate and complete
+    if (standbyHandle) {
+      const nextPhase = state.currentSprint.phase;
+      console.log(`[autonomous-harness] Waiting for standby ${standbyHandle.sessionName} to activate for ${nextPhase}`);
+
+      // Wait for standby to activate (previous phase completing triggers it)
+      const standbyPollResult = await pollUntilActive(
+        projectId,
+        standbyHandle,
+        nextPhase,
+        maxIterationsPerPhase,
+      );
+
+      if (standbyPollResult.activated) {
+        console.log(`[autonomous-harness] Standby activated and is working on ${nextPhase}`);
+
+        // Now wait for the standby (now active) to complete
+        const standbyComplete = await pollUntilPhaseAdvance(
+          projectId,
+          standbyHandle.sessionId,
+          nextPhase,
+          standbyHandle.worktreePath,
+          maxIterationsPerPhase,
+        );
+
+        console.log(`[autonomous-harness] Standby ${standbyHandle.sessionName} ended: ${standbyComplete.status}`);
+
+        // Copy standby artifacts back
+        if (standbyHandle.worktreePath) {
+          const standbySprint = standbyHandle.sprintNumber;
+          const standbySprintDir = join(standbyHandle.worktreePath, `sprint_${standbySprint}`);
+          const mainSprintDir = join(projectPath, `sprint_${standbySprint}`);
+          if (existsSync(standbySprintDir)) {
+            try {
+              cpSync(standbySprintDir, mainSprintDir, { recursive: true, force: true });
+              console.log(`[autonomous-harness] Standby artifacts copied to ${mainSprintDir}`);
+            } catch (err) {
+              console.warn(`[autonomous-harness] Failed to copy standby artifacts: ${err}`);
+            }
+          }
+        }
+
+        // Skip the normal spawn for this phase since standby is already working
+        // Update state from standby's worktree
+        if (standbyHandle.worktreePath) {
+          const standbyState = readState(standbyHandle.worktreePath);
+          if (standbyState) {
+            state = standbyState;
+            writeState(projectPath, state);
+          }
+        }
+        continue; // Skip to next iteration — don't spawn another worker
+      } else {
+        console.log(`[autonomous-harness] Standby did not activate in time, will spawn normally`);
       }
     }
   }
