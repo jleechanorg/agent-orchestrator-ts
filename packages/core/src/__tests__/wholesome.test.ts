@@ -278,7 +278,7 @@ describe("wholesome — structural source-code assertions", () => {
       const directive = /^\s*(\/\/|\/\*)\s*\beslint-disable(?:-next-line|-line)?\b/;
       const ALLOWED_ESLINT_DISABLES: Record<string, Set<string>> = {
         "packages/cli/src/program.ts": new Set([
-          "// eslint-disable-next-line @typescript-eslint/no-unsafe-argument",
+          "// eslint-disable-next-line @typescript-eslint/no-unsafe-argument,@typescript-eslint/no-explicit-any -- intentionally bridging commander type variance in registerAutonomousHarness call",
         ]),
       };
       const violations = getAddedLinesMatching(REPO_ROOT, directive)
