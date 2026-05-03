@@ -22,10 +22,23 @@ shift
 # Source shell profile in login+interactive mode to get all exports (API keys, nvm, etc.)
 # -l: login shell → sources .bash_profile if it exists, falling back to .bashrc
 # -i: interactive → bypasses .bashrc's "case $- in *i*) ;; *) return;; esac" guard
-# Filter to only values (both single- and double-quoted) to avoid overriding plist defaults with empties.
+#
+# IMPORTANT: On macOS, a login shell (.bash_profile) does NOT automatically source .bashrc.
+# We must explicitly source .bashrc as well to pick up exports placed there by the user.
+#
+# Filter to only non-empty values to avoid overriding plist defaults with empties.
 # Error handling: if shell profile fails to load, log the failure but continue (plist defaults remain).
 exit_code=0
 _init_output=$(bash -lic 'declare -x' 2>&1; echo "exit:$?") || exit_code=$?
+# Also explicitly source .bashrc since login shell may not have sourced it
+# bash -lic sources .bash_profile which typically sources .bashrc, but not guaranteed.
+# Doing it explicitly ensures we get .bashrc-only exports regardless of .bash_profile content.
+_bashrc_output=$(bash -ic 'source ~/.bashrc 2>/dev/null || true; declare -x' 2>&1; echo "exit:$?") || true
+
+# Merge outputs from both invocations
+_init_output="${_init_output}
+${_bashrc_output}"
+
 # Extract the bash exit code from the trailing "exit:N" marker
 _marker=$(echo "$_init_output" | grep '^exit:' || true)
 _actual_exit=${_marker#exit:}
@@ -36,7 +49,9 @@ fi
 if [ -z "$_init_output" ]; then
   echo "WARNING: shell profile produced no exports, continuing with plist defaults" >&2
 fi
-eval "$(echo "$_init_output" | grep -E 'declare -x [A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+')" || {
+# Only accept exports with non-empty values: quoted ("..." or '...') must have content,
+# unquoted values must have at least one non-whitespace character (not just empty quotes).
+eval "$(echo "$_init_output" | grep -E 'declare -x [A-Za-z_][A-Za-z0-9_]*="[^"]+"[[:space:]]*$|declare -x [A-Za-z_][A-Za-z0-9_]*='"'"'[^'"'"']+'"'"'[[:space:]]*$|declare -x [A-Za-z_][A-Za-z0-9_]*=[^[:space:]]' || true)" || {
   echo "WARNING: failed to parse shell exports, continuing with plist defaults" >&2
 }
 
