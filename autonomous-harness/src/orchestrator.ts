@@ -692,6 +692,23 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
     // If standby was pre-spawned, wait for it to activate and complete
     if (standbyHandle) {
       const nextPhase = state.currentSprint.phase;
+      // Sync latest state/artifacts to standby worktree before polling —
+      // the standby worktree may not have received updates yet.
+      if (standbyHandle.worktreePath) {
+        try {
+          if (existsSync(statePath(projectPath))) {
+            cpSync(statePath(projectPath), statePath(standbyHandle.worktreePath), { force: true });
+          }
+          const entries = readdirSync(projectPath);
+          for (const entry of entries) {
+            if (/^sprint_\d+$/.test(entry)) {
+              cpSync(join(projectPath, entry), join(standbyHandle.worktreePath, entry), { recursive: true, force: true });
+            }
+          }
+        } catch (err) {
+          console.warn(`[autonomous-harness] Failed to sync state/artifacts to standby worktree: ${err}`);
+        }
+      }
       console.log(`[autonomous-harness] Waiting for standby ${standbyHandle.sessionName} to activate for ${nextPhase}`);
 
       // Wait for standby to activate (previous phase completing triggers it)
