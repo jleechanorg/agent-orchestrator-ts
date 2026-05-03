@@ -92,9 +92,9 @@ export async function spawnStandbyWorker(
   // Only pre-spawn if there's meaningful work to do
   if (nextPhase === "done") return null;
 
-  const model = (nextPhase === "eval" || nextPhase === "annotation")
-    ? opts.orchestratorModel
-    : opts.generatorModel;
+  const model: string = (nextPhase === "eval" || nextPhase === "annotation")
+    ? (opts.orchestratorModel ?? "minimax/MiniMax-M2.7")
+    : (opts.generatorModel ?? "minimax/MiniMax-M2.7");
 
   // Build the actual current state (NOT advanced) - the worker will poll until phase advances
   const taskPrompt = buildWaitThenActPrompt(nextPhase, state);
