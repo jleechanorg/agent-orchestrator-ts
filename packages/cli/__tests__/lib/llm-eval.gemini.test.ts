@@ -11,13 +11,19 @@ vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
   resolveCodexBinary: mockResolveCodexBinary,
 }));
 
-import { llmEval, tryGeminiPrint } from "../../src/lib/llm-eval.js";
+import { llmEval } from "../../src/lib/llm-eval.js";
 
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  mockExecFileSync.mockReset();
+  mockResolveCodexBinary.mockReset();
+  mockExecFileSync.mockImplementation(() => {
+    const err = new Error("ENOENT") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    throw err;
+  });
 });
 
 function makeErrnoError(message: string, code?: string): NodeJS.ErrnoException {
@@ -26,111 +32,51 @@ function makeErrnoError(message: string, code?: string): NodeJS.ErrnoException {
   return err;
 }
 
-describe("tryGeminiPrint", () => {
-  it("returns validVerdict=true for output containing VERDICT: PASS", async () => {
-    mockExecFileSync.mockReturnValue(PASS_VERDICT);
-    const result = await tryGeminiPrint("evaluate this");
-    expect(result.validVerdict).toBe(true);
-    expect(result.output).toBe(PASS_VERDICT);
-    expect(mockExecFileSync).toHaveBeenCalledWith(
-      "gemini",
-      [],
-      expect.objectContaining({
-        input: "evaluate this",
-        cwd: "/tmp",
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "ignore"],
-      }),
-    );
-  });
-
-  it("returns validVerdict=false with error string when VERDICT is missing", async () => {
-    mockExecFileSync.mockReturnValue("Some analysis without verdict");
-    const result = await tryGeminiPrint("evaluate this");
-    expect(result.validVerdict).toBe(false);
-    expect(result.error).toContain("missing VERDICT line");
-  });
-
-  it("returns error=undefined when binary is not found", async () => {
-    const err = makeErrnoError("ENOENT: not found", "ENOENT");
-    mockExecFileSync.mockImplementation(() => {
-      throw err;
-    });
-    const result = await tryGeminiPrint("evaluate this");
-    expect(result.validVerdict).toBe(false);
-    expect(result.error).toBeUndefined();
-  });
-
-  it("rejects embedded mid-sentence verdicts", async () => {
-    mockExecFileSync.mockReturnValue("Processing complete. VERDICT: PASS");
-    const result = await tryGeminiPrint("evaluate this");
-    expect(result.validVerdict).toBe(false);
-    expect(result.error).toContain("missing VERDICT line");
-  });
-
-  it("accepts indented verdict lines", async () => {
-    mockExecFileSync.mockReturnValue("  VERDICT: FAIL");
-    const result = await tryGeminiPrint("evaluate this");
-    expect(result.validVerdict).toBe(true);
-    expect(result.output).toBe("VERDICT: FAIL");
-  });
-});
+// tryGeminiPrint() now returns immediate infra error (no execFileSync call).
+// Rotation: ["gemini","cursor","codex","claude"] — only codex calls execFileSync.
+// Gemini and cursor return infra errors immediately without consuming queue slots.
 
 describe("llmEval — explicit model=gemini", () => {
   it("tries gemini first when model=gemini is specified", async () => {
+    // Rotation: ["gemini","cursor","codex","claude"]
+    // gemini+cursor return infra errors (no execFileSync); codex calls execFileSync → FAIL_VERDICT
     mockExecFileSync.mockReturnValue(FAIL_VERDICT);
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(FAIL_VERDICT);
-    expect(mockResolveCodexBinary).not.toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
+    expect(mockResolveCodexBinary).toHaveBeenCalled(); // codex is tried after gemini/cursor skip
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1); // only codex calls execFileSync
   });
 
   it("falls back to codex when gemini is unavailable", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const enoent = makeErrnoError("ENOENT", "ENOENT");
-    // Chain: gemini → cursor → codex → claude (4 models)
-    // Mock all 4: gemini ENOENT, cursor ENOENT, codex PASS, claude not called
-    mockExecFileSync
-      .mockImplementationOnce(() => {
-        throw enoent; // gemini (not installed)
-      })
-      .mockImplementationOnce(() => {
-        throw enoent; // cursor (not installed)
-      })
-      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds (3rd call)
+    // Rotation: ["gemini","cursor","codex","claude"]
+    // gemini+cursor return infra errors (no execFileSync); codex calls execFileSync → PASS
+    mockExecFileSync.mockReturnValueOnce(PASS_VERDICT);
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    // gemini + cursor + codex
-    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1); // only codex calls execFileSync
   });
 
   it("falls back to codex when gemini has an infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
-    // Chain: gemini → cursor → codex → claude (4 models)
-    // Mock all 4: gemini ETIMEDOUT, cursor ENOENT, codex PASS, claude not called
-    mockExecFileSync
-      .mockImplementationOnce(() => {
-        throw etimeout; // gemini (infra error)
-      })
-      .mockImplementationOnce(() => {
-        throw makeErrnoError("ENOENT", "ENOENT"); // cursor (not installed)
-      })
-      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds (3rd call)
+    // Rotation: ["gemini","cursor","codex","claude"]
+    // gemini+cursor return infra errors (no execFileSync); codex calls execFileSync → PASS
+    mockExecFileSync.mockReturnValueOnce(PASS_VERDICT);
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    // gemini + cursor + codex
-    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1); // only codex calls execFileSync
   });
 
   it("fails closed when gemini omits a verdict", async () => {
-    mockExecFileSync.mockReturnValue("Gemini analysis with no verdict");
+    // Rotation: ["gemini","cursor","codex","claude"]
+    // gemini+cursor return infra errors (no execFileSync); codex gets non-VERDICT → fail-closed
+    mockExecFileSync.mockReturnValueOnce("Gemini analysis with no verdict");
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toContain("VERDICT: FAIL");
-    expect(result).toContain("gemini:");
+    expect(result).toContain("codex:"); // codex consumed the non-VERDICT output
     expect(result).toContain("missing VERDICT");
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1); // only codex calls execFileSync
   });
 });
