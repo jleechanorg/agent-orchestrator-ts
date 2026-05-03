@@ -190,12 +190,8 @@ async function pollUntilActive(
       if (handle.worktreePath) {
         const worktreeState = readState(handle.worktreePath);
         if (worktreeState && worktreeState.currentSprint.phase === targetPhase) {
-          const currentPhase = PHASE_ORDER[PHASE_ORDER.indexOf(targetPhase) - 1];
-          // Verify the previous phase actually completed
-          if (currentPhase && worktreeState.currentSprint.phase !== currentPhase) {
-            console.log(`[autonomous-harness] Standby ${targetPhase} activated (poll ${i + 1})`);
-            return { status, activated: true };
-          }
+          console.log(`[autonomous-harness] Standby ${targetPhase} activated (poll ${i + 1})`);
+          return { status, activated: true };
         }
       }
 
@@ -269,8 +265,10 @@ export async function spawnAOWorker(config: SpawnConfig): Promise<SpawnResult> {
   }
 
   const fullPrompt = `${config.systemPrompt}\n\nTask: ${config.taskPrompt}`;
-  const [agentPlugin, modelName] = config.model.split("/", 2);
-  if (!agentPlugin || !modelName) {
+  // Agent plugin is passed to spawn(); model selection is driven by project config
+  // (createSessionManager reads the model from the project settings), not by spawn params.
+  const [agentPlugin, _modelName] = config.model.split("/", 2);
+  if (!agentPlugin || !_modelName) {
     throw new Error(
       `[autonomous-harness] Invalid model format: "${config.model}" — expected "provider/model" (e.g. "minimax/MiniMax-M2.7")`,
     );
@@ -774,6 +772,15 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
         }
         // Only skip normal spawn if standby was successfully activated and state accepted
         if (standbyAccepted) {
+          // If standby completed eval with a verdict, run the same completion
+          // bookkeeping that the normal worker path performs (nextPhase + persist)
+          // so the sprint is recorded in completedSprints before the next iteration.
+          if (state && state.currentSprint.phase === "eval" && state.currentSprint.verdict) {
+            const nextState = nextPhase(state);
+            writeState(projectPath, nextState);
+            state = nextState;
+            console.log(`[autonomous-harness] Standby eval complete (verdict=${state.currentSprint.verdict}), transitioned to ${state.currentSprint.phase}.`);
+          }
           continue; // Skip to next iteration — don't spawn another worker
         }
         // else: fall through to normal spawn below
