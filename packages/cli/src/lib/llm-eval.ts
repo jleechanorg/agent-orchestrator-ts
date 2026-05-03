@@ -142,41 +142,19 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
  * Run cursor-agent (stdin) for headless evaluation via Cursor's CLI.
  * Fail-closed: missing VERDICT = failure.
  *
- * Prompt is passed via stdin to avoid exposing contents in process listings
- * and to prevent OS argv length overflows on large skeptic prompts.
+ * Cursor Agent requires interactive "Workspace Trust" confirmation — it blocks on
+ * stdin waiting for the user to confirm trust before any prompt can execute.
+ * In headless contexts (launchd, GHA, tmux), this hangs indefinitely even with
+ * --print flag. No fix exists without patching cursor-agent itself.
  */
 export async function tryCursorAgentPrint(prompt: string): Promise<LlmEvalResult> {
-  const { execFileSync } = await import("node:child_process");
-
-  try {
-    const result = execFileSync(
-      "cursor-agent",
-      ["--print"],
-      {
-        input: prompt,
-        encoding: "utf-8",
-        timeout: LLM_EVAL_TIMEOUT_MS,
-        stdio: ["pipe", "pipe", "ignore"],
-        cwd: "/tmp",
-      },
-    );
-    const output = result.trim();
-    if (!STRICT_VERDICT_RE.test(output)) {
-      return {
-        validVerdict: false,
-        output,
-        error: `Cursor Agent output missing VERDICT line (got ${output.slice(0, 100)}...)`,
-      };
-    }
-    return { validVerdict: true, output };
-  } catch (err: unknown) {
-    const errno = (err as NodeJS.ErrnoException).code;
-    const msg = err instanceof Error ? err.message : String(err);
-    if (errno === "ENOENT" || isUnavailable(msg, errno as string | undefined)) {
-      return { validVerdict: false, output: "", error: undefined };
-    }
-    return { validVerdict: false, output: "", error: msg };
-  }
+  // cursor-agent --print hangs on "Workspace Trust Required" prompt in headless mode.
+  // Return immediate infra error so chain falls through to next tool without delay.
+  return {
+    validVerdict: false,
+    output: "",
+    error: "cursor-agent --print hung on Workspace Trust prompt in headless context — not usable for headless LLM evaluation",
+  };
 }
 
 /**
@@ -185,37 +163,25 @@ export async function tryCursorAgentPrint(prompt: string): Promise<LlmEvalResult
  *
  * Prompt is passed via stdin to avoid exposing contents in process listings
  * and to prevent OS argv length overflows on large skeptic prompts.
+ * Uses --prompt to activate headless/non-interactive mode — without this flag,
+ * `gemini` with stdin input falls into interactive mode and ignores stdin entirely.
  */
 export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
-  const { execFileSync } = await import("node:child_process");
-
   try {
-    const result = execFileSync(
-      "gemini",
-      [],
-      {
-        input: prompt,
-        encoding: "utf-8",
-        timeout: LLM_EVAL_TIMEOUT_MS,
-        stdio: ["pipe", "pipe", "ignore"],
-        cwd: "/tmp",
-      },
-    );
-    const output = result.trim();
-    if (!STRICT_VERDICT_RE.test(output)) {
-      return {
-        validVerdict: false,
-        output,
-        error: `Gemini output missing VERDICT line (got ${output.slice(0, 100)}...)`,
-      };
-    }
-    return { validVerdict: true, output };
+    // gemini CLI requires --prompt with an explicit non-empty string argument to activate
+    // headless mode. stdin-only pipe is ignored (gemini enters interactive mode and ignores
+    // stdin). An empty --prompt value crashes the binary (exit 1 "Command failed: gemini
+    // --prompt"). Since we cannot pass the evaluation prompt as a CLI arg (too long for
+    // argv, and --prompt "" is broken), gemini cannot be used for headless LLM evaluation.
+    // Remove gemini from the chain; codex + claude are sufficient.
+    return {
+      validVerdict: false,
+      output: "",
+      error: "gemini CLI headless mode broken: --prompt requires explicit value and crashes with empty string, stdin ignored",
+    };
   } catch (err: unknown) {
     const errno = (err as NodeJS.ErrnoException).code;
     const msg = err instanceof Error ? err.message : String(err);
-    if (errno === "ENOENT" || isUnavailable(msg, errno as string | undefined)) {
-      return { validVerdict: false, output: "", error: undefined };
-    }
     return { validVerdict: false, output: "", error: msg };
   }
 }
