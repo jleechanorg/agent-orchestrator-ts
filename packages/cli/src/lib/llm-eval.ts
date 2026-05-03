@@ -21,7 +21,7 @@ import { accessSync, constants as fsConstants } from "node:fs";
 import { buildVerdictLineRe } from "../commands/skeptic/verdict-utils.js";
 
 const LLM_EVAL_TIMEOUT_MS = 300_000;
-const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.4";
+const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.5";
 const DEFAULT_CLAUDE_MODEL =
   process.env["AO_LLM_EVAL_CLAUDE_MODEL"] ?? "claude-sonnet-4-6";
 const DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/anthropic";

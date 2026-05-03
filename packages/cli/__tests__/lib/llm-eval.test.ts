@@ -61,7 +61,7 @@ describe("tryCodexPrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "/usr/local/bin/codex",
-      ["exec", "--model", "gpt-5.4", "-"],
+      ["exec", "--model", "gpt-5.5", "-"],
       expect.objectContaining({ input: "evaluate this" }),
     );
   });
@@ -72,7 +72,7 @@ describe("tryCodexPrint", () => {
     await tryCodexPrint("evaluate this");
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "/usr/local/bin/codex",
-      ["exec", "--model", "gpt-5.4", "-"],
+      ["exec", "--model", "gpt-5.5", "-"],
       expect.any(Object),
     );
   });
