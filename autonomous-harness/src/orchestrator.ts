@@ -466,7 +466,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
 
         // Accept: phase advanced by exactly 1, OR eval phase wrote verdict/notes without advancing
         const validTransition = (newIdx === currentIdx + 1) ||
-          (phase === "eval" && newPhase === "eval" && worktreeState.currentSprint.verdict != null);
+          (phase === "eval" && newPhase === "eval" && worktreeState.currentSprint.verdict !== null);
         if (validTransition) {
           state = worktreeState;
           stateUpdated = true;
@@ -483,7 +483,7 @@ export async function runAutonomousHarness(opts: RunOptions): Promise<HarnessSta
         const currentIdx = PHASE_ORDER.indexOf(phase as Phase);
         const newIdx = PHASE_ORDER.indexOf(newPhase as Phase);
         const validTransition = (newIdx === currentIdx + 1) ||
-          (phase === "eval" && newPhase === "eval" && mainState.currentSprint.verdict != null);
+          (phase === "eval" && newPhase === "eval" && mainState.currentSprint.verdict !== null);
         if (validTransition) {
           state = mainState;
           stateUpdated = true;
