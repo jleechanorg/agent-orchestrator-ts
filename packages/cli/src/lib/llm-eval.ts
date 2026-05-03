@@ -24,6 +24,15 @@ const LLM_EVAL_TIMEOUT_MS = 300_000;
 const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.4";
 const DEFAULT_CLAUDE_MODEL =
   process.env["AO_LLM_EVAL_CLAUDE_MODEL"] ?? "claude-sonnet-4-6";
+const DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/anthropic";
+
+/** Env vars to propagate minimax credentials to codex/claude exec calls. */
+function minimaxEnv(): Record<string, string> {
+  return {
+    ANTHROPIC_API_KEY: process.env["MINIMAX_API_KEY"] ?? "",
+    ANTHROPIC_BASE_URL: process.env["MINIMAX_ANTHROPIC_BASE_URL"] || DEFAULT_MINIMAX_BASE_URL,
+  };
+}
 
 /** Known claude binary locations, tried in order. */
 const CLAUDE_BINARY_CANDIDATES = [
@@ -112,8 +121,7 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
         stdio: ["pipe", "pipe", "pipe"],
         env: {
           ...process.env,
-          ANTHROPIC_API_KEY: process.env["MINIMAX_API_KEY"],
-          ANTHROPIC_BASE_URL: process.env["MINIMAX_ANTHROPIC_BASE_URL"],
+          ...minimaxEnv(),
         },
       },
     );
@@ -237,8 +245,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
           cwd: "/tmp",
           env: {
             ...process.env,
-            ANTHROPIC_API_KEY: process.env["MINIMAX_API_KEY"],
-            ANTHROPIC_BASE_URL: process.env["MINIMAX_ANTHROPIC_BASE_URL"],
+            ...minimaxEnv(),
           },
         },
       );
