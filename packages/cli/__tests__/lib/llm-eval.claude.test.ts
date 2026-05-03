@@ -26,7 +26,6 @@ import { llmEval, tryClaudePrint } from "../../src/lib/llm-eval.js";
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
-const MOCK_CLAUDE_BINARY = "/mock/claude";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -35,7 +34,7 @@ beforeEach(() => {
   // accessSync: throw ENOENT for all candidates (binary not found).
   // This makes tryClaudePrint skip every candidate without succeeding,
   // so the rotation advances to the next tool (not a 2nd claude candidate).
-  mockAccessSync.mockImplementation((path: unknown) => {
+  mockAccessSync.mockImplementation((_path: unknown) => {
     const err = new Error("ENOENT: no such file") as NodeJS.ErrnoException;
     err.code = "ENOENT";
     throw err;

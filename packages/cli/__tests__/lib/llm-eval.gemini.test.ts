@@ -26,12 +26,6 @@ beforeEach(() => {
   });
 });
 
-function makeErrnoError(message: string, code?: string): NodeJS.ErrnoException {
-  const err = new Error(message) as NodeJS.ErrnoException;
-  err.code = code;
-  return err;
-}
-
 // tryGeminiPrint() now returns immediate infra error (no execFileSync call).
 // Rotation: ["gemini","cursor","codex","claude"] — only codex calls execFileSync.
 // Gemini and cursor return infra errors immediately without consuming queue slots.

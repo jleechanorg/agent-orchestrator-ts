@@ -45,7 +45,7 @@ beforeEach(() => {
   // accessSync: throw ENOENT for ALL candidates.
   // This makes tryClaudePrint skip every candidate, so rotation advances
   // to the next tool (not to a 2nd claude candidate).
-  mockAccessSync.mockImplementation((path) => {
+  mockAccessSync.mockImplementation((_path) => {
     const err = new Error("ENOENT: no such file or directory") as NodeJS.ErrnoException;
     err.code = "ENOENT";
     throw err;
