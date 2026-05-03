@@ -66,8 +66,10 @@ jobs:
           fi
 
           BODY=$(cat "$RUNNER_TEMP/pr_body.txt")
-
-          if printf '%s' "$BODY" | grep -qi '^[[:space:]]*## Evidence'; then
+          echo "check: body length=${#BODY} chars"
+          # Note: PR body may contain literal \n sequences (gh api JSON encoding).
+          # grep -qiE '## Evidence' matches anywhere — robust vs. both formats.
+          if printf '%s' "$BODY" | grep -qiE '## Evidence'; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
