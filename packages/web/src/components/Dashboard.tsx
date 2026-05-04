@@ -1,36 +1,65 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useMediaQuery, MOBILE_BREAKPOINT } from "@/hooks/useMediaQuery";
 import {
+  NON_RESTORABLE_STATUSES,
   type DashboardSession,
-  type DashboardStats,
-  type DashboardPR,
   type AttentionLevel,
-  type GlobalPauseState,
   type DashboardOrchestratorLink,
+  type DashboardAttentionZoneMode,
   getAttentionLevel,
   isPRRateLimited,
 } from "@/lib/types";
-import { CI_STATUS } from "@jleechanorg/ao-core/types";
 import { AttentionZone } from "./AttentionZone";
-import { PRTableRow } from "./PRStatus";
-import { DynamicFavicon } from "./DynamicFavicon";
+import { DynamicFavicon, countNeedingAttention } from "./DynamicFavicon";
 import { useSessionEvents } from "@/hooks/useSessionEvents";
+import { useMuxOptional } from "@/providers/MuxProvider";
 import { ProjectSidebar } from "./ProjectSidebar";
-import { DoneOnlyKanbanEmptyState } from "./DoneOnlyKanbanEmptyState";
 import type { ProjectInfo } from "@/lib/project-name";
+import { EmptyState } from "./Skeleton";
+import { ToastProvider, useToast } from "./Toast";
+import { ConnectionBar } from "./ConnectionBar";
+import { CopyDebugBundleButton } from "./CopyDebugBundleButton";
+import { SidebarContext } from "./workspace/SidebarContext";
+import { projectDashboardPath, projectSessionPath } from "@/lib/routes";
 
 interface DashboardProps {
   initialSessions: DashboardSession[];
   projectId?: string;
   projectName?: string;
   projects?: ProjectInfo[];
-  initialGlobalPause?: GlobalPauseState | null;
   orchestrators?: DashboardOrchestratorLink[];
+  /** Dashboard attention zone mode (defaults to "simple" — 4 zones). */
+  attentionZones?: DashboardAttentionZoneMode;
+  /** SSR/services failure — show an error banner instead of a misleading empty dashboard */
+  dashboardLoadError?: string;
 }
 
-const KANBAN_LEVELS = ["working", "pending", "review", "respond", "merge"] as const;
+const SIMPLE_KANBAN_LEVELS = ["working", "pending", "action", "merge"] as const;
+const DETAILED_KANBAN_LEVELS = ["working", "pending", "review", "respond", "merge"] as const;
 const EMPTY_ORCHESTRATORS: DashboardOrchestratorLink[] = [];
+
+function formatRelativeTimeCompact(isoDate: string | null): string {
+  if (!isoDate) return "just now";
+  const timestamp = new Date(isoDate).getTime();
+  if (!Number.isFinite(timestamp)) return "just now";
+
+  const diffMs = Date.now() - timestamp;
+  if (diffMs <= 0) return "just now";
+
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSecs < 60) return `${diffSecs}s ago`;
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${diffDays}d ago`;
+}
 
 function mergeOrchestrators(
   current: DashboardOrchestratorLink[],
@@ -45,47 +74,191 @@ function mergeOrchestrators(
   return [...merged.values()];
 }
 
-export function Dashboard({
+function DoneCard({
+  session,
+  onRestore,
+}: {
+  session: DashboardSession;
+  onRestore: (id: string) => void;
+}) {
+  const title =
+    (!session.summaryIsFallback && session.summary) ||
+    session.issueTitle ||
+    session.summary ||
+    session.id;
+  const isMerged = session.pr?.state === "merged" || session.status === "merged";
+  const isTerminated = session.status === "killed" || session.status === "terminated";
+  const canRestore = !NON_RESTORABLE_STATUSES.has(session.status);
+  const badgeLabel = isMerged ? "merged" : isTerminated ? "terminated" : "done";
+  const badgeClass = `done-card__badge ${isTerminated ? "done-card__badge--terminated" : "done-card__badge--merged"}`;
+
+  return (
+    <div className="done-card">
+      <p className="done-card__title">{title}</p>
+      <div className="done-card__meta">
+        <span className={badgeClass}>{badgeLabel}</span>
+        {session.pr ? (
+          <a
+            href={session.pr.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="done-card__pr"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <svg
+              width="9"
+              height="9"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              viewBox="0 0 24 24"
+            >
+              <circle cx="18" cy="18" r="3" />
+              <circle cx="6" cy="6" r="3" />
+              <path d="M6 9v3a6 6 0 0 0 6 6h3" />
+            </svg>
+            #{session.pr.number}
+          </a>
+        ) : null}
+        <span className="done-card__age">{formatRelativeTimeCompact(session.lastActivityAt)}</span>
+        {canRestore ? (
+          <button
+            type="button"
+            className="done-card__restore"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRestore(session.id);
+            }}
+          >
+            Restore
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function DashboardInner({
   initialSessions,
   projectId,
   projectName,
   projects = [],
-  initialGlobalPause = null,
   orchestrators,
+  attentionZones = "simple",
+  dashboardLoadError,
 }: DashboardProps) {
   const orchestratorLinks = orchestrators ?? EMPTY_ORCHESTRATORS;
-  const { sessions, globalPause } = useSessionEvents(
+  const mux = useMuxOptional();
+  const kanbanLevels =
+    attentionZones === "detailed" ? DETAILED_KANBAN_LEVELS : SIMPLE_KANBAN_LEVELS;
+  const initialAttentionLevels = useMemo(() => {
+    const levels: Record<string, AttentionLevel> = {};
+    for (const s of initialSessions) {
+      levels[s.id] = getAttentionLevel(s, attentionZones);
+    }
+    return levels;
+  }, [initialSessions, attentionZones]);
+  const { sessions, attentionLevels, liveSessionsResolved, loadError } = useSessionEvents({
     initialSessions,
-    initialGlobalPause,
-    projectId,
-  );
+    // No project filter — sidebar needs all sessions across all projects.
+    // Kanban filtering is applied client-side via projectSessions below.
+    muxSessions: mux?.status === "connected" ? mux.sessions : undefined,
+    muxLastError: mux?.lastError,
+    initialAttentionLevels,
+    attentionZones,
+  });
+
+  const projectSessions = useMemo(() => {
+    if (!projectId) return sessions;
+    return sessions.filter((s) => s.projectId === projectId);
+  }, [sessions, projectId]);
+  const connectionStatus: "connected" | "reconnecting" | "disconnected" =
+    mux?.status === "disconnected" ? "disconnected"
+    : mux?.status === "connected" ? "connected"
+    : "reconnecting";
+  const recoveredFromLoadError = Boolean(dashboardLoadError) && liveSessionsResolved;
+  const ssrLoadError = recoveredFromLoadError ? undefined : dashboardLoadError;
+  // Live WS error takes precedence; fall back to SSR load error when live data hasn't resolved it.
+  const visibleLoadError = loadError ?? ssrLoadError;
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
+  const activeSessionId = searchParams.get("session") ?? undefined;
   const [rateLimitDismissed, setRateLimitDismissed] = useState(false);
-  const [globalPauseDismissed, setGlobalPauseDismissed] = useState(false);
   const [activeOrchestrators, setActiveOrchestrators] =
     useState<DashboardOrchestratorLink[]>(orchestratorLinks);
   const [spawningProjectIds, setSpawningProjectIds] = useState<string[]>([]);
   const [spawnErrors, setSpawnErrors] = useState<Record<string, string>>({});
-  const showSidebar = projects.length > 1;
-  const allProjectsView = showSidebar && projectId === undefined;
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
+  const debugParam = searchParams.get("debug");
+  const showDebugBundleButton =
+    !isMobile &&
+    (process.env.NODE_ENV === "development" || debugParam === "1" || debugParam === "true");
+  const { showToast } = useToast();
+  const [doneExpanded, setDoneExpanded] = useState(false);
+  const sessionsRef = useRef(sessions);
+
+  sessionsRef.current = sessions;
+  const allProjectsView = projects.length > 1 && projectId === undefined;
+  const currentProjectOrchestrator = useMemo(
+    () =>
+      projectId
+        ? (activeOrchestrators.find((orchestrator) => orchestrator.projectId === projectId) ?? null)
+        : null,
+    [activeOrchestrators, projectId],
+  );
+  const orchestratorHref = currentProjectOrchestrator
+    ? projectSessionPath(currentProjectOrchestrator.projectId, currentProjectOrchestrator.id)
+    : null;
+  const canSpawnProjectOrchestrator =
+    !allProjectsView &&
+    Boolean(projectId) &&
+    projects.some((project) => project.id === projectId && !project.resolveError) &&
+    !orchestratorHref;
+  const activeProject = projectId
+    ? (projects.find((project) => project.id === projectId) ?? null)
+    : null;
+  const isSpawningCurrentProject = projectId ? spawningProjectIds.includes(projectId) : false;
+  const currentProjectSpawnError = projectId ? (spawnErrors[projectId] ?? null) : null;
+
+  const displaySessions = useMemo(() => {
+    if (allProjectsView || !activeSessionId) return projectSessions;
+    return projectSessions.filter((s) => s.id === activeSessionId);
+  }, [projectSessions, allProjectsView, activeSessionId]);
 
   useEffect(() => {
     setActiveOrchestrators((current) => mergeOrchestrators(current, orchestratorLinks));
   }, [orchestratorLinks]);
 
+  // Update document title with live attention counts
+  useEffect(() => {
+    const needsAttention = countNeedingAttention(attentionLevels);
+    const label = projectName ?? "ao";
+    document.title = needsAttention > 0 ? `${label} (${needsAttention} need attention)` : label;
+  }, [attentionLevels, projectName]);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [searchParams]);
+
   const grouped = useMemo(() => {
     const zones: Record<AttentionLevel, DashboardSession[]> = {
       merge: [],
+      action: [],
       respond: [],
       review: [],
       pending: [],
       working: [],
       done: [],
     };
-    for (const session of sessions) {
-      zones[getAttentionLevel(session)].push(session);
+    for (const session of displaySessions) {
+      zones[getAttentionLevel(session, attentionZones)].push(session);
     }
     return zones;
-  }, [sessions]);
+  }, [displaySessions, attentionZones]);
 
   const sessionsByProject = useMemo(() => {
     const groupedSessions = new Map<string, DashboardSession[]>();
@@ -100,16 +273,6 @@ export function Dashboard({
     return groupedSessions;
   }, [sessions]);
 
-  const openPRs = useMemo(() => {
-    return sessions
-      .filter(
-        (session): session is DashboardSession & { pr: DashboardPR } =>
-          session.pr?.state === "open",
-      )
-      .map((session) => session.pr)
-      .sort((a, b) => mergeScore(a) - mergeScore(b));
-  }, [sessions]);
-
   const projectOverviews = useMemo(() => {
     if (!allProjectsView) return [];
 
@@ -117,6 +280,7 @@ export function Dashboard({
       const projectSessions = sessionsByProject.get(project.id) ?? [];
       const counts: Record<AttentionLevel, number> = {
         merge: 0,
+        action: 0,
         respond: 0,
         review: 0,
         pending: 0,
@@ -125,7 +289,7 @@ export function Dashboard({
       };
 
       for (const session of projectSessions) {
-        counts[getAttentionLevel(session)]++;
+        counts[getAttentionLevel(session, attentionZones)]++;
       }
 
       return {
@@ -137,45 +301,111 @@ export function Dashboard({
         counts,
       };
     });
-  }, [activeOrchestrators, allProjectsView, projects, sessionsByProject]);
+  }, [activeOrchestrators, allProjectsView, attentionZones, projects, sessionsByProject]);
 
-  const handleSend = useCallback(async (sessionId: string, message: string) => {
-    const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    });
-    if (!res.ok) {
-      console.error(`Failed to send message to ${sessionId}:`, await res.text());
-    }
-  }, []);
+  const handleSend = useCallback(
+    async (sessionId: string, message: string) => {
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          const messageText = text || "Unknown error";
+          console.error(`Failed to send message to ${sessionId}:`, messageText);
+          showToast(`Send failed: ${messageText}`, "error");
+          const errorWithToast = new Error(messageText);
+          (errorWithToast as Error & { toastShown?: boolean }).toastShown = true;
+          throw errorWithToast;
+        }
+      } catch (error) {
+        const toastShown =
+          error instanceof Error &&
+          "toastShown" in error &&
+          (error as Error & { toastShown?: boolean }).toastShown;
+        if (!toastShown) {
+          console.error(`Network error sending message to ${sessionId}:`, error);
+          showToast("Network error while sending message", "error");
+        }
+        throw error;
+      }
+    },
+    [showToast],
+  );
 
-  const handleKill = useCallback(async (sessionId: string) => {
-    if (!confirm(`Kill session ${sessionId}?`)) return;
-    const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/kill`, {
-      method: "POST",
-    });
-    if (!res.ok) {
-      console.error(`Failed to kill ${sessionId}:`, await res.text());
-    }
-  }, []);
+  const killSession = useCallback(
+    async (sessionId: string) => {
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/kill`, {
+          method: "POST",
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          console.error(`Failed to kill ${sessionId}:`, text);
+          showToast(`Terminate failed: ${text}`, "error");
+        } else {
+          showToast("Session terminated", "success");
+        }
+      } catch (error) {
+        console.error(`Network error killing ${sessionId}:`, error);
+        showToast("Network error while terminating session", "error");
+      }
+    },
+    [showToast],
+  );
 
-  const handleMerge = useCallback(async (prNumber: number) => {
-    const res = await fetch(`/api/prs/${prNumber}/merge`, { method: "POST" });
-    if (!res.ok) {
-      console.error(`Failed to merge PR #${prNumber}:`, await res.text());
-    }
-  }, []);
+  const handleKill = useCallback(
+    (sessionId: string) => {
+      const session = sessionsRef.current.find((s) => s.id === sessionId) ?? null;
+      if (!session) return;
+      void killSession(session.id);
+    },
+    [killSession],
+  );
 
-  const handleRestore = useCallback(async (sessionId: string) => {
-    if (!confirm(`Restore session ${sessionId}?`)) return;
-    const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/restore`, {
-      method: "POST",
-    });
-    if (!res.ok) {
-      console.error(`Failed to restore ${sessionId}:`, await res.text());
-    }
-  }, []);
+  const handleMerge = useCallback(
+    async (prNumber: number) => {
+      try {
+        const res = await fetch(`/api/prs/${prNumber}/merge`, { method: "POST" });
+        if (!res.ok) {
+          const text = await res.text();
+          console.error(`Failed to merge PR #${prNumber}:`, text);
+          showToast(`Merge failed: ${text}`, "error");
+          return;
+        } else {
+          showToast(`PR #${prNumber} merged`, "success");
+        }
+      } catch (error) {
+        console.error(`Network error merging PR #${prNumber}:`, error);
+        showToast("Network error while merging PR", "error");
+      }
+    },
+    [showToast],
+  );
+
+  const handleRestore = useCallback(
+    async (sessionId: string) => {
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/restore`, {
+          method: "POST",
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          console.error(`Failed to restore ${sessionId}:`, text);
+          showToast(`Restore failed: ${text}`, "error");
+        } else {
+          showToast("Session restored", "success");
+          routerRef.current.refresh();
+        }
+      } catch (error) {
+        console.error(`Network error restoring ${sessionId}:`, error);
+        showToast("Network error while restoring session", "error");
+      }
+    },
+    [showToast],
+  );
 
   const handleSpawnOrchestrator = async (project: ProjectInfo) => {
     setSpawningProjectIds((current) =>
@@ -215,282 +445,320 @@ export function Dashboard({
     }
   };
 
-  const hasKanbanSessions = KANBAN_LEVELS.some((level) => grouped[level].length > 0);
+  const hasAnySessions = kanbanLevels.some((level) => grouped[level].length > 0);
+  const showEmptyState = !allProjectsView && !hasAnySessions && !visibleLoadError;
+
+  const loadErrorBanner = visibleLoadError ? (
+    <div
+      className="dashboard-alert mb-6 flex flex-col gap-1.5 border border-[color-mix(in_srgb,var(--color-status-error)_28%,transparent)] bg-[color-mix(in_srgb,var(--color-status-error)_10%,transparent)] px-3.5 py-2.5 text-[11px] md:mb-4"
+      role="alert"
+      aria-live="assertive"
+    >
+      <span className="font-semibold text-[var(--color-status-error)]">
+        Orchestrator failed to load
+      </span>
+      <span className="break-words text-[var(--color-text-secondary)]">
+        {visibleLoadError}
+      </span>
+      <span className="text-[var(--color-text-secondary)]">
+        Confirm <span className="font-mono text-[10px]">agent-orchestrator.yaml</span> exists and is
+        valid, then run <span className="font-mono text-[10px]">ao doctor</span> for diagnostics.
+      </span>
+    </div>
+  ) : null;
 
   const anyRateLimited = useMemo(
     () => sessions.some((session) => session.pr && isPRRateLimited(session.pr)),
     [sessions],
   );
+  const normalizedProjectName = projectName?.trim().toLowerCase();
+  const headerProjectLabel =
+    normalizedProjectName === "agent orchestrator"
+      ? (projectId ?? projectName ?? (allProjectsView ? "All projects" : "Dashboard"))
+      : (projectName ?? (allProjectsView ? "All projects" : "Dashboard"));
+  const showHeaderProjectLabel = !allProjectsView && headerProjectLabel.trim().length > 0;
 
-  const liveStats = useMemo<DashboardStats>(
-    () => ({
-      totalSessions: sessions.length,
-      workingSessions: sessions.filter(
-        (session) => session.activity !== null && session.activity !== "exited",
-      ).length,
-      openPRs: sessions.filter((session) => session.pr?.state === "open").length,
-      needsReview: sessions.filter(
-        (session) => session.pr && !session.pr.isDraft && session.pr.reviewDecision === "pending",
-      ).length,
-    }),
-    [sessions],
-  );
-
-  const resumeAtLabel = useMemo(() => {
-    if (!globalPause) return null;
-    return new Date(globalPause.pausedUntil).toLocaleString();
-  }, [globalPause]);
-
-  useEffect(() => {
-    setGlobalPauseDismissed(false);
-  }, [globalPause?.pausedUntil, globalPause?.reason, globalPause?.sourceSessionId]);
+  const handleToggleSidebar = () => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setMobileMenuOpen((current) => !current);
+    } else {
+      setSidebarCollapsed((current) => !current);
+    }
+  };
 
   return (
-    <div className="flex h-screen">
-      {showSidebar && <ProjectSidebar projects={projects} activeProjectId={projectId} />}
-      <div className="flex-1 overflow-y-auto px-8 py-7">
-        <DynamicFavicon sessions={sessions} projectName={projectName} />
-        <div className="mb-8 flex items-center justify-between border-b border-[var(--color-border-subtle)] pb-6">
-          <div className="flex items-center gap-6">
-            <h1 className="text-[17px] font-semibold tracking-[-0.02em] text-[var(--color-text-primary)]">
-              {projectName ?? "Orchestrator"}
-            </h1>
-            <StatusLine stats={liveStats} />
-          </div>
-          {!allProjectsView && <OrchestratorControl orchestrators={activeOrchestrators} />}
-        </div>
-
-        {globalPause && !globalPauseDismissed && (
-          <div className="mb-6 flex items-center gap-2.5 rounded border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.05)] px-3.5 py-2.5 text-[11px] text-[var(--color-status-error)]">
-            <svg
-              className="h-3.5 w-3.5 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 8v4M12 16h.01" />
-            </svg>
-            <span className="flex-1">
-              <strong>Orchestrator paused:</strong> {globalPause.reason}
-              {resumeAtLabel && (
-                <span className="ml-2 opacity-75">Resume after {resumeAtLabel}</span>
-              )}
-              {globalPause.sourceSessionId && (
-                <span className="ml-2 opacity-75">(Source: {globalPause.sourceSessionId})</span>
-              )}
-            </span>
+    <SidebarContext.Provider
+      value={{ onToggleSidebar: handleToggleSidebar, mobileSidebarOpen: mobileMenuOpen }}
+    >
+      <>
+        <ConnectionBar status={connectionStatus} />
+        <div className="dashboard-app-shell">
+          <header className="dashboard-app-header">
             <button
-              onClick={() => setGlobalPauseDismissed(true)}
-              className="ml-1 shrink-0 opacity-60 hover:opacity-100"
-              aria-label="Dismiss"
+              type="button"
+              className="dashboard-app-sidebar-toggle"
+              onClick={handleToggleSidebar}
+              aria-label="Toggle sidebar"
             >
-              <svg
-                className="h-3.5 w-3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
+              {isMobile ? (
+                <svg
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              ) : (
+                <svg
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M9 3v18" />
+                </svg>
+              )}
             </button>
-          </div>
-        )}
-
-        {anyRateLimited && !rateLimitDismissed && (
-          <div className="mb-6 flex items-center gap-2.5 rounded border border-[rgba(245,158,11,0.25)] bg-[rgba(245,158,11,0.05)] px-3.5 py-2.5 text-[11px] text-[var(--color-status-attention)]">
-            <svg
-              className="h-3.5 w-3.5 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 8v4M12 16h.01" />
-            </svg>
-            <span className="flex-1">
-              GitHub API rate limited — PR data (CI status, review state, sizes) may be stale. Will
-              retry automatically on next refresh.
-            </span>
-            <button
-              onClick={() => setRateLimitDismissed(true)}
-              className="ml-1 shrink-0 opacity-60 hover:opacity-100"
-              aria-label="Dismiss"
-            >
-              <svg
-                className="h-3.5 w-3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        )}
-
-        {allProjectsView && (
-          <ProjectOverviewGrid
-            overviews={projectOverviews}
-            onSpawnOrchestrator={handleSpawnOrchestrator}
-            spawningProjectIds={spawningProjectIds}
-            spawnErrors={spawnErrors}
-          />
-        )}
-
-        {!allProjectsView && hasKanbanSessions && (
-          <div className="mb-8 flex gap-4 overflow-x-auto pb-2">
-            {KANBAN_LEVELS.map((level) =>
-              grouped[level].length > 0 ? (
-                <div key={level} className="min-w-[200px] flex-1">
-                  <AttentionZone
-                    level={level}
-                    sessions={grouped[level]}
-                    variant="column"
-                    onSend={handleSend}
-                    onKill={handleKill}
-                    onMerge={handleMerge}
-                    onRestore={handleRestore}
-                  />
-                </div>
-              ) : null,
-            )}
-          </div>
-        )}
-
-        <DoneOnlyKanbanEmptyState
-          allProjectsView={allProjectsView}
-          hasKanbanSessions={hasKanbanSessions}
-          doneCount={grouped.done.length}
-        />
-
-        {!allProjectsView && grouped.done.length > 0 && (
-          <div className="mb-8">
-            <AttentionZone
-              level="done"
-              sessions={grouped.done}
-              variant="grid"
-              onSend={handleSend}
-              onKill={handleKill}
-              onMerge={handleMerge}
-              onRestore={handleRestore}
-            />
-          </div>
-        )}
-
-        {openPRs.length > 0 && (
-          <div className="mx-auto max-w-[900px]">
-            <h2 className="mb-3 px-1 text-[10px] font-bold uppercase tracking-[0.10em] text-[var(--color-text-tertiary)]">
-              Pull Requests
-            </h2>
-            <div className="overflow-hidden rounded-[6px] border border-[var(--color-border-default)]">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-[var(--color-border-muted)]">
-                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                      PR
-                    </th>
-                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                      Title
-                    </th>
-                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                      Size
-                    </th>
-                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                      CI
-                    </th>
-                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                      Review
-                    </th>
-                    <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                      Unresolved
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {openPRs.map((pr) => (
-                    <PRTableRow key={pr.number} pr={pr} />
-                  ))}
-                </tbody>
-              </table>
+            <div className="dashboard-app-header__brand">
+              <span className="dashboard-app-header__brand-dot" aria-hidden="true" />
+              <span>Agent Orchestrator</span>
             </div>
+            {showHeaderProjectLabel ? (
+              <>
+                <span className="dashboard-app-header__sep" aria-hidden="true" />
+                <span className="dashboard-app-header__project">{headerProjectLabel}</span>
+              </>
+            ) : null}
+            {showDebugBundleButton ? <CopyDebugBundleButton projectId={projectId} /> : null}
+            <div className="dashboard-app-header__spacer" />
+            <div className="dashboard-app-header__actions">
+              {!allProjectsView && orchestratorHref ? (
+                <Link
+                  href={orchestratorHref}
+                  className="dashboard-app-btn dashboard-app-btn--amber"
+                  aria-label="Orchestrator"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="5" r="2" fill="currentColor" stroke="none" />
+                    <path d="M12 7v4M12 11H6M12 11h6M6 11v3M12 11v3M18 11v3" />
+                    <circle cx="6" cy="17" r="2" />
+                    <circle cx="12" cy="17" r="2" />
+                    <circle cx="18" cy="17" r="2" />
+                  </svg>
+                  Orchestrator
+                </Link>
+              ) : canSpawnProjectOrchestrator && activeProject ? (
+                <button
+                  type="button"
+                  className="dashboard-app-btn dashboard-app-btn--amber"
+                  aria-label="Spawn Orchestrator"
+                  onClick={() => void handleSpawnOrchestrator(activeProject)}
+                  disabled={isSpawningCurrentProject}
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="5" r="2" fill="currentColor" stroke="none" />
+                    <path d="M12 7v4M12 11H6M12 11h6M6 11v3M12 11v3M18 11v3" />
+                    <circle cx="6" cy="17" r="2" />
+                    <circle cx="12" cy="17" r="2" />
+                    <circle cx="18" cy="17" r="2" />
+                  </svg>
+                  {isSpawningCurrentProject ? "Spawning..." : "Spawn Orchestrator"}
+                </button>
+              ) : null}
+            </div>
+          </header>
+
+          <div
+            className={`dashboard-shell dashboard-shell--desktop${sidebarCollapsed ? " dashboard-shell--sidebar-collapsed" : ""}`}
+          >
+            <div
+              className={`sidebar-wrapper${mobileMenuOpen ? " sidebar-wrapper--mobile-open" : ""}`}
+            >
+              <ProjectSidebar
+                projects={projects}
+                sessions={sessions}
+                orchestrators={activeOrchestrators}
+                activeProjectId={projectId}
+                activeSessionId={activeSessionId}
+                collapsed={sidebarCollapsed}
+                onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+                onMobileClose={() => setMobileMenuOpen(false)}
+              />
+            </div>
+            {mobileMenuOpen && (
+              <div className="sidebar-mobile-backdrop" onClick={() => setMobileMenuOpen(false)} />
+            )}
+
+            <main className="dashboard-main dashboard-main--desktop">
+              <DynamicFavicon attentionLevels={attentionLevels} projectName={projectName} />
+              <div className="dashboard-main__subhead">
+                <h1 className="dashboard-main__title">Dashboard</h1>
+                <p className="dashboard-main__subtitle">
+                  Live agent sessions, pull requests, and merge status.
+                </p>
+              </div>
+
+              <div className="dashboard-main__body">
+                {loadErrorBanner}
+                {anyRateLimited && !rateLimitDismissed && (
+                  <div className="dashboard-alert mb-4 flex items-center gap-2.5 border border-[color-mix(in_srgb,var(--color-status-attention)_25%,transparent)] bg-[var(--color-tint-yellow)] px-3.5 py-2.5 text-[11px] text-[var(--color-status-attention)]">
+                    <svg
+                      className="h-3.5 w-3.5 shrink-0"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M12 8v4M12 16h.01" />
+                    </svg>
+                    <span className="flex-1">
+                      GitHub API rate limited — PR data (CI status, review state, sizes) may be
+                      stale. Will retry automatically on next refresh.
+                    </span>
+                    <button
+                      onClick={() => setRateLimitDismissed(true)}
+                      className="ml-1 shrink-0 opacity-60 hover:opacity-100"
+                      aria-label="Dismiss"
+                    >
+                      <svg
+                        className="h-3.5 w-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M18 6 6 18M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+
+                {allProjectsView && (
+                  <ProjectOverviewGrid
+                    overviews={projectOverviews}
+                    onSpawnOrchestrator={handleSpawnOrchestrator}
+                    spawningProjectIds={spawningProjectIds}
+                    spawnErrors={spawnErrors}
+                    attentionZones={attentionZones}
+                  />
+                )}
+
+                {!allProjectsView && hasAnySessions && (
+                  <div className="kanban-board-wrap">
+                    <div
+                      className="kanban-board"
+                      data-columns={kanbanLevels.length}
+                      style={
+                        {
+                          "--kanban-column-count": kanbanLevels.length,
+                        } as React.CSSProperties
+                      }
+                    >
+                      {kanbanLevels.map((level) => (
+                        <AttentionZone
+                          key={level}
+                          level={level}
+                          sessions={grouped[level]}
+                          onSend={handleSend}
+                          onKill={handleKill}
+                          onMerge={handleMerge}
+                          onRestore={handleRestore}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {showEmptyState ? (
+                  <EmptyState
+                    orchestratorHref={orchestratorHref}
+                    onSpawnOrchestrator={
+                      canSpawnProjectOrchestrator && activeProject
+                        ? () => {
+                            void handleSpawnOrchestrator(activeProject);
+                          }
+                        : null
+                    }
+                    spawnLabel={isSpawningCurrentProject ? "Spawning..." : "Spawn Orchestrator"}
+                    spawnDisabled={isSpawningCurrentProject}
+                  />
+                ) : null}
+
+                {!allProjectsView && currentProjectSpawnError ? (
+                  <p className="mt-3 text-[11px] text-[var(--color-status-error)]">
+                    {currentProjectSpawnError}
+                  </p>
+                ) : null}
+
+                {!allProjectsView && grouped.done.length > 0 && (
+                  <div className="done-bar mt-6">
+                    <button
+                      type="button"
+                      className="done-bar__toggle"
+                      onClick={() => setDoneExpanded((v) => !v)}
+                      aria-expanded={doneExpanded}
+                    >
+                      <svg
+                        className={`done-bar__chevron${doneExpanded ? " done-bar__chevron--open" : ""}`}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path d="m9 18 6-6-6-6" />
+                      </svg>
+                      <span className="done-bar__label">Done / Terminated</span>
+                      <span className="done-bar__count">{grouped.done.length}</span>
+                    </button>
+                    {doneExpanded && (
+                      <div className="done-bar__cards">
+                        {grouped.done.map((session) => (
+                          <DoneCard key={session.id} session={session} onRestore={handleRestore} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </main>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      </>
+    </SidebarContext.Provider>
   );
 }
 
-function OrchestratorControl({ orchestrators }: { orchestrators: DashboardOrchestratorLink[] }) {
-  if (orchestrators.length === 0) return null;
-
-  if (orchestrators.length === 1) {
-    const orchestrator = orchestrators[0];
-    return (
-      <a
-        href={`/sessions/${encodeURIComponent(orchestrator.id)}`}
-        className="orchestrator-btn flex items-center gap-2 rounded-[7px] px-4 py-2 text-[12px] font-semibold hover:no-underline"
-      >
-        <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] opacity-80" />
-        orchestrator
-        <svg
-          className="h-3 w-3 opacity-70"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          viewBox="0 0 24 24"
-        >
-          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
-        </svg>
-      </a>
-    );
-  }
-
+export function Dashboard(props: DashboardProps) {
   return (
-    <details className="group relative">
-      <summary className="orchestrator-btn flex cursor-pointer list-none items-center gap-2 rounded-[7px] px-4 py-2 text-[12px] font-semibold hover:no-underline">
-        <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] opacity-80" />
-        {orchestrators.length} orchestrators
-        <svg
-          className="h-3 w-3 opacity-70 transition-transform group-open:rotate-90"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          viewBox="0 0 24 24"
-        >
-          <path d="m9 18 6-6-6-6" />
-        </svg>
-      </summary>
-      <div className="absolute right-0 top-[calc(100%+0.5rem)] z-10 min-w-[220px] overflow-hidden rounded-[10px] border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] shadow-[0_18px_40px_rgba(0,0,0,0.18)]">
-        {orchestrators.map((orchestrator, index) => (
-          <a
-            key={orchestrator.id}
-            href={`/sessions/${encodeURIComponent(orchestrator.id)}`}
-            className={`flex items-center justify-between gap-3 px-4 py-3 text-[12px] hover:bg-[var(--color-bg-hover)] hover:no-underline ${
-              index > 0 ? "border-t border-[var(--color-border-subtle)]" : ""
-            }`}
-          >
-            <span className="flex min-w-0 items-center gap-2 text-[var(--color-text-primary)]">
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-accent)] opacity-80" />
-              <span className="truncate">{orchestrator.projectName}</span>
-            </span>
-            <svg
-              className="h-3 w-3 shrink-0 opacity-60"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
-            </svg>
-          </a>
-        ))}
-      </div>
-    </details>
+    <ToastProvider>
+      <DashboardInner {...props} />
+    </ToastProvider>
   );
 }
 
@@ -499,6 +767,7 @@ function ProjectOverviewGrid({
   onSpawnOrchestrator,
   spawningProjectIds,
   spawnErrors,
+  attentionZones,
 }: {
   overviews: Array<{
     project: ProjectInfo;
@@ -510,146 +779,123 @@ function ProjectOverviewGrid({
   onSpawnOrchestrator: (project: ProjectInfo) => Promise<void>;
   spawningProjectIds: string[];
   spawnErrors: Record<string, string>;
+  attentionZones: DashboardAttentionZoneMode;
 }) {
   return (
     <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {overviews.map(({ project, orchestrator, sessionCount, openPRCount, counts }) => (
-        <section
-          key={project.id}
-          className="rounded-[10px] border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4"
-        >
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-[14px] font-semibold text-[var(--color-text-primary)]">
-                {project.name}
-              </h2>
-              <div className="mt-1 text-[11px] text-[var(--color-text-muted)]">
-                {sessionCount} active session{sessionCount !== 1 ? "s" : ""}
-                {openPRCount > 0 ? ` · ${openPRCount} open PR${openPRCount !== 1 ? "s" : ""}` : ""}
-              </div>
-            </div>
-            <a
-              href={`/?project=${encodeURIComponent(project.id)}`}
-              className="rounded-[7px] border border-[var(--color-border-default)] px-3 py-1.5 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:no-underline"
+      {overviews.map(({ project, orchestrator, sessionCount, openPRCount, counts }) =>
+        (() => {
+          const isDegraded = Boolean(project.resolveError);
+          const projectHref = projectDashboardPath(project.id);
+
+          return (
+            <section
+              key={project.id}
+              className="border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4"
             >
-              Open project
-            </a>
-          </div>
-
-          <div className="mb-4 flex flex-wrap gap-2">
-            <ProjectMetric label="Merge" value={counts.merge} tone="var(--color-status-ready)" />
-            <ProjectMetric
-              label="Respond"
-              value={counts.respond}
-              tone="var(--color-status-error)"
-            />
-            <ProjectMetric label="Review" value={counts.review} tone="var(--color-accent-orange)" />
-            <ProjectMetric
-              label="Pending"
-              value={counts.pending}
-              tone="var(--color-status-attention)"
-            />
-            <ProjectMetric
-              label="Working"
-              value={counts.working}
-              tone="var(--color-status-working)"
-            />
-          </div>
-
-          <div className="border-t border-[var(--color-border-subtle)] pt-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-[11px] text-[var(--color-text-muted)]">
-                {orchestrator ? "Per-project orchestrator available" : "No running orchestrator"}
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-[14px] font-semibold text-[var(--color-text-primary)]">
+                    {project.name}
+                  </h2>
+                  <div className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                    {isDegraded ? (
+                      "Config needs repair"
+                    ) : (
+                      <>
+                        {sessionCount} active session{sessionCount !== 1 ? "s" : ""}
+                        {openPRCount > 0
+                          ? ` · ${openPRCount} open PR${openPRCount !== 1 ? "s" : ""}`
+                          : ""}
+                      </>
+                    )}
+                  </div>
+                </div>
+                <Link
+                  href={projectHref}
+                  className="border border-[var(--color-border-default)] px-3 py-1.5 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:no-underline"
+                >
+                  Open project
+                </Link>
               </div>
-              {orchestrator ? (
-                <a
-                  href={`/sessions/${encodeURIComponent(orchestrator.id)}`}
-                  className="orchestrator-btn flex items-center gap-2 rounded-[7px] px-3 py-1.5 text-[11px] font-semibold hover:no-underline"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] opacity-80" />
-                  orchestrator
-                </a>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void onSpawnOrchestrator(project)}
-                  disabled={spawningProjectIds.includes(project.id)}
-                  className="orchestrator-btn rounded-[7px] px-3 py-1.5 text-[11px] font-semibold disabled:cursor-wait disabled:opacity-70"
-                >
-                  {spawningProjectIds.includes(project.id) ? "Spawning..." : "Spawn Orchestrator"}
-                </button>
-              )}
-            </div>
-            {spawnErrors[project.id] ? (
-              <p className="mt-2 text-[11px] text-[var(--color-status-error)]">
-                {spawnErrors[project.id]}
-              </p>
-            ) : null}
-          </div>
-        </section>
-      ))}
+
+              <div className="mb-4 flex flex-wrap gap-2">
+                <ProjectMetric label="Merge" value={counts.merge} tone="ready" />
+                {attentionZones === "detailed" ? (
+                  <>
+                    <ProjectMetric label="Respond" value={counts.respond} tone="error" />
+                    <ProjectMetric label="Review" value={counts.review} tone="orange" />
+                  </>
+                ) : (
+                  <ProjectMetric label="Action" value={counts.action} tone="orange" />
+                )}
+                <ProjectMetric label="Pending" value={counts.pending} tone="attention" />
+                <ProjectMetric label="Working" value={counts.working} tone="working" />
+              </div>
+
+              <div className="border-t border-[var(--color-border-subtle)] pt-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-[11px] text-[var(--color-text-muted)]">
+                    {isDegraded
+                      ? "Project config could not be resolved"
+                      : orchestrator
+                        ? "Per-project orchestrator available"
+                        : "No running orchestrator"}
+                  </div>
+                  {isDegraded ? (
+                    <Link
+                      href={projectHref}
+                      className="border border-[var(--color-border-default)] px-3 py-1.5 text-[11px] font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:no-underline"
+                    >
+                      Repair project
+                    </Link>
+                  ) : orchestrator ? (
+                    <Link
+                      href={projectSessionPath(orchestrator.projectId, orchestrator.id)}
+                      className="orchestrator-btn flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold hover:no-underline"
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] opacity-80" />
+                      orchestrator
+                    </Link>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void onSpawnOrchestrator(project)}
+                      disabled={spawningProjectIds.includes(project.id)}
+                      className="orchestrator-btn px-3 py-1.5 text-[11px] font-semibold disabled:cursor-wait disabled:opacity-70"
+                    >
+                      {spawningProjectIds.includes(project.id)
+                        ? "Spawning..."
+                        : "Spawn Orchestrator"}
+                    </button>
+                  )}
+                </div>
+                {spawnErrors[project.id] ? (
+                  <p className="mt-2 text-[11px] text-[var(--color-status-error)]">
+                    {spawnErrors[project.id]}
+                  </p>
+                ) : null}
+              </div>
+            </section>
+          );
+        })(),
+      )}
     </div>
   );
 }
 
 function ProjectMetric({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
-    <div className="min-w-[78px] rounded-[8px] border border-[var(--color-border-subtle)] px-2.5 py-2">
+    <div className="min-w-[78px] border border-[var(--color-border-subtle)] px-2.5 py-2">
       <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
         {label}
       </div>
-      <div className="mt-1 text-[18px] font-semibold tabular-nums" style={{ color: tone }}>
+      <div
+        className="project-metric__value mt-1 text-[18px] font-semibold tabular-nums"
+        data-tone={tone}
+      >
         {value}
       </div>
     </div>
   );
-}
-
-function StatusLine({ stats }: { stats: DashboardStats }) {
-  if (stats.totalSessions === 0) {
-    return <span className="text-[13px] text-[var(--color-text-muted)]">no sessions</span>;
-  }
-
-  const parts: Array<{ value: number; label: string; color?: string }> = [
-    { value: stats.totalSessions, label: "sessions" },
-    ...(stats.workingSessions > 0
-      ? [{ value: stats.workingSessions, label: "working", color: "var(--color-status-working)" }]
-      : []),
-    ...(stats.openPRs > 0 ? [{ value: stats.openPRs, label: "PRs" }] : []),
-    ...(stats.needsReview > 0
-      ? [{ value: stats.needsReview, label: "need review", color: "var(--color-status-attention)" }]
-      : []),
-  ];
-
-  return (
-    <div className="flex items-baseline gap-0.5">
-      {parts.map((part, index) => (
-        <span key={part.label} className="flex items-baseline">
-          {index > 0 && (
-            <span className="mx-3 text-[11px] text-[var(--color-border-strong)]">·</span>
-          )}
-          <span
-            className="text-[20px] font-bold tabular-nums tracking-tight"
-            style={{ color: part.color ?? "var(--color-text-primary)" }}
-          >
-            {part.value}
-          </span>
-          <span className="ml-1.5 text-[11px] text-[var(--color-text-muted)]">{part.label}</span>
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function mergeScore(
-  pr: Pick<DashboardPR, "ciStatus" | "reviewDecision" | "mergeability" | "unresolvedThreads">,
-): number {
-  let score = 0;
-  if (!pr.mergeability.noConflicts) score += 40;
-  if (pr.ciStatus === CI_STATUS.FAILING) score += 30;
-  else if (pr.ciStatus === CI_STATUS.PENDING) score += 5;
-  if (pr.reviewDecision === "changes_requested") score += 20;
-  else if (pr.reviewDecision !== "approved") score += 10;
-  score += pr.unresolvedThreads * 5;
-  return score;
 }
