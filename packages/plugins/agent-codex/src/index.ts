@@ -657,7 +657,7 @@ export async function resolveCodexBinary(options: { nodeExecPath?: string } = {}
   const processSiblingCodex = join(dirname(options.nodeExecPath ?? process.execPath), "codex");
   try {
     const stats = await stat(processSiblingCodex);
-    if ((stats.mode & 0o111) !== 0) {
+    if (stats.isFile() && (stats.mode & 0o111) !== 0) {
       return processSiblingCodex;
     }
   } catch {
@@ -674,7 +674,7 @@ export async function resolveCodexBinary(options: { nodeExecPath?: string } = {}
       // Verify it's executable before trusting it
       try {
         const stats = await stat(resolved);
-        if ((stats.mode & 0o111) !== 0) {
+        if (stats.isFile() && (stats.mode & 0o111) !== 0) {
           return resolved; // executable — use it
         }
         // Not executable — log and fall through to known-good candidates
@@ -706,7 +706,7 @@ export async function resolveCodexBinary(options: { nodeExecPath?: string } = {}
   for (const candidate of candidates) {
     try {
       const stats = await stat(candidate);
-      if ((stats.mode & 0o111) !== 0) {
+      if (stats.isFile() && (stats.mode & 0o111) !== 0) {
         return candidate;
       }
     } catch {
