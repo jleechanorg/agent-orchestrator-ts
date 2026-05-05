@@ -253,6 +253,39 @@ describe("runLocalSkepticCron", () => {
     expect(second).toBe(1);
   });
 
+  it("listOpenPRs failure remains retryable when observer recording throws", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    listOpenPRs
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce([makePR()]);
+    observer.recordOperation = vi.fn(() => {
+      throw new Error("observer bomb");
+    });
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const params = {
+      projectId: "proj",
+      project: makeProject(),
+      activeSessions: [],
+      correlationId: "c-list-fail-observer",
+    };
+
+    await expect(runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      params,
+    )).resolves.toBe(0);
+
+    const second = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      params,
+    );
+    expect(second).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+  });
+
   it("uses existing session when available instead of synthetic", async () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
     const pr = makePR({ number: 42 });

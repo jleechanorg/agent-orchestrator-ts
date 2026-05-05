@@ -157,15 +157,17 @@ export async function runLocalSkepticCron(
     try {
       openPRs = await scm.listOpenPRs(project);
     } catch (err) {
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "skeptic.cron.list_prs_failed",
-        outcome: "failure",
-        correlationId,
-        projectId,
-        data: { error: err instanceof Error ? err.message : String(err) },
-        level: "warn",
-      });
+      try {
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "skeptic.cron.list_prs_failed",
+          outcome: "failure",
+          correlationId,
+          projectId,
+          data: { error: err instanceof Error ? err.message : String(err) },
+          level: "warn",
+        });
+      } catch { /* observer throw must not poison retryable listOpenPRs failure path */ }
       // Do NOT set throttle on failure — allow retry on next poll cycle
       return 0;
     }
