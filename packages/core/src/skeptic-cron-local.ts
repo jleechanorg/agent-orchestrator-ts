@@ -77,7 +77,7 @@ const DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS = 3;
 
 function normalizeMaxConcurrentSkepticReviews(value: number | undefined): number {
   if (value === undefined) return DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS;
-  if (!Number.isFinite(value) || value <= 0) return DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS;
+  if (!Number.isFinite(value) || value < 0) return DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS;
   return Math.max(1, Math.trunc(value));
 }
 

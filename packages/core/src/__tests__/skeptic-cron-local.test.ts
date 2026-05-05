@@ -774,6 +774,7 @@ describe("runLocalSkepticCron", () => {
       }),
     );
 
+    // Explicitly pass 0 — normalizeMaxConcurrentSkepticReviews(0) returns Math.max(1, 0) = 1
     const result = await runLocalSkepticCron(
       { registry, sessionManager, observer },
       {
@@ -787,7 +788,7 @@ describe("runLocalSkepticCron", () => {
 
     expect(result).toBe(5);
     expect(mockRunSkepticReview).toHaveBeenCalledTimes(5);
-    expect(maxObserved).toBe(3);
+    expect(maxObserved).toBe(1);
   });
 
   it("falls back to default concurrency for non-finite and negative values", async () => {
