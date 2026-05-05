@@ -593,13 +593,22 @@ describe("runLocalSkepticCron", () => {
   // Bounded concurrency tests
   // -------------------------------------------------------------------------
 
-  it("runs 5 PRs concurrently with maxConcurrentSkepticReviews=3 — finishes faster than sequential", async () => {
+  it("runs 5 PRs with no more than maxConcurrentSkepticReviews=3 in flight", async () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
     const prs = [1, 2, 3, 4, 5].map(n => makePR({ number: n }));
     listOpenPRs.mockResolvedValue(prs);
-    // Each mock takes 30ms; sequential would be ~150ms, concurrent-3 ~60ms
+
+    let active = 0;
+    let maxObserved = 0;
     mockRunSkepticReview.mockImplementation(
-      () => new Promise(r => setTimeout(() => r({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult), 30)),
+      () => new Promise(resolve => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        setTimeout(() => {
+          active--;
+          resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+        }, 10);
+      }),
     );
 
     const params = {
@@ -610,22 +619,29 @@ describe("runLocalSkepticCron", () => {
       maxConcurrentSkepticReviews: 3,
     };
 
-    const start = Date.now();
     const result = await runLocalSkepticCron({ registry, sessionManager, observer }, params);
-    const elapsed = Date.now() - start;
 
     expect(result).toBe(5);
     expect(mockRunSkepticReview).toHaveBeenCalledTimes(5);
-    // Sequential (5 * 30ms) ≈ 150ms; with 3 workers (ceil(5/3) * 30) ≈ 60ms
-    expect(elapsed).toBeLessThan(90); // fails for sequential ~150ms, passes for concurrent ~60ms
+    expect(maxObserved).toBe(3);
   });
 
   it("defaults to max 3 concurrent when maxConcurrentSkepticReviews is omitted", async () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
     const prs = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => makePR({ number: n }));
     listOpenPRs.mockResolvedValue(prs);
+
+    let active = 0;
+    let maxObserved = 0;
     mockRunSkepticReview.mockImplementation(
-      () => new Promise(r => setTimeout(() => r({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult), 20)),
+      () => new Promise(resolve => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        setTimeout(() => {
+          active--;
+          resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+        }, 10);
+      }),
     );
 
     const params = {
@@ -636,14 +652,11 @@ describe("runLocalSkepticCron", () => {
       // no maxConcurrentSkepticReviews — defaults to 3
     };
 
-    const start = Date.now();
     const result = await runLocalSkepticCron({ registry, sessionManager, observer }, params);
-    const elapsed = Date.now() - start;
 
     expect(result).toBe(9);
     expect(mockRunSkepticReview).toHaveBeenCalledTimes(9);
-    // Sequential: 9 * 20ms ≈ 180ms. Concurrent-3: ceil(9/3) * 20ms ≈ 60ms
-    expect(elapsed).toBeLessThan(100);
+    expect(maxObserved).toBe(3);
   });
 
   it("one PR failure in a batch does not block remaining batches", async () => {
@@ -682,8 +695,17 @@ describe("runLocalSkepticCron", () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
     const prs = [1, 2, 3].map(n => makePR({ number: n }));
     listOpenPRs.mockResolvedValue(prs);
+    let active = 0;
+    let maxObserved = 0;
     mockRunSkepticReview.mockImplementation(
-      () => new Promise(r => setTimeout(() => r({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult), 20)),
+      () => new Promise(resolve => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        setTimeout(() => {
+          active--;
+          resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+        }, 10);
+      }),
     );
 
     const params = {
@@ -694,14 +716,11 @@ describe("runLocalSkepticCron", () => {
       maxConcurrentSkepticReviews: 1,
     };
 
-    const start = Date.now();
     const result = await runLocalSkepticCron({ registry, sessionManager, observer }, params);
-    const elapsed = Date.now() - start;
 
     expect(result).toBe(3);
     expect(mockRunSkepticReview).toHaveBeenCalledTimes(3);
-    // Sequential: 3 * 20ms ≈ 60ms; should be >= 50ms (not parallel)
-    expect(elapsed).toBeGreaterThanOrEqual(50);
+    expect(maxObserved).toBe(1);
   });
 
   it("clamps maxConcurrentSkepticReviews=0 to at least 1 — no infinite loop", async () => {
