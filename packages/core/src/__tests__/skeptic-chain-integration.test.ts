@@ -462,7 +462,6 @@ describe("skeptic chain integration", () => {
       const escapeRegexLiteral = (token: string): string =>
         token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const escapedSha = escapeRegexLiteral(triggerSha);
-      const escapedRequestId = escapeRegexLiteral(requestId);
       const hasEightPassingGates = (body: string): boolean => {
         for (let gate = 1; gate <= 8; gate += 1) {
           if (!new RegExp(`<!--\\s*skeptic-gate-${gate}\\s*:\\s*PASS\\s*-->`, "i").test(body)) {
@@ -480,7 +479,6 @@ describe("skeptic chain integration", () => {
         const verdictType = verdictMatch?.[1]?.toUpperCase();
         const timestampMatch = c.updatedAt >= triggerUpdated;
         const shaMatch = new RegExp(`<!--\\s*skeptic-gate-trigger-${escapedSha}\\s*-->`, "i").test(c.body);
-        const requestMatch = new RegExp(`<!--\\s*skeptic-request-id-${escapedRequestId}\\s*-->`, "i").test(c.body);
         const headMatch = new RegExp(`<!--\\s*skeptic-head-sha-${escapedSha}\\s*-->`, "i").test(c.body);
         return (
           // Correct: bot author is trusted even when == pr_author; gh-actions[bot] requires != pr_author
@@ -489,7 +487,6 @@ describe("skeptic chain integration", () => {
           Boolean(verdictType) &&
           timestampMatch &&
           shaMatch &&
-          requestMatch &&
           headMatch &&
           (verdictType !== "PASS" || hasEightPassingGates(c.body))
         );
@@ -497,10 +494,9 @@ describe("skeptic chain integration", () => {
       return matching.length > 0 ? matching[matching.length - 1] : null;
     }
 
-    function boundPassBody(requestId: string, sha: string): string {
+    function boundPassBody(sha: string): string {
       return [
         "<!-- skeptic-agent-verdict -->",
-        `<!-- skeptic-request-id-${requestId} -->`,
         `<!-- skeptic-head-sha-${sha} -->`,
         "<!-- skeptic-gate-1:PASS -->",
         "<!-- skeptic-gate-2:PASS -->",
@@ -565,7 +561,7 @@ describe("skeptic chain integration", () => {
         // Correct verdict — right author, right SHA, fresh timestamp
         {
           id: 102,
-          body: boundPassBody("req-chain", TRIGGER_SHA),
+          body: boundPassBody(TRIGGER_SHA),
           user: { login: "jleechan2015" },
           updatedAt: "2026-03-28T12:05:00Z",
         },
@@ -592,7 +588,7 @@ describe("skeptic chain integration", () => {
         },
       ];
 
-      const result = jqFilterMatch(comments, "jleechan2015", TRIGGER_SHA, TRIGGER_UPDATED, "req-chain");
+      const result = jqFilterMatch(comments, "jleechan2015", TRIGGER_SHA, TRIGGER_UPDATED);
 
       expect(result).not.toBeNull();
       expect(result!.id).toBe(102); // most recent matching = last in array
@@ -604,7 +600,7 @@ describe("skeptic chain integration", () => {
       const comments = [
         {
           id: 150,
-          body: boundPassBody("req-chain", TRIGGER_SHA),
+          body: boundPassBody(TRIGGER_SHA),
           user: { login: "jleechan2015" },
           updatedAt: "2026-03-28T12:05:00Z",
         },
@@ -615,7 +611,6 @@ describe("skeptic chain integration", () => {
         "jleechan2015",
         TRIGGER_SHA,
         TRIGGER_UPDATED,
-        "req-chain",
         "jleechan2015",
       );
 
@@ -624,32 +619,17 @@ describe("skeptic chain integration", () => {
       expect(result!.id).toBe(150);
     });
 
-    it("matches request ids literally when they contain regex metacharacters", () => {
-      const comments = [
-        {
-          id: 175,
-          body: boundPassBody("reqXchain", TRIGGER_SHA),
-          user: { login: "github-actions[bot]" },
-          updatedAt: "2026-03-28T12:05:00Z",
-        },
-      ];
-
-      const result = jqFilterMatch(comments, "github-actions[bot]", TRIGGER_SHA, TRIGGER_UPDATED, "req.chain");
-
-      expect(result).toBeNull();
-    });
-
     it("matches SKIPPED fallback comments so the gate can fail closed on the explicit verdict", () => {
       const comments = [
         {
           id: 200,
-          body: `<!-- skeptic-agent-verdict -->\n<!-- skeptic-request-id-req-chain -->\n<!-- skeptic-head-sha-${TRIGGER_SHA} -->\n<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->\n\n**VERDICT: SKIPPED**`,
+          body: `<!-- skeptic-agent-verdict -->\n<!-- skeptic-head-sha-${TRIGGER_SHA} -->\n<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->\n\n**VERDICT: SKIPPED**`,
           user: { login: "github-actions[bot]" },
           updatedAt: "2026-03-28T12:05:00Z",
         },
       ];
 
-      const result = jqFilterMatch(comments, "github-actions[bot]", TRIGGER_SHA, TRIGGER_UPDATED, "req-chain");
+      const result = jqFilterMatch(comments, "github-actions[bot]", TRIGGER_SHA, TRIGGER_UPDATED);
 
       expect(result).not.toBeNull();
       expect(result!.id).toBe(200);
@@ -730,7 +710,7 @@ describe("skeptic chain integration", () => {
         },
       ];
 
-      const result = jqFilterMatch(comments, "jleechan2015", TRIGGER_SHA, TRIGGER_UPDATED, "req-chain");
+      const result = jqFilterMatch(comments, "jleechan2015", TRIGGER_SHA, TRIGGER_UPDATED);
 
       expect(result).toBeNull();
     });
