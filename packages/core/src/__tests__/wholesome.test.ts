@@ -637,6 +637,15 @@ describe("wholesome — structural source-code assertions", () => {
       }
     });
 
+    it("gives skeptic gate polling more headroom than the verifier wrapper timeout", () => {
+      const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "skeptic-gate.yml"), "utf-8");
+
+      expect(workflow).toContain("timeout-minutes: 20");
+      expect(workflow).toContain("timeout-minutes: 16");
+      expect(workflow).toContain("MAX_ATTEMPTS=30  # 30 * 30s = 15 minutes");
+      expect(workflow).toContain("Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes");
+    });
+
     /**
      * SECURITY invariant: Every workflow job that runs on pull_request events
      * must use the fork-aware runner selection pattern. Without it, a fork PR

@@ -6,7 +6,7 @@ name: Skeptic Gate
 # This workflow runs after green-gate.yml via workflow_run and handles
 # the LLM evaluation polling:
 #   1. Post SKEPTIC_GATE_TRIGGER comment (lifecycle-worker picks it up → ao skeptic verify)
-#   2. Poll for VERDICT (up to 10 min)
+#   2. Poll for VERDICT (up to 15 min)
 #   3. Exit PASS / FAIL
 #
 # No API keys, no local execution — pure polling wrapper.
@@ -46,7 +46,7 @@ jobs:
   skeptic_gate:
     name: Skeptic Gate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       # ----------------------------------------------------------------
@@ -135,11 +135,11 @@ jobs:
           echo "trigger_updated=$TRIGGER_UPDATED" >> "$GITHUB_OUTPUT"
 
       # ----------------------------------------------------------------
-      # Step 2: Poll for VERDICT (up to 10 min)
+      # Step 2: Poll for VERDICT (up to 15 min)
       # ----------------------------------------------------------------
       - name: Poll for skeptic VERDICT
         id: poll_verdict
-        timeout-minutes: 10
+        timeout-minutes: 16
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ steps.resolve.outputs.pr_num }}
@@ -166,7 +166,7 @@ jobs:
           fi
 
           INTERVAL=30
-          MAX_ATTEMPTS=20  # 20 * 30s = 10 minutes
+          MAX_ATTEMPTS=30  # 30 * 30s = 15 minutes
 
           echo "Polling for VERDICT on PR #$PR_NUM (commit ${HEAD_SHA:0:7})..."
           echo "Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes"
