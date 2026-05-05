@@ -367,21 +367,22 @@ describe("llmEval — default (codex primary)", () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
     enoent.code = "ENOENT";
+    // Chain: codex → claude (1 codex + 4-5 claude candidates). All return ENOENT.
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw enoent; // codex
+        throw enoent; // codex → isUnavailable=true → continue
       })
       .mockImplementationOnce(() => {
-        throw enoent; // 1st claude candidate
+        throw enoent; // 1st claude candidate → isUnavailable=true → continue
       })
       .mockImplementationOnce(() => {
-        throw enoent; // last claude candidate
+        throw enoent; // 2nd claude candidate → isUnavailable=true → continue
       })
       .mockImplementationOnce(() => {
-        throw enoent; // gemini (3rd model in chain)
+        throw enoent; // 3rd claude candidate → isUnavailable=true → continue
       })
       .mockImplementationOnce(() => {
-        throw enoent; // cursor (4th model in chain, hits default ENOENT mock)
+        throw enoent; // 4th claude candidate → isUnavailable=true → continue
       });
     const result = await llmEval("evaluate this");
     // All unavailable → FAIL (fail-closed; infra unavailability blocks merge)
