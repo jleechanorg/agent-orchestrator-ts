@@ -50,6 +50,144 @@ path_for_launchd() {
   fi
 }
 
+escape_ere() {
+  printf '%s' "$1" | sed 's/[][().*^$+?{}|\\]/\\&/g'
+}
+
+resolve_path() {
+  python3 - "$1" <<'PY' 2>/dev/null || printf '%s\n' "$1"
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]))
+PY
+}
+
+command_matches_ao_worker() {
+  local cmd="$1"
+  local ao_bin="$2"
+  local escaped_project="$3"
+  local ao_real
+  local ao_bin_alt
+  local ao_real_alt
+
+  ao_real="$(resolve_path "$ao_bin")"
+  ao_bin_alt="${ao_bin#/private}"
+  ao_real_alt="${ao_real#/private}"
+  [[ "$cmd" =~ lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$) ]] || return 1
+  [[ "$cmd" == *"$ao_bin"* || "$cmd" == *"$ao_bin_alt"* || "$cmd" == *"$ao_real"* || "$cmd" == *"$ao_real_alt"* ]]
+}
+
+configured_lifecycle_projects() {
+  local config_file="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
+  if [ ! -f "$config_file" ]; then
+    return 0
+  fi
+
+  python3 - "$config_file" <<'PY'
+import sys
+try:
+    import yaml
+except ImportError as exc:
+    print(f"ERROR: PyYAML is required to parse lifecycle projects: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+try:
+    with open(sys.argv[1]) as f:
+        cfg = yaml.safe_load(f) or {}
+except yaml.YAMLError as exc:
+    print(f"ERROR: Failed to parse lifecycle project config: {exc}", file=sys.stderr)
+    sys.exit(1)
+except Exception as exc:
+    print(f"ERROR: Failed to read lifecycle project config: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+if not isinstance(cfg, dict):
+    print("ERROR: Lifecycle project config must be a mapping at the top level", file=sys.stderr)
+    sys.exit(1)
+
+projects = cfg.get("projects", {})
+if isinstance(projects, dict):
+    for project_id in projects:
+        print(project_id)
+PY
+}
+
+kill_stale_lifecycle_workers_for_config() {
+  local ao_bin
+  ao_bin="$(command -v ao 2>/dev/null || true)"
+  if [ -z "$ao_bin" ]; then
+    echo "Skipping stale lifecycle-worker cleanup: ao binary not found on PATH"
+    return 0
+  fi
+
+  local projects
+  if ! projects="$(configured_lifecycle_projects 2>&1)"; then
+    echo "WARNING: Failed to parse lifecycle projects from config; skipping stale lifecycle-worker cleanup"
+    echo "$projects"
+    return 0
+  fi
+  if [ -z "$projects" ]; then
+    echo "Skipping stale lifecycle-worker cleanup: no configured projects found"
+    return 0
+  fi
+
+  local project escaped_project pids pid cmd terminated_pids remaining_pids killed_any
+  killed_any=0
+  while IFS= read -r project; do
+    [ -n "$project" ] || continue
+    escaped_project="$(escape_ere "$project")"
+    pids="$(pgrep -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" 2>/dev/null || true)"
+    [ -n "$pids" ] || continue
+
+    terminated_pids=""
+    for pid in $pids; do
+      cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+      [ -n "$cmd" ] || continue
+      if ! command_matches_ao_worker "$cmd" "$ao_bin" "$escaped_project"; then
+        echo "Skipping lifecycle-worker pid=$pid for $project (different ao path): $cmd"
+        continue
+      fi
+      # Log matched PID+cmd before killing for audit trail
+      echo "  Killing stale lifecycle-worker pid=$pid: $cmd"
+      if kill "$pid" 2>/dev/null; then
+        killed_any=1
+        terminated_pids="$terminated_pids $pid"
+      fi
+    done
+
+    [ -n "$terminated_pids" ] || continue
+
+    # Bounded wait: only watch PIDs already scoped to this ao binary/project.
+    remaining_pids=""
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      remaining_pids=""
+      for pid in $terminated_pids; do
+        cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+        if command_matches_ao_worker "$cmd" "$ao_bin" "$escaped_project"; then
+          remaining_pids="$remaining_pids $pid"
+        fi
+      done
+      [ -n "$remaining_pids" ] || break
+      sleep 1
+    done
+
+    if [ -n "$remaining_pids" ]; then
+      echo "  Escalating to SIGKILL for remaining PIDs: $remaining_pids"
+      for pid in $remaining_pids; do
+        cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+        if command_matches_ao_worker "$cmd" "$ao_bin" "$escaped_project"; then
+          kill -9 "$pid" 2>/dev/null || true
+        fi
+      done
+    fi
+  done <<< "$projects"
+
+  if [ "$killed_any" -eq 1 ]; then
+    echo "Confirmed stale lifecycle-worker shutdown before launchd restart"
+  fi
+}
+
 install_lifecycle_plist() {
   local template="$TEMPLATE_DIR/ai.agento.lifecycle-all.plist.template"
   local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.lifecycle-all.plist"
@@ -102,9 +240,17 @@ install_lifecycle_plist() {
   install -m 600 "$tmp_plist" "$plist_path"
   rm -f "$tmp_plist"
 
+  # Kill only lifecycle-workers for the configured projects and this install's
+  # ao binary so launchd restarts them with the new plist env.
+  kill_stale_lifecycle_workers_for_config
+
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$(id -u)" "$plist_path"
   launchctl enable "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+  # kickstart restarts the job immediately so new env takes effect without waiting
+  # for the next StartInterval (5 min). Workers killed above will be respawned by
+  # launchd with the fresh plist env; start-all.sh's skip-healthy logic won't
+  # trigger since the workers are freshly launched.
   launchctl kickstart -k "gui/$(id -u)/$label"
 
   # Post-install verification: confirm env vars propagated from shell profile
@@ -222,6 +368,10 @@ install_watchdog_plist() {
 
   echo "Installed launchd: $plist_path"
 }
+
+if [ "${AO_SETUP_LAUNCHD_SOURCE_ONLY:-0}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 case "$action_script" in
   all)

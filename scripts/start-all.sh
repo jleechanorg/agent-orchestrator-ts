@@ -4,6 +4,7 @@
 # All selected projects: direct lifecycle-worker startup when AO_START_DASHBOARD!=1
 #
 # Idempotent: skips lifecycle-workers that are already running per project.
+# Set AO_START_REPLACE_EXISTING=1 for an explicit stop/restart cycle.
 # Pre-flight: validates YAML parses cleanly before attempting to start anything.
 set -euo pipefail
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -108,6 +109,7 @@ SELECTED="${@:-$PROJECTS}"
 LOG_DIR="${AO_LOG_DIR:-${HOME}/.openclaw/logs}"
 mkdir -p "$LOG_DIR"
 START_DASHBOARD="${AO_START_DASHBOARD:-0}"
+REPLACE_EXISTING="${AO_START_REPLACE_EXISTING:-0}"
 
 # Match both direct "ao lifecycle-worker <project>" and node-wrapper command lines.
 is_lifecycle_worker_running() {
@@ -143,24 +145,29 @@ for PROJECT in $SELECTED; do
     echo "=== Starting $PROJECT lifecycle-worker (async) ==="
     # In no-dashboard mode, launch workers directly for every project.
     # Avoid ao start --no-dashboard keepalive wrappers that can mask missing workers.
-    # Kill any existing workers for this project FIRST — regardless of binary path.
-    # This prevents duplicate workers from racing between launchd and manual startup paths.
-    # The idempotency check (is_lifecycle_worker_running) alone is not sufficient because
-    # two different startup invocations (launchd + manual/dashboard) can race past it
-    # simultaneously, each spawning a worker from a different ao binary.
-    project_escaped="$(printf '%s' "$PROJECT" | sed 's/[][().*^$+?{}|\\]/\\&/g')"
-    existing_pids=$(pgrep -f "lifecycle-worker[[:space:]].*${project_escaped}([[:space:]]|$)" 2>/dev/null || true)
-    if [ -n "$existing_pids" ]; then
-      echo "  killing existing lifecycle-worker(s) for $PROJECT before starting fresh (pids: $existing_pids)"
-      for pid in $existing_pids; do
-        kill "$pid" 2>/dev/null || true
-      done
-      sleep 2
+    if [ "$REPLACE_EXISTING" != "1" ] && is_lifecycle_worker_running "$PROJECT"; then
+      echo "  lifecycle-worker already running for $PROJECT — skipping (set AO_START_REPLACE_EXISTING=1 to restart)"
+    else
+      # Replace only when explicitly requested. launchd runs this script on an
+      # interval; killing healthy workers by default interrupts in-flight skeptic
+      # reviews and leaves their child verifier processes orphaned.
+      #
+      # Explicit replacement still kills regardless of binary path so setup/doctor
+      # flows can converge on the canonical AO binary.
+      project_escaped="$(printf '%s' "$PROJECT" | sed 's/[][().*^$+?{}|\\]/\\&/g')"
+      existing_pids=$(pgrep -f "lifecycle-worker[[:space:]].*${project_escaped}([[:space:]]|$)" 2>/dev/null || true)
+      if [ "$REPLACE_EXISTING" = "1" ] && [ -n "$existing_pids" ]; then
+        echo "  killing existing lifecycle-worker(s) for $PROJECT before starting fresh (pids: $existing_pids)"
+        for pid in $existing_pids; do
+          kill "$pid" 2>/dev/null || true
+        done
+        sleep 2
+      fi
+      nohup "$AO_CLI" lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
+      START_PID=$!
+      disown || true
+      echo "  launched lifecycle-worker for $PROJECT (pid=$START_PID, log=$LOG_DIR/ao-lifecycle-${PROJECT}.log)"
     fi
-    nohup "$AO_CLI" lifecycle-worker "$PROJECT" > "$LOG_DIR/ao-lifecycle-${PROJECT}.log" 2>&1 &
-    START_PID=$!
-    disown || true
-    echo "  launched lifecycle-worker for $PROJECT (pid=$START_PID, log=$LOG_DIR/ao-lifecycle-${PROJECT}.log)"
   fi
   FIRST=false
   echo ""

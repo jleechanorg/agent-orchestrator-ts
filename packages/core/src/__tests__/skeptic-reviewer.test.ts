@@ -182,13 +182,13 @@ describe("runSkepticReview", () => {
     );
   });
 
-  it("allows nested ao skeptic verify to run for ten minutes", async () => {
+  it("allows nested ao skeptic verify to run for fifteen minutes", async () => {
     const session = makeSession();
     await runSkepticReview(session);
     expect(execFileMock).toHaveBeenCalledWith(
       "ao",
       expect.arrayContaining(["skeptic", "verify"]),
-      expect.objectContaining({ timeout: 600_000 }),
+      expect.objectContaining({ timeout: 900_000 }),
     );
   });
 

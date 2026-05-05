@@ -424,7 +424,7 @@ describe("WebSocket terminal connection", () => {
     await waitForWsData(ws);
 
     // JSON that doesn't match resize format should pass through as terminal input
-    ws.send(JSON.stringify({ type: "not-resize", data: "hello" }));
+    ws.send(`${JSON.stringify({ type: "not-resize", data: "hello" })}\n`);
 
     // Should not crash — the JSON string is written to the terminal
     const marker = `JSON_PASSTHROUGH_${Date.now()}`;
@@ -440,9 +440,9 @@ describe("WebSocket terminal connection", () => {
     await waitForWsData(ws);
 
     // Resize with missing cols — should be treated as terminal input
-    ws.send(JSON.stringify({ type: "resize", rows: 40 }));
+    ws.send(`${JSON.stringify({ type: "resize", rows: 40 })}\n`);
     // Resize with missing rows
-    ws.send(JSON.stringify({ type: "resize", cols: 120 }));
+    ws.send(`${JSON.stringify({ type: "resize", cols: 120 })}\n`);
 
     // Should still work
     const marker = `INCOMPLETE_RESIZE_${Date.now()}`;
@@ -458,7 +458,7 @@ describe("WebSocket terminal connection", () => {
     await waitForWsData(ws);
 
     // Looks like it might be JSON but isn't
-    ws.send("{not json at all");
+    ws.send("{not json at all\n");
 
     // Should not crash — treated as terminal input
     const marker = `BADJSON_${Date.now()}`;
