@@ -421,36 +421,73 @@ describe("llmEval — explicit model=claude", () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
     enoent.code = "ENOENT";
-    // Rotation: ["claude","gemini","cursor","codex"]
-    // Only claude(1st) and codex(4th) call execFileSync; gemini+cursor skip
-    // Queue: Call1→claude(ENOENT), Call2→codex(PASS); 1+3 skips consume no slots
+    // Rotation: ["claude","codex"] (gemini/cursor not in supported chain)
+    // Call1→claude(ENOENT→try next), Call2→codex(PASS)
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw enoent; // claude (infra error)
+        throw enoent; // claude unavailable
       })
-      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds (4th in rotation)
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toBe(PASS_VERDICT);
-    // codex was invoked (proved by execFileSync call count)
     expect(mockExecFileSync).toHaveBeenCalledTimes(2); // claude + codex
   });
 
-  it("returns FAIL when claude has infra error", async () => {
+  it("returns FAIL when claude and codex are both unavailable", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const etimeout = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
-    etimeout.code = "ETIMEDOUT";
-    // Rotation: ["claude","gemini","cursor","codex"]
-    // Only claude and codex call execFileSync; gemini+cursor return infra errors (no call)
-    // Call 1: claude → ETIMEDOUT (infra error); Call 2: codex → default ENOENT fallback
-    // Chain exhausted → FAIL
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    // Rotation: ["claude","codex"] (gemini/cursor not in supported chain)
+    // Call1→claude(ENOENT→try next), Call2→codex(ENOENT→try next), chain exhausted → FAIL
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw etimeout; // claude (infra error)
+        throw enoent; // claude unavailable
       });
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("All LLM tools exhausted");
-    expect(mockResolveCodexBinary).toHaveBeenCalled(); // codex IS tried after claude exhaustion
+    expect(mockResolveCodexBinary).toHaveBeenCalled(); // codex is tried after claude
     expect(mockExecFileSync).toHaveBeenCalledTimes(2); // claude + codex
+  });
+});
+
+describe("llmEval — explicit model=cursor (maps to codex)", () => {
+  it("tries codex first when model=cursor is specified (cursor not in supported chain)", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue(FAIL_VERDICT);
+    const result = await llmEval("evaluate this", { model: "cursor" });
+    expect(result).toBe(FAIL_VERDICT);
+    expect(mockResolveCodexBinary).toHaveBeenCalled();
+    // Only codex is tried (cursor maps to codex in the rotation)
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to claude when codex is unavailable with model=cursor", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    // Rotation: cursor→codex→claude; codex unavailable, claude succeeds
+    mockExecFileSync
+      .mockImplementationOnce(() => {
+        throw enoent; // codex unavailable
+      })
+      .mockReturnValueOnce(PASS_VERDICT); // claude succeeds
+    const result = await llmEval("evaluate this", { model: "cursor" });
+    expect(result).toBe(PASS_VERDICT);
+    expect(mockResolveCodexBinary).toHaveBeenCalled();
+    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // codex + claude
+  });
+
+  it("exhausted-chain output does not mention cursor", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    // Both codex and claude unavailable → chain exhausted
+    mockExecFileSync.mockImplementation(() => {
+      throw enoent;
+    });
+    const result = await llmEval("evaluate this", { model: "cursor" });
+    expect(result).toContain("VERDICT: FAIL");
+    expect(result).not.toContain("cursor");
   });
 });
