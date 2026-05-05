@@ -1217,6 +1217,23 @@ describe("resolveCodexBinary", () => {
     expect(mockExecFileAsync).not.toHaveBeenCalled();
   });
 
+  it("falls through to `which` when node-sibling codex is not executable", async () => {
+    // A file exists next to the node binary but has no executable bit.
+    const nodeExecPath = "/mock/node22/bin/node";
+    const nodeSiblingCodex = join(dirname(nodeExecPath), "codex");
+    mockExecFileAsync.mockResolvedValue({ stdout: "/opt/homebrew/bin/codex\n", stderr: "" });
+    mockStat.mockImplementation((p: string) => {
+      if (p === nodeSiblingCodex) return Promise.resolve({ mode: 0o100644 }); // not executable
+      if (p === "/opt/homebrew/bin/codex") return Promise.resolve({ mode: 0o100755 });
+      return Promise.reject(new Error("ENOENT"));
+    });
+
+    const result = await resolveCodexBinary({ nodeExecPath });
+
+    expect(result).toBe("/opt/homebrew/bin/codex");
+    expect(mockExecFileAsync).toHaveBeenCalledWith("which", ["codex"], { timeout: 10_000 });
+  });
+
   it("returns path from `which` when codex is found and executable", async () => {
     mockExecFileAsync.mockResolvedValue({ stdout: "/usr/local/bin/codex\n", stderr: "" });
     mockStatExecutable("/usr/local/bin/codex");
