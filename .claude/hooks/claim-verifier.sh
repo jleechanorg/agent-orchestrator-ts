@@ -64,15 +64,26 @@ if ! echo "$CMD" | grep -qE '^[[:space:]]*gh[[:space:]]+pr[[:space:]]+(create|ed
 fi
 
 # ---------------------------------------------------------------------------
-# Extract PR body — gh pr create uses --body flag or stdin
+# Extract PR body — gh pr create uses --body flag, --body-file, or stdin
 # ---------------------------------------------------------------------------
 
 BODY="${BODY:-}"
 
-# Try --body flag first (single-quoted body)
-MATCH=$(echo "$CMD" | grep -oE -- '\-\-body[[:space:]]+'"'"'[^'"'"']*'"'"'([^[:space:]]+)?' 2>/dev/null || true)
-if [ -n "$MATCH" ]; then
-  BODY=$(echo "$MATCH" | sed "s/--body[[:space:]]*'"'"'//; s/'"'"'$//" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+# Try --body-file first (reads body from a file — strip the path to get body content)
+BODY_FILE_ARG=$(echo "$CMD" | grep -oE -- '--body-file[[:space:]]+[^[:space:]]+' 2>/dev/null | sed 's/--body-file[[:space:]]*//' || true)
+if [ -n "$BODY_FILE_ARG" ]; then
+  BODY_FILE=$(eval echo "$BODY_FILE_ARG" 2>/dev/null || echo "$BODY_FILE_ARG")
+  if [ -f "$BODY_FILE" ]; then
+    BODY=$(cat "$BODY_FILE" 2>/dev/null || true)
+  fi
+fi
+
+# Try --body flag (single-quoted body)
+if [ -z "$BODY" ]; then
+  MATCH=$(echo "$CMD" | grep -oE -- '\-\-body[[:space:]]+'"'"'[^'"'"']*'"'"'([^[:space:]]+)?' 2>/dev/null || true)
+  if [ -n "$MATCH" ]; then
+    BODY=$(echo "$MATCH" | sed "s/--body[[:space:]]*'"'"'//; s/'"'"'$//" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+  fi
 fi
 
 # Fallback: try double-quoted body
