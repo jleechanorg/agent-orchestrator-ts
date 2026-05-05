@@ -1,3 +1,8 @@
+---
+name: technique-router
+description: Classifies GitHub issues/PRs into PR-type categories and recommends autor techniques. Used by packages/core/src/decomposer.ts.
+---
+
 # technique-router — ZFC-Compliant PR Type Classification Skill
 
 ## Purpose
