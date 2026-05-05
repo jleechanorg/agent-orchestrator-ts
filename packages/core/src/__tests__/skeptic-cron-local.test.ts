@@ -729,6 +729,79 @@ describe("runLocalSkepticCron", () => {
     expect(mockRunSkepticReview).toHaveBeenCalledTimes(3);
   });
 
+  it("falls back to default concurrency for non-finite and negative values", async () => {
+    for (const configured of [Number.NaN, Number.POSITIVE_INFINITY, -2]) {
+      _resetSkepticCronTimer();
+      mockRunSkepticReview.mockReset();
+
+      const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+      const prs = [1, 2, 3, 4, 5].map(n => makePR({ number: n }));
+      listOpenPRs.mockResolvedValue(prs);
+
+      let active = 0;
+      let maxObserved = 0;
+      mockRunSkepticReview.mockImplementation(
+        () => new Promise(resolve => {
+          active++;
+          maxObserved = Math.max(maxObserved, active);
+          setTimeout(() => {
+            active--;
+            resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+          }, 10);
+        }),
+      );
+
+      const result = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        {
+          projectId: "proj",
+          project: makeProject(),
+          activeSessions: [],
+          correlationId: `c-${String(configured)}`,
+          maxConcurrentSkepticReviews: configured,
+        },
+      );
+
+      expect(result).toBe(5);
+      expect(mockRunSkepticReview).toHaveBeenCalledTimes(5);
+      expect(maxObserved).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("truncates fractional maxConcurrentSkepticReviews before batching", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const prs = [1, 2, 3, 4, 5].map(n => makePR({ number: n }));
+    listOpenPRs.mockResolvedValue(prs);
+
+    let active = 0;
+    let maxObserved = 0;
+    mockRunSkepticReview.mockImplementation(
+      () => new Promise(resolve => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        setTimeout(() => {
+          active--;
+          resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+        }, 10);
+      }),
+    );
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-fractional",
+        maxConcurrentSkepticReviews: 2.9,
+      },
+    );
+
+    expect(result).toBe(5);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(5);
+    expect(maxObserved).toBe(2);
+  });
+
   it("Promise.allSettled: observer throw in one PR does not cancel rest of batch", async () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
     const prs = [1, 2, 3].map(n => makePR({ number: n }));

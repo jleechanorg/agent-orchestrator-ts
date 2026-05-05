@@ -73,6 +73,13 @@ class BoundedMap<K, V> extends Map<K, V> {
 const MAX_SKEPTIC_DEDUP_ENTRIES = 10_000;
 const lastEvaluatedShaByPR = new BoundedMap<string, string>(MAX_SKEPTIC_DEDUP_ENTRIES);
 const SKEPTIC_CRON_INTERVAL_MS = 10 * 60_000; // 10 minutes
+const DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS = 3;
+
+function normalizeMaxConcurrentSkepticReviews(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS;
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS;
+  return Math.max(1, Math.trunc(value));
+}
 
 /** Reset throttle + pending state — exposed for testing only. */
 export function _resetSkepticCronTimer(): void {
@@ -179,8 +186,7 @@ export async function runLocalSkepticCron(
   }
 
   let evaluated = 0;
-  // Clamp: reject 0/negative so the batch loop never infinite-loops.
-  const maxConcurrent = Math.max(1, params.maxConcurrentSkepticReviews ?? 3);
+  const maxConcurrent = normalizeMaxConcurrentSkepticReviews(params.maxConcurrentSkepticReviews);
 
   /**
    * Evaluate a single PR — all error handling, observer recording, and SHA
