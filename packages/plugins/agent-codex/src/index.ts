@@ -653,8 +653,8 @@ async function streamCodexSessionData(filePath: string): Promise<CodexSessionDat
  * Checks (in order): codex beside the running node executable, which, common fallback locations.
  * Returns "codex" as final fallback (let the shell resolve it at runtime).
  */
-export async function resolveCodexBinary(): Promise<string> {
-  const processSiblingCodex = join(dirname(process.execPath), "codex");
+export async function resolveCodexBinary(options: { nodeExecPath?: string } = {}): Promise<string> {
+  const processSiblingCodex = join(dirname(options.nodeExecPath ?? process.execPath), "codex");
   try {
     const stats = await stat(processSiblingCodex);
     if ((stats.mode & 0o111) !== 0) {
