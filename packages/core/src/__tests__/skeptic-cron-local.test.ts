@@ -253,6 +253,39 @@ describe("runLocalSkepticCron", () => {
     expect(second).toBe(1);
   });
 
+  it("listOpenPRs failure remains retryable when observer recording throws", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    listOpenPRs
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce([makePR()]);
+    observer.recordOperation = vi.fn(() => {
+      throw new Error("observer bomb");
+    });
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const params = {
+      projectId: "proj",
+      project: makeProject(),
+      activeSessions: [],
+      correlationId: "c-list-fail-observer",
+    };
+
+    await expect(runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      params,
+    )).resolves.toBe(0);
+
+    const second = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      params,
+    );
+    expect(second).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+  });
+
   it("uses existing session when available instead of synthetic", async () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
     const pr = makePR({ number: 42 });
@@ -587,6 +620,310 @@ describe("runLocalSkepticCron", () => {
     expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
     expect(_getLastEvaluatedSha("proj-b", 10)).toBe("sha-abc123");
     expect(_getLastEvaluatedSha("proj-a", 10)).toBe("sha-abc123"); // also stored for proj-a
+  });
+
+  // -------------------------------------------------------------------------
+  // Bounded concurrency tests
+  // -------------------------------------------------------------------------
+
+  it("runs 5 PRs with no more than maxConcurrentSkepticReviews=3 in flight", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const prs = [1, 2, 3, 4, 5].map(n => makePR({ number: n }));
+    listOpenPRs.mockResolvedValue(prs);
+
+    let active = 0;
+    let maxObserved = 0;
+    mockRunSkepticReview.mockImplementation(
+      () => new Promise(resolve => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        setTimeout(() => {
+          active--;
+          resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+        }, 10);
+      }),
+    );
+
+    const params = {
+      projectId: "proj",
+      project: makeProject(),
+      activeSessions: [],
+      correlationId: "c-concurrency",
+      maxConcurrentSkepticReviews: 3,
+    };
+
+    const result = await runLocalSkepticCron({ registry, sessionManager, observer }, params);
+
+    expect(result).toBe(5);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(5);
+    expect(maxObserved).toBe(3);
+  });
+
+  it("defaults to max 3 concurrent when maxConcurrentSkepticReviews is omitted", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const prs = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => makePR({ number: n }));
+    listOpenPRs.mockResolvedValue(prs);
+
+    let active = 0;
+    let maxObserved = 0;
+    mockRunSkepticReview.mockImplementation(
+      () => new Promise(resolve => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        setTimeout(() => {
+          active--;
+          resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+        }, 10);
+      }),
+    );
+
+    const params = {
+      projectId: "proj",
+      project: makeProject(),
+      activeSessions: [],
+      correlationId: "c-default",
+      // no maxConcurrentSkepticReviews — defaults to 3
+    };
+
+    const result = await runLocalSkepticCron({ registry, sessionManager, observer }, params);
+
+    expect(result).toBe(9);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(9);
+    expect(maxObserved).toBe(3);
+  });
+
+  it("one PR failure in a batch does not block remaining batches", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const prs = [1, 2, 3, 4, 5, 6].map(n => makePR({ number: n }));
+    listOpenPRs.mockResolvedValue(prs);
+    // pr1 fails, rest succeed; with concurrency-3, prs 4-6 are in a second batch
+    let callCount = 0;
+    mockRunSkepticReview.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return new Promise((_, r) => setTimeout(() => r(new Error("LLM timeout")), 10));
+      }
+      return new Promise(res => setTimeout(() => res({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult), 10));
+    });
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-batch-fail",
+        maxConcurrentSkepticReviews: 3,
+      },
+    );
+
+    expect(result).toBe(5); // 1 failed, 5 succeeded
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(6);
+    expect(observer.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "skeptic.cron.pr_failed" }),
+    );
+  });
+
+  it("custom concurrency limit of 1 is respected — sequential behavior", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const prs = [1, 2, 3].map(n => makePR({ number: n }));
+    listOpenPRs.mockResolvedValue(prs);
+    let active = 0;
+    let maxObserved = 0;
+    mockRunSkepticReview.mockImplementation(
+      () => new Promise(resolve => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        setTimeout(() => {
+          active--;
+          resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+        }, 10);
+      }),
+    );
+
+    const params = {
+      projectId: "proj",
+      project: makeProject(),
+      activeSessions: [],
+      correlationId: "c-seq",
+      maxConcurrentSkepticReviews: 1,
+    };
+
+    const result = await runLocalSkepticCron({ registry, sessionManager, observer }, params);
+
+    expect(result).toBe(3);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(3);
+    expect(maxObserved).toBe(1);
+  });
+
+  it("clamps maxConcurrentSkepticReviews=0 to concurrency 1", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const prs = [1, 2, 3, 4, 5].map(n => makePR({ number: n }));
+    listOpenPRs.mockResolvedValue(prs);
+
+    let active = 0;
+    let maxObserved = 0;
+    mockRunSkepticReview.mockImplementation(
+      () => new Promise(resolve => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        setTimeout(() => {
+          active--;
+          resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+        }, 10);
+      }),
+    );
+
+    // Explicitly pass 0 — normalizeMaxConcurrentSkepticReviews(0) returns Math.max(1, 0) = 1
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-zero",
+        maxConcurrentSkepticReviews: 0,
+      },
+    );
+
+    expect(result).toBe(5);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(5);
+    expect(maxObserved).toBe(1);
+  });
+
+  it("falls back to default concurrency for non-finite and negative values", async () => {
+    for (const configured of [Number.NaN, Number.POSITIVE_INFINITY, -2]) {
+      _resetSkepticCronTimer();
+      mockRunSkepticReview.mockReset();
+
+      const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+      const prs = [1, 2, 3, 4, 5].map(n => makePR({ number: n }));
+      listOpenPRs.mockResolvedValue(prs);
+
+      let active = 0;
+      let maxObserved = 0;
+      mockRunSkepticReview.mockImplementation(
+        () => new Promise(resolve => {
+          active++;
+          maxObserved = Math.max(maxObserved, active);
+          setTimeout(() => {
+            active--;
+            resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+          }, 10);
+        }),
+      );
+
+      const result = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        {
+          projectId: "proj",
+          project: makeProject(),
+          activeSessions: [],
+          correlationId: `c-${String(configured)}`,
+          maxConcurrentSkepticReviews: configured,
+        },
+      );
+
+      expect(result).toBe(5);
+      expect(mockRunSkepticReview).toHaveBeenCalledTimes(5);
+      expect(maxObserved).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("truncates fractional maxConcurrentSkepticReviews before batching", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const prs = [1, 2, 3, 4, 5].map(n => makePR({ number: n }));
+    listOpenPRs.mockResolvedValue(prs);
+
+    let active = 0;
+    let maxObserved = 0;
+    mockRunSkepticReview.mockImplementation(
+      () => new Promise(resolve => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        setTimeout(() => {
+          active--;
+          resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+        }, 10);
+      }),
+    );
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-fractional",
+        maxConcurrentSkepticReviews: 2.9,
+      },
+    );
+
+    expect(result).toBe(5);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(5);
+    expect(maxObserved).toBe(2);
+  });
+
+  it("observer throw in one PR does not cancel rest of batch", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const prs = [1, 2, 3].map(n => makePR({ number: n }));
+    listOpenPRs.mockResolvedValue(prs);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "codex",
+    } as SkepticReviewResult);
+
+    // Only the first observer call throws; the PR still runs because telemetry
+    // failures must not change skeptic evaluation results.
+    let observerCalls = 0;
+    observer.recordOperation = vi.fn(() => {
+      if (observerCalls === 0) { observerCalls++; throw new Error("observer bomb"); }
+      observerCalls++;
+    });
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-settled",
+        maxConcurrentSkepticReviews: 3,
+      },
+    );
+
+    expect(result).toBe(3);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(3);
+  });
+
+  it("caches head SHA when post-review observer recording throws", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 10 })]);
+    getPRHeadSha.mockResolvedValue("sha-observer-throws");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "codex",
+    } as SkepticReviewResult);
+
+    observer.recordOperation = vi.fn(operation => {
+      if (operation.operation === "skeptic.cron.evaluated") {
+        throw new Error("observer bomb");
+      }
+    });
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-observer-cache",
+      },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(_getLastEvaluatedSha("proj", 10)).toBe("sha-observer-throws");
   });
 
   // -------------------------------------------------------------------------

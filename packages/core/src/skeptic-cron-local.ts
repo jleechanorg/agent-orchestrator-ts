@@ -37,6 +37,8 @@ export interface SkepticCronParams {
   project: ProjectConfig;
   activeSessions: Session[];
   correlationId: string;
+  /** Max parallel `ao skeptic verify` calls per project. Defaults to 3. */
+  maxConcurrentSkepticReviews?: number;
 }
 
 // Per-project throttle state — keyed by projectId so multi-project configs
@@ -71,6 +73,13 @@ class BoundedMap<K, V> extends Map<K, V> {
 const MAX_SKEPTIC_DEDUP_ENTRIES = 10_000;
 const lastEvaluatedShaByPR = new BoundedMap<string, string>(MAX_SKEPTIC_DEDUP_ENTRIES);
 const SKEPTIC_CRON_INTERVAL_MS = 10 * 60_000; // 10 minutes
+const DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS = 3;
+
+function normalizeMaxConcurrentSkepticReviews(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS;
+  if (!Number.isFinite(value) || value < 0) return DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS;
+  return Math.max(1, Math.trunc(value));
+}
 
 /** Reset throttle + pending state — exposed for testing only. */
 export function _resetSkepticCronTimer(): void {
@@ -118,7 +127,8 @@ function createSyntheticSession(
  * Run skeptic evaluation for all open PRs that need it.
  *
  * Throttled to run at most once per SKEPTIC_CRON_INTERVAL_MS.
- * Evaluations run sequentially to avoid overwhelming the system.
+ * Evaluations run in bounded batches (default max 3 concurrent) per project
+ * to avoid overwhelming the LLM provider while still parallelizing across PRs.
  *
  * @returns Number of PRs evaluated
  */
@@ -147,15 +157,17 @@ export async function runLocalSkepticCron(
     try {
       openPRs = await scm.listOpenPRs(project);
     } catch (err) {
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "skeptic.cron.list_prs_failed",
-        outcome: "failure",
-        correlationId,
-        projectId,
-        data: { error: err instanceof Error ? err.message : String(err) },
-        level: "warn",
-      });
+      try {
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "skeptic.cron.list_prs_failed",
+          outcome: "failure",
+          correlationId,
+          projectId,
+          data: { error: err instanceof Error ? err.message : String(err) },
+          level: "warn",
+        });
+      } catch { /* observer throw must not poison retryable listOpenPRs failure path */ }
       // Do NOT set throttle on failure — allow retry on next poll cycle
       return 0;
     }
@@ -176,13 +188,17 @@ export async function runLocalSkepticCron(
   }
 
   let evaluated = 0;
+  const maxConcurrent = normalizeMaxConcurrentSkepticReviews(params.maxConcurrentSkepticReviews);
 
-  for (const pr of openPRs) {
-    if (pr.isDraft) continue;
-
+  /**
+   * Evaluate a single PR — all error handling, observer recording, and SHA
+   * caching are contained here so the batched Promise.all below stays clean.
+   */
+  const evaluateOnePR = async (pr: PRInfo): Promise<boolean> => {
     // Use existing session if available, otherwise synthetic
-    const session = sessionByPR.get(`${projectId}:${pr.number}`)
-      ?? createSyntheticSession(pr, projectId, project.path ?? null);
+    const session =
+      sessionByPR.get(`${projectId}:${pr.number}`) ??
+      createSyntheticSession(pr, projectId, project.path ?? null);
 
     const cacheKey = `${projectId}:${pr.number}`;
     let headSha: string | undefined;
@@ -192,69 +208,34 @@ export async function runLocalSkepticCron(
       // getPRHeadSha unavailable or threw — fail open, evaluate normally
     }
     if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "skeptic.cron.sha_dedup_skip",
-        outcome: "success",
-        correlationId,
-        projectId,
-        data: { prNumber: pr.number, headSha },
-        level: "info",
-      });
-      continue;
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_dedup_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
+      return false;
     }
 
     try {
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "skeptic.cron.evaluating",
-        outcome: "success",
-        correlationId,
-        projectId,
-        data: { prNumber: pr.number, hasSession: sessionByPR.has(`${projectId}:${pr.number}`) },
-        level: "info",
-      });
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluating", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, hasSession: sessionByPR.has(`${projectId}:${pr.number}`) }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
 
-      const result = await runSkepticReview(session, {
-        // Default model; runSkepticReview → ao skeptic verify handles fallback chain
-        postComment: true,
-      });
+      const result = await runSkepticReview(session, { postComment: true });
 
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "skeptic.cron.evaluated",
-        outcome: result.verdict === "PASS" ? "success" : "failure",
-        correlationId,
-        projectId,
-        data: {
-          prNumber: pr.number,
-          verdict: result.verdict,
-          modelUsed: result.modelUsed,
-        },
-        level: result.verdict === "FAIL" ? "warn" : "info",
-      });
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluated", outcome: result.verdict === "PASS" ? "success" : "failure", correlationId, projectId, data: { prNumber: pr.number, verdict: result.verdict, modelUsed: result.modelUsed }, level: result.verdict === "FAIL" ? "warn" : "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
 
-      // Cache the SHA so the same HEAD is not re-evaluated unless the SHA changes
-      // or a new cycle bypasses the project-level throttle. FAIL verdicts are also
-      // cached — only uncaught throws skip caching (allowing retry on next cycle).
       if (headSha) lastEvaluatedShaByPR.set(cacheKey, headSha);
-
-      evaluated++;
+      return true;
     } catch (err) {
-      // One PR failure must not block all other PRs
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "skeptic.cron.pr_failed",
-        outcome: "failure",
-        correlationId,
-        projectId,
-        data: {
-          prNumber: pr.number,
-          error: err instanceof Error ? err.message : String(err),
-        },
-        level: "warn",
-      });
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.pr_failed", outcome: "failure", correlationId, projectId, data: { prNumber: pr.number, error: err instanceof Error ? err.message : String(err) }, level: "warn" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
+      return false;
     }
+  };
+
+  // Collect eligible PRs (non-draft) in a single pass before running
+  const eligiblePRs = openPRs.filter(pr => !pr.isDraft);
+
+  // Run in bounded batches; Promise.allSettled so one observer throw
+  // or rejection does not cancel the rest of the batch.
+  for (let i = 0; i < eligiblePRs.length; i += maxConcurrent) {
+    const batch = eligiblePRs.slice(i, i + maxConcurrent);
+    const settled = await Promise.allSettled(batch.map(evaluateOnePR));
+    evaluated += settled.filter(r => r.status === "fulfilled" && r.value === true).length;
   }
 
   if (evaluated > 0) {
