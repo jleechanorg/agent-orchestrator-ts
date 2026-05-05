@@ -102,9 +102,19 @@ install_lifecycle_plist() {
   install -m 600 "$tmp_plist" "$plist_path"
   rm -f "$tmp_plist"
 
+  # Kill any stale lifecycle-workers so launchd restarts fresh ones with the
+  # new plist's env (e.g., rotated secrets, updated PATH). Without this, existing
+  # workers keep running with stale state even after a new plist is installed.
+  # Pgrep -a shows the matching command lines for audit.
+  pkill -f "lifecycle-worker[[:space:]]" 2>/dev/null || true
+
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$(id -u)" "$plist_path"
   launchctl enable "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+  # kickstart restarts the job immediately so new env takes effect without waiting
+  # for the next StartInterval (5 min). Workers killed above will be respawned by
+  # launchd with the fresh plist env; start-all.sh's skip-healthy logic won't
+  # trigger since the workers are freshly launched.
   launchctl kickstart -k "gui/$(id -u)/$label"
 
   # Post-install verification: confirm env vars propagated from shell profile
