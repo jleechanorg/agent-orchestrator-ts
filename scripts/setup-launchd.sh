@@ -78,6 +78,10 @@ except Exception as exc:
     print(f"ERROR: Failed to read lifecycle project config: {exc}", file=sys.stderr)
     sys.exit(1)
 
+if not isinstance(cfg, dict):
+    print("ERROR: Lifecycle project config must be a mapping at the top level", file=sys.stderr)
+    sys.exit(1)
+
 projects = cfg.get("projects", {})
 if isinstance(projects, dict):
     for project_id in projects:
@@ -121,16 +125,22 @@ kill_stale_lifecycle_workers_for_config() {
       fi
       # Log matched PID+cmd before killing for audit trail
       echo "  Killing stale lifecycle-worker pid=$pid: $cmd"
-      kill "$pid" 2>/dev/null || true
-      killed_any=1
+      if kill "$pid" 2>/dev/null; then
+        killed_any=1
+        for _ in 1 2 3 4 5; do
+          kill -0 "$pid" 2>/dev/null || break
+          sleep 1
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+          echo "WARNING: lifecycle-worker pid=$pid did not exit after SIGTERM"
+          return 1
+        fi
+      fi
     done
-    if [ -n "$pids" ]; then
-      echo "  Matched PIDs for $project: $(pgrep -a -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" 2>/dev/null || echo "(none remaining)")"
-    fi
   done <<< "$projects"
 
   if [ "$killed_any" -eq 1 ]; then
-    sleep 2
+    echo "Confirmed stale lifecycle-worker shutdown before launchd restart"
   fi
 }
 

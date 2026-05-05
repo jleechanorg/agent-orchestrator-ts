@@ -110,6 +110,9 @@ describe("scripts/start-all.sh", () => {
     expect(aoWasCalled).toBe(false);
   });
 
+  // TDD Red-phase (fc29232c0): pre-fix pgrep stub had no PID output → for/pid loop
+  // iterates 0× → no kill → nohup never fires → aoLog never created → aoWasCalled
+  // stays false → "expect(aoWasCalled).toBe(true)" FAILS. Fix: echo a large fake PID.
   it("replaces an already-running lifecycle-worker when AO_START_REPLACE_EXISTING=1", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-start-all-replace-"));
     const explicitConfig = join(tempRoot, "explicit-config.yaml");
@@ -118,7 +121,7 @@ describe("scripts/start-all.sh", () => {
 
     const binDir = join(tempRoot, "bin");
     mkdirSync(binDir, { recursive: true });
-    // Output a PID so the replacement kill loop has something to iterate over.
+    // Large out-of-range PID prevents kill "$pid" from targeting a real process.
     createFakeBinary(binDir, "pgrep", "echo 999999999; exit 0");
     createFakeBinary(binDir, "ao", `echo "$@" >> "${aoLog}"`);
 
