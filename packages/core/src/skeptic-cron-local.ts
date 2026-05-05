@@ -37,6 +37,8 @@ export interface SkepticCronParams {
   project: ProjectConfig;
   activeSessions: Session[];
   correlationId: string;
+  /** Max parallel `ao skeptic verify` calls per project. Defaults to 3. */
+  maxConcurrentSkepticReviews?: number;
 }
 
 // Per-project throttle state — keyed by projectId so multi-project configs
@@ -118,7 +120,8 @@ function createSyntheticSession(
  * Run skeptic evaluation for all open PRs that need it.
  *
  * Throttled to run at most once per SKEPTIC_CRON_INTERVAL_MS.
- * Evaluations run sequentially to avoid overwhelming the system.
+ * Evaluations run in bounded batches (default max 3 concurrent) per project
+ * to avoid overwhelming the LLM provider while still parallelizing across PRs.
  *
  * @returns Number of PRs evaluated
  */
@@ -176,13 +179,17 @@ export async function runLocalSkepticCron(
   }
 
   let evaluated = 0;
+  const maxConcurrent = params.maxConcurrentSkepticReviews ?? 3;
 
-  for (const pr of openPRs) {
-    if (pr.isDraft) continue;
-
+  /**
+   * Evaluate a single PR — all error handling, observer recording, and SHA
+   * caching are contained here so the batched Promise.all below stays clean.
+   */
+  const evaluateOnePR = async (pr: PRInfo): Promise<boolean> => {
     // Use existing session if available, otherwise synthetic
-    const session = sessionByPR.get(`${projectId}:${pr.number}`)
-      ?? createSyntheticSession(pr, projectId, project.path ?? null);
+    const session =
+      sessionByPR.get(`${projectId}:${pr.number}`) ??
+      createSyntheticSession(pr, projectId, project.path ?? null);
 
     const cacheKey = `${projectId}:${pr.number}`;
     let headSha: string | undefined;
@@ -201,7 +208,7 @@ export async function runLocalSkepticCron(
         data: { prNumber: pr.number, headSha },
         level: "info",
       });
-      continue;
+      return false;
     }
 
     try {
@@ -216,7 +223,6 @@ export async function runLocalSkepticCron(
       });
 
       const result = await runSkepticReview(session, {
-        // Default model; runSkepticReview → ao skeptic verify handles fallback chain
         postComment: true,
       });
 
@@ -234,14 +240,9 @@ export async function runLocalSkepticCron(
         level: result.verdict === "FAIL" ? "warn" : "info",
       });
 
-      // Cache the SHA so the same HEAD is not re-evaluated unless the SHA changes
-      // or a new cycle bypasses the project-level throttle. FAIL verdicts are also
-      // cached — only uncaught throws skip caching (allowing retry on next cycle).
       if (headSha) lastEvaluatedShaByPR.set(cacheKey, headSha);
-
-      evaluated++;
+      return true;
     } catch (err) {
-      // One PR failure must not block all other PRs
       observer.recordOperation({
         metric: "lifecycle_poll",
         operation: "skeptic.cron.pr_failed",
@@ -254,7 +255,18 @@ export async function runLocalSkepticCron(
         },
         level: "warn",
       });
+      return false;
     }
+  };
+
+  // Collect eligible PRs (non-draft) in a single pass before running
+  const eligiblePRs = openPRs.filter(pr => !pr.isDraft);
+
+  // Run in bounded batches to avoid overwhelming the system
+  for (let i = 0; i < eligiblePRs.length; i += maxConcurrent) {
+    const batch = eligiblePRs.slice(i, i + maxConcurrent);
+    const results = await Promise.all(batch.map(evaluateOnePR));
+    evaluated += results.filter(Boolean).length;
   }
 
   if (evaluated > 0) {
