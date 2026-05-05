@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -66,6 +66,38 @@ describe("scripts/start-all.sh", () => {
     expect(result.status, result.stderr || result.stdout).toBe(0);
     expect(result.stderr).not.toContain("staging config must be a real file");
     expect(result.stdout).toContain(`Config OK: ${explicitConfig}`);
+  });
+
+  it("does not restart an already-running lifecycle-worker by default", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-start-all-idempotent-"));
+    const explicitConfig = join(tempRoot, "explicit-config.yaml");
+    const aoLog = join(tempRoot, "ao-called.log");
+    createConfig(explicitConfig);
+
+    const binDir = join(tempRoot, "bin");
+    mkdirSync(binDir, { recursive: true });
+    createFakeBinary(binDir, "pgrep", "exit 0");
+    createFakeBinary(binDir, "ao", `echo "$@" >> "${aoLog}"`);
+
+    const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
+    const testBinDir = `${binDir}${pythonBinDir ? `:${pythonBinDir}` : ""}`;
+    const result = spawnSync("bash", [scriptPath], {
+      env: {
+        ...process.env,
+        PATH: `${testBinDir}:/usr/bin:/bin`,
+        AO_CONFIG_PATH: explicitConfig,
+        AO_MAIN_REPO: join(tempRoot, "missing-main-repo"),
+        AO_START_ALL_LOCKDIR: join(tempRoot, "ao-start-all.lock"),
+      },
+      encoding: "utf8",
+    });
+
+    const aoWasCalled = existsSync(aoLog);
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    expect(result.stdout).toContain("lifecycle-worker already running for script-test");
+    expect(aoWasCalled).toBe(false);
   });
 
   it("fails fast on broken managed topology when auto-discovering config", () => {

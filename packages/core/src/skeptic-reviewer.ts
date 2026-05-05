@@ -56,9 +56,10 @@ export interface SkepticReviewResult {
 /** Ordered fallback chain for skeptic LLM evaluation (bd-skp3). */
 const FALLBACK_CHAIN: Array<"codex" | "claude" | "gemini" | "cursor"> = ["codex", "claude", "gemini", "cursor"];
 
-// The nested skeptic CLI can spend up to 5 minutes in LLM eval before posting.
-// Keep this wrapper comfortably above that so slow reviews still emit verdicts.
-const SKEPTIC_VERIFY_TIMEOUT_MS = 10 * 60_000;
+// The nested skeptic CLI can spend up to 5 minutes per headless evaluator before
+// posting. Keep this wrapper above two-tool fallback time so slow reviews still
+// emit verdicts before the GitHub polling wrapper expires.
+const SKEPTIC_VERIFY_TIMEOUT_MS = 15 * 60_000;
 
 /**
  * Determine whether a CLI error is an infrastructure failure (ENOBUFS, spawn errors)
