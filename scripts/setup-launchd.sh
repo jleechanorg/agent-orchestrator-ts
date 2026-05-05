@@ -108,7 +108,7 @@ kill_stale_lifecycle_workers_for_config() {
     return 0
   fi
 
-  local project escaped_project pids pid cmd killed_any
+  local project escaped_project pids pid cmd terminated_pids remaining_pids killed_any
   killed_any=0
   while IFS= read -r project; do
     [ -n "$project" ] || continue
@@ -116,6 +116,7 @@ kill_stale_lifecycle_workers_for_config() {
     pids="$(pgrep -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" 2>/dev/null || true)"
     [ -n "$pids" ] || continue
 
+    terminated_pids=""
     for pid in $pids; do
       cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
       [ -n "$cmd" ] || continue
@@ -125,24 +126,37 @@ kill_stale_lifecycle_workers_for_config() {
       fi
       # Log matched PID+cmd before killing for audit trail
       echo "  Killing stale lifecycle-worker pid=$pid: $cmd"
-      kill "$pid" 2>/dev/null || true
-      killed_any=1
+      if kill "$pid" 2>/dev/null; then
+        killed_any=1
+        terminated_pids="$terminated_pids $pid"
+      fi
     done
 
-    # Bounded wait: poll until PIDs are gone (up to 10s), then escalate to SIGKILL.
-    local remaining_pids=""
+    [ -n "$terminated_pids" ] || continue
+
+    # Bounded wait: only watch PIDs already scoped to this ao binary/project.
+    remaining_pids=""
     for _ in 1 2 3 4 5 6 7 8 9 10; do
-      remaining_pids="$(pgrep -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" 2>/dev/null || true)"
+      remaining_pids=""
+      for pid in $terminated_pids; do
+        cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+        if [[ "$cmd" == *"$ao_bin"* ]] && [[ "$cmd" =~ lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$) ]]; then
+          remaining_pids="$remaining_pids $pid"
+        fi
+      done
       [ -n "$remaining_pids" ] || break
       sleep 1
     done
+
     if [ -n "$remaining_pids" ]; then
       echo "  Escalating to SIGKILL for remaining PIDs: $remaining_pids"
       for pid in $remaining_pids; do
-        kill -9 "$pid" 2>/dev/null || true
+        cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+        if [[ "$cmd" == *"$ao_bin"* ]] && [[ "$cmd" =~ lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$) ]]; then
+          kill -9 "$pid" 2>/dev/null || true
+        fi
       done
     fi
-    echo "  Matched PIDs for $project: $(pgrep -a -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" 2>/dev/null || echo "(none remaining)")"
   done <<< "$projects"
 
   if [ "$killed_any" -eq 1 ]; then
