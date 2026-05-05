@@ -54,6 +54,30 @@ escape_ere() {
   printf '%s' "$1" | sed 's/[][().*^$+?{}|\\]/\\&/g'
 }
 
+resolve_path() {
+  python3 - "$1" <<'PY' 2>/dev/null || printf '%s\n' "$1"
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]))
+PY
+}
+
+command_matches_ao_worker() {
+  local cmd="$1"
+  local ao_bin="$2"
+  local escaped_project="$3"
+  local ao_real
+  local ao_bin_alt
+  local ao_real_alt
+
+  ao_real="$(resolve_path "$ao_bin")"
+  ao_bin_alt="${ao_bin#/private}"
+  ao_real_alt="${ao_real#/private}"
+  [[ "$cmd" =~ lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$) ]] || return 1
+  [[ "$cmd" == *"$ao_bin"* || "$cmd" == *"$ao_bin_alt"* || "$cmd" == *"$ao_real"* || "$cmd" == *"$ao_real_alt"* ]]
+}
+
 configured_lifecycle_projects() {
   local config_file="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
   if [ ! -f "$config_file" ]; then
@@ -120,7 +144,7 @@ kill_stale_lifecycle_workers_for_config() {
     for pid in $pids; do
       cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
       [ -n "$cmd" ] || continue
-      if [[ "$cmd" != *"$ao_bin"* ]]; then
+      if ! command_matches_ao_worker "$cmd" "$ao_bin" "$escaped_project"; then
         echo "Skipping lifecycle-worker pid=$pid for $project (different ao path): $cmd"
         continue
       fi
@@ -140,7 +164,7 @@ kill_stale_lifecycle_workers_for_config() {
       remaining_pids=""
       for pid in $terminated_pids; do
         cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-        if [[ "$cmd" == *"$ao_bin"* ]] && [[ "$cmd" =~ lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$) ]]; then
+        if command_matches_ao_worker "$cmd" "$ao_bin" "$escaped_project"; then
           remaining_pids="$remaining_pids $pid"
         fi
       done
@@ -152,7 +176,7 @@ kill_stale_lifecycle_workers_for_config() {
       echo "  Escalating to SIGKILL for remaining PIDs: $remaining_pids"
       for pid in $remaining_pids; do
         cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-        if [[ "$cmd" == *"$ao_bin"* ]] && [[ "$cmd" =~ lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$) ]]; then
+        if command_matches_ao_worker "$cmd" "$ao_bin" "$escaped_project"; then
           kill -9 "$pid" 2>/dev/null || true
         fi
       done
@@ -344,6 +368,10 @@ install_watchdog_plist() {
 
   echo "Installed launchd: $plist_path"
 }
+
+if [ "${AO_SETUP_LAUNCHD_SOURCE_ONLY:-0}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 case "$action_script" in
   all)

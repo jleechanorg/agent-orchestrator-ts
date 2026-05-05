@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const scriptPath = join(repoRoot, "scripts", "start-all.sh");
+const setupLaunchdScriptPath = join(repoRoot, "scripts", "setup-launchd.sh");
 
 function writeExecutable(path: string, content: string): void {
   writeFileSync(path, content);
@@ -175,5 +176,39 @@ describe("scripts/start-all.sh", () => {
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("staging config must be a real file");
+  });
+
+  it("matches launchd lifecycle-workers that run through the resolved ao target", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-setup-launchd-match-"));
+    const realBinDir = join(tempRoot, "real-bin");
+    const shimBinDir = join(tempRoot, "shim-bin");
+    mkdirSync(realBinDir, { recursive: true });
+    mkdirSync(shimBinDir, { recursive: true });
+    const realAo = join(realBinDir, "ao");
+    const shimAo = join(shimBinDir, "ao");
+    writeExecutable(realAo, "#!/bin/bash\nexit 0\n");
+    symlinkSync(realAo, shimAo);
+
+    const command = [
+      "set -euo pipefail",
+      "export AO_SETUP_LAUNCHD_SOURCE_ONLY=1",
+      `source ${JSON.stringify(setupLaunchdScriptPath)}`,
+      'escaped_project="$(escape_ere worldarchitect)"',
+      `command_matches_ao_worker ${JSON.stringify(`node ${realAo} lifecycle-worker worldarchitect`)} ${JSON.stringify(shimAo)} "$escaped_project"`,
+      `if command_matches_ao_worker ${JSON.stringify(`node ${join(tempRoot, "other", "ao")} lifecycle-worker worldarchitect`)} ${JSON.stringify(shimAo)} "$escaped_project"; then exit 42; fi`,
+    ].join("\n");
+
+    const result = spawnSync("bash", ["-lc", command], {
+      env: {
+        ...process.env,
+        PATH: `${shimBinDir}:/usr/bin:/bin`,
+        HOME: tempRoot,
+      },
+      encoding: "utf8",
+    });
+
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    expect(result.status, result.stderr || result.stdout).toBe(0);
   });
 });
