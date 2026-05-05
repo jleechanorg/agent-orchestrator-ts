@@ -125,18 +125,24 @@ kill_stale_lifecycle_workers_for_config() {
       fi
       # Log matched PID+cmd before killing for audit trail
       echo "  Killing stale lifecycle-worker pid=$pid: $cmd"
-      if kill "$pid" 2>/dev/null; then
-        killed_any=1
-        for _ in 1 2 3 4 5; do
-          kill -0 "$pid" 2>/dev/null || break
-          sleep 1
-        done
-        if kill -0 "$pid" 2>/dev/null; then
-          echo "WARNING: lifecycle-worker pid=$pid did not exit after SIGTERM"
-          return 1
-        fi
-      fi
+      kill "$pid" 2>/dev/null || true
+      killed_any=1
     done
+
+    # Bounded wait: poll until PIDs are gone (up to 10s), then escalate to SIGKILL.
+    local remaining_pids=""
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      remaining_pids="$(pgrep -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" 2>/dev/null || true)"
+      [ -n "$remaining_pids" ] || break
+      sleep 1
+    done
+    if [ -n "$remaining_pids" ]; then
+      echo "  Escalating to SIGKILL for remaining PIDs: $remaining_pids"
+      for pid in $remaining_pids; do
+        kill -9 "$pid" 2>/dev/null || true
+      done
+    fi
+    echo "  Matched PIDs for $project: $(pgrep -a -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" 2>/dev/null || echo "(none remaining)")"
   done <<< "$projects"
 
   if [ "$killed_any" -eq 1 ]; then
