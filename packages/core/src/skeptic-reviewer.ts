@@ -56,6 +56,10 @@ export interface SkepticReviewResult {
 /** Ordered fallback chain for skeptic LLM evaluation (bd-skp3). */
 const FALLBACK_CHAIN: Array<"codex" | "claude" | "gemini" | "cursor"> = ["codex", "claude", "gemini", "cursor"];
 
+// The nested skeptic CLI can spend up to 5 minutes in LLM eval before posting.
+// Keep this wrapper comfortably above that so slow reviews still emit verdicts.
+const SKEPTIC_VERIFY_TIMEOUT_MS = 10 * 60_000;
+
 /**
  * Determine whether a CLI error is an infrastructure failure (ENOBUFS, spawn errors)
  * that warrants fallback to the next model, vs. a legitimate verdict-bearing exit.
@@ -151,7 +155,7 @@ async function tryModel(
   let output: string;
   try {
     const execResult = await execFileAsync(aoBinary, args, {
-      timeout: 120_000,
+      timeout: SKEPTIC_VERIFY_TIMEOUT_MS,
       cwd: session.workspacePath ?? process.env["AO_REPO_ROOT"] ?? process.cwd(),
     });
     output = execResult.stdout + (execResult.stderr || "");
