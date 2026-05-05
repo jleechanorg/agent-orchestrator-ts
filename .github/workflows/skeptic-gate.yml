@@ -47,7 +47,12 @@ jobs:
     name: Skeptic Gate
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Skip for agent-orchestrator: lifecycle-worker only runs skeptic for worldarchitect.
+    # Running skeptic-gate here would always timeout since no verdict will be posted.
+    # The always-comment policy is enforced by the claim-verifier PreToolUse hook instead.
+    if: >
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+      && github.repository != 'jleechanorg/agent-orchestrator'
     steps:
       # ----------------------------------------------------------------
       # Extract PR context from workflow_run event
