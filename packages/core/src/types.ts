@@ -537,6 +537,12 @@ export interface Workspace {
   /** List existing workspaces for a project */
   list(projectId: string): Promise<WorkspaceInfo[]>;
 
+  /**
+   * Optional: find a pre-existing AO-managed workspace that already tracks the
+   * requested branch and can be adopted instead of creating a fresh workspace.
+   */
+  findManagedWorkspace?(config: WorkspaceCreateConfig): Promise<WorkspaceInfo | null>;
+
   /** Optional: run hooks after workspace creation (symlinks, installs, etc.) */
   postCreate?(info: WorkspaceInfo, project: ProjectConfig): Promise<void>;
 

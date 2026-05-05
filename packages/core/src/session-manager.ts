@@ -46,6 +46,7 @@ import {
   type Runtime,
   type Agent,
   type Workspace,
+  type WorkspaceCreateConfig,
   type Tracker,
   type SCM,
   type PluginRegistry,
@@ -1645,6 +1646,43 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         await plugins.agent.setupWorkspaceHooks(project.path, { dataDir: sessionsDir });
       } catch {
         // Non-fatal: consistent with pre-launch hook setup in spawn()
+      }
+    }
+
+    const workspaceConfig = {
+      projectId: orchestratorConfig.projectId,
+      project,
+      sessionId,
+      branch,
+      worktreeDir: getProjectWorktreesDir(orchestratorConfig.projectId),
+    } satisfies WorkspaceCreateConfig;
+
+    let workspacePath: string;
+    let adoptedManagedWorkspace = false;
+    try {
+      const adoptedInfo = await plugins.workspace.findManagedWorkspace?.(workspaceConfig);
+      const wsInfo = adoptedInfo ?? (await plugins.workspace.create(workspaceConfig));
+      workspacePath = wsInfo.path;
+      adoptedManagedWorkspace = adoptedInfo !== undefined && adoptedInfo !== null;
+    } catch (err) {
+      try {
+        deleteMetadata(sessionsDir, sessionId);
+      } catch {
+        /* best effort */
+      }
+      throw err;
+    }
+
+    // Helper: undo worktree + metadata if anything between workspace creation
+    // and a fully-written metadata record fails.
+    const cleanupWorktreeAndMetadata = async (promptFile?: string): Promise<void> => {
+      if (!adoptedManagedWorkspace) {
+        try {
+          await plugins.workspace!.destroy(workspacePath);
+        } catch {
+          /* best effort */
+        }
+      }
       }
     }
 
