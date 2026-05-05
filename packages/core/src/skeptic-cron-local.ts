@@ -179,7 +179,8 @@ export async function runLocalSkepticCron(
   }
 
   let evaluated = 0;
-  const maxConcurrent = params.maxConcurrentSkepticReviews ?? 3;
+  // Clamp: reject 0/negative so the batch loop never infinite-loops.
+  const maxConcurrent = Math.max(1, params.maxConcurrentSkepticReviews ?? 3);
 
   /**
    * Evaluate a single PR — all error handling, observer recording, and SHA

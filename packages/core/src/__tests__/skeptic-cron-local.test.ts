@@ -704,6 +704,31 @@ describe("runLocalSkepticCron", () => {
     expect(elapsed).toBeGreaterThanOrEqual(50);
   });
 
+  it("clamps maxConcurrentSkepticReviews=0 to at least 1 — no infinite loop", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const prs = [1, 2, 3].map(n => makePR({ number: n }));
+    listOpenPRs.mockResolvedValue(prs);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "codex",
+    } as SkepticReviewResult);
+
+    // Explicitly pass 0 — Math.max(1, 0) = 1, so no infinite loop
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-zero",
+        maxConcurrentSkepticReviews: 0,
+      },
+    );
+
+    expect(result).toBe(3);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(3);
+  });
+
   // -------------------------------------------------------------------------
   // Original tests
   // -------------------------------------------------------------------------
