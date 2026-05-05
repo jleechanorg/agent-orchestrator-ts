@@ -46,7 +46,7 @@ jobs:
   skeptic_gate:
     name: Skeptic Gate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       # ----------------------------------------------------------------
@@ -139,7 +139,7 @@ jobs:
       # ----------------------------------------------------------------
       - name: Poll for skeptic VERDICT
         id: poll_verdict
-        timeout-minutes: 16
+        timeout-minutes: 20
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ steps.resolve.outputs.pr_num }}
