@@ -729,6 +729,42 @@ describe("runLocalSkepticCron", () => {
     expect(mockRunSkepticReview).toHaveBeenCalledTimes(3);
   });
 
+  it("Promise.allSettled: observer throw in one PR does not cancel rest of batch", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const prs = [1, 2, 3].map(n => makePR({ number: n }));
+    listOpenPRs.mockResolvedValue(prs);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "codex",
+    } as SkepticReviewResult);
+
+    // Only the first observer call throws — caught by try/catch, returns false,
+    // but Promise.allSettled means PRs 2 and 3 still run to completion.
+    let observerCalls = 0;
+    observer.recordOperation = vi.fn(() => {
+      if (observerCalls === 0) { observerCalls++; throw new Error("observer bomb"); }
+      observerCalls++;
+    });
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-settled",
+        maxConcurrentSkepticReviews: 3,
+      },
+    );
+
+    // PR 1: first observer call throws → caught, returns false.
+    // PRs 2 & 3: no throw, succeed, counted. Total = 2.
+    expect(result).toBe(2);
+    // With Promise.allSettled, a single observer throw in PR 1 does not
+    // cancel PRs 2 and 3 — they still reach runSkepticReview.
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(2);
+  });
+
   // -------------------------------------------------------------------------
   // Original tests
   // -------------------------------------------------------------------------

@@ -200,62 +200,21 @@ export async function runLocalSkepticCron(
       // getPRHeadSha unavailable or threw — fail open, evaluate normally
     }
     if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "skeptic.cron.sha_dedup_skip",
-        outcome: "success",
-        correlationId,
-        projectId,
-        data: { prNumber: pr.number, headSha },
-        level: "info",
-      });
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_dedup_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
       return false;
     }
 
     try {
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "skeptic.cron.evaluating",
-        outcome: "success",
-        correlationId,
-        projectId,
-        data: { prNumber: pr.number, hasSession: sessionByPR.has(`${projectId}:${pr.number}`) },
-        level: "info",
-      });
+      observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluating", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, hasSession: sessionByPR.has(`${projectId}:${pr.number}`) }, level: "info" });
 
-      const result = await runSkepticReview(session, {
-        postComment: true,
-      });
+      const result = await runSkepticReview(session, { postComment: true });
 
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "skeptic.cron.evaluated",
-        outcome: result.verdict === "PASS" ? "success" : "failure",
-        correlationId,
-        projectId,
-        data: {
-          prNumber: pr.number,
-          verdict: result.verdict,
-          modelUsed: result.modelUsed,
-        },
-        level: result.verdict === "FAIL" ? "warn" : "info",
-      });
+      observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluated", outcome: result.verdict === "PASS" ? "success" : "failure", correlationId, projectId, data: { prNumber: pr.number, verdict: result.verdict, modelUsed: result.modelUsed }, level: result.verdict === "FAIL" ? "warn" : "info" });
 
       if (headSha) lastEvaluatedShaByPR.set(cacheKey, headSha);
       return true;
     } catch (err) {
-      observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "skeptic.cron.pr_failed",
-        outcome: "failure",
-        correlationId,
-        projectId,
-        data: {
-          prNumber: pr.number,
-          error: err instanceof Error ? err.message : String(err),
-        },
-        level: "warn",
-      });
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.pr_failed", outcome: "failure", correlationId, projectId, data: { prNumber: pr.number, error: err instanceof Error ? err.message : String(err) }, level: "warn" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
       return false;
     }
   };
@@ -263,11 +222,12 @@ export async function runLocalSkepticCron(
   // Collect eligible PRs (non-draft) in a single pass before running
   const eligiblePRs = openPRs.filter(pr => !pr.isDraft);
 
-  // Run in bounded batches to avoid overwhelming the system
+  // Run in bounded batches; Promise.allSettled so one observer throw
+  // or rejection does not cancel the rest of the batch.
   for (let i = 0; i < eligiblePRs.length; i += maxConcurrent) {
     const batch = eligiblePRs.slice(i, i + maxConcurrent);
-    const results = await Promise.all(batch.map(evaluateOnePR));
-    evaluated += results.filter(Boolean).length;
+    const settled = await Promise.allSettled(batch.map(evaluateOnePR));
+    evaluated += settled.filter(r => r.status === "fulfilled" && r.value === true).length;
   }
 
   if (evaluated > 0) {
