@@ -69,6 +69,7 @@ vi.mock("@jleechanorg/ao-plugin-agent-base", () => ({
 }));
 
 import { Readable } from "node:stream";
+import { dirname, join } from "node:path";
 import { create, manifest, default as defaultExport, resolveCodexBinary, _resetSessionFileCache } from "./index.js";
 
 // ---------------------------------------------------------------------------
@@ -1194,6 +1195,21 @@ describe("resolveCodexBinary", () => {
       return Promise.reject(new Error("ENOENT"));
     });
   }
+
+  it("prefers codex next to the running node executable over PATH", async () => {
+    const nodeSiblingCodex = join(dirname(process.execPath), "codex");
+    mockExecFileAsync.mockResolvedValue({ stdout: "/opt/homebrew/bin/codex\n", stderr: "" });
+    mockStat.mockImplementation((p: string) => {
+      if (p === nodeSiblingCodex) return Promise.resolve({ mode: 0o100755 });
+      if (p === "/opt/homebrew/bin/codex") return Promise.resolve({ mode: 0o100755 });
+      return Promise.reject(new Error("ENOENT"));
+    });
+
+    const result = await resolveCodexBinary();
+
+    expect(result).toBe(nodeSiblingCodex);
+    expect(mockExecFileAsync).not.toHaveBeenCalled();
+  });
 
   it("returns path from `which` when codex is found and executable", async () => {
     mockExecFileAsync.mockResolvedValue({ stdout: "/usr/local/bin/codex\n", stderr: "" });

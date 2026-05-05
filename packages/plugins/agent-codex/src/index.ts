@@ -18,7 +18,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { writeFile, mkdir, readFile, readdir, rename, stat, lstat, open } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
@@ -650,11 +650,21 @@ async function streamCodexSessionData(filePath: string): Promise<CodexSessionDat
 
 /**
  * Resolve the Codex CLI binary path.
- * Checks (in order): which, common fallback locations.
+ * Checks (in order): codex beside the running node executable, which, common fallback locations.
  * Returns "codex" as final fallback (let the shell resolve it at runtime).
  */
 export async function resolveCodexBinary(): Promise<string> {
-  // 1. Try `which codex` — but verify it's actually executable.
+  const processSiblingCodex = join(dirname(process.execPath), "codex");
+  try {
+    const stats = await stat(processSiblingCodex);
+    if ((stats.mode & 0o111) !== 0) {
+      return processSiblingCodex;
+    }
+  } catch {
+    // Not found beside the running node executable — fall through.
+  }
+
+  // 2. Try `which codex` — but verify it's actually executable.
   //    On GHA Ubuntu with Node toolcache, /opt/hostedtoolcache/node/X/x64/bin/codex
   //    may exist as a non-executable text file from a stale PATH entry.
   try {
@@ -676,7 +686,7 @@ export async function resolveCodexBinary(): Promise<string> {
     // Not found via which
   }
 
-  // 2. Check known npm global locations (most reliable on CI).
+  // 3. Check known npm global locations (most reliable on CI).
   //    GHA Ubuntu: npm global bin is inside the Node toolcache.
   const home = homedir();
   const candidates = [
@@ -704,7 +714,7 @@ export async function resolveCodexBinary(): Promise<string> {
     }
   }
 
-  // 3. Fallback: let the shell resolve it (uses PATH)
+  // 4. Fallback: let the shell resolve it (uses PATH)
   return "codex";
 }
 
