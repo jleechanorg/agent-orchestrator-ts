@@ -72,7 +72,12 @@ BODY="${BODY:-}"
 # Try --body-file first (reads body from a file — strip the path to get body content)
 BODY_FILE_ARG=$(echo "$CMD" | grep -oE -- '--body-file[[:space:]]+[^[:space:]]+' 2>/dev/null | sed 's/--body-file[[:space:]]*//' || true)
 if [ -n "$BODY_FILE_ARG" ]; then
-  BODY_FILE=$(eval echo "$BODY_FILE_ARG" 2>/dev/null || echo "$BODY_FILE_ARG")
+  # Strip a single pair of surrounding single or double quotes safely, without eval
+  case "$BODY_FILE_ARG" in
+    "'"*) BODY_FILE=${BODY_FILE_ARG#"'"}; BODY_FILE=${BODY_FILE%"'"} ;;
+    "\""*) BODY_FILE=${BODY_FILE_ARG#"\""}; BODY_FILE=${BODY_FILE%"\""} ;;
+    *) BODY_FILE=$BODY_FILE_ARG ;;
+  esac
   if [ -f "$BODY_FILE" ]; then
     BODY=$(cat "$BODY_FILE" 2>/dev/null || true)
   fi
@@ -80,10 +85,30 @@ fi
 
 # Try --body flag (single-quoted body)
 if [ -z "$BODY" ]; then
-  MATCH=$(echo "$CMD" | grep -oE -- '\-\-body[[:space:]]+'"'"'[^'"'"']*'"'"'([^[:space:]]+)?' 2>/dev/null || true)
-  if [ -n "$MATCH" ]; then
-    BODY=$(echo "$MATCH" | sed "s/--body[[:space:]]*'"'"'//; s/'"'"'$//" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
-  fi
+  # Extract single-quoted value: match --body followed by literal ', capture everything up to next unescaped '
+  # Use a Python helper for reliable quote parsing to avoid shell escaping pitfalls
+  BODY=$(echo "$CMD" | python3 -c "
+import sys, re, shlex
+try:
+    tokens = shlex.split(sys.stdin.read())
+    for i, tok in enumerate(tokens):
+        if re.match(r'^--body$', tok) and i+1 < len(tokens):
+            val = tokens[i+1]
+            # strip surrounding single-quotes if present
+            if val.startswith(\"'\") and val.endswith(\"'\") and len(val) >= 2:
+                val = val[1:-1]
+            print(val, end='')
+            break
+        m = re.match(r'^--body=(.*)$', tok)
+        if m:
+            val = m.group(1)
+            if val.startswith(\"'\") and val.endswith(\"'\") and len(val) >= 2:
+                val = val[1:-1]
+            print(val, end='')
+            break
+except Exception:
+    pass
+" 2>/dev/null || true)
 fi
 
 # Fallback: try double-quoted body
