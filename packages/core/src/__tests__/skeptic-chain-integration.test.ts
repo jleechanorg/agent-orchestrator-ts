@@ -456,7 +456,6 @@ describe("skeptic chain integration", () => {
       botAuthor: string,
       triggerSha: string,
       triggerUpdated: string,
-      requestId: string,
       prAuthor = "pr-author",
     ): (typeof comments)[number] | null {
       const escapeRegexLiteral = (token: string): string =>
