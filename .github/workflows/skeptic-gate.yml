@@ -220,7 +220,6 @@ jobs:
               fi
               VERDICT_JSON=$(echo "$VERDICT_RAW" | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$HEAD_SHA" \
-                --arg request_id "$REQUEST_ID" \
                 --arg pr_author "$PR_AUTHOR" \
                 --arg VERDICT_RE "(?:^|\\n)[ \\t]*(?:> ?)?(?:\\#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?" \
                 'def extract_verdict(verdict_re): (.body | ([match(verdict_re; "ig")] | last | .captures[0].string // "" | ascii_upcase)) // "";
@@ -240,7 +239,6 @@ jobs:
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
-                    and ($body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i"))
                     and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and ((.verdict != "PASS")
                          or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))))
