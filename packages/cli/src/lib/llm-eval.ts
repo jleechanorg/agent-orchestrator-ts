@@ -156,53 +156,6 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
   }
 }
 
-/**
- * Run cursor-agent (stdin) for headless evaluation via Cursor's CLI.
- * Fail-closed: missing VERDICT = failure.
- *
- * Cursor Agent requires interactive "Workspace Trust" confirmation — it blocks on
- * stdin waiting for the user to confirm trust before any prompt can execute.
- * In headless contexts (launchd, GHA, tmux), this hangs indefinitely even with
- * --print flag. No fix exists without patching cursor-agent itself.
- */
-export async function tryCursorAgentPrint(_prompt: string): Promise<LlmEvalResult> {
-  // cursor-agent --print hangs on "Workspace Trust Required" prompt in headless mode.
-  // Return immediate infra error so chain falls through to next tool without delay.
-  return {
-    validVerdict: false,
-    output: "",
-    error: "cursor-agent --print hung on Workspace Trust prompt in headless context — not usable for headless LLM evaluation",
-  };
-}
-
-/**
- * Run gemini (stdin) for headless evaluation.
- * Fail-closed: missing VERDICT = failure.
- *
- * Prompt is passed via stdin to avoid exposing contents in process listings
- * and to prevent OS argv length overflows on large skeptic prompts.
- * Uses --prompt to activate headless/non-interactive mode — without this flag,
- * `gemini` with stdin input falls into interactive mode and ignores stdin entirely.
- */
-export async function tryGeminiPrint(_prompt: string): Promise<LlmEvalResult> {
-  try {
-    // gemini CLI requires --prompt with an explicit non-empty string argument to activate
-    // headless mode. stdin-only pipe is ignored (gemini enters interactive mode and ignores
-    // stdin). An empty --prompt value crashes the binary (exit 1 "Command failed: gemini
-    // --prompt"). Since we cannot pass the evaluation prompt as a CLI arg (too long for
-    // argv, and --prompt "" is broken), gemini cannot be used for headless LLM evaluation.
-    // Remove gemini from the chain; codex + claude are sufficient.
-    return {
-      validVerdict: false,
-      output: "",
-      error: "gemini CLI headless mode broken: --prompt requires explicit value and crashes with empty string, stdin ignored",
-    };
-  } catch (err: unknown) {
-    const _errno = (err as NodeJS.ErrnoException).code;
-    const msg = err instanceof Error ? err.message : String(err);
-    return { validVerdict: false, output: "", error: msg };
-  }
-}
 
 /**
  * Run claude --print for headless evaluation.
@@ -303,11 +256,11 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
  * @param prompt - The evaluation prompt (must contain VERDICT: PASS/FAIL criteria)
  * @param options.model - Prefer this model ("codex" | "claude" | "gemini" | "cursor"); default "codex"
  *
- * Unified fallback chain (no API keys used — all use OAuth/binary auth):
- *   codex → claude → gemini → cursor
+ * Headless fallback chain:
+ *   codex → claude
  *
- * If a preferred model is specified, it is tried first, then all remaining models follow.
- * All tools use OAuth/binary-level auth — no API key configuration required.
+ * Gemini and cursor are accepted for CLI compatibility but are excluded here:
+ * gemini ignores stdin in headless mode, and cursor-agent blocks on Workspace Trust.
  */
 export async function llmEval(
   prompt: string,
@@ -318,11 +271,12 @@ export async function llmEval(
   const isMissingVerdict = (err?: string) =>
     err !== undefined && /missing VERDICT/i.test(err);
 
-  // Unified fallback chain: all models tried in order regardless of preferred start
-  const chain: Array<"codex" | "claude" | "gemini" | "cursor"> = ["codex", "claude", "gemini", "cursor"];
+  const chain: Array<"codex" | "claude"> = ["codex", "claude"];
+  const preferredHeadless = preferred === "claude" ? "claude" : "codex";
 
-  // Rotate so preferred model comes first, followed by all others
-  const startIdx = Math.max(0, chain.indexOf(preferred));
+  // Rotate so a supported preferred model comes first, followed by the other
+  // supported headless evaluator. Unsupported headless tools start at codex.
+  const startIdx = Math.max(0, chain.indexOf(preferredHeadless));
   const ordered = [...chain.slice(startIdx), ...chain.slice(0, startIdx)];
 
   let lastError = "";
@@ -336,12 +290,6 @@ export async function llmEval(
         break;
       case "claude":
         result = await tryClaudePrint(prompt);
-        break;
-      case "gemini":
-        result = await tryGeminiPrint(prompt);
-        break;
-      case "cursor":
-        result = await tryCursorAgentPrint(prompt);
         break;
     }
 

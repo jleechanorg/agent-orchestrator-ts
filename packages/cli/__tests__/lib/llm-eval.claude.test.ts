@@ -160,9 +160,7 @@ describe("llmEval — explicit model=claude", () => {
   it("falls back to codex when claude is unavailable", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const enoent = makeErrnoError("ENOENT", "ENOENT");
-    // Rotation: ["claude","gemini","cursor","codex"]
-    // Only claude(1st) and codex(4th) call execFileSync; gemini+cursor skip
-    // Queue: Call1→claude(ENOENT), Call2→codex(PASS); 1+3 skips consume no slots
+    // Queue: Call1→claude(ENOENT), Call2→codex(PASS)
     mockExecFileSync
       .mockImplementationOnce(() => {
         throw enoent; // claude (infra error)
@@ -176,8 +174,6 @@ describe("llmEval — explicit model=claude", () => {
   it("returns FAIL and tries codex fallback when claude has infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
-    // Rotation: ["claude","gemini","cursor","codex"]
-    // Only claude and codex call execFileSync; gemini+cursor return infra errors (no call)
     // Call 1: claude → ETIMEDOUT (infra error); Call 2: codex → default ENOENT fallback
     // Chain exhausted → FAIL
     mockExecFileSync
