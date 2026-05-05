@@ -756,16 +756,24 @@ describe("runLocalSkepticCron", () => {
     expect(maxObserved).toBe(1);
   });
 
-  it("clamps maxConcurrentSkepticReviews=0 to at least 1 — no infinite loop", async () => {
+  it("falls back to default concurrency for maxConcurrentSkepticReviews=0", async () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
-    const prs = [1, 2, 3].map(n => makePR({ number: n }));
+    const prs = [1, 2, 3, 4, 5].map(n => makePR({ number: n }));
     listOpenPRs.mockResolvedValue(prs);
-    mockRunSkepticReview.mockResolvedValue({
-      verdict: "PASS",
-      modelUsed: "codex",
-    } as SkepticReviewResult);
 
-    // Explicitly pass 0 — Math.max(1, 0) = 1, so no infinite loop
+    let active = 0;
+    let maxObserved = 0;
+    mockRunSkepticReview.mockImplementation(
+      () => new Promise(resolve => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        setTimeout(() => {
+          active--;
+          resolve({ verdict: "PASS", modelUsed: "codex" } as SkepticReviewResult);
+        }, 10);
+      }),
+    );
+
     const result = await runLocalSkepticCron(
       { registry, sessionManager, observer },
       {
@@ -777,8 +785,9 @@ describe("runLocalSkepticCron", () => {
       },
     );
 
-    expect(result).toBe(3);
-    expect(mockRunSkepticReview).toHaveBeenCalledTimes(3);
+    expect(result).toBe(5);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(5);
+    expect(maxObserved).toBe(3);
   });
 
   it("falls back to default concurrency for non-finite and negative values", async () => {
