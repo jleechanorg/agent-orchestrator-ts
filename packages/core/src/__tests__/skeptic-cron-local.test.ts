@@ -802,7 +802,7 @@ describe("runLocalSkepticCron", () => {
     expect(maxObserved).toBe(2);
   });
 
-  it("Promise.allSettled: observer throw in one PR does not cancel rest of batch", async () => {
+  it("observer throw in one PR does not cancel rest of batch", async () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
     const prs = [1, 2, 3].map(n => makePR({ number: n }));
     listOpenPRs.mockResolvedValue(prs);
@@ -811,8 +811,8 @@ describe("runLocalSkepticCron", () => {
       modelUsed: "codex",
     } as SkepticReviewResult);
 
-    // Only the first observer call throws — caught by try/catch, returns false,
-    // but Promise.allSettled means PRs 2 and 3 still run to completion.
+    // Only the first observer call throws; the PR still runs because telemetry
+    // failures must not change skeptic evaluation results.
     let observerCalls = 0;
     observer.recordOperation = vi.fn(() => {
       if (observerCalls === 0) { observerCalls++; throw new Error("observer bomb"); }
@@ -830,12 +830,38 @@ describe("runLocalSkepticCron", () => {
       },
     );
 
-    // PR 1: first observer call throws → caught, returns false.
-    // PRs 2 & 3: no throw, succeed, counted. Total = 2.
-    expect(result).toBe(2);
-    // With Promise.allSettled, a single observer throw in PR 1 does not
-    // cancel PRs 2 and 3 — they still reach runSkepticReview.
-    expect(mockRunSkepticReview).toHaveBeenCalledTimes(2);
+    expect(result).toBe(3);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(3);
+  });
+
+  it("caches head SHA when post-review observer recording throws", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 10 })]);
+    getPRHeadSha.mockResolvedValue("sha-observer-throws");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "codex",
+    } as SkepticReviewResult);
+
+    observer.recordOperation = vi.fn(operation => {
+      if (operation.operation === "skeptic.cron.evaluated") {
+        throw new Error("observer bomb");
+      }
+    });
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-observer-cache",
+      },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(_getLastEvaluatedSha("proj", 10)).toBe("sha-observer-throws");
   });
 
   // -------------------------------------------------------------------------

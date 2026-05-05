@@ -211,11 +211,11 @@ export async function runLocalSkepticCron(
     }
 
     try {
-      observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluating", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, hasSession: sessionByPR.has(`${projectId}:${pr.number}`) }, level: "info" });
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluating", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, hasSession: sessionByPR.has(`${projectId}:${pr.number}`) }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
 
       const result = await runSkepticReview(session, { postComment: true });
 
-      observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluated", outcome: result.verdict === "PASS" ? "success" : "failure", correlationId, projectId, data: { prNumber: pr.number, verdict: result.verdict, modelUsed: result.modelUsed }, level: result.verdict === "FAIL" ? "warn" : "info" });
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluated", outcome: result.verdict === "PASS" ? "success" : "failure", correlationId, projectId, data: { prNumber: pr.number, verdict: result.verdict, modelUsed: result.modelUsed }, level: result.verdict === "FAIL" ? "warn" : "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
 
       if (headSha) lastEvaluatedShaByPR.set(cacheKey, headSha);
       return true;
