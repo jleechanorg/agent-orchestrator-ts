@@ -654,10 +654,14 @@ async function streamCodexSessionData(filePath: string): Promise<CodexSessionDat
  * Returns "codex" as final fallback (let the shell resolve it at runtime).
  */
 export async function resolveCodexBinary(options: { nodeExecPath?: string } = {}): Promise<string> {
+  const isExecutableFile = (stats: Awaited<ReturnType<typeof stat>>): boolean => {
+    return stats.isFile() && (Number(stats.mode) & 0o111) !== 0;
+  };
+
   const processSiblingCodex = join(dirname(options.nodeExecPath ?? process.execPath), "codex");
   try {
     const stats = await stat(processSiblingCodex);
-    if ((stats.mode & 0o111) !== 0) {
+    if (isExecutableFile(stats)) {
       return processSiblingCodex;
     }
   } catch {
@@ -674,7 +678,7 @@ export async function resolveCodexBinary(options: { nodeExecPath?: string } = {}
       // Verify it's executable before trusting it
       try {
         const stats = await stat(resolved);
-        if ((stats.mode & 0o111) !== 0) {
+        if (isExecutableFile(stats)) {
           return resolved; // executable — use it
         }
         // Not executable — log and fall through to known-good candidates
@@ -706,7 +710,7 @@ export async function resolveCodexBinary(options: { nodeExecPath?: string } = {}
   for (const candidate of candidates) {
     try {
       const stats = await stat(candidate);
-      if ((stats.mode & 0o111) !== 0) {
+      if (isExecutableFile(stats)) {
         return candidate;
       }
     } catch {
