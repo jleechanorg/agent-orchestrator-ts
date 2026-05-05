@@ -181,7 +181,7 @@ jobs:
                   set +e
                   CR_APPROVE_COMMENT=$(set -o pipefail; gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                     --paginate 2>/dev/null \
-                    | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
+                    | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
                     2>&1)
                   CR_APPROVE_COMMENT_EXIT=$?
                   set -e
@@ -383,7 +383,7 @@ jobs:
                   set +e
                   CR_APPROVE_COMMENT=$(set -o pipefail; gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                     --paginate 2>/dev/null \
-                    | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
+                    | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
                     2>&1)
                   CR_APPROVE_COMMENT_EXIT=$?
                   set -e

@@ -97,7 +97,7 @@ jobs:
                 HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" --jq '.commit.committer.date' 2>/dev/null || echo "")
                 CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status --jq '.statuses | map(select(.context == "CodeRabbit" and .state == "success")) | length' 2>/dev/null || echo 0)
                 if [ -n "$HEAD_COMMITTED_AT" ]; then
-                  CR_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | map(select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("^\\s*\\[approve\\]\\s*$"; "i")))) | length' 2>/dev/null || echo 0)
+                  CR_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | map(select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$"; "i")))) | length' 2>/dev/null || echo 0)
                 else
                   CR_COMMENT=0
                 fi
