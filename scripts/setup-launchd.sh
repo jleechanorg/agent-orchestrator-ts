@@ -50,6 +50,75 @@ path_for_launchd() {
   fi
 }
 
+escape_ere() {
+  printf '%s' "$1" | sed 's/[][().*^$+?{}|\\]/\\&/g'
+}
+
+configured_lifecycle_projects() {
+  local config_file="${AO_CONFIG_PATH:-$HOME/.openclaw/agent-orchestrator.yaml}"
+  if [ ! -f "$config_file" ]; then
+    return 0
+  fi
+
+  python3 - "$config_file" <<'PY' 2>/dev/null || true
+import sys
+import yaml
+
+with open(sys.argv[1]) as f:
+    cfg = yaml.safe_load(f) or {}
+
+projects = cfg.get("projects", {})
+if isinstance(projects, dict):
+    for project_id in projects:
+        print(project_id)
+PY
+}
+
+kill_stale_lifecycle_workers_for_config() {
+  local ao_bin
+  ao_bin="$(command -v ao 2>/dev/null || true)"
+  if [ -z "$ao_bin" ]; then
+    echo "Skipping stale lifecycle-worker cleanup: ao binary not found on PATH"
+    return 0
+  fi
+
+  local projects
+  projects="$(configured_lifecycle_projects)"
+  if [ -z "$projects" ]; then
+    echo "Skipping stale lifecycle-worker cleanup: no configured projects found"
+    return 0
+  fi
+
+  local project escaped_project pids pid cmd killed_any
+  killed_any=0
+  while IFS= read -r project; do
+    [ -n "$project" ] || continue
+    escaped_project="$(escape_ere "$project")"
+    pids="$(pgrep -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" 2>/dev/null || true)"
+    [ -n "$pids" ] || continue
+
+    for pid in $pids; do
+      cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+      [ -n "$cmd" ] || continue
+      if [[ "$cmd" != *"$ao_bin"* ]]; then
+        echo "Skipping lifecycle-worker pid=$pid for $project (different ao path): $cmd"
+        continue
+      fi
+      # Log matched PID+cmd before killing for audit trail
+      echo "  Killing stale lifecycle-worker pid=$pid: $cmd"
+      kill "$pid" 2>/dev/null || true
+      killed_any=1
+    done
+    if [ -n "$pids" ]; then
+      echo "  Matched PIDs for $project: $(pgrep -a -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" 2>/dev/null || echo "(none remaining)")"
+    fi
+  done <<< "$projects"
+
+  if [ "$killed_any" -eq 1 ]; then
+    sleep 2
+  fi
+}
+
 install_lifecycle_plist() {
   local template="$TEMPLATE_DIR/ai.agento.lifecycle-all.plist.template"
   local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.lifecycle-all.plist"
@@ -102,11 +171,9 @@ install_lifecycle_plist() {
   install -m 600 "$tmp_plist" "$plist_path"
   rm -f "$tmp_plist"
 
-  # Kill any stale lifecycle-workers so launchd restarts fresh ones with the
-  # new plist's env (e.g., rotated secrets, updated PATH). Without this, existing
-  # workers keep running with stale state even after a new plist is installed.
-  # Pgrep -a shows the matching command lines for audit.
-  pkill -f "lifecycle-worker[[:space:]]" 2>/dev/null || true
+  # Kill only lifecycle-workers for the configured projects and this install's
+  # ao binary so launchd restarts them with the new plist env.
+  kill_stale_lifecycle_workers_for_config
 
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$(id -u)" "$plist_path"
