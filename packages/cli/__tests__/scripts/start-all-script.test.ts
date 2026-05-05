@@ -31,6 +31,16 @@ function createConfig(path: string): void {
   );
 }
 
+function waitForFile(path: string, timeoutMs: number): boolean {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(path)) {
+      return true;
+    }
+  }
+  return existsSync(path);
+}
+
 describe("scripts/start-all.sh", () => {
   it("skips topology validation when AO_CONFIG_PATH is set explicitly", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-start-all-explicit-"));
@@ -92,7 +102,7 @@ describe("scripts/start-all.sh", () => {
       encoding: "utf8",
     });
 
-    const aoWasCalled = existsSync(aoLog);
+    const aoWasCalled = waitForFile(aoLog, 300);
     rmSync(tempRoot, { recursive: true, force: true });
 
     expect(result.status, result.stderr || result.stdout).toBe(0);
@@ -109,7 +119,7 @@ describe("scripts/start-all.sh", () => {
     const binDir = join(tempRoot, "bin");
     mkdirSync(binDir, { recursive: true });
     // Output a PID so the replacement kill loop has something to iterate over.
-    createFakeBinary(binDir, "pgrep", "echo 12345; exit 0");
+    createFakeBinary(binDir, "pgrep", "echo 999999999; exit 0");
     createFakeBinary(binDir, "ao", `echo "$@" >> "${aoLog}"`);
 
     const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
@@ -126,7 +136,7 @@ describe("scripts/start-all.sh", () => {
       encoding: "utf8",
     });
 
-    const aoWasCalled = existsSync(aoLog);
+    const aoWasCalled = waitForFile(aoLog, 1000);
     const aoArgs = aoWasCalled ? readFileSync(aoLog, "utf8") : "";
     rmSync(tempRoot, { recursive: true, force: true });
 

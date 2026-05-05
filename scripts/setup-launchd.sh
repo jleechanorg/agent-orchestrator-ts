@@ -60,12 +60,23 @@ configured_lifecycle_projects() {
     return 0
   fi
 
-  python3 - "$config_file" <<'PY' 2>/dev/null || true
+  python3 - "$config_file" <<'PY'
 import sys
-import yaml
+try:
+    import yaml
+except ImportError as exc:
+    print(f"ERROR: PyYAML is required to parse lifecycle projects: {exc}", file=sys.stderr)
+    sys.exit(1)
 
-with open(sys.argv[1]) as f:
-    cfg = yaml.safe_load(f) or {}
+try:
+    with open(sys.argv[1]) as f:
+        cfg = yaml.safe_load(f) or {}
+except yaml.YAMLError as exc:
+    print(f"ERROR: Failed to parse lifecycle project config: {exc}", file=sys.stderr)
+    sys.exit(1)
+except Exception as exc:
+    print(f"ERROR: Failed to read lifecycle project config: {exc}", file=sys.stderr)
+    sys.exit(1)
 
 projects = cfg.get("projects", {})
 if isinstance(projects, dict):
@@ -83,7 +94,11 @@ kill_stale_lifecycle_workers_for_config() {
   fi
 
   local projects
-  projects="$(configured_lifecycle_projects)"
+  if ! projects="$(configured_lifecycle_projects 2>&1)"; then
+    echo "WARNING: Failed to parse lifecycle projects from config; skipping stale lifecycle-worker cleanup"
+    echo "$projects"
+    return 0
+  fi
   if [ -z "$projects" ]; then
     echo "Skipping stale lifecycle-worker cleanup: no configured projects found"
     return 0
