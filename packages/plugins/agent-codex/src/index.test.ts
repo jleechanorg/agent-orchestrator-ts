@@ -69,6 +69,7 @@ vi.mock("@jleechanorg/ao-plugin-agent-base", () => ({
 }));
 
 import { Readable } from "node:stream";
+import { dirname, join } from "node:path";
 import { create, manifest, default as defaultExport, resolveCodexBinary, _resetSessionFileCache } from "./index.js";
 
 // ---------------------------------------------------------------------------
@@ -1187,18 +1188,76 @@ describe("getRestoreCommand", () => {
 // resolveCodexBinary
 // =========================================================================
 describe("resolveCodexBinary", () => {
-  // Helper: mock stat to return executable for a specific path, ENOENT for all others.
+  const executableFileStat = { mode: 0o100755, isFile: () => true };
+  const nonExecutableFileStat = { mode: 0o100644, isFile: () => true };
+  const executableDirectoryStat = { mode: 0o040755, isFile: () => false };
+
+  // Helper: mock stat to return executable regular-file for a specific path, ENOENT for all others.
+  // Always rejects the node-sibling path first so that the production code's initial
+  // check (join(dirname(process.execPath), "codex")) does not short-circuit and
+  // interfere with tests that verify the `which` or fallback paths below.
   function mockStatExecutable(path: string): void {
+    const nodeSiblingCodex = join(dirname(process.execPath), "codex");
     mockStat.mockImplementation((p: string) => {
-      if (p === path) return Promise.resolve({ mode: 0o100755 });
+      if (p === nodeSiblingCodex) return Promise.reject(new Error("ENOENT"));
+      if (p === path) return Promise.resolve(executableFileStat);
       return Promise.reject(new Error("ENOENT"));
     });
   }
 
+  it("prefers codex next to the running node executable over PATH", async () => {
+    const nodeExecPath = "/mock/node22/bin/node";
+    const nodeSiblingCodex = join(dirname(nodeExecPath), "codex");
+    mockExecFileAsync.mockResolvedValue({ stdout: "/opt/homebrew/bin/codex\n", stderr: "" });
+    mockStat.mockImplementation((p: string) => {
+      if (p === nodeSiblingCodex) return Promise.resolve(executableFileStat);
+      if (p === "/opt/homebrew/bin/codex") return Promise.resolve(executableFileStat);
+      return Promise.reject(new Error("ENOENT"));
+    });
+
+    const result = await resolveCodexBinary({ nodeExecPath });
+
+    expect(result).toBe(nodeSiblingCodex);
+    expect(mockExecFileAsync).not.toHaveBeenCalled();
+  });
+
+  it("falls through to `which` when node-sibling codex is not executable", async () => {
+    // A file exists next to the node binary but has no executable bit.
+    const nodeExecPath = "/mock/node22/bin/node";
+    const nodeSiblingCodex = join(dirname(nodeExecPath), "codex");
+    mockExecFileAsync.mockResolvedValue({ stdout: "/opt/homebrew/bin/codex\n", stderr: "" });
+    mockStat.mockImplementation((p: string) => {
+      if (p === nodeSiblingCodex) return Promise.resolve(nonExecutableFileStat);
+      if (p === "/opt/homebrew/bin/codex") return Promise.resolve(executableFileStat);
+      return Promise.reject(new Error("ENOENT"));
+    });
+
+    const result = await resolveCodexBinary({ nodeExecPath });
+
+    expect(result).toBe("/opt/homebrew/bin/codex");
+    expect(mockExecFileAsync).toHaveBeenCalledWith("which", ["codex"], { timeout: 10_000 });
+  });
+
+  it("falls through to `which` when node-sibling codex is an executable directory", async () => {
+    const nodeExecPath = "/mock/node22/bin/node";
+    const nodeSiblingCodex = join(dirname(nodeExecPath), "codex");
+    mockExecFileAsync.mockResolvedValue({ stdout: "/opt/homebrew/bin/codex\n", stderr: "" });
+    mockStat.mockImplementation((p: string) => {
+      if (p === nodeSiblingCodex) return Promise.resolve(executableDirectoryStat);
+      if (p === "/opt/homebrew/bin/codex") return Promise.resolve(executableFileStat);
+      return Promise.reject(new Error("ENOENT"));
+    });
+
+    const result = await resolveCodexBinary({ nodeExecPath });
+
+    expect(result).toBe("/opt/homebrew/bin/codex");
+    expect(mockExecFileAsync).toHaveBeenCalledWith("which", ["codex"], { timeout: 10_000 });
+  });
+
   it("returns path from `which` when codex is found and executable", async () => {
     mockExecFileAsync.mockResolvedValue({ stdout: "/usr/local/bin/codex\n", stderr: "" });
     mockStatExecutable("/usr/local/bin/codex");
-    const result = await resolveCodexBinary();
+    const result = await resolveCodexBinary({ nodeExecPath: "/mock/node22/bin/node" });
     expect(result).toBe("/usr/local/bin/codex");
     expect(mockExecFileAsync).toHaveBeenCalledWith("which", ["codex"], { timeout: 10_000 });
   });
@@ -1206,28 +1265,28 @@ describe("resolveCodexBinary", () => {
   it("falls back to common locations when `which` fails", async () => {
     mockExecFileAsync.mockRejectedValue(new Error("not found"));
     mockStatExecutable("/usr/local/bin/codex");
-    const result = await resolveCodexBinary();
+    const result = await resolveCodexBinary({ nodeExecPath: "/mock/node22/bin/node" });
     expect(result).toBe("/usr/local/bin/codex");
   });
 
   it("checks /opt/homebrew/bin/codex as fallback", async () => {
     mockExecFileAsync.mockRejectedValue(new Error("not found"));
     mockStatExecutable("/opt/homebrew/bin/codex");
-    const result = await resolveCodexBinary();
+    const result = await resolveCodexBinary({ nodeExecPath: "/mock/node22/bin/node" });
     expect(result).toBe("/opt/homebrew/bin/codex");
   });
 
   it("checks ~/.cargo/bin/codex as fallback (Rust-based codex)", async () => {
     mockExecFileAsync.mockRejectedValue(new Error("not found"));
     mockStatExecutable("/mock/home/.cargo/bin/codex");
-    const result = await resolveCodexBinary();
+    const result = await resolveCodexBinary({ nodeExecPath: "/mock/node22/bin/node" });
     expect(result).toBe("/mock/home/.cargo/bin/codex");
   });
 
   it("checks ~/.npm/bin/codex as fallback", async () => {
     mockExecFileAsync.mockRejectedValue(new Error("not found"));
     mockStatExecutable("/mock/home/.npm/bin/codex");
-    const result = await resolveCodexBinary();
+    const result = await resolveCodexBinary({ nodeExecPath: "/mock/node22/bin/node" });
     expect(result).toBe("/mock/home/.npm/bin/codex");
   });
 
@@ -1235,7 +1294,7 @@ describe("resolveCodexBinary", () => {
     mockExecFileAsync.mockRejectedValue(new Error("not found"));
     mockStat.mockRejectedValue(new Error("ENOENT"));
 
-    const result = await resolveCodexBinary();
+    const result = await resolveCodexBinary({ nodeExecPath: "/mock/node22/bin/node" });
     expect(result).toBe("codex");
   });
 
@@ -1243,7 +1302,7 @@ describe("resolveCodexBinary", () => {
     mockExecFileAsync.mockResolvedValue({ stdout: "", stderr: "" });
     mockStat.mockRejectedValue(new Error("ENOENT"));
 
-    const result = await resolveCodexBinary();
+    const result = await resolveCodexBinary({ nodeExecPath: "/mock/node22/bin/node" });
     expect(result).toBe("codex");
   });
 });
@@ -1279,9 +1338,9 @@ describe("postLaunchSetup", () => {
     const agent = create();
     mockExecFileAsync.mockResolvedValue({ stdout: "/opt/bin/codex\n", stderr: "" });
     mockReadFile.mockRejectedValue(new Error("ENOENT"));
-    // mockStat must return executable so resolveCodexBinary trusts the which output
+    // mockStat must return executable regular-file so resolveCodexBinary trusts the which output
     mockStat.mockImplementation((p: string) => {
-      if (p === "/opt/bin/codex") return Promise.resolve({ mode: 0o100755 });
+      if (p === "/opt/bin/codex") return Promise.resolve({ mode: 0o100755, isFile: () => true });
       return Promise.reject(new Error("ENOENT"));
     });
 
