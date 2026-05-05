@@ -1192,7 +1192,7 @@ describe("resolveCodexBinary", () => {
   const nonExecutableFileStat = { mode: 0o100644, isFile: () => true };
   const executableDirectoryStat = { mode: 0o040755, isFile: () => false };
 
-  // Helper: mock stat to return executable for a specific path, ENOENT for all others.
+  // Helper: mock stat to return executable regular-file for a specific path, ENOENT for all others.
   // Always rejects the node-sibling path first so that the production code's initial
   // check (join(dirname(process.execPath), "codex")) does not short-circuit and
   // interfere with tests that verify the `which` or fallback paths below.
@@ -1338,7 +1338,7 @@ describe("postLaunchSetup", () => {
     const agent = create();
     mockExecFileAsync.mockResolvedValue({ stdout: "/opt/bin/codex\n", stderr: "" });
     mockReadFile.mockRejectedValue(new Error("ENOENT"));
-    // mockStat must return executable so resolveCodexBinary trusts the which output
+    // mockStat must return executable regular-file so resolveCodexBinary trusts the which output
     mockStat.mockImplementation((p: string) => {
       if (p === "/opt/bin/codex") return Promise.resolve({ mode: 0o100755, isFile: () => true });
       return Promise.reject(new Error("ENOENT"));
