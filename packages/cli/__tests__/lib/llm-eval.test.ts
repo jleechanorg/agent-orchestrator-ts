@@ -321,8 +321,8 @@ describe("llmEval — default (codex primary)", () => {
     etimeout.code = "ETIMEDOUT";
     const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
     enoent.code = "ENOENT";
-    // Chain: codex → claude → gemini → cursor (4-model chain)
-    // ETIMEDOUT is "unavailable" (continues to next) → last error shows last model in chain
+    // Chain: codex → claude. Headless-broken tools stay out of the runtime
+    // fallback path so they cannot mask the real codex/claude failure.
     mockExecFileSync
       .mockImplementationOnce(() => {
         throw etimeout; // codex → isUnavailable=true → error=undefined, continue
@@ -339,15 +339,13 @@ describe("llmEval — default (codex primary)", () => {
       .mockImplementationOnce(() => {
         throw enoent; // 4th claude candidate → isUnavailable=true → error=undefined, continue
       });
-    // cursor uses default mock (ENOENT)
     const result = await llmEval("evaluate this");
-    // Infra failure from codex → Claude → gemini → cursor → codex all fail
-    // ETIMEDOUT and ENOENT are isUnavailable=true → error=undefined throughout
-    // All 5 candidates return error=undefined (continue), lastError stays empty
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("All LLM tools exhausted");
+    expect(result).toContain("Tried: codex → claude");
+    expect(result).not.toContain("gemini");
+    expect(result).not.toContain("cursor");
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    // 1 codex + 4 claude candidates; relaxed for brittleness
     expect(mockExecFileSync).toHaveBeenCalled();
   });
 

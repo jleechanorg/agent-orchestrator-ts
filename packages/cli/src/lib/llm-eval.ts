@@ -303,11 +303,11 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
  * @param prompt - The evaluation prompt (must contain VERDICT: PASS/FAIL criteria)
  * @param options.model - Prefer this model ("codex" | "claude" | "gemini" | "cursor"); default "codex"
  *
- * Unified fallback chain (no API keys used — all use OAuth/binary auth):
- *   codex → claude → gemini → cursor
+ * Headless fallback chain:
+ *   codex → claude
  *
- * If a preferred model is specified, it is tried first, then all remaining models follow.
- * All tools use OAuth/binary-level auth — no API key configuration required.
+ * Gemini and cursor are accepted for CLI compatibility but are excluded here:
+ * gemini ignores stdin in headless mode, and cursor-agent blocks on Workspace Trust.
  */
 export async function llmEval(
   prompt: string,
@@ -318,11 +318,12 @@ export async function llmEval(
   const isMissingVerdict = (err?: string) =>
     err !== undefined && /missing VERDICT/i.test(err);
 
-  // Unified fallback chain: all models tried in order regardless of preferred start
-  const chain: Array<"codex" | "claude" | "gemini" | "cursor"> = ["codex", "claude", "gemini", "cursor"];
+  const chain: Array<"codex" | "claude"> = ["codex", "claude"];
+  const preferredHeadless = preferred === "claude" ? "claude" : "codex";
 
-  // Rotate so preferred model comes first, followed by all others
-  const startIdx = Math.max(0, chain.indexOf(preferred));
+  // Rotate so a supported preferred model comes first, followed by the other
+  // supported headless evaluator. Unsupported headless tools start at codex.
+  const startIdx = chain.indexOf(preferredHeadless);
   const ordered = [...chain.slice(startIdx), ...chain.slice(0, startIdx)];
 
   let lastError = "";
@@ -336,12 +337,6 @@ export async function llmEval(
         break;
       case "claude":
         result = await tryClaudePrint(prompt);
-        break;
-      case "gemini":
-        result = await tryGeminiPrint(prompt);
-        break;
-      case "cursor":
-        result = await tryCursorAgentPrint(prompt);
         break;
     }
 
