@@ -756,7 +756,7 @@ describe("runLocalSkepticCron", () => {
     expect(maxObserved).toBe(1);
   });
 
-  it("falls back to default concurrency for maxConcurrentSkepticReviews=0", async () => {
+  it("clamps maxConcurrentSkepticReviews=0 to concurrency 1", async () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
     const prs = [1, 2, 3, 4, 5].map(n => makePR({ number: n }));
     listOpenPRs.mockResolvedValue(prs);
