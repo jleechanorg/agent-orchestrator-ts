@@ -1189,8 +1189,13 @@ describe("getRestoreCommand", () => {
 // =========================================================================
 describe("resolveCodexBinary", () => {
   // Helper: mock stat to return executable for a specific path, ENOENT for all others.
+  // Always rejects the node-sibling path first so that the production code's initial
+  // check (join(dirname(process.execPath), "codex")) does not short-circuit and
+  // interfere with tests that verify the `which` or fallback paths below.
   function mockStatExecutable(path: string): void {
+    const nodeSiblingCodex = join(dirname(process.execPath), "codex");
     mockStat.mockImplementation((p: string) => {
+      if (p === nodeSiblingCodex) return Promise.reject(new Error("ENOENT"));
       if (p === path) return Promise.resolve({ mode: 0o100755 });
       return Promise.reject(new Error("ENOENT"));
     });
