@@ -131,10 +131,10 @@ else
   printf '%s\necho "$claude_binary_path"\n' "$expr_line" > "$_tmp"
   r=$(env -u CLAUDE_BINARY CLAUDE_BINARY_PATH="/bin/claude-b" HOME="/tmp" bash "$_tmp" 2>/dev/null)
   [ "$r" = "/bin/claude-b" ] || { echo "FAIL — CLAUDE_BINARY_PATH should win (got: $r)"; FAILED=1; P_FAIL=1; }
-  # c) Default $HOME/.local/bin/claude when both unset — env -u ensures
-  # parent CLAUDE_BINARY is not inherited into the subshell
+  # c) Default $HOME/.local/bin/claude when both unset — env -u unsets
+  # BOTH parent env vars so the test is fully hermetic
   printf '%s\necho "$claude_binary_path"\n' "$expr_line" > "$_tmp"
-  r=$(env -u CLAUDE_BINARY HOME="/tmp" bash "$_tmp" 2>/dev/null)
+  r=$(env -u CLAUDE_BINARY -u CLAUDE_BINARY_PATH HOME="/tmp" bash "$_tmp" 2>/dev/null)
   [ "$r" = "/tmp/.local/bin/claude" ] || { echo "FAIL — default should be HOME/.local/bin/claude (got: $r)"; FAILED=1; P_FAIL=1; }
   rm -f "$_tmp"
   [ "$P_FAIL" -eq 0 ] && echo "PASS (CLAUDE_BINARY > CLAUDE_BINARY_PATH > default, via extracted expression from $SETUP_SCRIPT)"
