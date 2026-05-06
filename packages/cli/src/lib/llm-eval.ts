@@ -162,27 +162,28 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
  * Fail-closed: missing VERDICT = failure.
  */
 
-/** Shared exec call — used for both initial attempt and 429 retry. */
-function runClaudeExec(
-  candidate: string,
+/** Shared exec options — avoids duplication across initial attempt and 429 retry. */
+function makeClaudeExecOptions(
   prompt: string,
-): Buffer {
-  const { execFileSync } = require("node:child_process");
-  return execFileSync(
-    candidate,
-    ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
-    {
-      input: prompt,
-      encoding: "utf-8",
-      timeout: LLM_EVAL_TIMEOUT_MS,
-      stdio: ["pipe", "pipe", "ignore"],
-      cwd: "/tmp",
-      env: {
-        ...process.env,
-        ...minimaxEnv(),
-      },
+): {
+  input: string;
+  encoding: "utf-8";
+  timeout: number;
+  stdio: ["pipe", "pipe", "ignore"];
+  cwd: string;
+  env: Record<string, string | undefined>;
+} {
+  return {
+    input: prompt,
+    encoding: "utf-8",
+    timeout: LLM_EVAL_TIMEOUT_MS,
+    stdio: ["pipe", "pipe", "ignore"],
+    cwd: "/tmp",
+    env: {
+      ...process.env,
+      ...minimaxEnv(),
     },
-  );
+  };
 }
 
 /** True when msg indicates an auth failure that is global to all binaries. */
@@ -223,7 +224,11 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
     }
 
     try {
-      const result = runClaudeExec(candidate, prompt);
+      const result = execFileSync(
+        candidate,
+        ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
+        makeClaudeExecOptions(prompt),
+      );
       const output = result.trim();
       if (!STRICT_VERDICT_RE.test(output)) {
         return {
@@ -253,10 +258,12 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
       // continue to next candidate (another binary may not hit the same rate limit).
       if (/\b429\b/i.test(msg) || msg.toLowerCase().includes("rate_limit") || msg.toLowerCase().includes("rate limit")) {
         await new Promise((r) => setTimeout(r, 2000));
-        // Retry once after 2s backoff
-        await new Promise((r) => setTimeout(r, 2000));
         try {
-          const retryResult = runClaudeExec(candidate, prompt);
+          const retryResult = execFileSync(
+            candidate,
+            ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
+            makeClaudeExecOptions(prompt),
+          );
           const retryOutput = retryResult.trim();
           if (STRICT_VERDICT_RE.test(retryOutput)) {
             return { validVerdict: true, output: retryOutput };
