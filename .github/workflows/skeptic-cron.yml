@@ -12,10 +12,6 @@ name: Skeptic Cron
 # posts VERDICT comment → this workflow checks 7th condition + merges.
 #
 on:
-  schedule:
-    # Intentional: 20-minute cycle for responsive skeptic evaluation.
-    # Previous 30-minute cycle was too slow to catch PRs entering 7-green state.
-    - cron: "*/20 * * * *"
   workflow_dispatch:
 
 jobs:

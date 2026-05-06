@@ -97,7 +97,7 @@ import {
 } from "./mcp-mail.js";
 import { runSkepticReviewReaction } from "./fork-skeptic-extension.js";
 import { runClaimVerification } from "./fork-claim-verification.js";
-import { runLocalSkepticCron } from "./skeptic-cron-local.js";
+import { detectAndTriggerSkepticComment } from "./fork-skeptic-comment-trigger.js";
 import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
 
 /**
@@ -529,6 +529,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   // bd-qnj6: track the last HEAD SHA that triggered a skeptic evaluation per session.
   // When the SHA changes while session stays in pr_open, re-fire the skeptic reaction.
   const lastSkepticSha = new Map<string, string>(); // sessionId → last evaluated HEAD SHA
+  const processedSkepticCommentIds = new Map<string, Set<number>>(); // sessionId → processed /skeptic comment IDs
   // bd-qqm: track the last skeptic comment ID per session to detect new FAIL verdicts.
   // Initialized lazily (undefined = never fetched), compared against fetched comment IDs each poll.
   const lastSkepticCommentId = new Map<string, number>(); // sessionId → last known comment ID
@@ -1905,72 +1906,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Handle transition: notify humans and/or trigger reactions
       const eventType = statusToEventType(oldStatus, newStatus);
 
-      // bd-skk2: emit worker.signals_completion when worker creates a PR.
-      // Triggering only on pr_open avoids duplicate skeptic evaluations if a PR
-      // later transitions to approved (or bounces back and forth between states).
-      // Re-triggering on approved is unnecessary since the PR content hasn't changed.
       let completionReactionHandledNotify = false;
-      if (newStatus === "pr_open") {
-        // bd-lg7i: triggerSkepticReaction records SHA and fires claim-verification
-        // on success. completionReactionHandledNotify feeds the pr.created notification
-        // guard below — skip duplicate notification when skeptic reaction already fired.
-        completionReactionHandledNotify = await triggerSkepticReaction(
-          session,
-          lastSkepticSha,
-          "skeptic-trigger",
-        );
-      }
-
-      // bd-jzan: fire skeptic immediately when CR approves on same SHA (no new push).
-      // The SHA-change block above only triggers on currentSha !== previousSha.
-      // When CR approves on the same commit (e.g. after review fixes), there is no SHA
-      // change so skeptic waits up to 30 min for skeptic-cron. This block fires it now.
-      // Dedup guard: if lastSkepticSha already has this SHA, skeptic already ran.
-      // Additional guard: if a VERDICT comment already exists for this SHA, skip.
-      if (newStatus === "approved" && oldStatus !== "approved" && session.pr) {
-        const skepticProject = config.projects[session.projectId];
-        const skepticScm = skepticProject?.scm
-          ? registry.get<SCM>("scm", skepticProject.scm.plugin)
-          : null;
-        if (skepticScm?.getPRHeadSha && skepticScm?.getSkepticComments) {
-          try {
-            const currentSha = await skepticScm.getPRHeadSha(session.pr);
-            if (currentSha) {
-              const alreadyEvaluated = lastSkepticSha.get(session.id) === currentSha;
-              // Also check: if a VERDICT comment already exists for this SHA, skip.
-              // This covers the case where lastSkepticSha was cleared (restart) but
-              // skeptic already ran and posted a VERDICT for this SHA.
-              // bd-jzan CR fix: SHA must appear INSIDE the HTML comment (not any HTML comment).
-              const existingComments = await skepticScm.getSkepticComments(session.pr);
-              const shaPrefix = currentSha.slice(0, 7);
-              const hasVerdictForSha = existingComments.some((c) => {
-                if (!/VERDICT:/i.test(c.body)) return false;
-                if (c.body.includes(currentSha)) return true;
-                // Check if SHA prefix appears inside an HTML comment marker
-                // e.g. <!-- skeptic-gate-trigger-abc1234 --> contains "abc1234"
-                const htmlMatch = c.body.match(/<!--[^>]*-->/);
-                return Boolean(htmlMatch && htmlMatch[0].includes(shaPrefix));
-              });
-              if (!alreadyEvaluated && !hasVerdictForSha) {
-                observer.recordOperation({
-                  metric: "lifecycle_poll",
-                  operation: "lifecycle.skeptic_cr_approval_trigger",
-                  outcome: "info",
-                  correlationId: createCorrelationId("skeptic-cr-approval"),
-                  projectId: session.projectId,
-                  sessionId: session.id,
-                  data: { currentSha: currentSha.slice(0, 7) },
-                  level: "info",
-                });
-                // Uses shared helper: fires reaction, records SHA, then dispatches claim-verification.
-                await triggerSkepticReaction(session, lastSkepticSha, "skeptic-cr-approval");
-              }
-            }
-          } catch {
-            // getPRHeadSha or getSkepticComments failed — skip this cycle
-          }
-        }
-      }
 
       // bd-5o1: skip reactions for dead agents — ao send to a dead session wastes
       // resources and generates spurious escalation notifications. The PR state check
@@ -2221,124 +2157,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      // bd-qnj6: re-trigger skeptic evaluation when HEAD SHA changes on an
-      // already-open PR. The pr_open transition fires skeptic once, but subsequent
-      // pushes (GHA synchronize events) don't cause a status transition — the
-      // session stays in its current state. Without this, GHA posts a trigger
-      // comment, polls for VERDICT, and times out because lifecycle-manager never
-      // re-fires skeptic.
-      // bd-lg7i: also re-triggers for review_pending — determineStatus can hold a
-      // session in review_pending after a synchronize event, which would also timeout.
-      // wc-zsw: also re-triggers for ci_failed — sessions first polled in ci_failed
-      // (skipped by the transition block's pr_open guard) need SHA-change coverage too.
-      if (
-        (
-          newStatus === "pr_open" ||
-          newStatus === "ci_failed" ||
-          newStatus === "review_pending" ||
-          newStatus === "changes_requested" ||
-          newStatus === "approved" ||
-          newStatus === "mergeable"
-        ) &&
-        session.pr
-      ) {
-        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-        if (scm?.getPRHeadSha) {
-          try {
-            const currentSha = await scm.getPRHeadSha(session.pr);
-            const previousSha = lastSkepticSha.get(session.id);
-            if (currentSha && previousSha && currentSha !== previousSha) {
-              // HEAD SHA changed — re-trigger skeptic evaluation
-              const completionReactionKey = "worker-signals-completion";
-              const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
-              if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
-                observer.recordOperation({
-                  metric: "lifecycle_poll",
-                  operation: "lifecycle.skeptic_retrigger",
-                  outcome: "info",
-                  correlationId: createCorrelationId("skeptic-retrigger"),
-                  projectId: session.projectId,
-                  sessionId: session.id,
-                  data: { previousSha: previousSha.slice(0, 7), currentSha: currentSha.slice(0, 7) },
-                  level: "info",
-                });
-                // bd-lg7i / wc-zsw: mark SHA handled when executeReaction returns
-                // (skeptic-review returned without throwing — verdict was produced).
-                // Whether the verdict is PASS or FAIL, the SHA was evaluated; do not
-                // re-trigger on the same SHA. Only skip recording on throw (infra failure).
-                let handled = false;
-                try {
-                  await executeReaction(
-                    session.id,
-                    session.projectId,
-                    completionReactionKey,
-                    completionReactionConfig,
-                    session,
-                    createCorrelationId("skeptic-retrigger"),
-                  );
-                  handled = true;
-                } catch {
-                  // Network/timeout failure — do NOT record SHA so next poll can retry.
-                }
-                if (handled) {
-                  lastSkepticSha.set(session.id, currentSha);
-
-                  // bd-upxh: also dispatch claim-verification after SHA-change skeptic retest
-                  const claimReactionKey = "claim-verification";
-                  const claimReactionConfig = getReactionConfigForSession(session, claimReactionKey);
-                  if (claimReactionConfig?.action && claimReactionConfig.auto !== false) {
-                    try {
-                      await executeReaction(
-                        session.id,
-                        session.projectId,
-                        claimReactionKey,
-                        claimReactionConfig,
-                        session,
-                        createCorrelationId("claim-verification-retrigger"),
-                      );
-                    } catch {
-                      // Non-fatal
-                    }
-                  }
-                }
-              }
-            } else if (currentSha && !previousSha) {
-              // First time seeing this session's SHA in the no-transition path.
-              // The pr_open transition may have already fired skeptic and recorded the SHA,
-              // but if that dispatch failed (or the process restarted), lastSkepticSha is empty.
-              // Trigger skeptic to cover the missed-initial-dispatch case; if skeptic already
-              // ran for this SHA, the reaction's own dedup will handle it.
-              const completionReactionKey2 = "worker-signals-completion";
-              const completionReactionConfig2 = getReactionConfigForSession(session, completionReactionKey2);
-              if (completionReactionConfig2?.action && completionReactionConfig2.auto !== false) {
-                let handled = false;
-                try {
-                  await executeReaction(
-                    session.id,
-                    session.projectId,
-                    completionReactionKey2,
-                    completionReactionConfig2,
-                    session,
-                    createCorrelationId("skeptic-catchup"),
-                  );
-                  handled = true;
-                } catch {
-                  // dispatch failed — don't record SHA so we retry next cycle
-                }
-                if (handled) {
-                  lastSkepticSha.set(session.id, currentSha);
-                }
-              } else {
-                // No reaction configured — just record SHA to avoid re-checking
-                lastSkepticSha.set(session.id, currentSha);
-              }
-            }
-          } catch {
-            // getPRHeadSha failed — skip retrigger this cycle
-          }
-        }
-      }
-
       // bd-qqm: skeptic-advice — detect new skeptic FAIL comments and fire the reaction.
       // Works by comparing the highest comment ID seen in the current fetch against the
       // last known ID stored in lastSkepticCommentId. Fires on any session with a PR.
@@ -2554,6 +2372,17 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       agentDead,
     }, transitionReaction);
 
+    // Fork: /skeptic manual trigger — fire skeptic review when user posts /skeptic comment.
+    await detectAndTriggerSkepticComment(
+      session,
+      processedSkepticCommentIds,
+      lastSkepticSha,
+      createCorrelationId("skeptic-comment-trigger"),
+      config,
+      registry,
+      triggerSkepticReaction,
+    );
+
     // MCP mail: notify when session becomes blocked waiting for human input (non-terminal state)
     // Fires on the transition INTO needs_input so the global inbox gets alerted promptly.
     if (
@@ -2752,25 +2581,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             registry,
             lastBackfillWarnTimeByProject,
             BACKFILL_WARN_INTERVAL_MS,
-          });
-        }
-      }
-
-      // bd-skp2-cron: Local skeptic cron — evaluates open PRs using locally-available
-      // LLM tools (Codex/Claude). Replaces the broken GHA-based execution where no
-      // API keys exist. Throttled internally to run every 10 minutes.
-      // Fire-and-forget so a long-running LLM evaluation does not block the poll loop.
-      if (scopedProjectId) {
-        const skepticProject = config.projects[scopedProjectId];
-        if (skepticProject) {
-          void runLocalSkepticCron(
-            { registry, sessionManager, observer },
-            { projectId: scopedProjectId, project: skepticProject, activeSessions, correlationId },
-          ).catch(skepticCronErr => {
-            const msg = skepticCronErr instanceof Error ? skepticCronErr.message : String(skepticCronErr);
-            console.error(
-              `[skeptic-cron] failed: projectId=${scopedProjectId} correlationId=${correlationId} error=${msg}`,
-            );
           });
         }
       }
