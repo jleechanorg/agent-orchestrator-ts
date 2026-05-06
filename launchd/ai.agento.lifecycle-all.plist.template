@@ -46,6 +46,8 @@
     <string>https://api.minimax.io/anthropic</string>
     <key>MINIMAX_MODEL</key>
     <string>MiniMax-M2.7</string>
+    <key>CLAUDE_BINARY</key>
+    <string>@CLAUDE_BINARY@</string>
   </dict>
 
   <key>StandardOutPath</key>

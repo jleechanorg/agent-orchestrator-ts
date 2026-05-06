@@ -226,6 +226,9 @@ install_lifecycle_plist() {
   tmp_plist="$(mktemp)"
   local path_value
   path_value="$(escape_sed "$(path_for_launchd)")"
+  local claude_binary_path
+  # Prefer CLAUDE_BINARY (existing convention), fall back to CLAUDE_BINARY_PATH, then default.
+  claude_binary_path="${CLAUDE_BINARY:-${CLAUDE_BINARY_PATH:-$HOME/.local/bin/claude}}"
 
   sed \
     -e "s|@HOME@|$(escape_sed "$HOME")|g" \
@@ -234,6 +237,7 @@ install_lifecycle_plist() {
     -e "s|@START_ALL_SCRIPT@|$(escape_sed "$script")|g" \
     -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
     -e "s|@PATH@|$path_value|g" \
+    -e "s|@CLAUDE_BINARY@|$(escape_sed "$claude_binary_path")|g" \
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null
