@@ -34,7 +34,7 @@ export async function detectAndTriggerSkepticComment(
       // Skip bot authors
       if (c.user.login.endsWith("[bot]")) continue;
       // Detect /skeptic at the start of a line (not just any prefix in the body)
-      if (!/^\/skeptic\b/m.test(c.body)) continue;
+      if (!/^\s*\/skeptic\b/m.test(c.body)) continue;
       const seen = processedCommentIds.get(session.id) ?? new Set<number>();
       // Skip permanently failed comments to avoid infinite polling
       const failed = failedCommentIds.get(session.id) ?? new Set<number>();

@@ -309,6 +309,29 @@ describe("detectAndTriggerSkepticComment", () => {
     expect(mockTrigger).toHaveBeenCalledTimes(1);
   });
 
+  it("allows leading whitespace before /skeptic", async () => {
+    const session = makeSession({ id: "sess-1", pr: makePR() });
+    const scm = makeMockSCM([
+      { id: 1, user: { login: "jleechan2015" }, body: "  /skeptic" },
+    ]);
+    registry = {
+      get: vi.fn().mockReturnValue(scm),
+    } as unknown as PluginRegistry;
+
+    await detectAndTriggerSkepticComment(
+      session,
+      processedCommentIds,
+      failedCommentIds,
+      lastSkepticSha,
+      "test-corr",
+      config,
+      registry,
+      mockTrigger,
+    );
+
+    expect(mockTrigger).toHaveBeenCalledTimes(1);
+  });
+
   it("does not fire trigger when /skeptic has trailing content on same line", async () => {
     const session = makeSession({ id: "sess-1", pr: makePR() });
     const scm = makeMockSCM([
