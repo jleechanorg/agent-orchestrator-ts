@@ -196,6 +196,15 @@ function isAuthError(msg: string): boolean {
   );
 }
 
+/** True when msg indicates a MiniMax rate-limit (429). */
+function isRateLimit(msg: string): boolean {
+  return (
+    /\b429\b/i.test(msg) ||
+    msg.toLowerCase().includes("rate_limit") ||
+    msg.toLowerCase().includes("rate limit")
+  );
+}
+
 export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   const { execFileSync } = await import("node:child_process");
 
@@ -256,7 +265,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
 
       // 429 = MiniMax rate-limit. Retry once with 2s backoff; if still failing,
       // continue to next candidate (another binary may not hit the same rate limit).
-      if (/\b429\b/i.test(msg) || msg.toLowerCase().includes("rate_limit") || msg.toLowerCase().includes("rate limit")) {
+      if (isRateLimit(msg)) {
         await new Promise((r) => setTimeout(r, 2000));
         try {
           const retryResult = execFileSync(
@@ -276,7 +285,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
         } catch (retryErr: unknown) {
           const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
           // Retry 429: give up on this candidate, continue to next
-          if (/\b429\b/i.test(retryMsg) || retryMsg.toLowerCase().includes("rate_limit") || retryMsg.toLowerCase().includes("rate limit")) {
+          if (isRateLimit(retryMsg)) {
             allMissing = false;
             continue;
           }
