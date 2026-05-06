@@ -1906,7 +1906,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Handle transition: notify humans and/or trigger reactions
       const eventType = statusToEventType(oldStatus, newStatus);
 
-      let completionReactionHandledNotify = false;
+      const completionReactionHandledNotify = false;
 
       // bd-5o1: skip reactions for dead agents — ao send to a dead session wastes
       // resources and generates spurious escalation notifications. The PR state check
