@@ -31,6 +31,10 @@ export default defineConfig({
         __dirname,
         "../plugins/agent-minimax/src/index.ts",
       ),
+      "@jleechanorg/ao-plugin-agent-base": resolve(
+        __dirname,
+        "../plugins/agent-base/src/index.ts",
+      ),
       "@jleechanorg/ao-plugin-scm-github": resolve(
         __dirname,
         "../plugins/scm-github/src/index.ts",
