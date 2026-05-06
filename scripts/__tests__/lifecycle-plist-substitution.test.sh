@@ -113,6 +113,24 @@ else
   echo "SKIP — installed plist not found (run setup-launchd.sh lifecycle to install)"
 fi
 
+# Check 7: claude_binary_path precedence (CLAUDE_BINARY > CLAUDE_BINARY_PATH > default)
+# This validates the bash expansion in setup-launchd.sh without invoking launchctl.
+echo -n "Check 7: claude_binary_path precedence (CLAUDE_BINARY > CLAUDE_BINARY_PATH > default)... "
+P_FAIL=0
+# a) CLAUDE_BINARY wins over CLAUDE_BINARY_PATH
+r=$(CLAUDE_BINARY="/bin/claude-a" CLAUDE_BINARY_PATH="/bin/claude-b" HOME="/tmp" \
+  bash -c 'p="${CLAUDE_BINARY:-${CLAUDE_BINARY_PATH:-$HOME/.local/bin/claude}}"; echo "$p"')
+[ "$r" = "/bin/claude-a" ] || { echo "FAIL — CLAUDE_BINARY should win (got: $r)"; FAILED=1; P_FAIL=1; }
+# b) CLAUDE_BINARY_PATH wins when CLAUDE_BINARY is unset
+r=$(CLAUDE_BINARY_PATH="/bin/claude-b" HOME="/tmp" \
+  bash -c 'unset CLAUDE_BINARY; p="${CLAUDE_BINARY:-${CLAUDE_BINARY_PATH:-$HOME/.local/bin/claude}}"; echo "$p"')
+[ "$r" = "/bin/claude-b" ] || { echo "FAIL — CLAUDE_BINARY_PATH should win (got: $r)"; FAILED=1; P_FAIL=1; }
+# c) Default $HOME/.local/bin/claude when both unset
+r=$(HOME="/tmp" \
+  bash -c 'unset CLAUDE_BINARY CLAUDE_BINARY_PATH; p="${CLAUDE_BINARY:-${CLAUDE_BINARY_PATH:-$HOME/.local/bin/claude}}"; echo "$p"')
+[ "$r" = "/tmp/.local/bin/claude" ] || { echo "FAIL — default should be HOME/.local/bin/claude (got: $r)"; FAILED=1; P_FAIL=1; }
+[ "$P_FAIL" -eq 0 ] && echo "PASS (CLAUDE_BINARY > CLAUDE_BINARY_PATH > default all verified)"
+
 if [ $FAILED -eq 0 ]; then
   echo ""
   echo "All checks PASSED"
