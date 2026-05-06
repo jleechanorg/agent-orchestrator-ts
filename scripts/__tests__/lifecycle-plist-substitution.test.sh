@@ -78,8 +78,24 @@ else
   FAILED=1
 fi
 
-# Check 6: Installed plist has a real CLAUDE_BINARY value (not placeholder, not empty)
-echo -n "Check 6: installed plist has a real CLAUDE_BINARY value... "
+# Check 6: Template renders @CLAUDE_BINARY@ correctly (hermetic — no installed plist required)
+echo -n "Check 6: template renders @CLAUDE_BINARY@ into plist string correctly... "
+if [ -f "$TEMPLATE" ]; then
+  TEST_BIN="/tmp/claude-test-binary-$$"
+  rendered=$(sed "s|@CLAUDE_BINARY@|${TEST_BIN}|g" "$TEMPLATE")
+  if echo "$rendered" | grep -qF "<string>${TEST_BIN}</string>"; then
+    echo "PASS (verified rendered string for ${TEST_BIN})"
+  else
+    echo "FAIL — expected '<string>${TEST_BIN}</string>' in rendered template output"
+    FAILED=1
+  fi
+else
+  echo "FAIL — template $TEMPLATE not found"
+  FAILED=1
+fi
+
+# Check 6b: Installed plist has a real CLAUDE_BINARY value (informational — skip if not installed)
+echo -n "Check 6b: installed plist has a real CLAUDE_BINARY value... "
 if [ -f "$INSTALLED_PLIST" ]; then
   claude_bin_value=$(plutil -p "$INSTALLED_PLIST" 2>/dev/null | grep '"CLAUDE_BINARY"' | sed 's/.*=> "//;s/".*//' || true)
   claude_bin_trimmed="${claude_bin_value#"${claude_bin_value%%[![:space:]]*}"}"
@@ -94,7 +110,7 @@ if [ -f "$INSTALLED_PLIST" ]; then
     echo "PASS (${claude_bin_trimmed})"
   fi
 else
-  echo "SKIP — installed plist not found (may need install first)"
+  echo "SKIP — installed plist not found (run setup-launchd.sh lifecycle to install)"
 fi
 
 if [ $FAILED -eq 0 ]; then
