@@ -32,7 +32,7 @@ if [ -f "$TEMPLATE" ] && grep -q '@GITHUB_TOKEN@' "$TEMPLATE"; then
   echo -n "Check 1: template has @GITHUB_TOKEN@... PASS"
   echo ""
   echo -n "Check 2: setup script has sed substitution for @GITHUB_TOKEN@... "
-  if grep -E '^\s+-e "s\|@GITHUB_TOKEN@\|.*escape_sed.*\|g"' "$SETUP_SCRIPT" >/dev/null 2>&1; then
+  if grep -E '^[[:space:]]+-e "s\|@GITHUB_TOKEN@\|.*escape_sed.*\|g"' "$SETUP_SCRIPT" >/dev/null 2>&1; then
     echo "PASS"
   else
     echo "FAIL — sed substitution line missing or commented out in $SETUP_SCRIPT"
@@ -70,7 +70,7 @@ fi
 
 # Check 5: Setup script has uncommented sed substitution for CLAUDE_BINARY
 echo -n "Check 5: setup script has sed substitution for @CLAUDE_BINARY@... "
-if grep -E '^\s+-e "s\|@CLAUDE_BINARY@\|.*escape_sed.*\|g"' "$SETUP_SCRIPT" >/dev/null 2>&1; then
+if grep -E '^[[:space:]]+-e "s\|@CLAUDE_BINARY@\|.*escape_sed.*\|g"' "$SETUP_SCRIPT" >/dev/null 2>&1; then
   echo "PASS"
 else
   echo "FAIL — sed substitution line missing, commented out, or missing escape_sed in $SETUP_SCRIPT"
