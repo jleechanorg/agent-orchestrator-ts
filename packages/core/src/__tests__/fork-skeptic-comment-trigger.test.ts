@@ -278,7 +278,7 @@ describe("detectAndTriggerSkepticComment", () => {
   it("trims body and still detects /skeptic", async () => {
     const session = makeSession({ id: "sess-1", pr: makePR() });
     const scm = makeMockSCM([
-      { id: 1, user: { login: "jleechan2015" }, body: "   /skeptic" },
+      { id: 1, user: { login: "jleechan2015" }, body: "/skeptic" },
     ]);
     registry = {
       get: vi.fn().mockReturnValue(scm),
@@ -295,5 +295,77 @@ describe("detectAndTriggerSkepticComment", () => {
     );
 
     expect(mockTrigger).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire trigger when /skeptic has trailing content on same line", async () => {
+    const session = makeSession({ id: "sess-1", pr: makePR() });
+    const scm = makeMockSCM([
+      { id: 1, user: { login: "jleechan2015" }, body: "please run /skeptic on this" },
+    ]);
+    registry = {
+      get: vi.fn().mockReturnValue(scm),
+    } as unknown as PluginRegistry;
+
+    await detectAndTriggerSkepticComment(
+      session,
+      processedCommentIds,
+      lastSkepticSha,
+      "test-corr",
+      config,
+      registry,
+      mockTrigger,
+    );
+
+    // /skeptic embedded in a sentence does not trigger — requires line-start match
+    expect(mockTrigger).not.toHaveBeenCalled();
+  });
+
+  it("marks comment processed only after trigger returns true", async () => {
+    const session = makeSession({ id: "sess-1", pr: makePR() });
+    const scm = makeMockSCM([
+      { id: 99, user: { login: "jleechan2015" }, body: "/skeptic" },
+    ]);
+    registry = {
+      get: vi.fn().mockReturnValue(scm),
+    } as unknown as PluginRegistry;
+
+    // First call — trigger returns false, comment should NOT be marked processed
+    mockTrigger.mockResolvedValueOnce(false);
+    await detectAndTriggerSkepticComment(
+      session,
+      processedCommentIds,
+      lastSkepticSha,
+      "test-corr",
+      config,
+      registry,
+      mockTrigger,
+    );
+    expect(mockTrigger).toHaveBeenCalledTimes(1);
+
+    // Trigger returns true on second call — now it should fire again since first failed to mark processed
+    mockTrigger.mockResolvedValueOnce(true);
+    await detectAndTriggerSkepticComment(
+      session,
+      processedCommentIds,
+      lastSkepticSha,
+      "test-corr",
+      config,
+      registry,
+      mockTrigger,
+    );
+    // Second call DOES fire because first didn't mark it processed
+    expect(mockTrigger).toHaveBeenCalledTimes(2);
+
+    // Third call — now it should be skipped (marked processed on second)
+    await detectAndTriggerSkepticComment(
+      session,
+      processedCommentIds,
+      lastSkepticSha,
+      "test-corr",
+      config,
+      registry,
+      mockTrigger,
+    );
+    expect(mockTrigger).toHaveBeenCalledTimes(2);
   });
 });

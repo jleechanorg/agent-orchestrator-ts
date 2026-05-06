@@ -32,14 +32,17 @@ export async function detectAndTriggerSkepticComment(
     for (const c of comments) {
       // Skip bot authors
       if (c.user.login.endsWith("[bot]")) continue;
-      // Detect /skeptic at start of comment body
-      if (!c.body.trimStart().startsWith("/skeptic")) continue;
+      // Detect /skeptic at the start of a line (not just any prefix in the body)
+      if (!/^\/skeptic\b/m.test(c.body)) continue;
       const seen = processedCommentIds.get(session.id) ?? new Set<number>();
       // Dedup: each /skeptic comment fires exactly once
       if (seen.has(c.id)) continue;
-      seen.add(c.id);
-      processedCommentIds.set(session.id, seen);
-      await triggerSkepticReaction(session, lastSkepticSha, correlationId);
+      const success = await triggerSkepticReaction(session, lastSkepticSha, correlationId);
+      // Only mark processed after the trigger succeeds so a failed trigger can retry
+      if (success) {
+        seen.add(c.id);
+        processedCommentIds.set(session.id, seen);
+      }
       // Process at most one new /skeptic comment per poll cycle
       break;
     }
