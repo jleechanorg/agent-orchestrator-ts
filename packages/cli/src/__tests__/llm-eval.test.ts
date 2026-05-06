@@ -193,3 +193,71 @@ describe("tryClaudePrint — 401/403 auth failure still returns immediately", ()
     expect(execFileSyncMock).toHaveBeenCalledTimes(1); // Only first candidate tried
   });
 });
+
+describe("tryClaudePrint — 429 then retry auth failure (regression)", () => {
+  beforeEach(() => {
+    execFileSyncMock.mockReset();
+    execFileSyncMock.mockImplementation(() => {
+      throw new Error("unexpected call");
+    });
+    accessSyncMock.mockImplementation(() => {});
+  });
+
+  it("returns immediately when 429 initial retry hits 401 — auth is global", async () => {
+    // First call: 429 (rate limit)
+    execFileSyncMock.mockImplementationOnce(() => {
+      throw makeError(undefined, "Request failed with status code 429");
+    });
+    // Retry: 401 (auth failure — no other binary will help)
+    execFileSyncMock.mockImplementationOnce(() => {
+      throw makeError(undefined, "Request failed with status code 401");
+    });
+    // Third candidate would succeed but should never be reached
+    execFileSyncMock.mockImplementationOnce(() => {
+      return "output\nVERDICT: PASS\n";
+    });
+
+    const result = await tryClaudePrint("test prompt");
+
+    // Returns immediately on 401 retry — does NOT continue to third candidate
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toBeUndefined();
+    expect(execFileSyncMock).toHaveBeenCalledTimes(2); // Only 2 calls (429 then 401)
+  });
+
+  it("returns immediately when 429 initial retry hits 403 — auth is global", async () => {
+    execFileSyncMock.mockImplementationOnce(() => {
+      throw makeError(undefined, "429 rate limit exceeded");
+    });
+    execFileSyncMock.mockImplementationOnce(() => {
+      throw makeError(undefined, "403 Forbidden");
+    });
+    execFileSyncMock.mockImplementationOnce(() => {
+      return "output\nVERDICT: PASS\n";
+    });
+
+    const result = await tryClaudePrint("test prompt");
+
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toBeUndefined();
+    expect(execFileSyncMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns immediately when 429 initial retry hits 401 via unauthorized message", async () => {
+    execFileSyncMock.mockImplementationOnce(() => {
+      throw makeError(undefined, "status 429");
+    });
+    execFileSyncMock.mockImplementationOnce(() => {
+      throw makeError(undefined, "unauthorized — invalid credentials");
+    });
+    execFileSyncMock.mockImplementationOnce(() => {
+      return "output\nVERDICT: PASS\n";
+    });
+
+    const result = await tryClaudePrint("test prompt");
+
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toBeUndefined();
+    expect(execFileSyncMock).toHaveBeenCalledTimes(2);
+  });
+});

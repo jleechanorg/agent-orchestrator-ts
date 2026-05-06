@@ -161,6 +161,40 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
  * Run claude --print for headless evaluation.
  * Fail-closed: missing VERDICT = failure.
  */
+
+/** Shared exec call — used for both initial attempt and 429 retry. */
+function runClaudeExec(
+  candidate: string,
+  prompt: string,
+): Buffer {
+  const { execFileSync } = require("node:child_process");
+  return execFileSync(
+    candidate,
+    ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
+    {
+      input: prompt,
+      encoding: "utf-8",
+      timeout: LLM_EVAL_TIMEOUT_MS,
+      stdio: ["pipe", "pipe", "ignore"],
+      cwd: "/tmp",
+      env: {
+        ...process.env,
+        ...minimaxEnv(),
+      },
+    },
+  );
+}
+
+/** True when msg indicates an auth failure that is global to all binaries. */
+function isAuthError(msg: string): boolean {
+  return (
+    /\b401\b/i.test(msg) ||
+    /\b403\b/i.test(msg) ||
+    msg.toLowerCase().includes("unauthorized") ||
+    msg.toLowerCase().includes("forbidden")
+  );
+}
+
 export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   const { execFileSync } = await import("node:child_process");
 
@@ -189,24 +223,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
     }
 
     try {
-      const result = execFileSync(
-        candidate,
-        ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
-        {
-          input: prompt,
-          encoding: "utf-8",
-          timeout: LLM_EVAL_TIMEOUT_MS,
-          stdio: ["pipe", "pipe", "ignore"],
-          // Run from /tmp to prevent project-level CLAUDE.md hooks (e.g. mandatory
-          // git-header appended to every response) from polluting the output and
-          // hiding the VERDICT line from the regex check.
-          cwd: "/tmp",
-          env: {
-            ...process.env,
-            ...minimaxEnv(),
-          },
-        },
-      );
+      const result = runClaudeExec(candidate, prompt);
       const output = result.trim();
       if (!STRICT_VERDICT_RE.test(output)) {
         return {
@@ -236,23 +253,10 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
       // continue to next candidate (another binary may not hit the same rate limit).
       if (/\b429\b/i.test(msg) || msg.toLowerCase().includes("rate_limit") || msg.toLowerCase().includes("rate limit")) {
         await new Promise((r) => setTimeout(r, 2000));
-        // fall through to retry the same candidate — emulate by calling execFileSync again inline
+        // Retry once after 2s backoff
+        await new Promise((r) => setTimeout(r, 2000));
         try {
-          const retryResult = execFileSync(
-            candidate,
-            ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
-            {
-              input: prompt,
-              encoding: "utf-8",
-              timeout: LLM_EVAL_TIMEOUT_MS,
-              stdio: ["pipe", "pipe", "ignore"],
-              cwd: "/tmp",
-              env: {
-                ...process.env,
-                ...minimaxEnv(),
-              },
-            },
-          );
+          const retryResult = runClaudeExec(candidate, prompt);
           const retryOutput = retryResult.trim();
           if (STRICT_VERDICT_RE.test(retryOutput)) {
             return { validVerdict: true, output: retryOutput };
@@ -264,12 +268,16 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
           };
         } catch (retryErr: unknown) {
           const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          // If retry also 429, give up on this candidate and continue to next
+          // Retry 429: give up on this candidate, continue to next
           if (/\b429\b/i.test(retryMsg) || retryMsg.toLowerCase().includes("rate_limit") || retryMsg.toLowerCase().includes("rate limit")) {
             allMissing = false;
             continue;
           }
-          // Any other error on retry: treat as infra error, try next candidate
+          // Retry 401/403: auth is global — no other binary will help, return immediately
+          if (isAuthError(retryMsg)) {
+            return { validVerdict: false, output: "", error: undefined };
+          }
+          // Any other retry error: treat as infra error, try next candidate
           allMissing = false;
           if (!firstInfraError) firstInfraError = retryMsg;
           continue;
@@ -277,7 +285,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
       }
 
       // 401/403 = auth failure. All binaries share the same credentials → return immediately.
-      if (/\b401\b/i.test(msg) || /\b403\b/i.test(msg) || msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("forbidden")) {
+      if (isAuthError(msg)) {
         return { validVerdict: false, output: "", error: undefined };
       }
 
