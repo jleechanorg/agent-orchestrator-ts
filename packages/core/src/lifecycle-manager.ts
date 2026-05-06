@@ -530,6 +530,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   // When the SHA changes while session stays in pr_open, re-fire the skeptic reaction.
   const lastSkepticSha = new Map<string, string>(); // sessionId → last evaluated HEAD SHA
   const processedSkepticCommentIds = new Map<string, Set<number>>(); // sessionId → processed /skeptic comment IDs
+  const failedSkepticCommentIds = new Map<string, Set<number>>(); // sessionId → permanently-failed comment IDs (no worker etc.)
   // bd-qqm: track the last skeptic comment ID per session to detect new FAIL verdicts.
   // Initialized lazily (undefined = never fetched), compared against fetched comment IDs each poll.
   const lastSkepticCommentId = new Map<string, number>(); // sessionId → last known comment ID
@@ -2376,6 +2377,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     await detectAndTriggerSkepticComment(
       session,
       processedSkepticCommentIds,
+      failedSkepticCommentIds,
       lastSkepticSha,
       createCorrelationId("skeptic-comment-trigger"),
       config,

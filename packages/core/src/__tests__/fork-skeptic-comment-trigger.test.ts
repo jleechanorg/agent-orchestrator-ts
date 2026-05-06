@@ -45,6 +45,7 @@ function makeMockSCM(comments: Array<{ id: number; user: { login: string }; body
 describe("detectAndTriggerSkepticComment", () => {
   let mockTrigger: ReturnType<typeof vi.fn>;
   let processedCommentIds: Map<string, Set<number>>;
+  let failedCommentIds: Map<string, Set<number>>;
   let lastSkepticSha: Map<string, string>;
   let config: OrchestratorConfig;
   let registry: PluginRegistry;
@@ -52,6 +53,7 @@ describe("detectAndTriggerSkepticComment", () => {
   beforeEach(() => {
     mockTrigger = vi.fn().mockResolvedValue(true);
     processedCommentIds = new Map();
+    failedCommentIds = new Map();
     lastSkepticSha = new Map();
     config = {
       defaults: {},
@@ -76,6 +78,7 @@ describe("detectAndTriggerSkepticComment", () => {
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -96,6 +99,7 @@ describe("detectAndTriggerSkepticComment", () => {
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -115,6 +119,7 @@ describe("detectAndTriggerSkepticComment", () => {
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -137,6 +142,7 @@ describe("detectAndTriggerSkepticComment", () => {
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -159,6 +165,7 @@ describe("detectAndTriggerSkepticComment", () => {
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -181,6 +188,7 @@ describe("detectAndTriggerSkepticComment", () => {
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -205,6 +213,7 @@ describe("detectAndTriggerSkepticComment", () => {
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -216,6 +225,7 @@ describe("detectAndTriggerSkepticComment", () => {
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -239,6 +249,7 @@ describe("detectAndTriggerSkepticComment", () => {
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -287,6 +298,7 @@ describe("detectAndTriggerSkepticComment", () => {
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -309,6 +321,7 @@ describe("detectAndTriggerSkepticComment", () => {
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -329,11 +342,12 @@ describe("detectAndTriggerSkepticComment", () => {
       get: vi.fn().mockReturnValue(scm),
     } as unknown as PluginRegistry;
 
-    // First call — trigger returns false, comment should NOT be marked processed
+    // First call — trigger returns false, comment is recorded as permanently failed
     mockTrigger.mockResolvedValueOnce(false);
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
@@ -342,30 +356,55 @@ describe("detectAndTriggerSkepticComment", () => {
     );
     expect(mockTrigger).toHaveBeenCalledTimes(1);
 
-    // Trigger returns true on second call — now it should fire again since first failed to mark processed
-    mockTrigger.mockResolvedValueOnce(true);
+    // Second call — permanently failed comment is skipped
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
       registry,
       mockTrigger,
     );
-    // Second call DOES fire because first didn't mark it processed
-    expect(mockTrigger).toHaveBeenCalledTimes(2);
+    expect(mockTrigger).toHaveBeenCalledTimes(1);
+  });
 
-    // Third call — now it should be skipped (marked processed on second)
+  it("permanently skips failed comment across poll cycles", async () => {
+    const session = makeSession({ id: "sess-1", pr: makePR() });
+    const scm = makeMockSCM([
+      { id: 99, user: { login: "jleechan2015" }, body: "/skeptic" },
+    ]);
+    registry = {
+      get: vi.fn().mockReturnValue(scm),
+    } as unknown as PluginRegistry;
+
+    // Simulate a real poll cycle: first call fails, permanent failure recorded
+    mockTrigger.mockResolvedValueOnce(false);
     await detectAndTriggerSkepticComment(
       session,
       processedCommentIds,
+      failedCommentIds,
       lastSkepticSha,
       "test-corr",
       config,
       registry,
       mockTrigger,
     );
-    expect(mockTrigger).toHaveBeenCalledTimes(2);
+
+    // Next poll cycle — same comment must NOT be re-processed
+    await detectAndTriggerSkepticComment(
+      session,
+      processedCommentIds,
+      failedCommentIds,
+      lastSkepticSha,
+      "test-corr",
+      config,
+      registry,
+      mockTrigger,
+    );
+
+    // Trigger was only called once despite multiple poll cycles
+    expect(mockTrigger).toHaveBeenCalledTimes(1);
   });
 });

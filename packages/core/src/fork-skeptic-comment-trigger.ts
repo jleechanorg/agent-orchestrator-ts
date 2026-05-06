@@ -15,6 +15,7 @@ type TriggerFn = (
 export async function detectAndTriggerSkepticComment(
   session: Session,
   processedCommentIds: Map<string, Set<number>>,
+  failedCommentIds: Map<string, Set<number>>,
   lastSkepticSha: Map<string, string>,
   correlationId: string,
   config: OrchestratorConfig,
@@ -22,7 +23,7 @@ export async function detectAndTriggerSkepticComment(
   triggerSkepticReaction: TriggerFn,
 ): Promise<void> {
   if (!session.pr) return;
-  const project = config.projects[session.projectId];
+  const project = config.projects?.[session.projectId];
   if (!project) return;
   const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
   if (!scm?.listPRComments) return;
@@ -35,13 +36,17 @@ export async function detectAndTriggerSkepticComment(
       // Detect /skeptic at the start of a line (not just any prefix in the body)
       if (!/^\/skeptic\b/m.test(c.body)) continue;
       const seen = processedCommentIds.get(session.id) ?? new Set<number>();
-      // Dedup: each /skeptic comment fires exactly once
-      if (seen.has(c.id)) continue;
+      // Skip permanently failed comments to avoid infinite polling
+      const failed = failedCommentIds.get(session.id) ?? new Set<number>();
+      if (seen.has(c.id) || failed.has(c.id)) continue;
       const success = await triggerSkepticReaction(session, lastSkepticSha, correlationId);
-      // Only mark processed after the trigger succeeds so a failed trigger can retry
       if (success) {
         seen.add(c.id);
         processedCommentIds.set(session.id, seen);
+      } else {
+        // Permanent failure — record so we skip on every subsequent poll
+        failed.add(c.id);
+        failedCommentIds.set(session.id, failed);
       }
       // Process at most one new /skeptic comment per poll cycle
       break;
