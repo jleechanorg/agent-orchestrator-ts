@@ -161,6 +161,41 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
  * Run claude --print for headless evaluation.
  * Fail-closed: missing VERDICT = failure.
  */
+
+/** Shared exec options — avoids duplication across initial attempt and 429 retry. */
+function makeClaudeExecOptions(
+  prompt: string,
+): {
+  input: string;
+  encoding: "utf-8";
+  timeout: number;
+  stdio: ["pipe", "pipe", "ignore"];
+  cwd: string;
+  env: Record<string, string | undefined>;
+} {
+  return {
+    input: prompt,
+    encoding: "utf-8",
+    timeout: LLM_EVAL_TIMEOUT_MS,
+    stdio: ["pipe", "pipe", "ignore"],
+    cwd: "/tmp",
+    env: {
+      ...process.env,
+      ...minimaxEnv(),
+    },
+  };
+}
+
+/** True when msg indicates an auth failure that is global to all binaries. */
+function isAuthError(msg: string): boolean {
+  return (
+    /\b401\b/i.test(msg) ||
+    /\b403\b/i.test(msg) ||
+    msg.toLowerCase().includes("unauthorized") ||
+    msg.toLowerCase().includes("forbidden")
+  );
+}
+
 export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   const { execFileSync } = await import("node:child_process");
 
@@ -192,20 +227,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
       const result = execFileSync(
         candidate,
         ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
-        {
-          input: prompt,
-          encoding: "utf-8",
-          timeout: LLM_EVAL_TIMEOUT_MS,
-          stdio: ["pipe", "pipe", "ignore"],
-          // Run from /tmp to prevent project-level CLAUDE.md hooks (e.g. mandatory
-          // git-header appended to every response) from polluting the output and
-          // hiding the VERDICT line from the regex check.
-          cwd: "/tmp",
-          env: {
-            ...process.env,
-            ...minimaxEnv(),
-          },
-        },
+        makeClaudeExecOptions(prompt),
       );
       const output = result.trim();
       if (!STRICT_VERDICT_RE.test(output)) {
@@ -225,15 +247,56 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
         continue;
       }
 
-      // ETIMEDOUT, 401/403/429, ENOENT — all "unavailable", try next binary
-      // candidate. Another binary (or the same one on retry) may succeed.
-      // Auth errors (401/403/429) are treated as "tool unavailable" globally
-      // since another binary will hit the same auth issue.
-      if (isUnavailable(msg, errno as string | undefined)) {
-        return { validVerdict: false, output: "", error: undefined }; // → caller skips this tool
+      // ETIMEDOUT = binary-specific hang (e.g. GUI app in headless launchd context).
+      // Another candidate (e.g. CLI-only binary) may not hang. Continue to next.
+      if (errno === "ETIMEDOUT") {
+        allMissing = false;
+        continue;
       }
 
-      // Found a binary but it failed with an infra error (e.g. timeout, dynamic link error)
+      // 429 = MiniMax rate-limit. Retry once with 2s backoff; if still failing,
+      // continue to next candidate (another binary may not hit the same rate limit).
+      if (/\b429\b/i.test(msg) || msg.toLowerCase().includes("rate_limit") || msg.toLowerCase().includes("rate limit")) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const retryResult = execFileSync(
+            candidate,
+            ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
+            makeClaudeExecOptions(prompt),
+          );
+          const retryOutput = retryResult.trim();
+          if (STRICT_VERDICT_RE.test(retryOutput)) {
+            return { validVerdict: true, output: retryOutput };
+          }
+          return {
+            validVerdict: false,
+            output: retryOutput,
+            error: `Claude output missing VERDICT line (got ${retryOutput.slice(0, 100)}...)`,
+          };
+        } catch (retryErr: unknown) {
+          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          // Retry 429: give up on this candidate, continue to next
+          if (/\b429\b/i.test(retryMsg) || retryMsg.toLowerCase().includes("rate_limit") || retryMsg.toLowerCase().includes("rate limit")) {
+            allMissing = false;
+            continue;
+          }
+          // Retry 401/403: auth is global — no other binary will help, return immediately
+          if (isAuthError(retryMsg)) {
+            return { validVerdict: false, output: "", error: undefined };
+          }
+          // Any other retry error: treat as infra error, try next candidate
+          allMissing = false;
+          if (!firstInfraError) firstInfraError = retryMsg;
+          continue;
+        }
+      }
+
+      // 401/403 = auth failure. All binaries share the same credentials → return immediately.
+      if (isAuthError(msg)) {
+        return { validVerdict: false, output: "", error: undefined };
+      }
+
+      // Other infra errors: record and continue to next candidate
       allMissing = false;
       if (!firstInfraError) firstInfraError = msg;
 
