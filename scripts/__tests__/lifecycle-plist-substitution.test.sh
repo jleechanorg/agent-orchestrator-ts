@@ -70,10 +70,10 @@ fi
 
 # Check 5: Setup script has uncommented sed substitution for CLAUDE_BINARY
 echo -n "Check 5: setup script has sed substitution for @CLAUDE_BINARY@... "
-if grep -E '^\s+-e "s\|@CLAUDE_BINARY@\|' "$SETUP_SCRIPT" >/dev/null 2>&1; then
+if grep -E '^\s+-e "s\|@CLAUDE_BINARY@\|.*escape_sed' "$SETUP_SCRIPT" >/dev/null 2>&1; then
   echo "PASS"
 else
-  echo "FAIL — sed substitution line missing or commented out in $SETUP_SCRIPT"
+  echo "FAIL — sed substitution line missing, commented out, or missing escape_sed in $SETUP_SCRIPT"
   echo "  Expected: -e \"s|@CLAUDE_BINARY@|\$(escape_sed ...)|g\""
   FAILED=1
 fi
