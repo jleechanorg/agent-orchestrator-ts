@@ -706,6 +706,8 @@ export interface SCM {
    *  Used by the skeptic-advice reaction to detect new FAIL verdicts and
    *  extract structured guidance for workers. */
   getSkepticComments?(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>>;
+  /** Fetch all PR issue comments without author filtering. Used by /skeptic comment trigger. */
+  listPRComments?(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>>;
 
   // --- Review Actions (bd-yjo: atomic re-review transaction) ---
 

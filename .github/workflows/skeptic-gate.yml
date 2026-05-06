@@ -1,25 +1,18 @@
 name: Skeptic Gate
 
-# Thin polling wrapper for skeptic VERDICT.
+# Manual-only escape hatch for skeptic VERDICT polling.
 #
-# green-gate.yml runs the 6-green deterministic check (gates 1-5).
-# This workflow runs after green-gate.yml via workflow_run and handles
-# the LLM evaluation polling:
+# Skeptic now runs only via /skeptic comment trigger (lifecycle-worker handles it).
+# This workflow is kept as a workflow_dispatch-only fallback for manual invocation.
+#
+# Flow:
 #   1. Post SKEPTIC_GATE_TRIGGER comment (lifecycle-worker picks it up → ao skeptic verify)
 #   2. Poll for VERDICT (up to 15 min)
 #   3. Exit PASS / FAIL
 #
 # No API keys, no local execution — pure polling wrapper.
-# Works for any repo with lifecycle-worker running ao skeptic verify.
-#
-# Trigger: workflow_run so we run after green-gate.yml for the same PR.
-# green-gate.yml must set workflow_run to trigger this on completion.
 
 on:
-  workflow_run:
-    types: [completed]
-    workflows: ["Green Gate"]
-
   workflow_dispatch:
     inputs:
       pr_number:
@@ -32,7 +25,7 @@ on:
         type: string
 
 concurrency:
-  group: skeptic-gate-${{ (github.event.workflow_run.pull_requests[0].number || github.event.inputs.pr_number || github.run_id) }}
+  group: skeptic-gate-${{ (github.event.inputs.pr_number || github.run_id) }}
   cancel-in-progress: false
 
 permissions:
@@ -47,17 +40,7 @@ jobs:
     name: Skeptic Gate
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    # Logic breakdown:
-    #   A) workflow_dispatch → always allowed (manual escape hatch for any repo)
-    #   B) workflow_run.success + non-agentorchestrator repo → allowed (normal path)
-    #   C) workflow_run.success + agentorchestrator → BLOCKED (lifecycle-worker only runs
-    #      skeptic for worldarchitect; no VERDICT will be posted and the gate times out)
-    #
-    # The always-comment policy (every claim needs VERDICT evidence) is enforced by the
-    # claim-verifier PreToolUse hook, not by blocking the gate here.
-    if: >
-      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
-      && (github.repository != 'jleechanorg/agent-orchestrator' || github.event_name == 'workflow_dispatch')
+    # workflow_dispatch only — no auto conditions needed.
     steps:
       # ----------------------------------------------------------------
       # Extract PR context from workflow_run event
@@ -66,19 +49,11 @@ jobs:
         id: resolve
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # workflow_run payload: workflow_run.event == 'pull_request'
-          WR_PR_NUM: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
-          WR_HEAD_SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha || '' }}
           WD_PR_NUM: ${{ github.event.inputs.pr_number || '' }}
           WD_HEAD_SHA: ${{ github.event.inputs.head_sha || '' }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            PR_NUM="$WD_PR_NUM"
-            HEAD_SHA="$WD_HEAD_SHA"
-          else
-            PR_NUM="$WR_PR_NUM"
-            HEAD_SHA="$WR_HEAD_SHA"
-          fi
+          PR_NUM="$WD_PR_NUM"
+          HEAD_SHA="$WD_HEAD_SHA"
 
           if [ -z "$PR_NUM" ]; then
             echo "ERROR: could not determine PR number" >&2
