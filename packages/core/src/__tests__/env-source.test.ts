@@ -29,6 +29,7 @@ for (const k of [
 // ---------------------------------------------------------------------------
 const mockExecFileSync = vi.hoisted(() => vi.fn<typeof import("node:child_process").execFileSync>());
 const mockExistsSync = vi.hoisted(() => vi.fn<typeof import("node:fs").existsSync>());
+const mockReadFileSync = vi.hoisted(() => vi.fn<typeof import("node:fs").readFileSync>());
 
 vi.mock("node:child_process", () => ({
   execFileSync: mockExecFileSync,
@@ -36,6 +37,7 @@ vi.mock("node:child_process", () => ({
 
 vi.mock("node:fs", () => ({
   existsSync: mockExistsSync,
+  readFileSync: mockReadFileSync,
 }));
 
 const { sourceEnvFile, applyEnvSource } = await import("../env-source.js");
@@ -278,5 +280,78 @@ describe("applyEnvSource — real exports", () => {
     applyEnvSource(["~/.bashrc", "~/.zshrc"]);
     expect(process.env.MINIMAX_API_KEY).toBe("sk-cp-first");
     expect(process.env.ANTHROPIC_API_KEY).toBe("sk-ant-second");
+  });
+});
+
+describe("sourceEnvFile — /etc/environment direct parsing", () => {
+  // /etc/environment is parsed as plain KEY=VALUE without bash sourcing.
+  // mockReadFileSync is hoisted at module level — reference it directly.
+  beforeEach(() => {
+    mockReadFileSync.mockReset();
+    mockExecFileSync.mockReset(); // clear calls from prior tests
+    mockExistsSync.mockReturnValue(true);
+  });
+
+  it("parses plain KEY=VALUE entries (no export) from /etc/environment", () => {
+    mockReadFileSync.mockReturnValue(
+      "PATH=/usr/bin\nMINIMAX_API_KEY=sk-cp-test\nHOME=/test\n",
+    );
+    const result = sourceEnvFile("/etc/environment");
+    expect(result).toHaveProperty("MINIMAX_API_KEY", "sk-cp-test");
+    expect(result).not.toHaveProperty("PATH");
+    expect(result).not.toHaveProperty("HOME");
+  });
+
+  it("parses KEY=VALUE entries with export prefix from /etc/environment", () => {
+    mockReadFileSync.mockReturnValue(
+      "export MINIMAX_API_KEY=sk-cp-export\nANTHROPIC_API_KEY=sk-ant-plain\n",
+    );
+    const result = sourceEnvFile("/etc/environment");
+    // Lines starting with "export " are valid KEY=VALUE (key = "export")
+    // The plain entry without "export" prefix is what we want.
+    expect(result).toHaveProperty("ANTHROPIC_API_KEY", "sk-ant-plain");
+    // "export MINIMAX_API_KEY=..." parses key="export", not "MINIMAX_API_KEY"
+    // which is correct — /etc/environment does not use shell export syntax
+    expect(result).not.toHaveProperty("MINIMAX_API_KEY");
+  });
+
+  it("skips comment and blank lines from /etc/environment", () => {
+    mockReadFileSync.mockReturnValue("# this is a comment\n\nMINIMAX_API_KEY=sk-cp-test\n  \n# another comment\nANTHROPIC_API_KEY=sk-ant-test\n");
+    const result = sourceEnvFile("/etc/environment");
+    expect(result).toHaveProperty("MINIMAX_API_KEY", "sk-cp-test");
+    expect(result).toHaveProperty("ANTHROPIC_API_KEY", "sk-ant-test");
+  });
+
+  it("does not call execFileSync for /etc/environment (direct read only)", () => {
+    mockReadFileSync.mockReturnValue("MINIMAX_API_KEY=sk-cp-test\n");
+    sourceEnvFile("/etc/environment");
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+  });
+
+  it("returns empty when /etc/environment does not exist", () => {
+    mockExistsSync.mockReturnValue(false);
+    const result = sourceEnvFile("/etc/environment");
+    expect(result).toEqual({});
+  });
+
+  it("filters by allowed prefixes for /etc/environment", () => {
+    mockReadFileSync.mockReturnValue(
+      "MINIMAX_API_KEY=sk-minimax\nANTHROPIC_API_KEY=sk-anthropic\nOPENAI_API_KEY=sk-openai\nMCP_AGENT_MAIL_URL=https://mail.example.com\nAO_CLI_PATH=/usr/local/bin/ao\nHOME=/test\nUSER=testuser\n",
+    );
+    const result = sourceEnvFile("/etc/environment");
+    expect(result).toEqual({
+      MINIMAX_API_KEY: "sk-minimax",
+      ANTHROPIC_API_KEY: "sk-anthropic",
+      OPENAI_API_KEY: "sk-openai",
+      MCP_AGENT_MAIL_URL: "https://mail.example.com",
+      AO_CLI_PATH: "/usr/local/bin/ao",
+    });
+  });
+
+  it("returns empty when readFileSync throws for /etc/environment", () => {
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error("permission denied");
+    });
+    expect(sourceEnvFile("/etc/environment")).toEqual({});
   });
 });

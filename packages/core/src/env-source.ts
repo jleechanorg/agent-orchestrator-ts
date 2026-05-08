@@ -10,7 +10,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { expandHome } from "./paths.js";
 
 /** Prefixes of env vars that are safe to import from sourced shell init files. */
@@ -29,9 +29,12 @@ const ENV_BEFORE: Record<string, string | undefined> = { ...process.env };
  * Source a single shell init file and return any NEW env vars it defines
  * that match allowed prefixes.
  *
- * Runs `bash -c 'source <file> && env'` and diffs the output against
- * the env snapshot taken before sourcing. Returns only vars that appeared
- * (or changed) after sourcing.
+ * Shell dotfiles (e.g. ~/.bashrc): runs `bash -c 'source <file>; env'` and diffs
+ * the output against the env snapshot taken before sourcing. Only vars that appeared
+ * (or changed) after sourcing are returned.
+ *
+ * /etc/environment: parsed directly as plain KEY=VALUE (no shell, no export required)
+ * because that file does not support shell syntax and most entries lack `export`.
  *
  * @param filepath - Path to the shell init file (supports ~ expansion).
  * @param beforeSnapshot - Optional env snapshot to diff against. Defaults to
@@ -51,6 +54,30 @@ export function sourceEnvFile(
   const diffAgainst = beforeSnapshot ?? ENV_BEFORE;
 
   try {
+    // /etc/environment: plain KEY=VALUE file — parse directly without bash sourcing.
+    // Unlike shell dotfiles, it does not support `export` or shell syntax,
+    // so vars appear in `env` output only if they were exported first.
+    if (expanded === "/etc/environment") {
+      const content = readFileSync(expanded, "utf-8");
+      const newVars: Record<string, string> = {};
+      for (const line of content.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const eqIndex = trimmed.indexOf("=");
+        if (eqIndex === -1) continue;
+        const key = trimmed.slice(0, eqIndex);
+        const value = trimmed.slice(eqIndex + 1);
+        if (
+          ALLOWED_PREFIXES.some((p) => key.startsWith(p)) &&
+          process.env[key] === diffAgainst[key]
+        ) {
+          newVars[key] = value;
+        }
+      }
+      return newVars;
+    }
+
+    // Shell dotfiles: source through bash, capture env output, diff against snapshot.
     // Use execFileSync to avoid shell injection — no shell interpolation.
     // Use `;` not `&&` so `env` runs even if sourced file exits non-zero
     // (e.g. bashrc with `set -e` or a failing command at the end).
