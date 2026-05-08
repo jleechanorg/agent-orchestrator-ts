@@ -68,8 +68,8 @@ export function sourceEnvFile(
       const key = line.slice(0, eqIndex);
       const value = line.slice(eqIndex + 1);
 
-      // Only include vars that are NEW or CHANGED compared to the pre-source snapshot,
-      // AND that match an allowed prefix.
+      // Only include vars that match an allowed prefix AND that won't overwrite
+      // an existing process.env value set between module load and this sourcing call.
       if (
         ALLOWED_PREFIXES.some((p) => key.startsWith(p)) &&
         process.env[key] === diffAgainst[key]

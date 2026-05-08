@@ -17,11 +17,11 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ConfigNotFoundError, type OrchestratorConfig } from "./types.js";
 import { applyEnvSource } from "./env-source.js";
+import { findManagedConfigFile, getLegacyConfigPaths } from "./config-topology.js";
+import { generateSessionPrefix, expandHome } from "./paths.js";
 
 /** Ensures envSource is bootstrapped exactly once per process lifetime. */
 let _envBootstrapDone = false;
-import { findManagedConfigFile, getLegacyConfigPaths } from "./config-topology.js";
-import { generateSessionPrefix, expandHome } from "./paths.js";
 
 function inferScmPlugin(project: {
   repo: string;
