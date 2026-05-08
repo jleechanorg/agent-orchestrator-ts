@@ -99,7 +99,7 @@ jobs:
           # Pre-compute trigger_epoch once (used for shell-side grace window check)
           _TRIGGER_TS="$TRIGGER_UPDATED"
           _TRIGGER_EPOCH=0
-          if printf '%s' "$_TRIGGER_TS" | grep -qE '^[[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2}T[[:digit:]:]+Z$' 2>/dev/null; then
+          if printf '%s' "$_TRIGGER_TS" | grep -qE '^[[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2}T[[:digit:]:.]+Z$' 2>/dev/null; then
             _TRIGGER_EPOCH=$(date -d "${_TRIGGER_TS//Z}" +%s 2>/dev/null || echo "0")
           fi
 

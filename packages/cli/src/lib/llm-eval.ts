@@ -117,7 +117,7 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
   try {
     const result = execFileSync(
       binary,
-      ["exec", "--model", DEFAULT_CODEX_MODEL, "-"],
+      ["exec", "--model", DEFAULT_CODEX_MODEL, "-c", "check_for_update_on_startup=false", "-"],
       {
         input: prompt,
         encoding: "utf-8",
