@@ -292,7 +292,7 @@ export function buildSkepticPrompt(
     "Gate 8 sub-markers (8a/8b/8c/8d) are informational — they do not independently gate the merge.",
     "Gate 8 is the merge gate; 8a/8b/8c/8d provide diagnostic detail and must be in PASS output.",
     "In PASS output, include 8a/8b/8c/8d (always emit these in a PASS verdict).",
-    "In FAIL output, emit 8a/8b/8c/8d only when Rule 12, Rule 13, or Rule 14 gaps are found, or when explaining an evidence-provenance failure.",
+    "In FAIL output, emit only the relevant sub-marker(s): 8a for Rule 12 gaps, 8b for Rule 13 gaps, 8c for evidence-provenance gaps, and 8d for Rule 14 gaps.",
     "",
     "// PASS — output brief confirmation only, no structured sections:",
     "<!-- skeptic-gate-1:PASS -->",

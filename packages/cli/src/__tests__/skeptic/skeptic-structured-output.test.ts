@@ -551,8 +551,8 @@ describe("skeptic structured output", () => {
         null,
       );
       const outputSection = prompt.split("OUTPUT FORMAT:")[1] ?? "";
-      expect(outputSection).toContain("emit 8a/8b/8c/8d only when Rule 12, Rule 13, or Rule 14 gaps are found");
-      expect(outputSection).toContain("or when explaining an evidence-provenance failure");
+      expect(outputSection).toContain("emit only the relevant sub-marker(s): 8a for Rule 12 gaps");
+      expect(outputSection).toContain("8c for evidence-provenance gaps, and 8d for Rule 14 gaps");
     });
 
     it("8d marker is documented in the gate marker list", () => {
