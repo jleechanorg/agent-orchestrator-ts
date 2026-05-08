@@ -11,7 +11,7 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { resolve, join, basename, isAbsolute, sep } from "node:path";
+import { resolve, basename, isAbsolute, sep } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
@@ -662,10 +662,12 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
 
   // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
   // Prefer defaults.envSource if set (per-project override), fall back to global.
-  const effective = config.defaults?.envSource ?? config.envSource;
-  assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
-  applyEnvSource(effective);
-  _envBootstrapDone = true;
+  if (!_envBootstrapDone) {
+    const effective = config.defaults?.envSource ?? config.envSource;
+    assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
+    applyEnvSource(effective);
+    _envBootstrapDone = true;
+  }
 
   return config;
 }
@@ -690,10 +692,12 @@ export function loadConfigWithPath(configPath?: string): {
 
   // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
   // Prefer defaults.envSource if set (per-project override), fall back to global.
-  const effective = config.defaults?.envSource ?? config.envSource;
-  assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
-  applyEnvSource(effective);
-  _envBootstrapDone = true;
+  if (!_envBootstrapDone) {
+    const effective = config.defaults?.envSource ?? config.envSource;
+    assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
+    applyEnvSource(effective);
+    _envBootstrapDone = true;
+  }
 
   return { config, path };
 }
