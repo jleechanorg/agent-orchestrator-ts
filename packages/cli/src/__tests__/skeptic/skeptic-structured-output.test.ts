@@ -440,6 +440,21 @@ describe("skeptic structured output", () => {
       expect(outputSection).toContain("<!-- skeptic-gate-8d:FAIL -->");
       expect(outputSection).toContain("Scope boundary gap");
     });
+
+    it("Rule 14 14e no-scope fallback: no scope claims found = informational, not FAIL", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      // 14e: If no scope claims found, do not FAIL Gate 8 for scope.
+      // Scope ambiguity is informational, not a failure.
+      expect(prompt).toContain("If no scope claims are found in the PR description");
+      expect(prompt).toContain("do not FAIL Gate 8 for scope");
+      expect(prompt).toContain("Scope ambiguity is informational, not a failure");
+    });
   });
 
   describe("PASS vs FAIL — format discrimination", () => {
@@ -537,6 +552,7 @@ describe("skeptic structured output", () => {
       );
       const outputSection = prompt.split("OUTPUT FORMAT:")[1] ?? "";
       expect(outputSection).toContain("emit 8a/8b/8c/8d only when Rule 12, Rule 13, or Rule 14 gaps are found");
+      expect(outputSection).toContain("or when explaining an evidence-provenance failure");
     });
 
     it("8d marker is documented in the gate marker list", () => {
