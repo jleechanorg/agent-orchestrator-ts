@@ -524,7 +524,7 @@ describe("skeptic structured output", () => {
         null,
       );
       expect(prompt).toContain("Gate 8 sub-markers (8a/8b/8c/8d) are informational");
-      expect(prompt).toContain("do not individually block merge");
+      expect(prompt).toContain("do not independently gate the merge");
     });
 
     it("FAIL instruction says emit 8a/8b/8c/8d only when gaps found", () => {
