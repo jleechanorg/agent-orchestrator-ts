@@ -39,7 +39,7 @@ const minimaxOverrides: Partial<Agent> = {
     const apiKey = process.env.MINIMAX_API_KEY;
     if (apiKey) {
       console.info(
-        "[ao-plugin-agent-minimax] MINIMAX_API_KEY resolved (source: process.env via envSource)",
+        "[ao-plugin-agent-minimax] MINIMAX_API_KEY resolved",
       );
     } else {
       console.error(
