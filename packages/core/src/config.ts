@@ -357,7 +357,33 @@ const OrchestratorConfigSchema = z.object({
   // Global worktree base directory; can be overridden per-project.
   worktreeDir: z.string().optional(),
   // bd-g884: Source shell init files to pull API keys into process.env.
-  envSource: z.array(z.string()).default(["~/.bashrc"]),
+  // Security: reject explicit absolute paths to prevent a repo-local config from
+  // referencing files outside the user's trusted home directory tree.
+  envSource: z
+    .array(z.string())
+    .default(["~/.bashrc"])
+    .refine(
+      (entries) =>
+        entries.every(
+          (e) => e.startsWith("~") || e === "/etc/environment",
+        ),
+      {
+        message:
+          "Untrusted envSource: entries must start with ~ (e.g. ~/.bashrc) or be /etc/environment. Absolute paths are not allowed.",
+      },
+    )
+    .refine(
+      (entries) =>
+        entries.every((e) => {
+          if (e === "/etc/environment") return true;
+          const expanded = expandHome(e);
+          return expanded.startsWith(`${homedir()}${sep}`);
+        }),
+      {
+        message:
+          "Untrusted envSource: resolved path escapes home directory.",
+      },
+    ),
 });
 
 // =============================================================================
@@ -369,24 +395,29 @@ const OrchestratorConfigSchema = z.object({
  *
  * Config files can live in repo-local .claude/ dirs, so a malicious repo
  * could set `envSource: ["/tmp/evil.sh"]` to exec arbitrary scripts in the
- * AO daemon's PID. We restrict envSource to paths under the caller's home
- * dir (or /etc/environment for system-wide vars).
+ * AO daemon's PID. We restrict envSource to the user's shell dotfiles
+ * (paths starting with ~/) or /etc/environment. Explicit absolute paths
+ * (not starting with ~/) are rejected because they could point to files
+ * outside the user's trusted home directory tree.
  */
 function assertTrustedEnvSource(entries: string[]): void {
   const homePrefix = `${homedir()}${sep}`;
   for (const entry of entries) {
-    const expanded = expandHome(entry);
-    if (!isAbsolute(expanded)) {
+    // Only allow ~/...-relative paths or /etc/environment.
+    // Reject explicit absolute paths (e.g. /Users/jleechan/scripts/env.sh)
+    // to prevent a repo-local config from referencing files outside ~/.
+    if (!entry.startsWith("~") && entry !== "/etc/environment") {
       throw new Error(
-        `Invalid envSource "${entry}": must be an absolute path or start with "~/".`,
+        `Untrusted envSource "${entry}": only "~" paths or /etc/environment are allowed.`,
       );
     }
+    const expanded = expandHome(entry);
     if (
-      expanded !== "/etc/environment" &&
+      entry !== "/etc/environment" &&
       !expanded.startsWith(homePrefix)
     ) {
       throw new Error(
-        `Untrusted envSource "${expanded}": only files under ~ or /etc/environment are allowed.`,
+        `Untrusted envSource "${expanded}": resolves outside home directory.`,
       );
     }
   }

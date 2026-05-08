@@ -713,6 +713,39 @@ describe("Config Validation - envSource (bd-g884)", () => {
       }),
     ).toThrow();
   });
+
+  // Explicit absolute paths are rejected to prevent a repo-local config
+  // from referencing files outside the user's trusted home directory tree.
+  it("rejects explicit absolute path like /tmp/evil.sh", () => {
+    expect(() =>
+      validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+        envSource: ["/tmp/evil.sh"],
+      }),
+    ).toThrow(/untrusted/i);
+  });
+
+  // Paths that resolve outside the home directory are rejected.
+  it("rejects path that escapes home directory", () => {
+    expect(() =>
+      validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+        envSource: ["~/../otheruser/evil.sh"],
+      }),
+    ).toThrow(/untrusted|outside/i);
+  });
 });
 
 describe("Config Validation - Other reaction actions", () => {
