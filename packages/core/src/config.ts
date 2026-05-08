@@ -339,7 +339,7 @@ const DefaultPluginsSchema = z.object({
           if (e === "/etc/environment") return true;
           return (
             e.startsWith("~/") &&
-            /^~\/.[a-zA-Z][a-zA-Z0-9_-]*$/.test(e)
+            /^~\/\.[a-zA-Z][a-zA-Z0-9_-]*$/.test(e)
           );
         }),
       {
@@ -389,7 +389,7 @@ const OrchestratorConfigSchema = z.object({
           // Reject paths like ~/scripts/env.sh, ~/worktrees/repo/evil.sh.
           return (
             e.startsWith("~/") &&
-            /^~\/.[a-zA-Z][a-zA-Z0-9_-]*$/.test(e)
+            /^~\/\.[a-zA-Z][a-zA-Z0-9_-]*$/.test(e)
           );
         }),
       {

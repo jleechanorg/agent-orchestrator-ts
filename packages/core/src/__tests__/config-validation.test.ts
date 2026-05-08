@@ -694,9 +694,9 @@ describe("Config Validation - envSource (bd-g884)", () => {
           defaultBranch: "main",
         },
       },
-      envSource: ["~/.bashrc", "~/shell_profile", "/etc/environment"],
+      envSource: ["~/.bashrc", "~/.profile", "/etc/environment"],
     });
-    expect(validated.envSource).toEqual(["~/.bashrc", "~/shell_profile", "/etc/environment"]);
+    expect(validated.envSource).toEqual(["~/.bashrc", "~/.profile", "/etc/environment"]);
   });
 
   it("rejects non-array envSource", () => {
