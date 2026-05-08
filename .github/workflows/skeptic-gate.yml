@@ -130,7 +130,7 @@ jobs:
           PR_NUM: ${{ steps.resolve.outputs.pr_num }}
           HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
-          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
         run: |
           PR_NUM=$PR_NUM
           set +e

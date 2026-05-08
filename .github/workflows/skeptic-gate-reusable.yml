@@ -367,7 +367,7 @@ jobs:
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           REQUEST_ID: ${{ steps.post_trigger.outputs.request_id }}
-          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
+          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
         run: |
           PR_NUM=$PR_NUM
           set +e
