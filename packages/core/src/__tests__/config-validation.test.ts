@@ -763,6 +763,55 @@ describe("Config Validation - envSource (bd-g884)", () => {
       }),
     ).toThrow(/shell dotfiles|untrusted/i);
   });
+
+  // defaults.envSource must be validated the same as top-level envSource.
+  // Without this, a repo-local config could bypass security via:
+  //   defaults: { envSource: ["/tmp/evil.sh"] }
+  describe("defaults.envSource security", () => {
+    it("rejects absolute path in defaults.envSource", () => {
+      expect(() =>
+        validateConfig({
+          projects: {
+            proj1: {
+              path: "/repos/test",
+              repo: "org/test",
+              defaultBranch: "main",
+            },
+          },
+          defaults: { envSource: ["/tmp/evil.sh"] },
+        }),
+      ).toThrow(/shell dotfiles|untrusted/i);
+    });
+
+    it("rejects non-dotfile path under home in defaults.envSource", () => {
+      expect(() =>
+        validateConfig({
+          projects: {
+            proj1: {
+              path: "/repos/test",
+              repo: "org/test",
+              defaultBranch: "main",
+            },
+          },
+          defaults: { envSource: ["~/scripts/env.sh"] },
+        }),
+      ).toThrow(/shell dotfiles|untrusted/i);
+    });
+
+    it("accepts shell dotfile in defaults.envSource", () => {
+      const validated = validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+        defaults: { envSource: ["~/.zshrc"] },
+      });
+      expect(validated.defaults?.envSource).toEqual(["~/.zshrc"]);
+    });
+  });
 });
 
 describe("Config Validation - Other reaction actions", () => {
