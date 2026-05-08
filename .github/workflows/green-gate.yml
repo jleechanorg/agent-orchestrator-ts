@@ -491,9 +491,20 @@ jobs:
             '{"name":"Green Gate Orchestrator","head_sha":$head_sha,"status":"completed","conclusion":$conclusion,"output":{"title":$title,"summary":$summary,"text":$body}}' \
             > "$PAYLOAD_FILE"
 
-          gh api "repos/${GH_REPO}/check-runs" --method POST --input "$PAYLOAD_FILE"
+          # Check if a check run with this name + SHA already exists to avoid 422 duplicate error
+          EXISTING_ID=$(gh api repos/${GH_REPO}/commits/"$HEAD_SHA"/check-runs \
+            --paginate \
+            --jq '[.check_runs[] | select(.name == "Green Gate Orchestrator")] | sort_by(.id) | reverse | .[0].id // ""' 2>/dev/null)
 
-          echo "Created Green Gate check run with conclusion: $CHECK_CONCLUSION"
+          if [ -n "$EXISTING_ID" ]; then
+            echo "Updating existing check run $EXISTING_ID for SHA ${HEAD_SHA:0:8}"
+            gh api repos/${GH_REPO}/check-runs/"$EXISTING_ID" --method PATCH --input "$PAYLOAD_FILE"
+            echo "Updated Green Gate check run with conclusion: $CHECK_CONCLUSION"
+          else
+            echo "Creating new check run for SHA ${HEAD_SHA:0:8}"
+            gh api repos/${GH_REPO}/check-runs --method POST --input "$PAYLOAD_FILE"
+            echo "Created Green Gate check run with conclusion: $CHECK_CONCLUSION"
+          fi
 
           # Clean up temp file
           rm -f /tmp/check_run_payload.json
