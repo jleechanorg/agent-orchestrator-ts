@@ -21,7 +21,7 @@ import { applyEnvSource } from "./env-source.js";
 /** Ensures envSource is bootstrapped exactly once per process lifetime. */
 let _envBootstrapDone = false;
 import { findManagedConfigFile, getLegacyConfigPaths } from "./config-topology.js";
-import { generateSessionPrefix } from "./paths.js";
+import { generateSessionPrefix, expandHome } from "./paths.js";
 
 function inferScmPlugin(project: {
   repo: string;
@@ -351,14 +351,6 @@ const OrchestratorConfigSchema = z.object({
 // =============================================================================
 // CONFIG LOADING
 // =============================================================================
-
-/** Expand ~ to home directory */
-function expandHome(filepath: string): string {
-  if (filepath.startsWith("~/")) {
-    return join(homedir(), filepath.slice(2));
-  }
-  return filepath;
-}
 
 /**
  * Guardrail: reject envSource paths that escape the user's home directory.

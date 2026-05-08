@@ -11,7 +11,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { expandHome } from "./paths.js";
 
 /** Prefixes of env vars that are safe to import from sourced shell init files. */
 const ALLOWED_PREFIXES = [
@@ -24,14 +24,6 @@ const ALLOWED_PREFIXES = [
 
 /** Snapshot of process.env at import time — used to compute the diff. */
 const ENV_BEFORE: Record<string, string | undefined> = { ...process.env };
-
-/** Expand ~ in a file path. */
-function expandHome(filepath: string): string {
-  if (filepath.startsWith("~/")) {
-    return filepath.replace("~", homedir());
-  }
-  return filepath;
-}
 
 /**
  * Source a single shell init file and return any NEW env vars it defines
