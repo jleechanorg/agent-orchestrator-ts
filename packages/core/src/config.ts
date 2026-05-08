@@ -23,6 +23,18 @@ import { generateSessionPrefix, expandHome } from "./paths.js";
 /** Ensures envSource is bootstrapped exactly once per process lifetime. */
 let _envBootstrapDone = false;
 
+/**
+ * Bootstrap env vars from configured shell init files — runs exactly once per process.
+ * Prefer defaults.envSource if set (per-project override), fall back to global.
+ */
+function bootstrapEnvSource(config: OrchestratorConfig): void {
+  if (_envBootstrapDone) return;
+  const effective = config.defaults?.envSource ?? config.envSource;
+  assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
+  applyEnvSource(effective);
+  _envBootstrapDone = true;
+}
+
 function inferScmPlugin(project: {
   repo: string;
   scm?: Record<string, unknown>;
@@ -661,13 +673,7 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
   config.configPath = path;
 
   // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
-  // Prefer defaults.envSource if set (per-project override), fall back to global.
-  if (!_envBootstrapDone) {
-    const effective = config.defaults?.envSource ?? config.envSource;
-    assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
-    applyEnvSource(effective);
-    _envBootstrapDone = true;
-  }
+  bootstrapEnvSource(config);
 
   return config;
 }
@@ -691,13 +697,7 @@ export function loadConfigWithPath(configPath?: string): {
   config.configPath = path;
 
   // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
-  // Prefer defaults.envSource if set (per-project override), fall back to global.
-  if (!_envBootstrapDone) {
-    const effective = config.defaults?.envSource ?? config.envSource;
-    assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
-    applyEnvSource(effective);
-    _envBootstrapDone = true;
-  }
+  bootstrapEnvSource(config);
 
   return { config, path };
 }
