@@ -43,7 +43,7 @@ const minimaxOverrides: Partial<Agent> = {
       );
     } else {
       console.error(
-        "[ao-plugin-agent-minimax] MINIMAX_API_KEY not found. Add 'export MINIMAX_API_KEY=...' to ~/.bashrc and ensure envSource includes ~/.bashrc in agent-orchestrator.yaml defaults.",
+        "[ao-plugin-agent-minimax] MINIMAX_API_KEY not found. Set MINIMAX_API_KEY in your environment or in a file listed under envSource in agent-orchestrator.yaml.",
       );
     }
     const baseUrl =

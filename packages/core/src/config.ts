@@ -11,7 +11,7 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { resolve, join, basename } from "node:path";
+import { resolve, join, basename, isAbsolute, sep } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
@@ -360,6 +360,34 @@ function expandHome(filepath: string): string {
   return filepath;
 }
 
+/**
+ * Guardrail: reject envSource paths that escape the user's home directory.
+ *
+ * Config files can live in repo-local .claude/ dirs, so a malicious repo
+ * could set `envSource: ["/tmp/evil.sh"]` to exec arbitrary scripts in the
+ * AO daemon's PID. We restrict envSource to paths under the caller's home
+ * dir (or /etc/environment for system-wide vars).
+ */
+function assertTrustedEnvSource(entries: string[]): void {
+  const homePrefix = `${homedir()}${sep}`;
+  for (const entry of entries) {
+    const expanded = expandHome(entry);
+    if (!isAbsolute(expanded)) {
+      throw new Error(
+        `Invalid envSource "${entry}": must be an absolute path or start with "~/".`,
+      );
+    }
+    if (
+      expanded !== "/etc/environment" &&
+      !expanded.startsWith(homePrefix)
+    ) {
+      throw new Error(
+        `Untrusted envSource "${expanded}": only files under ~ or /etc/environment are allowed.`,
+      );
+    }
+  }
+}
+
 /** Expand all path fields in the config */
 function expandPaths(config: OrchestratorConfig): OrchestratorConfig {
   for (const project of Object.values(config.projects)) {
@@ -642,11 +670,10 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
 
   // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
   // Prefer defaults.envSource if set (per-project override), fall back to global.
-  if (!_envBootstrapDone) {
-    const effective = config.defaults?.envSource ?? config.envSource;
-    applyEnvSource(effective);
-    _envBootstrapDone = true;
-  }
+  const effective = config.defaults?.envSource ?? config.envSource;
+  assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
+  applyEnvSource(effective);
+  _envBootstrapDone = true;
 
   return config;
 }
@@ -671,11 +698,10 @@ export function loadConfigWithPath(configPath?: string): {
 
   // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
   // Prefer defaults.envSource if set (per-project override), fall back to global.
-  if (!_envBootstrapDone) {
-    const effective = config.defaults?.envSource ?? config.envSource;
-    applyEnvSource(effective);
-    _envBootstrapDone = true;
-  }
+  const effective = config.defaults?.envSource ?? config.envSource;
+  assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
+  applyEnvSource(effective);
+  _envBootstrapDone = true;
 
   return { config, path };
 }

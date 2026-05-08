@@ -141,7 +141,7 @@ describe("getEnvironment", () => {
     expect(error).toHaveBeenCalledWith(
       expect.stringContaining("MINIMAX_API_KEY not found"),
     );
-    expect(error).toHaveBeenCalledWith(expect.stringContaining("~/.bashrc"));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("envSource"));
     error.mockRestore();
   });
 });
