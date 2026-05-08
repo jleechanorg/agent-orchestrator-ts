@@ -728,10 +728,27 @@ describe("Config Validation - envSource (bd-g884)", () => {
         },
         envSource: ["/tmp/evil.sh"],
       }),
-    ).toThrow(/untrusted/i);
+    ).toThrow(/shell dotfiles|untrusted/i);
   });
 
-  // Paths that resolve outside the home directory are rejected.
+  // Non-dotfile paths under ~/ are rejected (e.g. ~/scripts/env.sh,
+  // ~/worktrees/repo/evil.sh) — only shell init dotfiles are allowed.
+  it("rejects non-dotfile path under home like ~/scripts/env.sh", () => {
+    expect(() =>
+      validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+        envSource: ["~/scripts/env.sh"],
+      }),
+    ).toThrow(/shell dotfiles|untrusted/i);
+  });
+
+  // Paths that escape home directory are rejected.
   it("rejects path that escapes home directory", () => {
     expect(() =>
       validateConfig({
@@ -744,7 +761,7 @@ describe("Config Validation - envSource (bd-g884)", () => {
         },
         envSource: ["~/../otheruser/evil.sh"],
       }),
-    ).toThrow(/untrusted|outside/i);
+    ).toThrow(/shell dotfiles|untrusted/i);
   });
 });
 

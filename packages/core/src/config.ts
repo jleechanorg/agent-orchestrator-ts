@@ -357,31 +357,26 @@ const OrchestratorConfigSchema = z.object({
   // Global worktree base directory; can be overridden per-project.
   worktreeDir: z.string().optional(),
   // bd-g884: Source shell init files to pull API keys into process.env.
-  // Security: reject explicit absolute paths to prevent a repo-local config from
-  // referencing files outside the user's trusted home directory tree.
+  // Security: envSource is restricted to known shell init files or /etc/environment.
+  // This prevents a malicious repo-local config from sourcing arbitrary scripts
+  // even if those scripts happen to live under ~/ (e.g. ~/worktrees/repo/evil.sh).
   envSource: z
     .array(z.string())
     .default(["~/.bashrc"])
     .refine(
       (entries) =>
-        entries.every(
-          (e) => e.startsWith("~") || e === "/etc/environment",
-        ),
-      {
-        message:
-          "Untrusted envSource: entries must start with ~ (e.g. ~/.bashrc) or be /etc/environment. Absolute paths are not allowed.",
-      },
-    )
-    .refine(
-      (entries) =>
         entries.every((e) => {
           if (e === "/etc/environment") return true;
-          const expanded = expandHome(e);
-          return expanded.startsWith(`${homedir()}${sep}`);
+          // Only allow shell dotfiles: ~/.bashrc, ~/.zshrc, ~/.profile, etc.
+          // Reject paths like ~/scripts/env.sh, ~/worktrees/repo/evil.sh.
+          return (
+            e.startsWith("~/") &&
+            /^~\/.[a-zA-Z][a-zA-Z0-9_-]*$/.test(e)
+          );
         }),
       {
         message:
-          "Untrusted envSource: resolved path escapes home directory.",
+          "Untrusted envSource: only shell dotfiles (~/.bashrc, ~/.zshrc, ~/.profile, ...) or /etc/environment are allowed.",
       },
     ),
 });
