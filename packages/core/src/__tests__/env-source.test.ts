@@ -149,13 +149,14 @@ describe("sourceEnvFile — real exports", () => {
     expect(sourceEnvFile("~/.bashrc")).toEqual({});
   });
 
-  it("calls execFileSync with bash -c source and -- separator", () => {
+  it("calls execFileSync with bash -i -c source and -- separator", () => {
     mockExecFileSync.mockReturnValue(Buffer.from("MINIMAX_API_KEY=sk-test"));
     sourceEnvFile("~/.bashrc");
     const lastCall = mockExecFileSync.mock.lastCall;
     expect(lastCall).not.toBeUndefined();
     const [cmd, args] = lastCall as [string, string[]];
     expect(cmd).toBe("bash");
+    expect(args).toContain("-i");
     expect(args).toContain("-c");
     expect(args[args.indexOf("-c") + 1]).toContain("source");
     expect(args).toContain("--");
@@ -169,6 +170,8 @@ describe("sourceEnvFile — real exports", () => {
     sourceEnvFile("~/.bashrc");
     const lastCall = mockExecFileSync.mock.lastCall;
     const [, args] = lastCall as [string, string[]];
+    // Must use `-i` so interactive-guard bashrcs don't skip exports.
+    expect(args).toContain("-i");
     const shellScript = args[args.indexOf("-c") + 1];
     // Must use `;` not `&&` so env runs even when source exits non-zero.
     expect(shellScript).toMatch(/^source "\$1" > \/dev\/null 2>&1; env$/);

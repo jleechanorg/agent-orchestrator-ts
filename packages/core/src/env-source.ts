@@ -54,9 +54,11 @@ export function sourceEnvFile(
     // Use execFileSync to avoid shell injection — no shell interpolation.
     // Use `;` not `&&` so `env` runs even if sourced file exits non-zero
     // (e.g. bashrc with `set -e` or a failing command at the end).
+    // Use `-i` (interactive) so that guards like `[[ $- != *i* ]] && return`
+    // common in .bashrc templates do not skip API-key exports below them.
     const output = execFileSync(
       "bash",
-      ["-c", `source "$1" > /dev/null 2>&1; env`, "--", expanded],
+      ["-i", "-c", `source "$1" > /dev/null 2>&1; env`, "--", expanded],
       { timeout: 10_000, stdio: ["pipe", "pipe", "pipe"] },
     )
       .toString()
