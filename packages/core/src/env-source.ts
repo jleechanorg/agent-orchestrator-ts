@@ -52,9 +52,11 @@ export function sourceEnvFile(
 
   try {
     // Use execFileSync to avoid shell injection — no shell interpolation.
+    // Use `;` not `&&` so `env` runs even if sourced file exits non-zero
+    // (e.g. bashrc with `set -e` or a failing command at the end).
     const output = execFileSync(
       "bash",
-      ["-c", `source "$1" > /dev/null 2>&1 && env`, "--", expanded],
+      ["-c", `source "$1" > /dev/null 2>&1; env`, "--", expanded],
       { timeout: 10_000, stdio: ["pipe", "pipe", "pipe"] },
     )
       .toString()

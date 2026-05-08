@@ -160,6 +160,20 @@ describe("sourceEnvFile — real exports", () => {
     expect(args[args.indexOf("-c") + 1]).toContain("source");
     expect(args).toContain("--");
   });
+
+  // regression: `&&` silently drops vars if sourced file exits non-zero (e.g.
+  // bashrc with `set -e` or a failing command at the end). `;` runs `env`
+  // regardless of the sourced file's exit status.
+  it("uses semicolon separator so env runs even when sourced file exits non-zero", () => {
+    mockExecFileSync.mockReturnValue(Buffer.from("MINIMAX_API_KEY=sk-cp-test"));
+    sourceEnvFile("~/.bashrc");
+    const lastCall = mockExecFileSync.mock.lastCall;
+    const [, args] = lastCall as [string, string[]];
+    const shellScript = args[args.indexOf("-c") + 1];
+    // Must use `;` not `&&` so env runs even when source exits non-zero.
+    expect(shellScript).toMatch(/^source "\$1" > \/dev\/null 2>&1; env$/);
+    expect(shellScript).not.toMatch(/&&/);
+  });
 });
 
 describe("parseEnvOutput — allowed prefixes (contract)", () => {
