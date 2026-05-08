@@ -87,6 +87,12 @@ jobs:
           echo "Only accepting verdicts after: $TRIGGER_UPDATED"
 
           POLL_TIMEOUT=600  # seconds — MUST match (timeout-minutes - 1min-headroom) * 60
+          # Grace window: verdicts posted up to GRACE_SECS before the trigger are also
+          # accepted. This handles the case where `ao skeptic verify` runs before the
+          # CI's SKEPTIC_GATE_TRIGGER comment is posted (e.g. lifecycle-worker triggered
+          # by a prior /skeptic comment or skeptic-cron). The trigger timestamp is
+          # included so stale verdicts from old SHA commits are still rejected.
+          GRACE_SECS=300
           INTERVAL=15
           MAX_ATTEMPTS=$((POLL_TIMEOUT / INTERVAL))  # = 40; update POLL_TIMEOUT if INTERVAL changes
 
@@ -136,6 +142,7 @@ jobs:
               | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
                 --arg pr_author "$PR_AUTHOR" \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
+                --argjson grace_secs "$GRACE_SECS" \
                 'add
                 | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
                 | map(select(
@@ -151,6 +158,9 @@ jobs:
                       and (.verdict != "")
                       and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
                            >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
+                          or ((($tu | if test("\\.[0-9]+Z$") then . else "1970-01-01T00:00:00Z" end) | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime) as $trigger_epoch
+                             | ((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end) | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime) as $cand_epoch
+                             | ($trigger_epoch - $GRACE_SECS) <= $cand_epoch)))
                       and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
                       and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                       and ((.verdict != "PASS")
