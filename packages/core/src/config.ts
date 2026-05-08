@@ -328,7 +328,25 @@ const DefaultPluginsSchema = z.object({
   // Phase B: scmFailureThreshold — kills dead-agent sessions after N consecutive SCM failures
   scmFailureThreshold: z.number().int().min(1).max(100).optional(),
   // bd-g884: shell init files to source for API keys; falls back to global envSource
-  envSource: z.array(z.string()).optional(),
+  // Security: restricted to shell dotfiles (same allowlist as top-level envSource).
+  envSource: z
+    .array(z.string())
+    .optional()
+    .refine(
+      (entries) =>
+        !entries ||
+        entries.every((e) => {
+          if (e === "/etc/environment") return true;
+          return (
+            e.startsWith("~/") &&
+            /^~\/.[a-zA-Z][a-zA-Z0-9_-]*$/.test(e)
+          );
+        }),
+      {
+        message:
+          "Untrusted envSource: only shell dotfiles (~/.bashrc, ~/.zshrc, ...) or /etc/environment are allowed.",
+      },
+    ),
 });
 
 const OrchestratorConfigSchema = z.object({
