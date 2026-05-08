@@ -281,6 +281,7 @@ describe("wholesome — structural source-code assertions", () => {
           "// eslint-disable-next-line @typescript-eslint/no-unsafe-argument,@typescript-eslint/no-explicit-any -- intentionally bridging commander type variance",
         ]),
         "packages/core/src/__tests__/env-source.test.ts": new Set([
+          "// eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- bootstrap clean env",
           "// eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- legitimate use: typed literal key",
         ]),
       };
