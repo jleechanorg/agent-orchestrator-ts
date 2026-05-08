@@ -16,6 +16,10 @@ import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ConfigNotFoundError, type OrchestratorConfig } from "./types.js";
+import { applyEnvSource } from "./env-source.js";
+
+/** Ensures envSource is bootstrapped exactly once per process lifetime. */
+let _envBootstrapDone = false;
 import { findManagedConfigFile, getLegacyConfigPaths } from "./config-topology.js";
 import { generateSessionPrefix } from "./paths.js";
 
@@ -311,6 +315,8 @@ const DefaultPluginsSchema = z.object({
   autoMerge: AutoMergeDefaultsSchema.optional(),
   // Phase B: scmFailureThreshold — kills dead-agent sessions after N consecutive SCM failures
   scmFailureThreshold: z.number().int().min(1).max(100).optional(),
+  // bd-g884: shell init files to source for API keys; falls back to global envSource
+  envSource: z.array(z.string()).optional(),
 });
 
 const OrchestratorConfigSchema = z.object({
@@ -338,6 +344,8 @@ const OrchestratorConfigSchema = z.object({
   autoMerge: AutoMergeOverrideSchema.optional(),
   // Global worktree base directory; can be overridden per-project.
   worktreeDir: z.string().optional(),
+  // bd-g884: Source shell init files to pull API keys into process.env.
+  envSource: z.array(z.string()).default(["~/.bashrc"]),
 });
 
 // =============================================================================
@@ -632,6 +640,14 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
   // Set the config path in the config object for hash generation
   config.configPath = path;
 
+  // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
+  // Prefer defaults.envSource if set (per-project override), fall back to global.
+  if (!_envBootstrapDone) {
+    const effective = config.defaults?.envSource ?? config.envSource;
+    applyEnvSource(effective);
+    _envBootstrapDone = true;
+  }
+
   return config;
 }
 
@@ -652,6 +668,14 @@ export function loadConfigWithPath(configPath?: string): {
 
   // Set the config path in the config object for hash generation
   config.configPath = path;
+
+  // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
+  // Prefer defaults.envSource if set (per-project override), fall back to global.
+  if (!_envBootstrapDone) {
+    const effective = config.defaults?.envSource ?? config.envSource;
+    applyEnvSource(effective);
+    _envBootstrapDone = true;
+  }
 
   return { config, path };
 }

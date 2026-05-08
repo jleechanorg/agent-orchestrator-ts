@@ -657,6 +657,64 @@ describe("Config Defaults", () => {
   });
 });
 
+describe("Config Validation - envSource (bd-g884)", () => {
+  it("defaults envSource to [~/.bashrc] when not specified", () => {
+    const validated = validateConfig({
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    });
+    expect(validated.envSource).toEqual(["~/.bashrc"]);
+  });
+
+  it("accepts a single envSource file", () => {
+    const validated = validateConfig({
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+      envSource: ["~/.zshrc"],
+    });
+    expect(validated.envSource).toEqual(["~/.zshrc"]);
+  });
+
+  it("accepts multiple envSource files", () => {
+    const validated = validateConfig({
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+      envSource: ["~/.bashrc", "~/shell_profile", "/etc/environment"],
+    });
+    expect(validated.envSource).toEqual(["~/.bashrc", "~/shell_profile", "/etc/environment"]);
+  });
+
+  it("rejects non-array envSource", () => {
+    expect(() =>
+      validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+        envSource: "~/.bashrc", // String instead of array
+      }),
+    ).toThrow();
+  });
+});
+
 describe("Config Validation - Other reaction actions", () => {
   it("allows notify action (the AO default for merge-ready)", () => {
     const config = {
