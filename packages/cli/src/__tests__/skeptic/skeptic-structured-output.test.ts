@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSkepticPrompt, isEvidenceAuthentic } from "../../commands/skeptic/prompt.js";
-import { extractSkepticGateMarkers } from "../../commands/skeptic/verdict-utils.js";
+import { extractSkepticGateMarkers, hasCompletePassingGateMarkers } from "../../commands/skeptic/verdict-utils.js";
 import type { PRInfo, ReviewInfo } from "../../commands/skeptic/gh-client.js";
 import type { MergeGateState } from "../../commands/skeptic/mergeGate.js";
 
@@ -618,6 +618,60 @@ VERDICT: PASS`;
     const body = "<!-- skeptic-gate-8D:PASS -->";
     const markers = extractSkepticGateMarkers(body);
     expect(markers).toContain("<!-- skeptic-gate-8D:PASS -->");
+  });
+});
+
+describe("hasCompletePassingGateMarkers", () => {
+  it("returns true when all gates 1-8 are PASS (8d is informational, not required for completeness)", () => {
+    // A PASS verdict body may or may not include 8d — hasCompletePassingGateMarkers
+    // enforces only primary gates 1-8, per the established contract (8a/8b/8c/8d
+    // are informational diagnostics, not merge blockers).
+    const bodyWith8d = `<!-- skeptic-gate-1:PASS -->
+<!-- skeptic-gate-2:PASS -->
+<!-- skeptic-gate-3:PASS -->
+<!-- skeptic-gate-4:PASS -->
+<!-- skeptic-gate-5:PASS -->
+<!-- skeptic-gate-6:PASS -->
+<!-- skeptic-gate-7:PASS -->
+<!-- skeptic-gate-8:PASS -->
+<!-- skeptic-gate-8d:PASS -->
+VERDICT: PASS`;
+    const bodyWithout8d = `<!-- skeptic-gate-1:PASS -->
+<!-- skeptic-gate-2:PASS -->
+<!-- skeptic-gate-3:PASS -->
+<!-- skeptic-gate-4:PASS -->
+<!-- skeptic-gate-5:PASS -->
+<!-- skeptic-gate-6:PASS -->
+<!-- skeptic-gate-7:PASS -->
+<!-- skeptic-gate-8:PASS -->
+VERDICT: PASS`;
+    expect(hasCompletePassingGateMarkers(bodyWith8d)).toBe(true);
+    expect(hasCompletePassingGateMarkers(bodyWithout8d)).toBe(true);
+  });
+
+  it("returns false when any primary gate 1-8 is FAIL", () => {
+    const body = `<!-- skeptic-gate-1:PASS -->
+<!-- skeptic-gate-2:FAIL -->
+<!-- skeptic-gate-3:PASS -->
+<!-- skeptic-gate-4:PASS -->
+<!-- skeptic-gate-5:PASS -->
+<!-- skeptic-gate-6:PASS -->
+<!-- skeptic-gate-7:PASS -->
+<!-- skeptic-gate-8:PASS -->
+VERDICT: FAIL`;
+    expect(hasCompletePassingGateMarkers(body)).toBe(false);
+  });
+
+  it("returns false when any primary gate 1-8 is absent", () => {
+    const body = `<!-- skeptic-gate-1:PASS -->
+<!-- skeptic-gate-2:PASS -->
+<!-- skeptic-gate-3:PASS -->
+<!-- skeptic-gate-4:PASS -->
+<!-- skeptic-gate-5:PASS -->
+<!-- skeptic-gate-6:PASS -->
+<!-- skeptic-gate-8:PASS -->
+VERDICT: PASS`;
+    expect(hasCompletePassingGateMarkers(body)).toBe(false);
   });
 });
 
