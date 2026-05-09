@@ -36,17 +36,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.inputs.head_sha || github.event.pull_request.head.sha }}
         run: |
           set +e
           PR_NUM=$PR_NUM
           FAILED_GATES=""
           GATE_ROWS=""
 
-          # Resolve HEAD_SHA if not provided (workflow_dispatch may have stale value)
-          if [ -z "$HEAD_SHA" ]; then
-            HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
-          fi
+          # Resolve HEAD_SHA from the PR API — do NOT use github.event.inputs.head_sha
+          # (workflow_dispatch does not reliably propagate custom inputs via gh CLI).
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
           if [ -z "$HEAD_SHA" ]; then
             echo "ERROR: could not determine HEAD SHA for PR #$PR_NUM"
             exit 1
