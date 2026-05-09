@@ -219,7 +219,7 @@ jobs:
                     and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and ((.verdict != "PASS")
                          or (all(
-                           (([range(1;9)[] | ("gate-" + .)] | map("<!--\\s*skeptic-" + . + "\\s*:\\s*PASS\\s*-->")) +
+                           (([range(1;9)[] | ("gate-" + (. | tostring))] | map("<!--\\s*skeptic-" + . + "\\s*:\\s*PASS\\s*-->")) +
                             ["gate-8a", "gate-8b", "gate-8c", "gate-8d"] | map("<!--\\s*skeptic-" + . + "\\s*:\\s*PASS\\s*-->")
                            ) | .[];
                            $body | test(.; "i")
