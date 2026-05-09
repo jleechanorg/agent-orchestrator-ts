@@ -27,38 +27,38 @@ function createYaml(path: string): void {
 }
 
 describe("findConfigFile home fallback order", () => {
-  it("prefers ~/.openclaw/agent-orchestrator.yaml over ~/.openclaw_prod/agent-orchestrator.yaml", () => {
+  it("prefers ~/.hermes/agent-orchestrator.yaml over ~/.hermes_prod/agent-orchestrator.yaml", () => {
     const home = mkdtempSync(join(tmpdir(), "ao-config-home-"));
     const work = mkdtempSync(join(tmpdir(), "ao-config-cwd-"));
     tempDirs.push(home, work);
 
-    mkdirSync(join(home, ".openclaw_prod"), { recursive: true });
-    mkdirSync(join(home, ".openclaw"), { recursive: true });
-    const prod = join(home, ".openclaw_prod", "agent-orchestrator.yaml");
-    const legacy = join(home, ".openclaw", "agent-orchestrator.yaml");
+    mkdirSync(join(home, ".hermes_prod"), { recursive: true });
+    mkdirSync(join(home, ".hermes"), { recursive: true });
+    const prod = join(home, ".hermes_prod", "agent-orchestrator.yaml");
+    const staging = join(home, ".hermes", "agent-orchestrator.yaml");
     createYaml(prod);
-    createYaml(legacy);
+    createYaml(staging);
 
     process.env["HOME"] = home;
     delete process.env["AO_CONFIG_PATH"];
     process.chdir(work);
 
-    expect(findConfigFile()).toBe(legacy);
+    expect(findConfigFile()).toBe(staging);
   });
 
-  it("falls back to ~/.openclaw/agent-orchestrator.yaml when prod config is absent", () => {
+  it("falls back to ~/.hermes/agent-orchestrator.yaml when prod config is absent", () => {
     const home = mkdtempSync(join(tmpdir(), "ao-config-home-"));
     const work = mkdtempSync(join(tmpdir(), "ao-config-cwd-"));
     tempDirs.push(home, work);
 
-    mkdirSync(join(home, ".openclaw"), { recursive: true });
-    const legacy = join(home, ".openclaw", "agent-orchestrator.yaml");
-    createYaml(legacy);
+    mkdirSync(join(home, ".hermes"), { recursive: true });
+    const staging = join(home, ".hermes", "agent-orchestrator.yaml");
+    createYaml(staging);
 
     process.env["HOME"] = home;
     delete process.env["AO_CONFIG_PATH"];
     process.chdir(work);
 
-    expect(findConfigFile()).toBe(legacy);
+    expect(findConfigFile()).toBe(staging);
   });
 });

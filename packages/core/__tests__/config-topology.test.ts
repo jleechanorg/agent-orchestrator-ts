@@ -20,10 +20,10 @@ describe("config-topology", () => {
     mkdirSync(testDir, { recursive: true });
     originalEnv = { ...process.env };
     process.env["TEST_HOME_DIR"] = testDir;
-    process.env["AO_STAGING_CONFIG_PATH"] = join(testDir, ".openclaw", "agent-orchestrator.yaml");
+    process.env["AO_STAGING_CONFIG_PATH"] = join(testDir, ".hermes", "agent-orchestrator.yaml");
     process.env["AO_PROD_CONFIG_PATH"] = join(
       testDir,
-      ".openclaw_prod",
+      ".hermes_prod",
       "agent-orchestrator.yaml",
     );
   });
@@ -41,8 +41,8 @@ describe("config-topology", () => {
     const productionPath = getManagedConfigPath("production");
     const legacyPath = getLegacyConfigPaths()[0];
 
-    mkdirSync(join(testDir, ".openclaw"), { recursive: true });
-    mkdirSync(join(testDir, ".openclaw_prod"), { recursive: true });
+    mkdirSync(join(testDir, ".hermes"), { recursive: true });
+    mkdirSync(join(testDir, ".hermes_prod"), { recursive: true });
     writeFileSync(stagingPath, "projects: {}\n");
     writeFileSync(productionPath, "projects: {}\n");
     mkdirSync(join(testDir), { recursive: true });
@@ -60,8 +60,8 @@ describe("config-topology", () => {
     const legacyPath = getLegacyConfigPaths()[0];
     const sharedConfig = join(testDir, "shared-config.yaml");
 
-    mkdirSync(join(testDir, ".openclaw"), { recursive: true });
-    mkdirSync(join(testDir, ".openclaw_prod"), { recursive: true });
+    mkdirSync(join(testDir, ".hermes"), { recursive: true });
+    mkdirSync(join(testDir, ".hermes_prod"), { recursive: true });
     writeFileSync(stagingPath, "projects: {}\n");
     writeFileSync(productionPath, "projects: {}\n");
     writeFileSync(sharedConfig, "projects: {}\n");
@@ -80,9 +80,9 @@ describe("config-topology", () => {
     const stagingPath = getManagedConfigPath("staging");
     const productionPath = getManagedConfigPath("production");
 
-    mkdirSync(join(testDir, ".openclaw_prod"), { recursive: true });
+    mkdirSync(join(testDir, ".hermes_prod"), { recursive: true });
     writeFileSync(productionPath, "projects: {}\n");
-    mkdirSync(join(testDir, ".openclaw"), { recursive: true });
+    mkdirSync(join(testDir, ".hermes"), { recursive: true });
     symlinkSync(productionPath, stagingPath);
 
     const problems = validateManagedConfigTopology({ requireStaging: true, requireProduction: true });
@@ -94,8 +94,8 @@ describe("config-topology", () => {
 
 describe("config-topology HERMES_HOME discovery chain", () => {
   // These tests exercise the production config discovery chain WITHOUT setting
-  // AO_PROD_CONFIG_PATH / AO_PRODUCTION_CONFIG_PATH, so that the new
-  // HERMES_HOME -> ~/.hermes_prod -> ~/.openclaw_prod chain is actually tested.
+  // AO_PROD_CONFIG_PATH / AO_PRODUCTION_CONFIG_PATH, so that the
+  // HERMES_HOME -> ~/.hermes_prod chain is actually tested.
   let testDir: string;
   let originalEnv: NodeJS.ProcessEnv;
 
@@ -143,19 +143,6 @@ describe("config-topology HERMES_HOME discovery chain", () => {
     expect(path).toBe(hermesProdConfig);
   });
 
-  it("falls back to ~/.openclaw_prod as legacy path when .hermes_prod absent", async () => {
-    const { getManagedConfigPath } = await import("../src/config-topology.js");
-    const openclawProdDir = join(testDir, ".openclaw_prod");
-    mkdirSync(openclawProdDir, { recursive: true });
-    const openclawProdConfig = join(openclawProdDir, "agent-orchestrator.yaml");
-    writeFileSync(openclawProdConfig, "projects: {}\n");
-    delete process.env["HERMES_HOME"];
-
-    const path = getManagedConfigPath("production");
-
-    expect(path).toBe(openclawProdConfig);
-  });
-
   it("HERMES_HOME takes precedence over ~/.hermes_prod", async () => {
     const { getManagedConfigPath } = await import("../src/config-topology.js");
     const hermesHome = join(testDir, ".hermes");
@@ -172,25 +159,9 @@ describe("config-topology HERMES_HOME discovery chain", () => {
     expect(path).toBe(join(hermesHome, "agent-orchestrator.yaml"));
   });
 
-  it("HERMES_HOME takes precedence over ~/.openclaw_prod", async () => {
-    const { getManagedConfigPath } = await import("../src/config-topology.js");
-    const hermesHome = join(testDir, ".hermes");
-    const openclawProdDir = join(testDir, ".openclaw_prod");
-    mkdirSync(hermesHome, { recursive: true });
-    mkdirSync(openclawProdDir, { recursive: true });
-    writeFileSync(join(hermesHome, "agent-orchestrator.yaml"), "projects: {}\n");
-    writeFileSync(join(openclawProdDir, "agent-orchestrator.yaml"), "projects: {}\n");
-    process.env["HERMES_HOME"] = hermesHome;
-
-    const path = getManagedConfigPath("production");
-
-    // HERMES_HOME should win over .openclaw_prod.
-    expect(path).toBe(join(hermesHome, "agent-orchestrator.yaml"));
-  });
-
   it("returns default ~/.hermes_prod/agent-orchestrator.yaml when nothing exists", async () => {
     const { getManagedConfigPath } = await import("../src/config-topology.js");
-    // No HERMES_HOME, no .hermes_prod, no .openclaw_prod.
+    // No HERMES_HOME, no .hermes_prod.
     delete process.env["HERMES_HOME"];
 
     const path = getManagedConfigPath("production");

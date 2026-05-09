@@ -17,12 +17,14 @@ export {
   findConfig,
   findConfigFile,
 } from "./config.js";
+export { deepMerge, isPlainObject } from "./deep-merge.js";
 export {
   findManagedConfigFile,
   getManagedConfigPath,
   getLegacyConfigPaths,
   getPreferredConfigSearchPaths,
   validateManagedConfigTopology,
+  findRepoLocalConfigFile,
 } from "./config-topology.js";
 export type {
   ManagedConfigEnvironment,
