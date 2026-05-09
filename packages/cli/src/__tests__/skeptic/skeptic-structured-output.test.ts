@@ -622,11 +622,10 @@ VERDICT: PASS`;
 });
 
 describe("hasCompletePassingGateMarkers", () => {
-  it("returns true when all gates 1-8 are PASS (8d is informational, not required for completeness)", () => {
-    // A PASS verdict body may or may not include 8d — hasCompletePassingGateMarkers
-    // enforces only primary gates 1-8, per the established contract (8a/8b/8c/8d
-    // are informational diagnostics, not merge blockers).
-    const bodyWith8d = `<!-- skeptic-gate-1:PASS -->
+  it("returns true when all 12 markers (gates 1-8 + 8a/8b/8c/8d) are PASS", () => {
+    // hasCompletePassingGateMarkers requires all primary gates 1-8 AND
+    // all sub-markers 8a/8b/8c/8d in PASS output (per prompt contract).
+    const completeBody = `<!-- skeptic-gate-1:PASS -->
 <!-- skeptic-gate-2:PASS -->
 <!-- skeptic-gate-3:PASS -->
 <!-- skeptic-gate-4:PASS -->
@@ -634,8 +633,15 @@ describe("hasCompletePassingGateMarkers", () => {
 <!-- skeptic-gate-6:PASS -->
 <!-- skeptic-gate-7:PASS -->
 <!-- skeptic-gate-8:PASS -->
+<!-- skeptic-gate-8a:PASS -->
+<!-- skeptic-gate-8b:PASS -->
+<!-- skeptic-gate-8c:PASS -->
 <!-- skeptic-gate-8d:PASS -->
 VERDICT: PASS`;
+    expect(hasCompletePassingGateMarkers(completeBody)).toBe(true);
+  });
+
+  it("returns false when gate 8d is missing from a PASS verdict", () => {
     const bodyWithout8d = `<!-- skeptic-gate-1:PASS -->
 <!-- skeptic-gate-2:PASS -->
 <!-- skeptic-gate-3:PASS -->
@@ -644,9 +650,11 @@ VERDICT: PASS`;
 <!-- skeptic-gate-6:PASS -->
 <!-- skeptic-gate-7:PASS -->
 <!-- skeptic-gate-8:PASS -->
+<!-- skeptic-gate-8a:PASS -->
+<!-- skeptic-gate-8b:PASS -->
+<!-- skeptic-gate-8c:PASS -->
 VERDICT: PASS`;
-    expect(hasCompletePassingGateMarkers(bodyWith8d)).toBe(true);
-    expect(hasCompletePassingGateMarkers(bodyWithout8d)).toBe(true);
+    expect(hasCompletePassingGateMarkers(bodyWithout8d)).toBe(false);
   });
 
   it("returns false when any primary gate 1-8 is FAIL", () => {

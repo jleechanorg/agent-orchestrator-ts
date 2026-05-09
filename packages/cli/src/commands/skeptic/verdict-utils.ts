@@ -57,6 +57,13 @@ export function hasCompletePassingGateMarkers(body: string): boolean {
     const gateRe = new RegExp(`<!--\\s*skeptic-gate-${gate}\\s*:\\s*PASS\\s*-->`, "i");
     if (!gateRe.test(body)) return false;
   }
+  // Primary gates 1-8 are the merge gate. Sub-markers 8a/8b/8c/8d are
+  // informational diagnostics that must also be present in a complete PASS
+  // verdict (per the skeptic prompt: "always emit these in a PASS verdict").
+  for (const sub of ["8a", "8b", "8c", "8d"] as const) {
+    const subRe = new RegExp(`<!--\\s*skeptic-gate-${sub}\\s*:\\s*PASS\\s*-->`, "i");
+    if (!subRe.test(body)) return false;
+  }
   return true;
 }
 
