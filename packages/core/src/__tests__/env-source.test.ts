@@ -19,8 +19,8 @@ for (const k of [
   "MCP_AGENT_MAIL_TOKEN",
   "AO_CLI_PATH",
 ] as const) {
-  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- bootstrap clean env
-  delete process.env[k];
+  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- JSDOM requires explicit delete to remove keys; undefined assignment converts to "undefined" string
+    delete process.env[k];
 }
 
 // ---------------------------------------------------------------------------
@@ -83,7 +83,7 @@ const SNAPSHOT_KEYS = [
 
 function clearApiKeys() {
   for (const k of SNAPSHOT_KEYS) {
-    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- legitimate use: typed literal key
+    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- JSDOM requires explicit delete to remove keys; undefined assignment converts to "undefined" string
     delete process.env[k];
   }
 }
@@ -262,15 +262,17 @@ describe("applyEnvSource — real exports", () => {
       Buffer.from("MINIMAX_API_KEY=sk-cp-merged\nANTHROPIC_API_KEY=sk-ant-merged"),
     );
     applyEnvSource(["~/.bashrc"]);
-    expect(process.env.MINIMAX_API_KEY).toBe("sk-cp-merged");
-    expect(process.env.ANTHROPIC_API_KEY).toBe("sk-ant-merged");
+    expect(process.env["MINIMAX_API_KEY"]).toBe("sk-cp-merged");
+    expect(process.env["ANTHROPIC_API_KEY"]).toBe("sk-ant-merged");
   });
 
   it("does not set vars when sourceEnvFile returns empty", () => {
     mockExecFileSync.mockReturnValue(Buffer.from("PATH=/usr/bin\nHOME=/test"));
     applyEnvSource(["~/.bashrc"]);
-    expect(process.env.MINIMAX_API_KEY).toBeUndefined();
-    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
+    const key = "MINIMAX_API_KEY";
+    expect(key in process.env ? process.env[key] : undefined).toBeUndefined();
+    const key2 = "ANTHROPIC_API_KEY";
+    expect(key2 in process.env ? process.env[key2] : undefined).toBeUndefined();
   });
 
   it("handles multiple source files by merging into process.env", () => {
@@ -278,8 +280,8 @@ describe("applyEnvSource — real exports", () => {
       .mockReturnValueOnce(Buffer.from("MINIMAX_API_KEY=sk-cp-first"))
       .mockReturnValueOnce(Buffer.from("ANTHROPIC_API_KEY=sk-ant-second"));
     applyEnvSource(["~/.bashrc", "~/.zshrc"]);
-    expect(process.env.MINIMAX_API_KEY).toBe("sk-cp-first");
-    expect(process.env.ANTHROPIC_API_KEY).toBe("sk-ant-second");
+    expect(process.env["MINIMAX_API_KEY"]).toBe("sk-cp-first");
+    expect(process.env["ANTHROPIC_API_KEY"]).toBe("sk-ant-second");
   });
 });
 
