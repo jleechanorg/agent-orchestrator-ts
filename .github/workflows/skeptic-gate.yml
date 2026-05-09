@@ -49,24 +49,19 @@ jobs:
         id: resolve
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WD_PR_NUM: ${{ github.event.inputs.pr_number || '' }}
-          WD_HEAD_SHA: ${{ github.event.inputs.head_sha || '' }}
+          PR_NUM: ${{ github.event.inputs.pr_number || '' }}
         run: |
-          PR_NUM="$WD_PR_NUM"
-          HEAD_SHA="$WD_HEAD_SHA"
-
+          PR_NUM="$PR_NUM"
           if [ -z "$PR_NUM" ]; then
             echo "ERROR: could not determine PR number" >&2
             exit 1
           fi
-          if [ -z "$HEAD_SHA" ]; then
-            echo "Fetching HEAD SHA for PR #$PR_NUM..."
-            HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
-          fi
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
           if [ -z "$HEAD_SHA" ]; then
             echo "ERROR: could not determine HEAD SHA for PR #$PR_NUM" >&2
             exit 1
           fi
+          REQUEST_ID="gate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${PR_NUM}-${HEAD_SHA:0:12}"
 
           echo "PR_NUM=$PR_NUM"
           echo "HEAD_SHA=$HEAD_SHA"
@@ -218,12 +213,14 @@ jobs:
                     )
                     and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                     and (.verdict != "")
-                    and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
-                         >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
                     and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and ((.verdict != "PASS")
-                         or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))))
+                         or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i")))
+                             and ($body | test("<!--\\s*skeptic-gate-8a\\s*:\\s*PASS\\s*-->"; "i"))
+                             and ($body | test("<!--\\s*skeptic-gate-8b\\s*:\\s*PASS\\s*-->"; "i"))
+                             and ($body | test("<!--\\s*skeptic-gate-8c\\s*:\\s*PASS\\s*-->"; "i"))
+                             and ($body | test("<!--\\s*skeptic-gate-8d\\s*:\\s*PASS\\s*-->"; "i"))))
                   ))
                 | last // empty' 2>/dev/null || echo "empty")
             fi
