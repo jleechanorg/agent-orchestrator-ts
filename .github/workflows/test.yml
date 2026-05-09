@@ -154,7 +154,11 @@ jobs:
                       and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
                       and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                       and ((.verdict != "PASS")
-                           or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))))
+                           or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i")))
+                               and ($body | test("<!--\\s*skeptic-gate-8a\\s*:\\s*PASS\\s*-->"; "i"))
+                               and ($body | test("<!--\\s*skeptic-gate-8b\\s*:\\s*PASS\\s*-->"; "i"))
+                               and ($body | test("<!--\\s*skeptic-gate-8c\\s*:\\s*PASS\\s*-->"; "i"))
+                               and ($body | test("<!--\\s*skeptic-gate-8d\\s*:\\s*PASS\\s*-->"; "i"))))))
                   ))
                 | last // empty' 2>/dev/null)
             JQ_EXIT=$?
