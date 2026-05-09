@@ -45,15 +45,19 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
   });
 
   function boundPassBody(headSha = "abc123", requestId = "req-debug") {
-    const gates = Array.from(
+    const primaryGates = Array.from(
       { length: 8 },
       (_, index) => `<!-- skeptic-gate-${index + 1}:PASS -->`,
     ).join("\n");
+    const subMarkers = ["8a", "8b", "8c", "8d"]
+      .map((sub) => `<!-- skeptic-gate-${sub}:PASS -->`)
+      .join("\n");
     return [
       "<!-- skeptic-agent-verdict -->",
       `<!-- skeptic-request-id-${requestId} -->`,
       `<!-- skeptic-head-sha-${headSha} -->`,
-      gates,
+      primaryGates,
+      subMarkers,
       "VERDICT: PASS",
       `<!-- skeptic-gate-trigger-${headSha} -->`,
     ].join("\n");
