@@ -96,7 +96,8 @@ export function buildSkepticPrompt(
         "",
         "--- DESIGN DOC ---",
         "DESIGN DOC NOT FOUND for this PR. The generate-pr-design-docs.yml workflow",
-        "should have generated one on PR open. If no design doc exists, flag this as a gap.",
+        "should have generated one on PR open. If no design doc exists AND the PR body",
+        "does not explicitly claim 'DESIGN DOC: N/A' with a justification, flag this as a gap.",
       ].join("\n");
 
   const prDescriptionSection = pr.body

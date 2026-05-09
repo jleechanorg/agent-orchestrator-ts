@@ -553,6 +553,7 @@ describe("skeptic structured output", () => {
       );
       const outputSection = prompt.split("OUTPUT FORMAT:")[1] ?? "";
       expect(outputSection).toContain("emit only the relevant sub-marker(s): 8a for Rule 12 gaps");
+      expect(outputSection).toContain("8b for Rule 13 gaps");
       expect(outputSection).toContain("8c for evidence-provenance gaps, and 8d for Rule 14 gaps");
     });
 
