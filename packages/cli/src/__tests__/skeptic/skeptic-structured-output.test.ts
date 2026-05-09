@@ -603,6 +603,14 @@ VERDICT: PASS`;
     expect(markers).toContain("<!-- skeptic-gate-8a:PASS -->");
     expect(markers).toContain("<!-- skeptic-gate-8b:PASS -->");
     expect(markers).toContain("<!-- skeptic-gate-8c:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-1:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-2:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-3:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-4:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-5:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-6:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-7:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-8:PASS -->");
     expect(markers.filter((m) => m.includes("skeptic-gate-8d"))).toHaveLength(1);
   });
 
