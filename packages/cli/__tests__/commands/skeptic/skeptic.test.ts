@@ -239,6 +239,10 @@ describe("bindVerdictOutput", () => {
         "<!-- skeptic-gate-6:PASS -->",
         "<!-- skeptic-gate-7:PASS -->",
         "<!-- skeptic-gate-8:PASS -->",
+        "<!-- skeptic-gate-8a:PASS -->",
+        "<!-- skeptic-gate-8b:PASS -->",
+        "<!-- skeptic-gate-8c:PASS -->",
+        "<!-- skeptic-gate-8d:PASS -->",
         "VERDICT: PASS",
       ].join("\n"),
     });
