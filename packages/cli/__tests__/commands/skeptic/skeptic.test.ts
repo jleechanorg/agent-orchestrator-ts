@@ -206,7 +206,7 @@ describe("dry-run SKIPPED color mapping", () => {
 });
 
 describe("bindVerdictOutput", () => {
-  const _COMPLETE_PASS_WITH_12_MARKERS = [
+  const _COMPLETE_PASS_WITH_8_GATES = [
     "<!-- skeptic-gate-1:PASS -->",
     "<!-- skeptic-gate-2:PASS -->",
     "<!-- skeptic-gate-3:PASS -->",
@@ -215,10 +215,6 @@ describe("bindVerdictOutput", () => {
     "<!-- skeptic-gate-6:PASS -->",
     "<!-- skeptic-gate-7:PASS -->",
     "<!-- skeptic-gate-8:PASS -->",
-    "<!-- skeptic-gate-8a:PASS -->",
-    "<!-- skeptic-gate-8b:PASS -->",
-    "<!-- skeptic-gate-8c:PASS -->",
-    "<!-- skeptic-gate-8d:PASS -->",
     "VERDICT: PASS",
   ].join("\n");
 
@@ -243,10 +239,6 @@ describe("bindVerdictOutput", () => {
         "<!-- skeptic-gate-6:PASS -->",
         "<!-- skeptic-gate-7:PASS -->",
         "<!-- skeptic-gate-8:PASS -->",
-        "<!-- skeptic-gate-8a:PASS -->",
-        "<!-- skeptic-gate-8b:PASS -->",
-        "<!-- skeptic-gate-8c:PASS -->",
-        "<!-- skeptic-gate-8d:PASS -->",
         "VERDICT: PASS",
       ].join("\n"),
     });
