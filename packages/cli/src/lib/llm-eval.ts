@@ -114,46 +114,78 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
 
   const binary = await resolveCodexBinary();
 
-  try {
-    const result = execFileSync(
+  const execOptions: {
+    input: string;
+    encoding: "utf-8";
+    timeout: number;
+    maxBuffer: number;
+    stdio: ["pipe", "pipe", "pipe"];
+    env: Record<string, string | undefined>;
+  } = {
+    input: prompt,
+    encoding: "utf-8",
+    timeout: LLM_EVAL_TIMEOUT_MS,
+    maxBuffer: 1 << 20, // 1 MB — prevent stderr maxBuffer overflow
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      ...minimaxEnv(),
+    },
+  };
+
+  /**
+   * Attempt one execFileSync call. Returns the raw Buffer result, or throws.
+   * `extraArgs` lets us retry without the `-c check_for_update_on_startup=false` flag
+   * on older Codex releases that reject it.
+   */
+  function attempt(): string {
+    return execFileSync(
       binary,
       ["exec", "--model", DEFAULT_CODEX_MODEL, "-c", "check_for_update_on_startup=false", "-"],
-      {
-        input: prompt,
-        encoding: "utf-8",
-        timeout: LLM_EVAL_TIMEOUT_MS,
-        maxBuffer: 1 << 20, // 1 MB — prevent stderr maxBuffer overflow
-        stdio: ["pipe", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          ...minimaxEnv(),
-        },
-      },
-    );
-    const output = result.trim();
-    if (!STRICT_VERDICT_RE.test(output)) {
-      // Tool ran but model failed to produce required output — fail-closed.
-      return {
-        validVerdict: false,
-        output,
-        error: `Codex output missing VERDICT line (got ${output.slice(0, 100)}...)`,
-      };
-    }
-    return { validVerdict: true, output };
-  } catch (err: unknown) {
-    const errnoException = err as NodeJS.ErrnoException;
-    const msg = err instanceof Error ? err.message : String(err);
-    // Unavailable: binary not installed OR auth failure — try next tool
+      execOptions,
+    ) as unknown as string;
+  }
+
+  let result: string;
+  try {
+    result = attempt();
+  } catch (primaryErr: unknown) {
+    const errnoException = primaryErr as NodeJS.ErrnoException;
+    const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+    // ENOENT / auth failures → binary unavailable, don't retry
     if (errnoException.code === "ENOENT" || isUnavailable(msg, errnoException.code as string)) {
       return { validVerdict: false, output: "", error: undefined }; // → try next
     }
-    // Truncate to first line only — Codex echoes the full prompt in its session log,
-    // which contains "VERDICT: PASS" as template example text. If we embed the full
-    // error message in the verdict comment, skeptic-gate.yml's grep finds the template
-    // text and incorrectly reports PASS. First line is always "Command failed: <cmd>".
-    const shortMsg = msg.split("\n")[0]?.slice(0, 300) ?? msg.slice(0, 300);
-    return { validVerdict: false, output: "", error: shortMsg };
+    // Otherwise, retry without the `-c config` flag — older Codex releases may reject it
+    console.warn(
+      `[llm-eval] Codex exec with check_for_update_on_startup=false failed: ${msg.split("\n")[0]}. Retrying without the flag.`,
+    );
+    try {
+      result = execFileSync(
+        binary,
+        ["exec", "--model", DEFAULT_CODEX_MODEL, "-"],
+        execOptions,
+      ) as unknown as string;
+    } catch (retryErr: unknown) {
+      const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+      const retryErrno = retryErr as NodeJS.ErrnoException;
+      if (retryErrno.code === "ENOENT" || isUnavailable(retryMsg, retryErrno.code as string)) {
+        return { validVerdict: false, output: "", error: undefined };
+      }
+      const shortMsg = retryMsg.split("\n")[0]?.slice(0, 300) ?? retryMsg.slice(0, 300);
+      return { validVerdict: false, output: "", error: shortMsg };
+    }
   }
+
+  const output = result.trim();
+  if (!STRICT_VERDICT_RE.test(output)) {
+    return {
+      validVerdict: false,
+      output,
+      error: `Codex output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+    };
+  }
+  return { validVerdict: true, output };
 }
 
 
