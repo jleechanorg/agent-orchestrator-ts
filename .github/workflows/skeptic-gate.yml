@@ -49,20 +49,19 @@ jobs:
         id: resolve
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WD_PR_NUM: ${{ github.event.inputs.pr_number || '' }}
-          WD_HEAD_SHA: ${{ github.event.inputs.head_sha || '' }}
+          PR_NUM: ${{ github.event.inputs.pr_number || '' }}
         run: |
-          PR_NUM="$WD_PR_NUM"
-          HEAD_SHA="$WD_HEAD_SHA"
+          PR_NUM="$PR_NUM"
+          REQUEST_ID="gate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${PR_NUM}-${HEAD_SHA:0:12}"
 
+          # Always resolve HEAD_SHA from PR API — workflow_dispatch inputs are
+          # not reliably passed via gh CLI, and github.event.inputs.head_sha
+          # defaults to empty string (not unset), so [ -z ] correctly detects it.
           if [ -z "$PR_NUM" ]; then
             echo "ERROR: could not determine PR number" >&2
             exit 1
           fi
-          if [ -z "$HEAD_SHA" ]; then
-            echo "Fetching HEAD SHA for PR #$PR_NUM..."
-            HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
-          fi
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.head.sha' 2>/dev/null || echo "")
           if [ -z "$HEAD_SHA" ]; then
             echo "ERROR: could not determine HEAD SHA for PR #$PR_NUM" >&2
             exit 1
