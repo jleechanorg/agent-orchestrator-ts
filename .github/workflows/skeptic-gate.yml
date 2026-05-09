@@ -218,7 +218,12 @@ jobs:
                     and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
                     and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and ((.verdict != "PASS")
-                         or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))))
+                         or (all(
+                           (([range(1;9)[] | ("gate-" + .)] | map("<!--\\s*skeptic-" + . + "\\s*:\\s*PASS\\s*-->")) +
+                            ["gate-8a", "gate-8b", "gate-8c", "gate-8d"] | map("<!--\\s*skeptic-" + . + "\\s*:\\s*PASS\\s*-->")
+                           ) | .[];
+                           $body | test(.; "i")
+                         ))))
                   ))
                 | last // empty' 2>/dev/null || echo "empty")
             fi
