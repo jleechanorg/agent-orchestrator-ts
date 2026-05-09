@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSkepticPrompt, isEvidenceAuthentic } from "../../commands/skeptic/prompt.js";
+import { extractSkepticGateMarkers } from "../../commands/skeptic/verdict-utils.js";
 import type { PRInfo, ReviewInfo } from "../../commands/skeptic/gh-client.js";
 import type { MergeGateState } from "../../commands/skeptic/mergeGate.js";
 
@@ -551,8 +552,8 @@ describe("skeptic structured output", () => {
         null,
       );
       const outputSection = prompt.split("OUTPUT FORMAT:")[1] ?? "";
-      expect(outputSection).toContain("emit 8a/8b/8c/8d only when Rule 12, Rule 13, or Rule 14 gaps are found");
-      expect(outputSection).toContain("or when explaining an evidence-provenance failure");
+      expect(outputSection).toContain("emit only the relevant sub-marker(s): 8a for Rule 12 gaps");
+      expect(outputSection).toContain("8c for evidence-provenance gaps, and 8d for Rule 14 gaps");
     });
 
     it("8d marker is documented in the gate marker list", () => {
@@ -566,6 +567,48 @@ describe("skeptic structured output", () => {
       expect(prompt).toContain("<!-- skeptic-gate-8d:PASS|FAIL -->");
       expect(prompt).toContain("Scope boundary");
     });
+  });
+});
+
+describe("extractSkepticGateMarkers", () => {
+  it("extracts 8d PASS marker from verdict body", () => {
+    const body = "<!-- skeptic-agent-verdict -->\n<!-- skeptic-gate-8d:PASS -->\nVERDICT: PASS";
+    const markers = extractSkepticGateMarkers(body);
+    expect(markers).toContain("<!-- skeptic-gate-8d:PASS -->");
+  });
+
+  it("extracts 8d FAIL marker from verdict body", () => {
+    const body = "<!-- skeptic-gate-1:PASS -->\n<!-- skeptic-gate-8d:FAIL -->\nVERDICT: FAIL";
+    const markers = extractSkepticGateMarkers(body);
+    expect(markers).toContain("<!-- skeptic-gate-8d:FAIL -->");
+  });
+
+  it("extracts all gates 1-8 plus 8a/8b/8c/8d from complete verdict", () => {
+    const body = `<!-- skeptic-gate-1:PASS -->
+<!-- skeptic-gate-2:PASS -->
+<!-- skeptic-gate-3:PASS -->
+<!-- skeptic-gate-4:PASS -->
+<!-- skeptic-gate-5:PASS -->
+<!-- skeptic-gate-6:PASS -->
+<!-- skeptic-gate-7:PASS -->
+<!-- skeptic-gate-8:PASS -->
+<!-- skeptic-gate-8a:PASS -->
+<!-- skeptic-gate-8b:PASS -->
+<!-- skeptic-gate-8c:PASS -->
+<!-- skeptic-gate-8d:PASS -->
+VERDICT: PASS`;
+    const markers = extractSkepticGateMarkers(body);
+    expect(markers).toContain("<!-- skeptic-gate-8d:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-8a:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-8b:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-8c:PASS -->");
+    expect(markers.filter((m) => m.includes("skeptic-gate-8d"))).toHaveLength(1);
+  });
+
+  it("is case-insensitive for marker names (8d vs 8D)", () => {
+    const body = "<!-- skeptic-gate-8D:PASS -->";
+    const markers = extractSkepticGateMarkers(body);
+    expect(markers).toContain("<!-- skeptic-gate-8D:PASS -->");
   });
 });
 
