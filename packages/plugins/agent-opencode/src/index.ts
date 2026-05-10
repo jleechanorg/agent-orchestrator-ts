@@ -140,6 +140,14 @@ process.stdin.on('data', c => input += c).on('end', () => {
 }
 
 // =============================================================================
+// Helper Functions
+// =============================================================================
+
+function stripWaferPrefix(model: string): string {
+  return model.replace(/^wafer\.ai\//, "");
+}
+
+// =============================================================================
 // Terminal output patterns (hoisted to avoid repeated allocation)
 // =============================================================================
 
@@ -216,7 +224,12 @@ function createOpenCodeAgent(): Agent {
       }
 
       if (config.model) {
-        sharedOptions.push("--model", shellEscape(config.model));
+        // Strip wafer.ai/ prefix — the routing is handled by OPENAI_BASE_URL
+        // in getEnvironment(), not by the model name passed to opencode CLI.
+        const modelArg = config.model.startsWith("wafer.ai/")
+          ? stripWaferPrefix(config.model)
+          : config.model;
+        sharedOptions.push("--model", shellEscape(modelArg));
       }
 
       if (!existingSessionId) {
