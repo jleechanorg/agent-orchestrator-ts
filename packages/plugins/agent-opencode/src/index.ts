@@ -255,6 +255,20 @@ function createOpenCodeAgent(): Agent {
       const env: Record<string, string> = {};
       env["AO_SESSION_ID"] = config.sessionId;
 
+      // Route wafer models to wafer's OpenAI-compatible proxy.
+      // The opencodew() bashrc function pattern: OPENAI_API_KEY + OPENAI_BASE_URL.
+      if (config.model?.startsWith("wafer.ai/")) {
+        env["OPENAI_BASE_URL"] = "https://pass.wafer.ai/v1";
+        const waferKey = process.env["WAFER_API_KEY"] || process.env["OPENAI_API_KEY"];
+        if (waferKey) {
+          env["OPENAI_API_KEY"] = waferKey;
+        } else {
+          console.warn(
+            "[ao-plugin-agent-opencode] WAFER_API_KEY / OPENAI_API_KEY not set — opencode may fail to authenticate with wafer.",
+          );
+        }
+      }
+
       // Pass MCP mail configuration to the agent if available
       if (process.env.MCP_AGENT_MAIL_URL) {
         env["MCP_AGENT_MAIL_URL"] = process.env.MCP_AGENT_MAIL_URL;
