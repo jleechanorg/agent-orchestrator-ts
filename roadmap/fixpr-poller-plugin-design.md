@@ -10,7 +10,7 @@
 
 The current fixpr automation is a 3-layer stack:
 
-```
+```text
 launchd (schedule)
   └─→ openclaw_mctrl_entry.sh (500-line safety wrapper)
         ├─→ ai_orch run --agent-cli minimax "<task>"
@@ -41,19 +41,19 @@ This replaces the entire mctrl + pr-monitor + launchd stack with a single AO pol
 
 ### 2.1 Architecture
 
-```
+```yaml
 agent-orchestrator.yaml
   projects:
     worldarchitect:
       pollers:
         fixpr:
-          type: github-pr-fixpr        ← new plugin
+          type: github-pr              ← extends existing plugin with modes
           enabled: true
           interval: 5m
           respawnCap:
             max: 3
             window: 12h
-          fixModes:                     ← which work types to handle
+          modes:                        ← which work types to handle
             - merge-conflict
             - ci-failing
             - changes-requested
@@ -62,7 +62,7 @@ agent-orchestrator.yaml
 
 AO lifecycle-manager (already runs)
   └─→ poller-manager
-        └─→ poller-github-pr-fixpr
+        └─→ poller-github-pr (with modes)
               ├─→ gh pr list --json ... (enriched query)
               ├─→ Detect: mergeable, statusCheckRollup, latestReviews
               └─→ Emit PollerWorkItem[] with type-specific metadata
@@ -71,38 +71,39 @@ AO lifecycle-manager (already runs)
 
 ### 2.2 Key Changes
 
-**A. New plugin: `packages/plugins/poller-github-pr-fixpr/`**
+**A. Extend existing plugin: `packages/plugins/poller-github-pr/`**
 
-This extends the existing `poller-github-pr` with two new detection modes:
+This adds two new detection modes to the existing plugin:
 
 1. **Merge-conflict detection** (ported from `jleechanorg_pr_monitor.py:609-645`):
    ```typescript
-   // Already fetched by gh pr list --json mergeable
-   const isMergeConflict = 
-     pr.mergeable === "CONFLICTING" || 
-     (typeof pr.mergeable === "boolean" && pr.mergeable === false);
-   const isStateDirty = 
-     pr.mergeStateStatus?.toLowerCase() === "dirty" ||
-     pr.mergeStateStatus?.toLowerCase() === "conflicting";
+   // pr.mergeable is a MergeableState enum: MERGEABLE | CONFLICTING | UNKNOWN
+   const isMergeConflict = pr.mergeable === "CONFLICTING";
+   const isStateDirty =
+     pr.mergeStateStatus === "DIRTY" ||
+     pr.mergeStateStatus === "CONFLICTING";
    ```
 
 2. **CI-failure detection** (ported from `has_failing_checks()`):
    ```typescript
-   // Already fetched by gh pr list --json statusCheckRollup
-   const isCIFailing = pr.statusCheckRollup?.some(c => 
-     c.conclusion === "failure" || c.conclusion === "timed_out"
+   // Conclusion values are uppercase enums from GitHub API
+   const FAILING_CONCLUSIONS = new Set([
+     "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED",
+   ]);
+   const isCIFailing = pr.statusCheckRollup?.some(c =>
+     FAILING_CONCLUSIONS.has(c.conclusion?.toUpperCase())
    );
    ```
 
 **B. Extended `gh pr list` query**
 
 Current query:
-```
+```bash
 --json number,title,url,isDraft,headRefName,baseRefName,statusCheckRollup,mergeable,latestReviews
 ```
 
 New query adds:
-```
+```bash
 --json ...,mergeStateStatus
 ```
 
@@ -119,6 +120,18 @@ Each work type gets a tailored prompt:
 | `changes-requested` | `fixpr-review-feedback` | Current poller behavior (CodeRabbit feedback) |
 
 The prompts are stored as `promptTemplate` values in the config, not hardcoded in the plugin. This lets per-project configs customize the fixpr behavior.
+
+**Template placeholders** — the existing `poller-manager` expands `{{url}}`, `{{title}}`, and `{{id}}`. The new modes require additional placeholders:
+
+| Placeholder | Source | Example |
+|---|---|---|
+| `{{prNumber}}` | `pr.number` | `537` |
+| `{{reasons}}` | work item `reasons` array | `merge-conflict, ci-failing` |
+| `{{url}}` | existing | `https://github.com/...` |
+| `{{title}}` | existing | `Fix the auth bug` |
+| `{{id}}` | existing | `pr-537` |
+
+The `poller-manager` template renderer must be extended to support `{{prNumber}}` and `{{reasons}}` before these prompts render correctly.
 
 **D. Per-work-item metadata**
 
@@ -150,13 +163,13 @@ projects:
     agent: claude-code
     pollers:
       fixpr:
-        type: github-pr-fixpr
+        type: github-pr
         enabled: true
         interval: 5m
         respawnCap:
           max: 3
           window: 12h
-        fixModes:                    # which types to handle
+        modes:                        # which types to handle
           - merge-conflict
           - ci-failing
           - changes-requested
@@ -168,7 +181,7 @@ projects:
           Fix PR #{{prNumber}}: {{title}}
           URL: {{url}}
           Issues: {{reasons}}
-          
+
           PRIORITY ORDER:
           1. Resolve merge conflicts FIRST (if mergeable=CONFLICTING)
           2. Fix failing CI checks
@@ -190,7 +203,7 @@ After migration, these become unnecessary:
 
 ## 4. Migration Steps
 
-1. **Build the plugin** — create `packages/plugins/poller-github-pr-fixpr/`
+1. **Build the plugin extension** — extend `packages/plugins/poller-github-pr/` with mode detection
 2. **Add project config** — add `worldarchitect` project to `agent-orchestrator.yaml`
 3. **Install `ao` globally** — run `scripts/setup.sh` or `pnpm link --global` from `packages/ao`
 4. **Start AO** — `ao start` (daemon + dashboard + poller-manager)
@@ -214,22 +227,34 @@ The old fixpr prompt is ~300 lines (lines 747-950 of `orchestrated_pr_runner.py`
 
 ### 6.1 Merge conflict resolution (highest priority)
 
-```
+```bash
 1. gh pr view {N} --json mergeable,mergeStateStatus
-2. If mergeable=false or DIRTY:
+2. If mergeable=CONFLICTING or DIRTY:
    a. git fetch origin {branch}
    b. git checkout -B fixpr/{branch} origin/{branch}
    c. git fetch origin main && git merge origin/main --no-edit
-   d. Resolve conflicts:
-      - .beads/issues.jsonl → always --ours
+   d. Resolve conflicts (configurable via conflictResolution map):
+      - .beads/issues.jsonl → merge both sides + deduplicate
+        (never use --ours; bead records from base must be preserved)
       - test files → usually --theirs
       - code files → manual resolution
    e. git add -A && git commit && git push
 ```
 
+**Conflict resolution config** (per-project override):
+```yaml
+pollers:
+  fixpr:
+    conflictResolution:
+      ".beads/issues.jsonl": "merge-deduplicate"  # default: preserve both sides
+      "*.test.ts": "theirs"
+      "*.snap": "theirs"
+      "*": "manual"  # catch-all: require agent judgment
+```
+
 ### 6.2 CI failure fix
 
-```
+```bash
 1. gh pr view {N} --json statusCheckRollup
 2. Identify failing checks
 3. Run tests locally to reproduce
@@ -250,9 +275,7 @@ Already handled by the existing `poller-github-pr` plugin.
 ## 7. Open Questions
 
 1. **Should this be a separate plugin or extend `poller-github-pr`?**
-   - Separate plugin is cleaner (single responsibility)
-   - But shares 80% of the `gh pr list` logic
-   - Recommendation: **extend `poller-github-pr`** with a `modes` config option, then rename to `github-pr` (the `-fixpr` suffix becomes the mode, not the plugin identity)
+   - Decision: **extend `poller-github-pr`** with a `modes` config option. The plugin name stays `github-pr`; the `modes` list selects which detection types are active. This avoids duplicating the 80% shared `gh pr list` logic.
 
 2. **Should merge-conflict resolution be automatic or require human approval?**
    - Old system: fully automatic
@@ -287,7 +310,7 @@ Already handled by the existing `poller-github-pr` plugin.
 
 ## Appendix B: File Changes Summary
 
-```
+```text
 packages/plugins/poller-github-pr/
   src/index.ts          — EXTEND with merge-conflict + CI detection
   src/index.test.ts     — ADD tests for new detection modes
