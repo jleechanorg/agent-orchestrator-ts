@@ -1,36 +1,26 @@
 /**
- * env-source — source shell init files and merge new env vars into process.env.
+ * env-source — source shell init files and merge API-key env vars into process.env.
  *
  * The AO daemon does NOT inherit from ~/.bashrc when it starts (it is not a login
  * shell). This module lets the config specify init files to source at startup so that
- * env vars (API keys, feature flags, etc.) are available to plugins via process.env
- * without duplicating secrets into YAML config or .env files.
+ * API keys (MINIMAX_API_KEY, ANTHROPIC_API_KEY, etc.) are available to plugins via
+ * process.env without duplicating secrets into YAML config or .env files.
  *
- * All new/changed vars are merged except those in the blocklist below, which
- * prevents daemon-breakers (PATH, HOME) and security risks (LD_PRELOAD, NODE_OPTIONS).
+ * Only vars matching known API-key prefixes are merged to avoid PATH/PS1 pollution.
  */
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { expandHome } from "./paths.js";
 
-/** Vars that would break the daemon or duplicate launchd-provided values. */
-const BLOCKED_VARS: ReadonlySet<string> = new Set([
-  "PATH", "HOME", "PS1", "PWD", "OLDPWD", "SHELL", "USER",
-  "BASH_ENV",   // Bash sources this file for non-interactive invocations
-  "NODE_OPTIONS", // Exact-match: single var, not a prefix family; NODE_ prefix vars bypass it
-]);
-
-/** Prefixes for vars that are security risks or would alter runtime behavior. */
-const BLOCKED_PREFIXES = [
-  "LD_",   // LD_PRELOAD, LD_LIBRARY_PATH
-  "DYLD_", // DYLD_INSERT_LIBRARIES, DYLD_FRAMEWORK_PATH
+/** Prefixes of env vars that are safe to import from sourced shell init files. */
+const ALLOWED_PREFIXES = [
+  "MINIMAX_",
+  "ANTHROPIC_",
+  "OPENAI_",
+  "MCP_AGENT_MAIL_",
+  "AO_",
 ] as const;
-
-function isBlocked(key: string): boolean {
-  if (BLOCKED_VARS.has(key)) return true;
-  return BLOCKED_PREFIXES.some((p) => key.startsWith(p));
-}
 
 /** Snapshot of process.env at import time — used to compute the diff. */
 const ENV_BEFORE: Record<string, string | undefined> = { ...process.env };
@@ -78,7 +68,7 @@ export function sourceEnvFile(
         const key = trimmed.slice(0, eqIndex);
         const value = trimmed.slice(eqIndex + 1);
         if (
-          !isBlocked(key) &&
+          ALLOWED_PREFIXES.some((p) => key.startsWith(p)) &&
           process.env[key] === diffAgainst[key]
         ) {
           newVars[key] = value;
@@ -112,10 +102,10 @@ export function sourceEnvFile(
       const key = line.slice(0, eqIndex);
       const value = line.slice(eqIndex + 1);
 
-      // Skip blocklisted vars (PATH, HOME, LD_*, etc.) and vars already
-      // overwritten between module load and this sourcing call.
+      // Only include vars that match an allowed prefix AND that won't overwrite
+      // an existing process.env value set between module load and this sourcing call.
       if (
-        !isBlocked(key) &&
+        ALLOWED_PREFIXES.some((p) => key.startsWith(p)) &&
         process.env[key] === diffAgainst[key]
       ) {
         newVars[key] = value;

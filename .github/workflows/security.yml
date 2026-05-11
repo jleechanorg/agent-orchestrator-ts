@@ -114,4 +114,4 @@ jobs:
 
       - name: Run pnpm audit (strict)
         run: pnpm audit --prod --audit-level=high
-        continue-on-error: true # Treat HIGH in production deps as warning — fix is a separate maintenance PR
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
