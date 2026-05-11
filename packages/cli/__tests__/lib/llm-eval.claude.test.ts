@@ -74,7 +74,7 @@ describe("tryClaudePrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       expect.stringMatching(/(^|\/)claude$/),
-      ["--dangerously-skip-permissions", "--print", "--model", "claude-sonnet-4-6"],
+      ["--dangerously-skip-permissions", "--print", "--model", "claude-4-sonnet"],
       expect.objectContaining({
         input: "evaluate this",
         cwd: "/tmp",

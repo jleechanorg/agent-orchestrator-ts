@@ -30,7 +30,7 @@ const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
 const MOCK_CLAUDE_BINARY = "/mock/claude";
-const MOCK_CLAUDE_MODEL = "claude-sonnet-4-6";
+const MOCK_CLAUDE_MODEL = "claude-4-sonnet";
 
 beforeEach(() => {
   vi.clearAllMocks();

@@ -258,7 +258,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
     try {
       const result = execFileSync(
         candidate,
-        ["--dangerously-skip-permissions", "--print"],
+        ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
         makeClaudeExecOptions(prompt),
       );
       const output = result.trim();
@@ -293,7 +293,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
         try {
           const retryResult = execFileSync(
             candidate,
-            ["--dangerously-skip-permissions", "--print"],
+            ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
             makeClaudeExecOptions(prompt),
           );
           const retryOutput = retryResult.trim();
