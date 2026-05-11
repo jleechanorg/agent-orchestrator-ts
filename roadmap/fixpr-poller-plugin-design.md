@@ -106,7 +106,7 @@ New query adds:
 --json ...,mergeStateStatus
 ```
 
-This provides `DIRTY`/`CONFLICTING` status that the existing query misses.
+This provides `DIRTY` status (from `mergeStateStatus`) that the existing query misses, while `CONFLICTING` comes from the `mergeable` field.
 
 **C. Type-specific prompt templates**
 
