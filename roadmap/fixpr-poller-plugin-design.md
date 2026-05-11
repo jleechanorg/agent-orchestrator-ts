@@ -305,9 +305,8 @@ Already handled by the existing `poller-github-pr` plugin.
    - Mechanism: `approvalRequired` config field (see §2.2.E); when `ci-failing: true`, the poller posts a notification comment and waits for a `/fixpr ci` reply before spawning a fix session
 
 3. **Poll interval?**
-   - Old system: twice daily (12h)
-   - Recommendation: **5 minutes** with respawn cap (max 3 spawns per PR per 12h window)
-   - Rationale: faster detection, but respawn cap prevents runaway loops
+   - Decision: **5 minutes** with respawn cap (max 3 spawns per PR per 12h window)
+   - Rationale: faster detection than the old twice-daily (12h) schedule, but respawn cap prevents runaway loops
 
 4. **Agent selection per work type?**
    - merge-conflict → `claude-code` (most reliable at conflict resolution)
@@ -336,10 +335,18 @@ Already handled by the existing `poller-github-pr` plugin.
 ```text
 packages/plugins/poller-github-pr/
   src/index.ts          — EXTEND with merge-conflict + CI detection
+  src/approval-gate.ts  — NEW: /fixpr ci authorization enforcement
+    - comment ingestion: scan PR comments for /fixpr ci after notification
+    - collaborator check: verify comment author has repo write access
+    - notification tracking: record notification comment ID + timestamp
+    - approval dedupe: consumed-approval set prevents re-spawn
+    - head-SHA binding: approval only valid for SHA at comment time
+    - spawn gate: unapproved ci-failing work items held in pending queue
+  src/approval-gate.test.ts  — NEW: unit tests for each authorization rule
   src/index.test.ts     — ADD tests for new detection modes
   package.json          — BUMP version
 
-packages/core/src/types.ts  — ADD mergeStateStatus to GitHubPR interface
+packages/core/src/types.ts  — ADD mergeStateStatus + ApprovalState to GitHubPR
 
 agent-orchestrator.yaml      — ADD worldarchitect project + fixpr poller config
 ```
