@@ -776,15 +776,15 @@ const DEFAULT_WAFER_ANTHROPIC_BASE_URL = "https://pass.wafer.ai";
 const DEFAULT_ZAI_ANTHROPIC_BASE_URL = "https://api.z.ai/api/anthropic";
 
 function isWaferModel(model?: string): boolean {
-  return model?.startsWith("wafer.ai/") ?? false;
+  return model?.startsWith("wafer/") ?? false;
 }
 
 function isZaiModel(model?: string): boolean {
-  return model?.startsWith("z.ai/") ?? false;
+  return model?.startsWith("zai/") ?? false;
 }
 
 function stripProviderPrefix(model: string): string {
-  return model.replace(/^(?:wafer\.ai|z\.ai)\//, "");
+  return model.replace(/^(?:wafer|zai)\//, "");
 }
 
 // =============================================================================

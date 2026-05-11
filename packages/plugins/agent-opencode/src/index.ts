@@ -144,15 +144,15 @@ process.stdin.on('data', c => input += c).on('end', () => {
 // =============================================================================
 
 function isWaferModel(model?: string): boolean {
-  return model?.startsWith("wafer.ai/") ?? false;
+  return model?.startsWith("wafer/") ?? false;
 }
 
 function isZaiModel(model?: string): boolean {
-  return model?.startsWith("z.ai/") ?? false;
+  return model?.startsWith("zai/") ?? false;
 }
 
 function stripProviderPrefix(model: string): string {
-  return model.replace(/^(?:wafer\.ai|z\.ai)\//, "");
+  return model.replace(/^(?:wafer|zai)\//, "");
 }
 
 // =============================================================================
@@ -278,8 +278,8 @@ function createOpenCodeAgent(): Agent {
 
       // Route provider models to their OpenAI-compatible proxies.
       // Wafer: the opencodew() bashrc function pattern.
-      // Z.AI: the claudeg()-equivalent pattern for opencode.
-      if (config.model?.startsWith("wafer.ai/")) {
+      // ZAI: the claudeg()-equivalent pattern for opencode.
+      if (isWaferModel(config.model)) {
         env["OPENAI_BASE_URL"] = "https://pass.wafer.ai/v1";
         const waferKey = process.env["WAFER_API_KEY"];
         if (waferKey) {
@@ -289,14 +289,14 @@ function createOpenCodeAgent(): Agent {
             "[ao-plugin-agent-opencode] WAFER_API_KEY is not set — opencode may fail to authenticate with wafer.",
           );
         }
-      } else if (config.model?.startsWith("z.ai/")) {
+      } else if (isZaiModel(config.model)) {
         env["OPENAI_BASE_URL"] = "https://api.z.ai/v1";
         const glmKey = process.env["GLM_API_KEY"];
         if (glmKey) {
           env["OPENAI_API_KEY"] = glmKey;
         } else {
           console.warn(
-            "[ao-plugin-agent-opencode] GLM_API_KEY is not set — opencode may fail to authenticate with Z.AI.",
+            "[ao-plugin-agent-opencode] GLM_API_KEY is not set — opencode may fail to authenticate with ZAI.",
           );
         }
       }
