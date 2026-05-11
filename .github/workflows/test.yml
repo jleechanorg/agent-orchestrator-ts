@@ -241,7 +241,7 @@ jobs:
             BLOCKING_VERDICT=$(
               printf '%s\n' "$VERDICT_BODY" \
                 | grep -Ei '^[[:space:]>#*]*VERDICT:[[:space:]]*(FAIL|SKIPPED)([[:space:][:punct:]]|$)' \
-                | grep -m 1 \
+                | head -n 1 \
                 | awk '{
                     line=$0
                     sub(/^[[:space:]>#*]*/, "", line)
@@ -256,7 +256,7 @@ jobs:
               VERDICT=$(
                 printf '%s\n' "$VERDICT_BODY" \
                   | grep -Ei '^[[:space:]>#*]*VERDICT:[[:space:]]*PASS([[:space:][:punct:]]|$)' \
-                  | grep -m 1 \
+                  | head -n 1 \
                   | awk '{
                       line=$0
                       sub(/^[[:space:]>#*]*/, "", line)

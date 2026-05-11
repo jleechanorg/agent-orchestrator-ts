@@ -738,5 +738,10 @@ describe("skeptic chain integration", () => {
       expect(workflowFailClosedVerdict(body)).toBe("FAIL");
       expect(workflowSource).toContain("BLOCKING_VERDICT=");
     });
+
+    it("selects the first matching verdict line without invoking grep without a pattern", () => {
+      expect(workflowSource).not.toContain("| grep -m 1 \\");
+      expect(workflowSource).toContain("| head -n 1 \\");
+    });
   });
 });
