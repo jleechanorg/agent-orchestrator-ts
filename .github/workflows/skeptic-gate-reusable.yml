@@ -217,9 +217,13 @@ jobs:
 
           # Gate 5: Inline comments resolved (GraphQL — REST lacks isResolved).
           # Paginates; fail-closed on errors.
-          PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login // empty' 2>/dev/null || true)
-          if [ -z "$PR_AUTHOR" ]; then
-            echo "GATE-5 FAIL: PR author lookup failed"
+          _AUTHOR_STDERR=$(mktemp)
+          PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login // empty' 2>"$_AUTHOR_STDERR")
+          _GH_EXIT=$?
+          true
+          rm -f "$_AUTHOR_STDERR"
+          if [ -z "$PR_AUTHOR" ] || [ "$_GH_EXIT" -ne 0 ]; then
+            echo "GATE-5 FAIL: PR author lookup failed (exit=$_GH_EXIT)"
             ELIGIBLE=false
           else
             REPO_NAME="${GITHUB_REPOSITORY#*/}"
@@ -413,19 +417,23 @@ jobs:
             fi
 
             VERDICT_TMP=$(mktemp)
+            _VERDICT_STDERR=$(mktemp)
             SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
             TRIGGER_SHA="$TRIGGER_SHA" \
             TRIGGER_UPDATED="$TRIGGER_UPDATED" \
             REQUEST_ID="$REQUEST_ID" \
             gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-              --paginate > "$VERDICT_TMP" 2>/dev/null || true
+              --paginate > "$VERDICT_TMP" 2>"$_VERDICT_STDERR"
+            _GH_EXIT=$?
+            true
+            rm -f "$_VERDICT_STDERR"
             VERDICT_RAW=$(cat "$VERDICT_TMP")
             rm -f "$VERDICT_TMP"
-            if [ -z "$VERDICT_RAW" ]; then
+            if [ -z "$VERDICT_RAW" ] || [ "$_GH_EXIT" -ne 0 ]; then
               VERDICT_JSON=""
               COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
               API_FAILURES=$((API_FAILURES + 1))
-              echo "API warning: verdict lookup returned empty (attempt $((i)))"
+              echo "API warning: verdict lookup failed (exit=$_GH_EXIT, attempt $((i)))"
               if [ "$API_FAILURES" -ge 3 ]; then
                 echo "ERROR: Too many consecutive API failures — exiting as ERROR"
                 echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
