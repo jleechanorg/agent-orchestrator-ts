@@ -1025,7 +1025,11 @@ function createClaudeCodeAgent(): Agent {
       parts.push("--strict-mcp-config", mcpConfigPath);
 
       if (project.agentConfig?.model) {
-        parts.push("--model", shellEscape(project.agentConfig.model as string));
+        // Strip wafer.ai/ prefix for restore, same as getLaunchCommand
+        const modelArg = isWaferModel(project.agentConfig.model as string)
+          ? stripWaferPrefix(project.agentConfig.model as string)
+          : (project.agentConfig.model as string);
+        parts.push("--model", shellEscape(modelArg));
       }
 
       return parts.join(" ");
