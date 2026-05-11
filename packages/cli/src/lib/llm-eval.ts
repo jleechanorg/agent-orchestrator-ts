@@ -343,7 +343,6 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
 /** Known gemini binary locations, tried in order. */
 const GEMINI_BINARY_CANDIDATES = [
   process.env["GEMINI_BINARY"] ?? "",
-  "/Users/jleechan/.nvm/versions/node/v22.22.0/bin/gemini",
   "/usr/local/bin/gemini",
   "/opt/homebrew/bin/gemini",
   "gemini",
