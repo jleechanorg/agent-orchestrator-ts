@@ -1064,6 +1064,7 @@ export type EventType =
   | "session.exit_failed"
   // Worker completion signal (bd-skp2)
   | "worker.signals_completion"
+  | "worker.merge_conflict"
   // Summary
   | "summary.all_complete";
 

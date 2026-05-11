@@ -1400,12 +1400,18 @@ describe("check (single session)", () => {
       }),
     };
 
+    const mockNotifier: Notifier = {
+      name: "mock-notifier",
+      notify: vi.fn().mockResolvedValue(undefined),
+    };
+
     const registryWithSCM: PluginRegistry = {
       ...mockRegistry,
-      get: vi.fn().mockImplementation((slot: string) => {
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
         if (slot === "runtime") return mockRuntime;
         if (slot === "agent") return mockAgent;
         if (slot === "scm") return mockSCM;
+        if (slot === "notifier" && name === "default") return mockNotifier;
         return null;
       }),
     };
@@ -1429,6 +1435,12 @@ describe("check (single session)", () => {
     await lm.check("app-1");
 
     expect(lm.getStates().get("app-1")).toBe("merge_conflicts");
+    expect(mockNotifier.notify).toHaveBeenCalled();
+    const conflictEventCall = vi.mocked(mockNotifier.notify).mock.calls.find(
+      (call) => call[0].type === "worker.merge_conflict"
+    );
+    expect(conflictEventCall).toBeDefined();
+    expect(conflictEventCall![0].priority).toBe("warning");
   });
 
   // bd-ara.2: GitHub reports mergeable=UNKNOWN as "not confirmed conflict-free".
