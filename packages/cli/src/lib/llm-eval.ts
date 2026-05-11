@@ -194,6 +194,7 @@ function makeClaudeExecOptions(
   input: string;
   encoding: "utf-8";
   timeout: number;
+  maxBuffer: number;
   stdio: ["pipe", "pipe", "ignore"];
   cwd: string;
   env: Record<string, string | undefined>;
@@ -202,6 +203,7 @@ function makeClaudeExecOptions(
     input: prompt,
     encoding: "utf-8",
     timeout: LLM_EVAL_TIMEOUT_MS,
+    maxBuffer: 1 << 20,
     stdio: ["pipe", "pipe", "ignore"],
     cwd: "/tmp",
     env: {
