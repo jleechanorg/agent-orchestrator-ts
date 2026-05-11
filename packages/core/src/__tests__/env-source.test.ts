@@ -45,8 +45,10 @@ const { sourceEnvFile, applyEnvSource } = await import("../env-source.js");
 /** Mirror the blocklist from env-source.ts for test parsing. */
 const BLOCKED_VARS: ReadonlySet<string> = new Set([
   "PATH", "HOME", "PS1", "PWD", "OLDPWD", "SHELL", "USER",
+  "BASH_ENV",
+  "NODE_OPTIONS",
 ]);
-const BLOCKED_PREFIXES = ["LD_", "DYLD_", "NODE_OPTIONS"] as const;
+const BLOCKED_PREFIXES = ["LD_", "DYLD_"] as const;
 function isBlocked(key: string): boolean {
   if (BLOCKED_VARS.has(key)) return true;
   return BLOCKED_PREFIXES.some((p) => key.startsWith(p));
@@ -134,6 +136,15 @@ describe("sourceEnvFile — real exports", () => {
     const result = sourceEnvFile("~/.bashrc");
     expect(result).toHaveProperty("GLM_API_KEY", "glm-test");
     expect(result).toHaveProperty("WAFER_API_KEY", "wfr-test");
+  });
+
+  it("blocks BASH_ENV (shell startup injection vector)", () => {
+    mockExecFileSync.mockReturnValue(
+      Buffer.from("BASH_ENV=/malicious/startup.sh\nMINIMAX_API_KEY=sk-cp-test"),
+    );
+    const result = sourceEnvFile("~/.bashrc");
+    expect(result).not.toHaveProperty("BASH_ENV");
+    expect(result).toHaveProperty("MINIMAX_API_KEY", "sk-cp-test");
   });
 
   it("blocks LD_PRELOAD, DYLD_INSERT_LIBRARIES, and NODE_OPTIONS", () => {
@@ -251,7 +262,7 @@ describe("parseEnvOutput — blocklist (contract)", () => {
     expect(parseEnvOutput(output)).toHaveProperty("WAFER_API_KEY", "wfr-test");
   });
 
-  it("blocks LD_, DYLD_, and NODE_OPTIONS prefixes", () => {
+  it("blocks LD_, DYLD_ prefix families and NODE_OPTIONS exact-match", () => {
     const output = [
       "LD_PRELOAD=/malicious.so",
       "LD_LIBRARY_PATH=/evil/lib",

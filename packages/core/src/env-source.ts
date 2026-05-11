@@ -17,13 +17,14 @@ import { expandHome } from "./paths.js";
 /** Vars that would break the daemon or duplicate launchd-provided values. */
 const BLOCKED_VARS: ReadonlySet<string> = new Set([
   "PATH", "HOME", "PS1", "PWD", "OLDPWD", "SHELL", "USER",
+  "BASH_ENV",   // Bash sources this file for non-interactive invocations
+  "NODE_OPTIONS", // Exact-match: single var, not a prefix family; NODE_ prefix vars bypass it
 ]);
 
 /** Prefixes for vars that are security risks or would alter runtime behavior. */
 const BLOCKED_PREFIXES = [
-  "LD_",          // LD_PRELOAD, LD_LIBRARY_PATH
-  "DYLD_",        // DYLD_INSERT_LIBRARIES, DYLD_FRAMEWORK_PATH
-  "NODE_OPTIONS", // Can inject --require, --eval, etc.
+  "LD_",   // LD_PRELOAD, LD_LIBRARY_PATH
+  "DYLD_", // DYLD_INSERT_LIBRARIES, DYLD_FRAMEWORK_PATH
 ] as const;
 
 function isBlocked(key: string): boolean {
