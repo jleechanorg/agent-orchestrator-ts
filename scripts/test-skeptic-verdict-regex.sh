@@ -3,7 +3,7 @@
 # skeptic-gate-reusable.yml, and test.yml.
 # Exercises the exact jq capture pattern from the workflow YAML files.
 # NOTE: ^ anchor with m flag is jq-version-dependent (works on Ubuntu GHA runner,
-# may not work on macOS jq 1.7.1). JSON body tests use Python-generated input
+# may not work on macOS jq 1.7.1). JSON body tests use jq --arg for input
 # to guarantee correct newline handling across jq versions.
 set -euo pipefail
 
@@ -15,12 +15,12 @@ FULL_PATTERN='^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(?<verdi
 # Simplified pattern (without ^ anchor) for macOS jq compatibility
 CORE_PATTERN='VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)\b(?:\*{1,2})?[ \t]*(?:[-—:][^\n]*)?'
 
-# Test using Python-generated JSON body (how the workflow receives data from gh api).
-# Python ensures proper JSON with real newline chars, avoiding jq -R --slurp issues.
+# Test using jq --arg for JSON body construction (safe for any content including
+# quotes, backslashes, and special characters — avoids Python string interpolation).
 test_verdict() {
   local body="$1" expected="$2" label="$3" pattern="${4:-$FULL_PATTERN}"
-  actual=$(python3 -c "import json,sys; sys.stdout.write(json.dumps({'body': '''$body'''}))" 2>/dev/null | \
-    jq --arg re "$pattern" '.body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
+  actual=$(jq -n --arg body "$body" --arg re "$pattern" \
+    '$body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
   if [ "$actual" = "$expected" ]; then
     pass "$label"
   else
@@ -34,10 +34,10 @@ test_old_vs_new() {
   OLD_PATTERN='VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$'
   NEW_PATTERN='VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)\b(?:\*{1,2})?[ \t]*(?:[-—:][^\n]*)?'
 
-  old_actual=$(python3 -c "import json,sys; sys.stdout.write(json.dumps({'body': '''$body'''}))" 2>/dev/null | \
-    jq --arg re "$OLD_PATTERN" '.body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
-  new_actual=$(python3 -c "import json,sys; sys.stdout.write(json.dumps({'body': '''$body'''}))" 2>/dev/null | \
-    jq --arg re "$NEW_PATTERN" '.body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
+  old_actual=$(jq -n --arg body "$body" --arg re "$OLD_PATTERN" \
+    '$body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
+  new_actual=$(jq -n --arg body "$body" --arg re "$NEW_PATTERN" \
+    '$body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
 
   old_ok="OK"; new_ok="OK"
   [ "$old_actual" = "$old_expected" ] || old_ok="FAIL(got '$old_actual')"
@@ -73,7 +73,7 @@ test_verdict "$MULTI_FAIL" "FAIL" "FULL: multi-line body FAIL (core fallback)" "
 # Verify ^ anchor works on single-line (should work on all jq versions)
 test_verdict "VERDICT: PASS" "PASS" "FULL: single-line ^ anchor" "$FULL_PATTERN"
 
-# === Tests using CORE_PATTERN (no ^ anchor, for cross-platform jq compat) ===
+# === Tests using CORE_PATTERN (no ^ anchor, cross-platform jq compat) ===
 echo ""
 echo "--- Core pattern tests (no ^ anchor, cross-platform) ---"
 test_verdict "VERDICT: PASS" "PASS" "CORE: simple PASS" "$CORE_PATTERN"
@@ -94,8 +94,8 @@ test_old_vs_new "$MULTI" "" "PASS" "multi-line body: old $ misses, new \\b match
 test_partial() {
   local body="$1" expected="$2" label="$3"
   INTERMEDIATE='VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?'
-  actual=$(python3 -c "import json,sys; sys.stdout.write(json.dumps({'body': '''$body'''}))" 2>/dev/null | \
-    jq --arg re "$INTERMEDIATE" '.body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
+  actual=$(jq -n --arg body "$body" --arg re "$INTERMEDIATE" \
+    '$body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
   if [ "$actual" = "$expected" ]; then
     pass "$label"
   else
