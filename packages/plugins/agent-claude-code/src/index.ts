@@ -2,6 +2,9 @@ import {
   NORMALIZE_SHELL_COMMAND_PREFIX_BLOCK,
   PR_TITLE_PREFIX_GUARD_BLOCK,
   setupMcpMailInWorkspace,
+  isWaferModel,
+  isZaiModel,
+  stripProviderPrefix,
 } from "@jleechanorg/ao-plugin-agent-base";
 import {
   shellEscape,
@@ -775,20 +778,6 @@ function isMinimaxModel(model?: string): boolean {
 const DEFAULT_WAFER_ANTHROPIC_BASE_URL = "https://pass.wafer.ai";
 const DEFAULT_ZAI_ANTHROPIC_BASE_URL = "https://api.z.ai/api/anthropic";
 
-function isWaferModel(model?: string): boolean {
-  if (!model) return false;
-  return model.startsWith("wafer/") || model.startsWith("wafer.ai/");
-}
-
-function isZaiModel(model?: string): boolean {
-  if (!model) return false;
-  return model.startsWith("zai/") || model.startsWith("z.ai/");
-}
-
-function stripProviderPrefix(model: string): string {
-  return model.replace(/^(?:wafer(?:\.ai)?|zai|z\.ai)\//, "");
-}
-
 // =============================================================================
 // Agent Implementation
 // =============================================================================
@@ -802,22 +791,28 @@ function createClaudeCodeAgent(): Agent {
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       // Note: CLAUDECODE is unset via getEnvironment() (set to ""), not here.
-      // For MiniMax models (identified by "MiniMax-" prefix), the binary routes to
-      // the MiniMax Anthropic-compatible endpoint via ANTHROPIC_BASE_URL set in
-      // getEnvironment(). For all other models, ANTHROPIC_BASE_URL is explicitly
-      // unset here — prepending `env -u` ensures Anthropic OAuth is used even when
-      // the user's ~/.bashrc sets ANTHROPIC_BASE_URL for MiniMax workflows.
+      // ANTHROPIC_BASE_URL handling:
+      // - Always strip ANTHROPIC_BASE_URL from the launch environment (`env -u`)
+      //   to prevent .bashrc from overriding the provider-specific URL.
+      // - For provider models, explicitly set ANTHROPIC_BASE_URL inline in the
+      //   command so the claude binary gets the correct endpoint.
+      // - For standard models, leaving it unset ensures Anthropic OAuth is used.
       const minimax = isMinimaxModel(config.model);
       const wafer = isWaferModel(config.model);
       const zai = isZaiModel(config.model);
       const hasCustomProvider = minimax || wafer || zai;
-      // For provider-prefixed models (MiniMax, wafer, z.ai), ANTHROPIC_BASE_URL is set
-      // in getEnvironment() to route through the provider's Anthropic-compatible proxy.
-      // For all other models, `env -u ANTHROPIC_BASE_URL` ensures Anthropic OAuth
-      // is used even when the user's ~/.bashrc sets ANTHROPIC_BASE_URL.
-      const parts: string[] = hasCustomProvider
-        ? ["claude"]
-        : ["env", "-u", "ANTHROPIC_BASE_URL", "claude"];
+
+      // Build env prefix: always strip ANTHROPIC_BASE_URL to neutralize .bashrc
+      const envPrefix: string[] = ["env", "-u", "ANTHROPIC_BASE_URL"];
+      // For provider models, add the correct URL inline after stripping
+      if (minimax) {
+        envPrefix.push(`ANTHROPIC_BASE_URL=${DEFAULT_MINIMAX_ANTHROPIC_BASE_URL}`);
+      } else if (wafer) {
+        envPrefix.push(`ANTHROPIC_BASE_URL=${DEFAULT_WAFER_ANTHROPIC_BASE_URL}`);
+      } else if (zai) {
+        envPrefix.push(`ANTHROPIC_BASE_URL=${DEFAULT_ZAI_ANTHROPIC_BASE_URL}`);
+      }
+      const parts: string[] = [...envPrefix, "claude"];
 
       const permissionMode = normalizePermissionMode(config.permissions);
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
@@ -829,8 +824,15 @@ function createClaudeCodeAgent(): Agent {
 
       if (config.model) {
         // Strip provider prefix (wafer.ai/, z.ai/) — routing is handled by
-        // ANTHROPIC_BASE_URL in getEnvironment(), not by the model name.
+        // ANTHROPIC_BASE_URL in the env prefix, not by the model name.
+        // Guard: reject provider-only prefixes (e.g. "wafer.ai/") that would
+        // produce an empty model string.
         const modelArg = hasCustomProvider ? stripProviderPrefix(config.model) : config.model;
+        if (!modelArg) {
+          throw new Error(
+            `[ao-plugin-agent-claude-code] Invalid model "${config.model}": provider prefix with no model name`,
+          );
+        }
         parts.push("--model", shellEscape(modelArg));
       }
 
@@ -1033,8 +1035,23 @@ function createClaudeCodeAgent(): Agent {
       const sessionUuid = basename(sessionFile, ".jsonl");
       if (!sessionUuid) return null;
 
-      // Build resume command
-      const parts: string[] = ["claude", "--resume", shellEscape(sessionUuid)];
+      // Build resume command — apply same env prefix as getLaunchCommand to
+      // neutralize .bashrc ANTHROPIC_BASE_URL overrides for provider models.
+      const model = project.agentConfig?.model as string | undefined;
+      const restoreMinimax = isMinimaxModel(model);
+      const restoreWafer = isWaferModel(model);
+      const restoreZai = isZaiModel(model);
+      const restoreHasProvider = restoreMinimax || restoreWafer || restoreZai;
+
+      const envPrefix: string[] = ["env", "-u", "ANTHROPIC_BASE_URL"];
+      if (restoreMinimax) {
+        envPrefix.push(`ANTHROPIC_BASE_URL=${DEFAULT_MINIMAX_ANTHROPIC_BASE_URL}`);
+      } else if (restoreWafer) {
+        envPrefix.push(`ANTHROPIC_BASE_URL=${DEFAULT_WAFER_ANTHROPIC_BASE_URL}`);
+      } else if (restoreZai) {
+        envPrefix.push(`ANTHROPIC_BASE_URL=${DEFAULT_ZAI_ANTHROPIC_BASE_URL}`);
+      }
+      const parts: string[] = [...envPrefix, "claude", "--resume", shellEscape(sessionUuid)];
 
       const permissionMode = normalizePermissionMode(project.agentConfig?.permissions);
       if (permissionMode === "permissionless" || permissionMode === "auto-edit") {
@@ -1044,13 +1061,17 @@ function createClaudeCodeAgent(): Agent {
       const mcpConfigPath = shellEscape(join(homedir(), ".claude", "mcp-strict.json"));
       parts.push("--strict-mcp-config", mcpConfigPath);
 
-      if (project.agentConfig?.model) {
-        // Strip provider prefix (wafer.ai/, z.ai/) for restore, same as getLaunchCommand
-        const model = project.agentConfig.model as string;
-        const modelArg = (isWaferModel(model) || isZaiModel(model))
-          ? stripProviderPrefix(model)
-          : model;
-        parts.push("--model", shellEscape(modelArg));
+      if (model) {
+        // Strip provider prefix (wafer.ai/, z.ai/) for restore, same as getLaunchCommand.
+        // Guard: reject provider-only prefixes that would produce an empty model string.
+        const modelArg = restoreHasProvider ? stripProviderPrefix(model) : model;
+        if (!modelArg) {
+          console.warn(
+            `[ao-plugin-agent-claude-code] Invalid model "${model}": provider prefix with no model name, skipping --model flag`,
+          );
+        } else {
+          parts.push("--model", shellEscape(modelArg));
+        }
       }
 
       return parts.join(" ");

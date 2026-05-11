@@ -1,5 +1,5 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../config.js";
@@ -62,14 +62,6 @@ projects:
       model: MiniMax-M2.7
       permissions: skip
 `;
-
-function real(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
-  }
-}
 
 describe("loadConfig with repo-local overlay", () => {
   it("merges repo-local project config on top of managed config", () => {

@@ -1043,6 +1043,39 @@ async function readSessionEntry(
 }
 
 // =============================================================================
+// Provider Model Helpers
+// =============================================================================
+
+/** Check if a model string uses the wafer provider prefix (wafer/ or wafer.ai/) */
+export function isWaferModel(model?: string): boolean {
+  if (!model) return false;
+  return model.startsWith("wafer/") || model.startsWith("wafer.ai/");
+}
+
+/** Check if a model string uses the Z.AI provider prefix (zai/ or z.ai/) */
+export function isZaiModel(model?: string): boolean {
+  if (!model) return false;
+  return model.startsWith("zai/") || model.startsWith("z.ai/");
+}
+
+/**
+ * Strip the provider prefix from a model string.
+ * E.g. "wafer.ai/GLM-5.1" -> "GLM-5.1", "z.ai/claude-4" -> "claude-4"
+ * Returns the original string if no recognized prefix is found.
+ */
+export function stripProviderPrefix(model: string): string {
+  return model.replace(/^(?:wafer(?:\.ai)?|zai|z\.ai)\//, "");
+}
+
+/**
+ * Check if a model uses any recognized custom provider prefix.
+ * (MiniMax is detected by "MiniMax-" prefix and handled separately.)
+ */
+export function isCustomProviderModel(model?: string): boolean {
+  return isWaferModel(model) || isZaiModel(model);
+}
+
+// =============================================================================
 // Agent Factory
 // =============================================================================
 

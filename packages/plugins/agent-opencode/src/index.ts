@@ -1,4 +1,10 @@
-import { setupMcpMailInWorkspace } from "@jleechanorg/ao-plugin-agent-base";
+import {
+  setupMcpMailInWorkspace,
+  isWaferModel,
+  isZaiModel,
+  stripProviderPrefix,
+  isCustomProviderModel,
+} from "@jleechanorg/ao-plugin-agent-base";
 import {
   DEFAULT_READY_THRESHOLD_MS,
   shellEscape,
@@ -140,24 +146,6 @@ process.stdin.on('data', c => input += c).on('end', () => {
 }
 
 // =============================================================================
-// Helper Functions
-// =============================================================================
-
-function isWaferModel(model?: string): boolean {
-  if (!model) return false;
-  return model.startsWith("wafer/") || model.startsWith("wafer.ai/");
-}
-
-function isZaiModel(model?: string): boolean {
-  if (!model) return false;
-  return model.startsWith("zai/") || model.startsWith("z.ai/");
-}
-
-function stripProviderPrefix(model: string): string {
-  return model.replace(/^(?:wafer(?:\.ai)?|zai|z\.ai)\//, "");
-}
-
-// =============================================================================
 // Terminal output patterns (hoisted to avoid repeated allocation)
 // =============================================================================
 
@@ -236,9 +224,15 @@ function createOpenCodeAgent(): Agent {
       if (config.model) {
         // Strip provider prefix (wafer.ai/, z.ai/) — routing is handled by
         // OPENAI_BASE_URL in getEnvironment(), not by the model name.
-        const modelArg = (isWaferModel(config.model) || isZaiModel(config.model))
+        // Guard: reject provider-only prefixes that would produce an empty model string.
+        const modelArg = isCustomProviderModel(config.model)
           ? stripProviderPrefix(config.model)
           : config.model;
+        if (!modelArg) {
+          throw new Error(
+            `[ao-plugin-agent-opencode] Invalid model "${config.model}": provider prefix with no model name`,
+          );
+        }
         sharedOptions.push("--model", shellEscape(modelArg));
       }
 
