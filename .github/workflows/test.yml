@@ -168,7 +168,7 @@ jobs:
                 --arg pr_author "$PR_AUTHOR" \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
                 'add
-                | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)\\b(?:\\*{1,2})?[ \\t]*(?:[-—:][^\\n]*)?" ; "im").verdict | ascii_upcase) catch "")})
+                | map(. + {verdict: (try (.body | capture("(?:^|\\n)[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)\\b(?:\\*{1,2})?[ \\t]*(?:[-—:][^\\n]*)?" ; "i").verdict | ascii_upcase) catch "")})
                 | map(select(
                     (.body as $body |
                       (
@@ -241,7 +241,7 @@ jobs:
             BLOCKING_VERDICT=$(
               printf '%s\n' "$VERDICT_BODY" \
                 | grep -Ei '^[[:space:]>#*]*VERDICT:[[:space:]]*(FAIL|SKIPPED)([[:space:][:punct:]]|$)' \
-                | grep -m 1 \
+                | head -n 1 \
                 | awk '{
                     line=$0
                     sub(/^[[:space:]>#*]*/, "", line)
@@ -256,7 +256,7 @@ jobs:
               VERDICT=$(
                 printf '%s\n' "$VERDICT_BODY" \
                   | grep -Ei '^[[:space:]>#*]*VERDICT:[[:space:]]*PASS([[:space:][:punct:]]|$)' \
-                  | grep -m 1 \
+                  | head -n 1 \
                   | awk '{
                       line=$0
                       sub(/^[[:space:]>#*]*/, "", line)

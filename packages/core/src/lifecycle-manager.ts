@@ -52,7 +52,7 @@ import {
   clearProjectPause,
   detectAndApplyRateLimitPause,
 } from "./fork-lifecycle-manager.js";
-import { createCorrelationId, createProjectObserver, type ProjectObserver } from "./observability.js";
+import { createCorrelationId, createProjectObserver } from "./observability.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 import type { OutcomeRecorder } from "./outcome-recorder.js";
 import {
@@ -76,10 +76,11 @@ import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate, type MergeGateResult } from "./merge-gate.js";
 import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
 import { isGhRateLimitError } from "./gh-rate-limit.js";
-import { backfillUncoveredPRs } from "./backfill-extensions.js";
 import { sweepOrphanTmuxSessions, DEFAULT_TMUX_SWEEPER_CONFIG } from "./tmux-session-sweeper.js";
-import { drainTaskQueue } from "./task-queue.js";
-import { drainSpawnQueue } from "./spawn-queue.js";
+import {
+  maybeWarnBackfillDisabledWithOpenPRs,
+  runLifecycleProjectCrons,
+} from "./lifecycle-project-crons.js";
 import { applyDeadAgentOverride } from "./fork-dead-agent.js";
 import {
   deletePendingTerminalExitProofRecordedAt,
@@ -2539,64 +2540,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       const activeSessions = sessions.filter((s) => !TERMINAL_STATUSES.has(s.status));
 
-      let queuedSpawned = 0;
+      let projectCronSpawned = false;
       if (scopedProjectId) {
         const project = config.projects[scopedProjectId];
         if (project) {
-          queuedSpawned = await drainSpawnQueue(
-            { sessionManager, observer },
-            { projectId: scopedProjectId, project, configPath: config.configPath ?? "", activeSessions, correlationId },
-          );
-          if (queuedSpawned > 0) {
-            allCompleteEmitted = false;
-          }
-        }
-      }
-
-      // backfillAllPRs: spawn sessions for open PRs that have no active session.
-      // Replaces the old orchestrator-session-based PR discovery (bd-awq) with a
-      // deterministic loop inside the lifecycle-worker itself.
-      //
-      // Default: enabled (opt-out). Any value other than explicit `false`
-      // activates backfill. Projects that opt out while still having open PRs
-      // emit a warn observation so silent misconfiguration is visible.
-      let backfillSpawned = false;
-      if (scopedProjectId && queuedSpawned === 0) {
-        const project = config.projects[scopedProjectId];
-        const backfillEnabled = project?.backfillAllPRs !== false;
-        if (project && backfillEnabled) {
-          backfillSpawned = await backfillUncoveredPRs(
+          const cronResult = await runLifecycleProjectCrons(
             { registry, sessionManager, observer },
-            { projectId: scopedProjectId, project, activeSessions, correlationId, worktreeDir: (config as { worktreeDir?: string }).worktreeDir },
+            {
+              projectId: scopedProjectId,
+              project,
+              config,
+              activeSessions,
+              correlationId,
+              nowMs,
+              lastBackfillWarnTimeByProject,
+              backfillWarnIntervalMs: BACKFILL_WARN_INTERVAL_MS,
+            },
           );
-          // If we just spawned a session, skip all_complete — more work exists.
-          if (backfillSpawned) {
-            allCompleteEmitted = false;
-          }
-        } else if (project && project.backfillAllPRs === false) {
-          await maybeWarnBackfillDisabledWithOpenPRs({
-            projectId: scopedProjectId,
-            project,
-            nowMs,
-            correlationId,
-            observer,
-            registry,
-            lastBackfillWarnTimeByProject,
-            BACKFILL_WARN_INTERVAL_MS,
-          });
-        }
-      }
-
-      // bd-bsu: Task queue drainer — spawns sessions for queued beads up to maxConcurrent.
-      // Runs independently of backfillAllPRs; both can co-exist.
-      if (scopedProjectId && queuedSpawned === 0) {
-        const project = config.projects[scopedProjectId];
-        if (project?.taskQueue?.enabled) {
-          const tqSpawned = await drainTaskQueue(
-            { registry, sessionManager, observer },
-            { projectId: scopedProjectId, project, configPath: config.configPath ?? "", activeSessions, correlationId },
-          );
-          if (tqSpawned > 0) {
+          projectCronSpawned = cronResult.spawned;
+          if (projectCronSpawned) {
             allCompleteEmitted = false;
           }
         }
@@ -2641,9 +2603,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // sessions have ever existed. Since list() filters out terminal sessions,
       // sessions.length === 0 after all work is done — everHadSessions guards
       // against the empty-at-startup case.
-      // Skip when backfillSpawned is true: activeSessions is stale (computed
+      // Skip when a project cron spawned work: activeSessions is stale (computed
       // before the spawn) and would incorrectly trigger all_complete.
-      if (!backfillSpawned && everHadSessions && activeSessions.length === 0 && !allCompleteEmitted) {
+      if (!projectCronSpawned && everHadSessions && activeSessions.length === 0 && !allCompleteEmitted) {
         allCompleteEmitted = true;
 
         // Execute all-complete reaction if configured
@@ -2798,50 +2760,4 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       maybeWarnBackfillDisabledWithOpenPRs: typeof maybeWarnBackfillDisabledWithOpenPRs;
     };
   };
-}
-
-/**
- * maybeWarnBackfillDisabledWithOpenPRs — throttled warning when backfill is explicitly disabled.
- * Surface open-PR leakage risk for operator visibility. Throttled to reduce SCM API load.
- * (bd-bsu: requested by CodeRabbit review on #406)
- */
-async function maybeWarnBackfillDisabledWithOpenPRs(args: {
-  projectId: string;
-  project: _ProjectConfig;
-  nowMs: number;
-  correlationId: string;
-  observer: ProjectObserver;
-  registry: PluginRegistry;
-  lastBackfillWarnTimeByProject: Map<string, number>;
-  BACKFILL_WARN_INTERVAL_MS: number;
-}): Promise<void> {
-  const lastWarn = args.lastBackfillWarnTimeByProject.get(args.projectId) ?? 0;
-  if (args.nowMs - lastWarn < args.BACKFILL_WARN_INTERVAL_MS) {
-    return;
-  }
-
-  const scmPlugin = args.project.scm ? args.registry.get<SCM>("scm", args.project.scm.plugin) : null;
-  const listOpenPRs = scmPlugin?.listOpenPRs?.bind(scmPlugin);
-  if (!listOpenPRs) return;
-
-  try {
-    const openPRs = await listOpenPRs(args.project);
-    const nonDraftOpen = openPRs.filter((pr) => !pr.isDraft).length;
-    if (nonDraftOpen > 0) {
-      args.observer.recordOperation({
-        metric: "lifecycle_poll",
-        operation: "lifecycle.backfill.disabled_with_open_prs",
-        outcome: "failure",
-        correlationId: args.correlationId,
-        projectId: args.projectId,
-        data: { nonDraftOpenPRs: nonDraftOpen },
-        level: "warn",
-      });
-    }
-  } catch {
-    /* fail-open: skip warning on list error */
-  } finally {
-    // Ensure throttle timestamp is set even on failure to avoid hammering the API.
-    args.lastBackfillWarnTimeByProject.set(args.projectId, Date.now());
-  }
 }
