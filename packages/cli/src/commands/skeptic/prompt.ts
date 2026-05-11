@@ -163,7 +163,7 @@ export function buildSkepticPrompt(
     "A false PASS is YOUR failure. A thorough FAIL report is success.",
     "",
     "RULES:",
-    "1. Verify each mechanical gate independently, then perform Gate 7 technical review and Gate 8 alignment review — do not trust the status summary alone.",
+    "1. Verify each mechanical gate independently, then perform Gate 7 technical review and Gate 8 alignment review — do not trust the status summary alone. IMPORTANT: The 'Skeptic Gate' GHA check is a self-referential poller that waits for THIS verdict — ignore its pass/fail state when evaluating Gate 1 (CI). A failing Skeptic Gate only means this verdict hasn't been posted yet, not that CI is broken.",
     "2. CR APPROVED means review state=APPROVED with body_len>0, OR body_len=0 with CR posting 'all good'/'✅'/'No actionable comments' AFTER the APPROVED. IMPORTANT: An APPROVED review with an empty body (body_len=0) is still a valid APPROVED — the empty body does NOT invalidate the approval state.",
     "3. CR COMMENTED is NOT approval. CR CHANGES_REQUESTED is NOT approval.",
     "4. A dismissed CR review without a subsequent real APPROVED review is a blocker.",
