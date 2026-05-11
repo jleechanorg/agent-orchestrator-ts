@@ -45,8 +45,9 @@ const { sourceEnvFile, applyEnvSource } = await import("../env-source.js");
 /** Mirror the blocklist from env-source.ts for test parsing. */
 const BLOCKED_VARS: ReadonlySet<string> = new Set([
   "PATH", "HOME", "PS1", "PWD", "OLDPWD", "SHELL", "USER",
+  "NODE_OPTIONS",
 ]);
-const BLOCKED_PREFIXES = ["LD_", "DYLD_", "NODE_OPTIONS"] as const;
+const BLOCKED_PREFIXES = ["LD_", "DYLD_"] as const;
 function isBlocked(key: string): boolean {
   if (BLOCKED_VARS.has(key)) return true;
   return BLOCKED_PREFIXES.some((p) => key.startsWith(p));
