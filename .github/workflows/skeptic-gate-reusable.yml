@@ -412,20 +412,20 @@ jobs:
               exit 0
             fi
 
-            VERDICT_RAW=$(
-              SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
-              TRIGGER_SHA="$TRIGGER_SHA" \
-              TRIGGER_UPDATED="$TRIGGER_UPDATED" \
-              REQUEST_ID="$REQUEST_ID" \
-              gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                --paginate 2>/dev/null
-            )
-            GH_EXIT=$?
-            if [ "$GH_EXIT" -ne 0 ]; then
+            VERDICT_TMP=$(mktemp)
+            SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
+            TRIGGER_SHA="$TRIGGER_SHA" \
+            TRIGGER_UPDATED="$TRIGGER_UPDATED" \
+            REQUEST_ID="$REQUEST_ID" \
+            gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
+              --paginate > "$VERDICT_TMP" 2>/dev/null || true
+            VERDICT_RAW=$(cat "$VERDICT_TMP")
+            rm -f "$VERDICT_TMP"
+            if [ -z "$VERDICT_RAW" ]; then
               VERDICT_JSON=""
               COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
               API_FAILURES=$((API_FAILURES + 1))
-              echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $((i)))"
+              echo "API warning: verdict lookup returned empty (attempt $((i)))"
               if [ "$API_FAILURES" -ge 3 ]; then
                 echo "ERROR: Too many consecutive API failures — exiting as ERROR"
                 echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
