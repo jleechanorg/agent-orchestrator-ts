@@ -2076,6 +2076,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           await notifyHuman(event, priority);
         }
 
+        // Always emit the worker.merge_conflict event even when the merge-conflicts
+        // reaction handles the notification — the reaction "handles" by sending to the
+        // agent, but worker events should still be observable to other notifiers
+        // (e.g. webhook, desktop) so they can react to merge conflict state independently.
         if (newStatus === "merge_conflicts") {
           const conflictEvent = createEvent("worker.merge_conflict", {
             sessionId: session.id,
