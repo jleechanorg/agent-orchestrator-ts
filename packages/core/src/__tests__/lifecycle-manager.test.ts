@@ -168,7 +168,7 @@ beforeEach(() => {
     notificationRouting: {
       urgent: ["desktop"],
       action: ["desktop"],
-      warning: [],
+      warning: ["desktop"],
       info: [],
     },
     reactions: {},

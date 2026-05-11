@@ -183,7 +183,7 @@ function inferPriority(type: EventType): EventPriority {
   ) {
     return "action";
   }
-  if (type.includes("fail") || type.includes("changes_requested") || type.includes("conflicts")) {
+  if (type.includes("fail") || type.includes("changes_requested") || type.includes("conflict")) {
     return "warning";
   }
   return "info";
@@ -2086,6 +2086,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             projectId: session.projectId,
             message: `Merge conflict detected for session ${session.id}`,
             data: { oldStatus, newStatus },
+            priority: "warning",
           });
           await notifyHuman(conflictEvent, "warning");
         }
