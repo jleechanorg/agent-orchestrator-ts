@@ -133,17 +133,12 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
     },
   };
 
-  /**
-   * Attempt one execFileSync call. Returns the raw Buffer result, or throws.
-   * `extraArgs` lets us retry without the `-c check_for_update_on_startup=false` flag
-   * on older Codex releases that reject it.
-   */
   function attempt(): string {
     return execFileSync(
       binary,
       ["exec", "--model", DEFAULT_CODEX_MODEL, "-c", "check_for_update_on_startup=false", "-"],
       execOptions,
-    ) as unknown as string;
+    ) as string;
   }
 
   let result: string;
@@ -165,7 +160,7 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
         binary,
         ["exec", "--model", DEFAULT_CODEX_MODEL, "-"],
         execOptions,
-      ) as unknown as string;
+      ) as string;
     } catch (retryErr: unknown) {
       const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
       const retryErrno = retryErr as NodeJS.ErrnoException;

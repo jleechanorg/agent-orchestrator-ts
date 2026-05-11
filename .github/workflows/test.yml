@@ -174,8 +174,8 @@ jobs:
                   ))
 
                 | last // empty' "$_VERDICT_TMP" 2>/dev/null)
-            rm -f "$_VERDICT_TMP"
             JQ_EXIT=$?
+            rm -f "$_VERDICT_TMP"
             if [ "$JQ_EXIT" -ne 0 ]; then
               COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
               echo "API warning: verdict parsing failed (exit=$JQ_EXIT, attempt $i)"

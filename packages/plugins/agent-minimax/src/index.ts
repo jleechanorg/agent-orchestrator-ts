@@ -38,7 +38,7 @@ const minimaxOverrides: Partial<Agent> = {
     const baseEnv = createAgentPlugin(minimaxConfig).getEnvironment(launchConfig);
     const apiKey = process.env.MINIMAX_API_KEY;
     if (apiKey) {
-      console.info(
+      console.debug(
         "[ao-plugin-agent-minimax] MINIMAX_API_KEY resolved",
       );
     } else {
