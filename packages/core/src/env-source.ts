@@ -69,7 +69,7 @@ export function sourceEnvFile(
         const value = trimmed.slice(eqIndex + 1);
         if (
           ALLOWED_PREFIXES.some((p) => key.startsWith(p)) &&
-          process.env[key] === diffAgainst[key]
+          value !== diffAgainst[key]
         ) {
           newVars[key] = value;
         }
@@ -102,15 +102,17 @@ export function sourceEnvFile(
       const key = line.slice(0, eqIndex);
       const value = line.slice(eqIndex + 1);
 
-      // Only include vars that match an allowed prefix AND that won't overwrite
-      // an existing process.env value set between module load and this sourcing call.
+      // Only include vars that match an allowed prefix AND whose sourced value
+      // is new or changed relative to the pre-source snapshot. This ensures
+      // we do not re-merge vars that were already set to the same value, and
+      // that later envSource entries can override earlier ones.
       if (
         ALLOWED_PREFIXES.some((p) => key.startsWith(p)) &&
-        process.env[key] === diffAgainst[key]
+        value !== diffAgainst[key]
       ) {
         newVars[key] = value;
       }
-    }
+
 
     return newVars;
   } catch {
