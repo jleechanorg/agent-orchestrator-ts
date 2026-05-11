@@ -19,11 +19,8 @@ const BLOCKED_VARS: ReadonlySet<string> = new Set([
   "PATH", "HOME", "PS1", "PWD", "OLDPWD", "SHELL", "USER",
 ]);
 
-/** Singleton vars that would break the daemon or duplicate launchd-provided values. */
-const BLOCKED_VARS: ReadonlySet<string> = new Set([
-  "PATH", "HOME", "PS1", "PWD", "OLDPWD", "SHELL", "USER",
-  "NODE_OPTIONS", // Can inject --require, --eval, etc.
-]);
+/** Prefixes for vars that pose security risks (library injection, code eval). */
+const BLOCKED_PREFIXES = ["LD_", "DYLD_", "NODE_OPTIONS"] as const;
 
 function isBlocked(key: string): boolean {
   if (BLOCKED_VARS.has(key)) return true;
