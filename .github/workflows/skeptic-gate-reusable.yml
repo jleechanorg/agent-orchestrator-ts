@@ -453,7 +453,7 @@ jobs:
                 --arg request_id "$REQUEST_ID" \
                 --arg pr_author "$PR_AUTHOR" \
                 'add
-                | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?[ \\t]*(?:[-—:].*)?$"; "im").verdict | ascii_upcase) catch "")})
+                | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)\\b(?:\\*{1,2})?[ \\t]*(?:[-—:][^\\n]*)?" ; "im").verdict | ascii_upcase) catch "")})
                 | map(select(
                     (.body as $body
                     | (
