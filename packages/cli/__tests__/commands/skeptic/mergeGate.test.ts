@@ -608,6 +608,44 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     expect(result.skepticCommentId).toBe(77);
   });
 
+  it("excludes self-referential Skeptic Gate check from checkRuns while preserving other failures", async () => {
+    const headSha = "deadbeef00000000000000000000000000000000";
+    setup({
+      ghJson: [
+        { head: { sha: headSha }, mergeable: true },
+        { state: "success" },
+        [],
+      ],
+      paginate: [
+        // Check-runs page: includes Skeptic Gate (FAILURE), Evidence Gate (FAILURE), Lint (SUCCESS)
+        [
+          {
+            check_runs: [
+              { name: "Skeptic Gate", status: "completed", conclusion: "FAILURE" },
+              { name: "Evidence Gate", status: "completed", conclusion: "FAILURE" },
+              { name: "Lint", status: "completed", conclusion: "SUCCESS" },
+            ],
+          },
+        ],
+        // Issue comments (no verdict)
+        [],
+      ],
+    });
+
+    const result = await fetchMergeGateState(
+      "test", "test-repo", 1, "jleechan-agent[bot]"
+    );
+
+    // Skeptic Gate is excluded from checkRuns (self-referential circular dependency)
+    const names = result.checkRuns.map((c: { name: string }) => c.name);
+    expect(names).not.toContain("Skeptic Gate");
+    // Other failures are preserved
+    expect(names).toContain("Evidence Gate");
+    expect(names).toContain("Lint");
+    // CI still passes because commit status was "success" (checkRuns are separate)
+    expect(result.ciPassing).toBe(true);
+  });
+
   it("newest matching comment wins regardless of author", async () => {
     const headSha = "abc123";
     // PR data intentionally omits user.login, so prAuthor is unknown.
