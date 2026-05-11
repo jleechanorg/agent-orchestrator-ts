@@ -35,7 +35,7 @@ Extend the existing `poller-github-pr` plugin to cover the full fixpr scope, mak
 |---|---|---|---|
 | `changes-requested` | CodeRabbit `CHANGES_REQUESTED` | 2 | Existing |
 | `merge-conflict` | `mergeable=CONFLICTING` or `mergeStateStatus=DIRTY` | 1 (highest) | **New** |
-| `ci-failing` | Any check conclusion = `failure` | 1 | **New** |
+| `ci-failing` | Any check conclusion in {FAILURE, TIMED_OUT, CANCELLED, ACTION_REQUIRED} | 1 | **New** |
 
 This replaces the entire mctrl + pr-monitor + launchd stack with a single AO poller config.
 
