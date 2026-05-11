@@ -371,7 +371,7 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
     try {
       const result = execFileSync(
         candidate,
-        ["-p", prompt],
+        ["--yolo", "-p", prompt],
         {
           input: "",
           encoding: "utf-8",
