@@ -773,13 +773,18 @@ function isMinimaxModel(model?: string): boolean {
 }
 
 const DEFAULT_WAFER_ANTHROPIC_BASE_URL = "https://pass.wafer.ai";
+const DEFAULT_ZAI_ANTHROPIC_BASE_URL = "https://api.z.ai/api/anthropic";
 
 function isWaferModel(model?: string): boolean {
   return model?.startsWith("wafer.ai/") ?? false;
 }
 
-function stripWaferPrefix(model: string): string {
-  return model.replace(/^wafer\.ai\//, "");
+function isZaiModel(model?: string): boolean {
+  return model?.startsWith("z.ai/") ?? false;
+}
+
+function stripProviderPrefix(model: string): string {
+  return model.replace(/^(?:wafer\.ai|z\.ai)\//, "");
 }
 
 // =============================================================================
@@ -802,12 +807,13 @@ function createClaudeCodeAgent(): Agent {
       // the user's ~/.bashrc sets ANTHROPIC_BASE_URL for MiniMax workflows.
       const minimax = isMinimaxModel(config.model);
       const wafer = isWaferModel(config.model);
-      // For wafer models, ANTHROPIC_BASE_URL is set in getEnvironment() to route
-      // through wafer's Anthropic-compatible proxy — no need to unset it.
-      // For MiniMax, the same applies (ANTHROPIC_BASE_URL set in getEnvironment).
+      const zai = isZaiModel(config.model);
+      const hasCustomProvider = minimax || wafer || zai;
+      // For provider-prefixed models (MiniMax, wafer, z.ai), ANTHROPIC_BASE_URL is set
+      // in getEnvironment() to route through the provider's Anthropic-compatible proxy.
       // For all other models, `env -u ANTHROPIC_BASE_URL` ensures Anthropic OAuth
       // is used even when the user's ~/.bashrc sets ANTHROPIC_BASE_URL.
-      const parts: string[] = (minimax || wafer)
+      const parts: string[] = hasCustomProvider
         ? ["claude"]
         : ["env", "-u", "ANTHROPIC_BASE_URL", "claude"];
 
@@ -820,9 +826,9 @@ function createClaudeCodeAgent(): Agent {
       parts.push("--strict-mcp-config", mcpConfigPath);
 
       if (config.model) {
-        // Strip wafer.ai/ prefix — the routing is handled by ANTHROPIC_BASE_URL
-        // in getEnvironment(), not by the model name passed to claude CLI.
-        const modelArg = wafer ? stripWaferPrefix(config.model) : config.model;
+        // Strip provider prefix (wafer.ai/, z.ai/) — routing is handled by
+        // ANTHROPIC_BASE_URL in getEnvironment(), not by the model name.
+        const modelArg = hasCustomProvider ? stripProviderPrefix(config.model) : config.model;
         parts.push("--model", shellEscape(modelArg));
       }
 
@@ -851,13 +857,14 @@ function createClaudeCodeAgent(): Agent {
       // Route to the appropriate API endpoint based on model.
       // MiniMax models use the Anthropic-compatible MiniMax endpoint;
       // wafer models use wafer's Anthropic-compatible proxy (pass.wafer.ai);
+      // z.ai models use Z.AI's Anthropic-compatible proxy (api.z.ai/api/anthropic);
       // all other models clear ANTHROPIC_BASE_URL so claude uses Anthropic OAuth.
       if (isMinimaxModel(config.model)) {
         env["ANTHROPIC_BASE_URL"] = DEFAULT_MINIMAX_ANTHROPIC_BASE_URL;
         const minimaxKey = process.env["MINIMAX_API_KEY"];
         if (minimaxKey) {
           env["ANTHROPIC_AUTH_TOKEN"] = minimaxKey;
-          env["ANTHROPIC_API_KEY"] = minimaxKey; // auth parity with agent-minimax
+          env["ANTHROPIC_API_KEY"] = minimaxKey;
         } else {
           console.warn(
             "[ao-plugin-agent-claude-code] MINIMAX_API_KEY is not set — Claude Code may fail to authenticate with the MiniMax API.",
@@ -868,10 +875,21 @@ function createClaudeCodeAgent(): Agent {
         const waferKey = process.env["WAFER_API_KEY"];
         if (waferKey) {
           env["ANTHROPIC_AUTH_TOKEN"] = waferKey;
-          env["ANTHROPIC_API_KEY"] = waferKey; // auth parity with claudew() pattern
+          env["ANTHROPIC_API_KEY"] = waferKey;
         } else {
           console.warn(
             "[ao-plugin-agent-claude-code] WAFER_API_KEY is not set — Claude Code may fail to authenticate with the wafer API.",
+          );
+        }
+      } else if (isZaiModel(config.model)) {
+        env["ANTHROPIC_BASE_URL"] = DEFAULT_ZAI_ANTHROPIC_BASE_URL;
+        const glmKey = process.env["GLM_API_KEY"];
+        if (glmKey) {
+          env["ANTHROPIC_AUTH_TOKEN"] = glmKey;
+          env["ANTHROPIC_API_KEY"] = glmKey;
+        } else {
+          console.warn(
+            "[ao-plugin-agent-claude-code] GLM_API_KEY is not set — Claude Code may fail to authenticate with the Z.AI API.",
           );
         }
       } else {
@@ -1025,10 +1043,11 @@ function createClaudeCodeAgent(): Agent {
       parts.push("--strict-mcp-config", mcpConfigPath);
 
       if (project.agentConfig?.model) {
-        // Strip wafer.ai/ prefix for restore, same as getLaunchCommand
-        const modelArg = isWaferModel(project.agentConfig.model as string)
-          ? stripWaferPrefix(project.agentConfig.model as string)
-          : (project.agentConfig.model as string);
+        // Strip provider prefix (wafer.ai/, z.ai/) for restore, same as getLaunchCommand
+        const model = project.agentConfig.model as string;
+        const modelArg = (isWaferModel(model) || isZaiModel(model))
+          ? stripProviderPrefix(model)
+          : model;
         parts.push("--model", shellEscape(modelArg));
       }
 
