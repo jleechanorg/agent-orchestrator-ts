@@ -42,17 +42,15 @@ vi.mock("node:fs", () => ({
 
 const { sourceEnvFile, applyEnvSource } = await import("../env-source.js");
 
-/**
- * Replicate the ALLOWED_PREFIXES constant from env-source.ts so tests
- * can verify the correct set of prefixes is used.
- */
-const ALLOWED_PREFIXES = [
-  "MINIMAX_",
-  "ANTHROPIC_",
-  "OPENAI_",
-  "MCP_AGENT_MAIL_",
-  "AO_",
-] as const;
+/** Mirror the blocklist from env-source.ts for test parsing. */
+const BLOCKED_VARS: ReadonlySet<string> = new Set([
+  "PATH", "HOME", "PS1", "PWD", "OLDPWD", "SHELL", "USER",
+]);
+const BLOCKED_PREFIXES = ["LD_", "DYLD_", "NODE_OPTIONS"] as const;
+function isBlocked(key: string): boolean {
+  if (BLOCKED_VARS.has(key)) return true;
+  return BLOCKED_PREFIXES.some((p) => key.startsWith(p));
+}
 
 /**
  * Mirror the parse logic from sourceEnvFile so we can test the parsing
@@ -65,7 +63,7 @@ function parseEnvOutput(output: string): Record<string, string> {
     if (eqIndex === -1) continue;
     const key = line.slice(0, eqIndex);
     const value = line.slice(eqIndex + 1);
-    if (ALLOWED_PREFIXES.some((p) => key.startsWith(p))) {
+    if (!isBlocked(key)) {
       result[key] = value;
     }
   }
@@ -129,6 +127,26 @@ describe("sourceEnvFile — real exports", () => {
     expect(sourceEnvFile("~/.bashrc")).toHaveProperty("AO_CLI_PATH", "/usr/local/bin/ao");
   });
 
+  it("returns GLM_ and WAFER_ vars (not blocked)", () => {
+    mockExecFileSync.mockReturnValue(
+      Buffer.from("GLM_API_KEY=glm-test\nWAFER_API_KEY=wfr-test"),
+    );
+    const result = sourceEnvFile("~/.bashrc");
+    expect(result).toHaveProperty("GLM_API_KEY", "glm-test");
+    expect(result).toHaveProperty("WAFER_API_KEY", "wfr-test");
+  });
+
+  it("blocks LD_PRELOAD, DYLD_INSERT_LIBRARIES, and NODE_OPTIONS", () => {
+    mockExecFileSync.mockReturnValue(
+      Buffer.from("LD_PRELOAD=/malicious.so\nDYLD_INSERT_LIBRARIES=/bad.dylib\nNODE_OPTIONS=--require /evil.js\nMINIMAX_API_KEY=sk-cp-test"),
+    );
+    const result = sourceEnvFile("~/.bashrc");
+    expect(result).not.toHaveProperty("LD_PRELOAD");
+    expect(result).not.toHaveProperty("DYLD_INSERT_LIBRARIES");
+    expect(result).not.toHaveProperty("NODE_OPTIONS");
+    expect(result).toHaveProperty("MINIMAX_API_KEY", "sk-cp-test");
+  });
+
   it("excludes PATH, HOME, and other system vars", () => {
     mockExecFileSync.mockReturnValue(
       Buffer.from("PATH=/usr/bin:/bin\nHOME=/Users/test\nMINIMAX_API_KEY=sk-cp-test"),
@@ -185,7 +203,7 @@ describe("sourceEnvFile — real exports", () => {
   });
 });
 
-describe("parseEnvOutput — allowed prefixes (contract)", () => {
+describe("parseEnvOutput — blocklist (contract)", () => {
   it("includes MINIMAX_ vars", () => {
     const output = "MINIMAX_API_KEY=sk-cp-test\nHOME=/Users/test";
     expect(parseEnvOutput(output)).toHaveProperty("MINIMAX_API_KEY", "sk-cp-test");
@@ -227,6 +245,28 @@ describe("parseEnvOutput — allowed prefixes (contract)", () => {
     expect(result).toHaveProperty("MINIMAX_API_KEY");
   });
 
+  it("includes GLM_ and WAFER_ vars (no longer blocked by allowlist)", () => {
+    const output = "GLM_API_KEY=glm-test\nWAFER_API_KEY=wfr-test";
+    expect(parseEnvOutput(output)).toHaveProperty("GLM_API_KEY", "glm-test");
+    expect(parseEnvOutput(output)).toHaveProperty("WAFER_API_KEY", "wfr-test");
+  });
+
+  it("blocks LD_, DYLD_, and NODE_OPTIONS prefixes", () => {
+    const output = [
+      "LD_PRELOAD=/malicious.so",
+      "LD_LIBRARY_PATH=/evil/lib",
+      "DYLD_INSERT_LIBRARIES=/bad.dylib",
+      "NODE_OPTIONS=--require /evil.js",
+      "MINIMAX_API_KEY=sk-cp-test",
+    ].join("\n");
+    const result = parseEnvOutput(output);
+    expect(result).not.toHaveProperty("LD_PRELOAD");
+    expect(result).not.toHaveProperty("LD_LIBRARY_PATH");
+    expect(result).not.toHaveProperty("DYLD_INSERT_LIBRARIES");
+    expect(result).not.toHaveProperty("NODE_OPTIONS");
+    expect(result).toHaveProperty("MINIMAX_API_KEY", "sk-cp-test");
+  });
+
   it("handles empty output gracefully", () => {
     expect(parseEnvOutput("")).toEqual({});
     expect(parseEnvOutput("PATH=/bin\nHOME=/test")).toEqual({});
@@ -240,7 +280,9 @@ describe("parseEnvOutput — allowed prefixes (contract)", () => {
       "OPENAI_API_KEY=sk-openai-1",
       "MCP_AGENT_MAIL_URL=https://mail.example.com",
       "AO_CLI_PATH=/usr/local/bin/ao",
-      "PAGER=less",
+      "GLM_API_KEY=glm-test-key",
+      "WAFER_API_KEY=wfr-test-key",
+      "NODE_OPTIONS=--require /evil.js",
     ].join("\n");
 
     const result = parseEnvOutput(output);
@@ -251,8 +293,12 @@ describe("parseEnvOutput — allowed prefixes (contract)", () => {
       OPENAI_API_KEY: "sk-openai-1",
       MCP_AGENT_MAIL_URL: "https://mail.example.com",
       AO_CLI_PATH: "/usr/local/bin/ao",
+      GLM_API_KEY: "glm-test-key",
+      WAFER_API_KEY: "wfr-test-key",
     });
-    expect(Object.keys(result)).toHaveLength(5);
+    expect(Object.keys(result)).toHaveLength(7);
+    expect(result).not.toHaveProperty("HOME");
+    expect(result).not.toHaveProperty("NODE_OPTIONS");
   });
 });
 
@@ -266,8 +312,8 @@ describe("applyEnvSource — real exports", () => {
     expect(process.env["ANTHROPIC_API_KEY"]).toBe("sk-ant-merged");
   });
 
-  it("does not set vars when sourceEnvFile returns empty", () => {
-    mockExecFileSync.mockReturnValue(Buffer.from("PATH=/usr/bin\nHOME=/test"));
+  it("does not set vars when sourceEnvFile returns only blocked vars", () => {
+    mockExecFileSync.mockReturnValue(Buffer.from("PATH=/usr/bin\nHOME=/test\nNODE_OPTIONS=--require /evil.js"));
     applyEnvSource(["~/.bashrc"]);
     const key = "MINIMAX_API_KEY";
     expect(key in process.env ? process.env[key] : undefined).toBeUndefined();
@@ -336,9 +382,9 @@ describe("sourceEnvFile — /etc/environment direct parsing", () => {
     expect(result).toEqual({});
   });
 
-  it("filters by allowed prefixes for /etc/environment", () => {
+  it("filters out blocked vars for /etc/environment", () => {
     mockReadFileSync.mockReturnValue(
-      "MINIMAX_API_KEY=sk-minimax\nANTHROPIC_API_KEY=sk-anthropic\nOPENAI_API_KEY=sk-openai\nMCP_AGENT_MAIL_URL=https://mail.example.com\nAO_CLI_PATH=/usr/local/bin/ao\nHOME=/test\nUSER=testuser\n",
+      "MINIMAX_API_KEY=sk-minimax\nANTHROPIC_API_KEY=sk-anthropic\nOPENAI_API_KEY=sk-openai\nMCP_AGENT_MAIL_URL=https://mail.example.com\nAO_CLI_PATH=/usr/local/bin/ao\nGLM_API_KEY=glm-test\nWAFER_API_KEY=wfr-test\nHOME=/test\nUSER=testuser\nLD_PRELOAD=/malicious.so\nNODE_OPTIONS=--require /evil.js\n",
     );
     const result = sourceEnvFile("/etc/environment");
     expect(result).toEqual({
@@ -347,7 +393,13 @@ describe("sourceEnvFile — /etc/environment direct parsing", () => {
       OPENAI_API_KEY: "sk-openai",
       MCP_AGENT_MAIL_URL: "https://mail.example.com",
       AO_CLI_PATH: "/usr/local/bin/ao",
+      GLM_API_KEY: "glm-test",
+      WAFER_API_KEY: "wfr-test",
     });
+    expect(result).not.toHaveProperty("HOME");
+    expect(result).not.toHaveProperty("USER");
+    expect(result).not.toHaveProperty("LD_PRELOAD");
+    expect(result).not.toHaveProperty("NODE_OPTIONS");
   });
 
   it("returns empty when readFileSync throws for /etc/environment", () => {
