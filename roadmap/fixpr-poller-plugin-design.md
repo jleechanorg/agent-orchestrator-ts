@@ -173,6 +173,10 @@ projects:
           - merge-conflict
           - ci-failing
           - changes-requested
+        approvalRequired:             # require human approval before spawning
+          ci-failing: true            # CI fixes need approval (riskier changes)
+          merge-conflict: false       # merge-conflict auto-approved (low risk)
+          changes-requested: false    # review feedback auto-approved
         excludeDrafts: true           # skip draft PRs (default: true)
         maxPrs: 20                    # max PRs to scan per poll
         cutoffHours: 24              # only scan PRs updated within N hours
@@ -252,7 +256,16 @@ pollers:
       "*": "manual"  # catch-all: require agent judgment
 ```
 
-### 6.2 CI failure fix
+### 6.2 CI failure fix (human-approval required)
+
+When `approvalRequired.ci-failing: true`, the poller does NOT spawn a fix
+session automatically. Instead it:
+
+1. Posts a PR comment describing the failing checks
+2. Mentions the project's notified maintainer (via `notificationRouting`)
+3. Waits for a `/fixpr ci` reply comment on the PR before spawning
+
+Once approved (or if `approvalRequired.ci-failing: false`):
 
 ```bash
 1. gh pr view {N} --json statusCheckRollup
@@ -277,9 +290,9 @@ Already handled by the existing `poller-github-pr` plugin.
 1. **Should this be a separate plugin or extend `poller-github-pr`?**
    - Decision: **extend `poller-github-pr`** with a `modes` config option. The plugin name stays `github-pr`; the `modes` list selects which detection types are active. This avoids duplicating the 80% shared `gh pr list` logic.
 
-2. **Should merge-conflict resolution be automatic or require human approval?**
-   - Old system: fully automatic
-   - Recommendation: **automatic for merge-conflict only**, human approval for CI-failure (riskier changes)
+2. **Should CI-failure remediation be automatic or require human approval?**
+   - Decision: **human approval required for CI-failure**, automatic for merge-conflict
+   - Mechanism: `approvalRequired` config field (see §2.2.E); when `ci-failing: true`, the poller posts a notification comment and waits for a `/fixpr ci` reply before spawning a fix session
 
 3. **Poll interval?**
    - Old system: twice daily (12h)
