@@ -275,15 +275,20 @@ describe("getLaunchCommand", () => {
   });
 
   describe("MiniMax routing", () => {
-    it("omits env -u ANTHROPIC_BASE_URL when using a MiniMax model", () => {
+    it("includes env -u ANTHROPIC_BASE_URL and inline URL when using a MiniMax model", () => {
       const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "MiniMax-M2.7" }));
-      expect(cmd).toBe("claude --strict-mcp-config '/mock/home/.claude/mcp-strict.json' --model 'MiniMax-M2.7'");
-      expect(cmd).not.toContain("env -u ANTHROPIC_BASE_URL");
+      // Always strip ANTHROPIC_BASE_URL to neutralize .bashrc overrides,
+      // then set the provider URL inline for the claude binary.
+      expect(cmd).toContain("env -u ANTHROPIC_BASE_URL");
+      expect(cmd).toContain("ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic");
+      expect(cmd).toContain("--model 'MiniMax-M2.7'");
     });
 
-    it("includes env -u ANTHROPIC_BASE_URL when using a standard model", () => {
+    it("includes env -u ANTHROPIC_BASE_URL without inline URL when using a standard model", () => {
       const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "claude-3-7-sonnet" }));
       expect(cmd).toContain("env -u ANTHROPIC_BASE_URL");
+      // No inline ANTHROPIC_BASE_URL for standard models (uses OAuth)
+      expect(cmd).not.toMatch(/ANTHROPIC_BASE_URL=https/);
     });
   });
 });

@@ -1,4 +1,10 @@
-import { setupMcpMailInWorkspace } from "@jleechanorg/ao-plugin-agent-base";
+import {
+  setupMcpMailInWorkspace,
+  isWaferModel,
+  isZaiModel,
+  stripProviderPrefix,
+  isCustomProviderModel,
+} from "@jleechanorg/ao-plugin-agent-base";
 import {
   DEFAULT_READY_THRESHOLD_MS,
   shellEscape,
@@ -216,7 +222,18 @@ function createOpenCodeAgent(): Agent {
       }
 
       if (config.model) {
-        sharedOptions.push("--model", shellEscape(config.model));
+        // Strip provider prefix (wafer.ai/, z.ai/) — routing is handled by
+        // OPENAI_BASE_URL in getEnvironment(), not by the model name.
+        // Guard: reject provider-only prefixes that would produce an empty model string.
+        const modelArg = isCustomProviderModel(config.model)
+          ? stripProviderPrefix(config.model)
+          : config.model;
+        if (!modelArg) {
+          throw new Error(
+            `[ao-plugin-agent-opencode] Invalid model "${config.model}": provider prefix with no model name`,
+          );
+        }
+        sharedOptions.push("--model", shellEscape(modelArg));
       }
 
       if (!existingSessionId) {
@@ -254,6 +271,31 @@ function createOpenCodeAgent(): Agent {
     getEnvironment(config: AgentLaunchConfig): Record<string, string> {
       const env: Record<string, string> = {};
       env["AO_SESSION_ID"] = config.sessionId;
+
+      // Route provider models to their OpenAI-compatible proxies.
+      // Wafer: the opencodew() bashrc function pattern.
+      // ZAI: the claudeg()-equivalent pattern for opencode.
+      if (isWaferModel(config.model)) {
+        env["OPENAI_BASE_URL"] = "https://pass.wafer.ai/v1";
+        const waferKey = process.env["WAFER_API_KEY"];
+        if (waferKey) {
+          env["OPENAI_API_KEY"] = waferKey;
+        } else {
+          console.warn(
+            "[ao-plugin-agent-opencode] WAFER_API_KEY is not set — opencode may fail to authenticate with wafer.",
+          );
+        }
+      } else if (isZaiModel(config.model)) {
+        env["OPENAI_BASE_URL"] = "https://api.z.ai/v1";
+        const glmKey = process.env["GLM_API_KEY"];
+        if (glmKey) {
+          env["OPENAI_API_KEY"] = glmKey;
+        } else {
+          console.warn(
+            "[ao-plugin-agent-opencode] GLM_API_KEY is not set — opencode may fail to authenticate with ZAI.",
+          );
+        }
+      }
 
       // Pass MCP mail configuration to the agent if available
       if (process.env.MCP_AGENT_MAIL_URL) {
