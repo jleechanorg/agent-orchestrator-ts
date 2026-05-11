@@ -13,10 +13,12 @@ const {
   mockDrainSpawnQueue,
   mockBackfillUncoveredPRs,
   mockDrainTaskQueue,
+  mockRunLocalSkepticCron,
 } = vi.hoisted(() => ({
   mockDrainSpawnQueue: vi.fn(),
   mockBackfillUncoveredPRs: vi.fn(),
   mockDrainTaskQueue: vi.fn(),
+  mockRunLocalSkepticCron: vi.fn(),
 }));
 
 vi.mock("../spawn-queue.js", () => ({
@@ -29,6 +31,10 @@ vi.mock("../backfill-extensions.js", () => ({
 
 vi.mock("../task-queue.js", () => ({
   drainTaskQueue: mockDrainTaskQueue,
+}));
+
+vi.mock("../skeptic-cron-local.js", () => ({
+  runLocalSkepticCron: mockRunLocalSkepticCron,
 }));
 
 import { runLifecycleProjectCrons } from "../lifecycle-project-crons.js";
@@ -137,6 +143,69 @@ describe("runLifecycleProjectCrons", () => {
     expect(mockBackfillUncoveredPRs).not.toHaveBeenCalled();
     expect(mockDrainTaskQueue).toHaveBeenCalledTimes(1);
     expect(result.spawned).toBe(false);
+  });
+
+  it("returns spawned=true when the spawn queue creates work and does not drain later queues", async () => {
+    mockDrainSpawnQueue.mockResolvedValueOnce(1);
+
+    const result = await runLifecycleProjectCrons(
+      { registry, sessionManager, observer },
+      {
+        projectId: "my-app",
+        project,
+        config,
+        activeSessions,
+        correlationId: "corr-spawn",
+        nowMs: Date.now(),
+        lastBackfillWarnTimeByProject: new Map(),
+        backfillWarnIntervalMs: 600_000,
+      },
+    );
+
+    expect(result.spawned).toBe(true);
+    expect(mockDrainSpawnQueue).toHaveBeenCalledTimes(1);
+    expect(mockBackfillUncoveredPRs).not.toHaveBeenCalled();
+    expect(mockDrainTaskQueue).not.toHaveBeenCalled();
+  });
+
+  it("returns spawned=true when the task queue creates work", async () => {
+    mockDrainTaskQueue.mockResolvedValueOnce(1);
+
+    const result = await runLifecycleProjectCrons(
+      { registry, sessionManager, observer },
+      {
+        projectId: "my-app",
+        project,
+        config,
+        activeSessions,
+        correlationId: "corr-task",
+        nowMs: Date.now(),
+        lastBackfillWarnTimeByProject: new Map(),
+        backfillWarnIntervalMs: 600_000,
+      },
+    );
+
+    expect(result.spawned).toBe(true);
+    expect(mockDrainSpawnQueue).toHaveBeenCalledTimes(1);
+    expect(mockDrainTaskQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not run local skeptic verification from the project cron path", async () => {
+    await runLifecycleProjectCrons(
+      { registry, sessionManager, observer },
+      {
+        projectId: "my-app",
+        project,
+        config,
+        activeSessions,
+        correlationId: "corr-no-skeptic",
+        nowMs: Date.now(),
+        lastBackfillWarnTimeByProject: new Map(),
+        backfillWarnIntervalMs: 600_000,
+      },
+    );
+
+    expect(mockRunLocalSkepticCron).not.toHaveBeenCalled();
   });
 
   it("isolates cron failures so one broken drainer does not block the next one", async () => {
