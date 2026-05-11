@@ -130,8 +130,10 @@ jobs:
             _RAW_STDERR=$(mktemp)
             _COMMENTS_TMP=$(mktemp)
             gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
-              --paginate > "$_COMMENTS_TMP" 2>"$_RAW_STDERR" || true
+              --paginate > "$_COMMENTS_TMP" 2>"$_RAW_STDERR"
             GH_EXIT=$?
+            # Prevent set -e from killing the job; GH_EXIT is checked explicitly below
+            true
             RAW_COMMENTS=$(cat "$_COMMENTS_TMP")
             rm -f "$_COMMENTS_TMP"
             if [ -z "$RAW_COMMENTS" ]; then

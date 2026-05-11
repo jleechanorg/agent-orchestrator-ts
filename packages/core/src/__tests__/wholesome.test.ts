@@ -540,6 +540,7 @@ describe("wholesome — structural source-code assertions", () => {
       "ef3e832d96621cfbff5d1613bae4c0e666704d6c", // fix(env-source): parse /etc/environment directly
       "151433a5975dc5846919b9db7d79cb4945f133da", // fix(skeptic): SKEPTIC_BOT_AUTHOR default to jleechan2015
       "456c836a10b217406a0c55cb5759217e69ecf6cd", // fix(skeptic): SKEPTIC_BOT_AUTHOR default is github-actions[bot]
+      "c859cdbb7c27755ff7fae366d7e294b586460410", // fix: restore --model flag to Claude CLI invocations in llm-eval
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
