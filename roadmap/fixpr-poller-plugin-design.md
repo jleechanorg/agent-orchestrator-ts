@@ -79,9 +79,8 @@ This adds two new detection modes to the existing plugin:
    ```typescript
    // pr.mergeable is a MergeableState enum: MERGEABLE | CONFLICTING | UNKNOWN
    const isMergeConflict = pr.mergeable === "CONFLICTING";
-   const isStateDirty =
-     pr.mergeStateStatus === "DIRTY" ||
-     pr.mergeStateStatus === "CONFLICTING";
+   // pr.mergeStateStatus is a MergeStateStatus enum: BEHIND | BLOCKED | CLEAN | DIRTY | DRAFT | HAS_HOOKS | UNKNOWN | UNSTABLE
+   const isStateDirty = pr.mergeStateStatus === "DIRTY";
    ```
 
 2. **CI-failure detection** (ported from `has_failing_checks()`):
