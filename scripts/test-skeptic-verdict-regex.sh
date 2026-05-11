@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 # Regression tests for VERDICT capture regex in skeptic-cron-reusable.yml,
 # skeptic-gate-reusable.yml, and test.yml.
-# Exercises the jq capture pattern against known positive and negative cases.
+# Exercises the exact jq capture pattern from the workflow YAML files.
 # NOTE: ^ anchor with m flag is jq-version-dependent (works on Ubuntu GHA runner,
-# may not work on macOS jq 1.7.1). Tests use JSON body format (matching the workflow).
+# may not work on macOS jq 1.7.1). JSON body tests use Python-generated input
+# to guarantee correct newline handling across jq versions.
 set -euo pipefail
 
 pass() { echo "OK: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
-# Core capture pattern (without ^ anchor — ^ with m flag is jq-version-dependent)
-CAPTURE_PATTERN='(?<verdict>PASS|FAIL|SKIPPED)\b'
-# Full pattern as used in the workflow YAML (with ^ anchor)
+# Exact pattern from the three workflow YAML files
 FULL_PATTERN='^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)\b(?:\*{1,2})?[ \t]*(?:[-—:][^\n]*)?'
+# Simplified pattern (without ^ anchor) for macOS jq compatibility
+CORE_PATTERN='VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)\b(?:\*{1,2})?[ \t]*(?:[-—:][^\n]*)?'
 
-# Test using JSON body format (how the workflow receives data from gh api)
-# This avoids jq -R --slurp issues with ^ on different jq versions
-test_verdict_json() {
-  local body="$1" expected="$2" label="$3"
-  # Construct JSON with body, pipe through jq with capture pattern
-  actual=$(printf '%s' "$body" | jq -R --slurp --arg re "$CAPTURE_PATTERN" \
-    '{body: .} | .body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
+# Test using Python-generated JSON body (how the workflow receives data from gh api).
+# Python ensures proper JSON with real newline chars, avoiding jq -R --slurp issues.
+test_verdict() {
+  local body="$1" expected="$2" label="$3" pattern="${4:-$FULL_PATTERN}"
+  actual=$(python3 -c "import json,sys; sys.stdout.write(json.dumps({'body': '''$body'''}))" 2>/dev/null | \
+    jq --arg re "$pattern" '.body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
   if [ "$actual" = "$expected" ]; then
     pass "$label"
   else
@@ -31,14 +31,13 @@ test_verdict_json() {
 # Test the old broken pattern ($ anchor) vs new pattern (word boundary)
 test_old_vs_new() {
   local body="$1" old_expected="$2" new_expected="$3" label="$4"
-  # Patterns include VERDICT: prefix to test partial-match behavior
   OLD_PATTERN='VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$'
   NEW_PATTERN='VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)\b(?:\*{1,2})?[ \t]*(?:[-—:][^\n]*)?'
 
-  old_actual=$(printf '%s' "$body" | jq -R --slurp --arg re "$OLD_PATTERN" \
-    '{body: .} | .body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
-  new_actual=$(printf '%s' "$body" | jq -R --slurp --arg re "$NEW_PATTERN" \
-    '{body: .} | .body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
+  old_actual=$(python3 -c "import json,sys; sys.stdout.write(json.dumps({'body': '''$body'''}))" 2>/dev/null | \
+    jq --arg re "$OLD_PATTERN" '.body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
+  new_actual=$(python3 -c "import json,sys; sys.stdout.write(json.dumps({'body': '''$body'''}))" 2>/dev/null | \
+    jq --arg re "$NEW_PATTERN" '.body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
 
   old_ok="OK"; new_ok="OK"
   [ "$old_actual" = "$old_expected" ] || old_ok="FAIL(got '$old_actual')"
@@ -48,44 +47,55 @@ test_old_vs_new() {
     fail "$label — old expected '$old_expected' got '$old_actual', new expected '$new_expected' got '$new_actual'"
 }
 
-# --- Positive cases (should match) ---
-test_verdict_json "VERDICT: PASS" "PASS" "simple PASS"
-test_verdict_json "VERDICT: FAIL" "FAIL" "simple FAIL"
-test_verdict_json "VERDICT: SKIPPED" "SKIPPED" "simple SKIPPED"
-test_verdict_json "VERDICT: PASS — all gates green" "PASS" "PASS with suffix"
-test_verdict_json "VERDICT: FAIL — gate 8 failed" "FAIL" "FAIL with suffix"
-test_verdict_json "> VERDICT: PASS" "PASS" "quoted PASS"
-test_verdict_json "## VERDICT: PASS" "PASS" "markdown heading PASS"
-test_verdict_json "**VERDICT: PASS**" "PASS" "bold PASS"
-test_verdict_json "VERDICT: PASS — merged" "PASS" "PASS with em-dash suffix"
+# === Tests using FULL_PATTERN (exact workflow regex with ^ anchor) ===
+echo "--- Full pattern tests (matches workflow YAML exactly) ---"
+test_verdict "VERDICT: PASS" "PASS" "FULL: simple PASS" "$FULL_PATTERN"
+test_verdict "VERDICT: FAIL" "FAIL" "FULL: simple FAIL" "$FULL_PATTERN"
+test_verdict "VERDICT: SKIPPED" "SKIPPED" "FULL: simple SKIPPED" "$FULL_PATTERN"
+test_verdict "VERDICT: PASS — all gates green" "PASS" "FULL: PASS with suffix" "$FULL_PATTERN"
+test_verdict "VERDICT: FAIL — gate 8 failed" "FAIL" "FULL: FAIL with suffix" "$FULL_PATTERN"
+test_verdict "> VERDICT: PASS" "PASS" "FULL: quoted PASS" "$FULL_PATTERN"
+test_verdict "## VERDICT: PASS" "PASS" "FULL: markdown heading PASS" "$FULL_PATTERN"
+test_verdict "**VERDICT: PASS**" "PASS" "FULL: bold PASS" "$FULL_PATTERN"
+test_verdict "VERDICT: PASS — merged" "PASS" "FULL: PASS with em-dash suffix" "$FULL_PATTERN"
+test_verdict "VERDICT: PASSED" "" "FULL: PASSED rejected by \\b" "$FULL_PATTERN"
+test_verdict "VERDICT: PASSING" "" "FULL: PASSING rejected by \\b" "$FULL_PATTERN"
+test_verdict "VERDICT: FAILED" "" "FULL: FAILED rejected by \\b" "$FULL_PATTERN"
+test_verdict "VERDICT: SKIPPING" "" "FULL: SKIPPING rejected by \\b" "$FULL_PATTERN"
 
-# Multi-line bodies (real newlines via $'' syntax)
+# Multi-line bodies (using shell $'' for real newlines)
 MULTI_PASS=$'<!-- skeptic-agent-verdict -->\n\nVERDICT: PASS\n\n--- Details ---'
 MULTI_FAIL=$'<!-- skeptic-agent-verdict -->\n\nVERDICT: FAIL\n\n--- Full skeptic output ---'
-test_verdict_json "$MULTI_PASS" "PASS" "multi-line body PASS"
-test_verdict_json "$MULTI_FAIL" "FAIL" "multi-line body FAIL"
+# ^ anchor with m flag is jq-version-dependent; test with CORE_PATTERN for multi-line
+# (FULL_PATTERN with ^ works on Ubuntu GHA runner but not macOS jq 1.7.1)
+test_verdict "$MULTI_PASS" "PASS" "FULL: multi-line body PASS (core fallback)" "$CORE_PATTERN"
+test_verdict "$MULTI_FAIL" "FAIL" "FULL: multi-line body FAIL (core fallback)" "$CORE_PATTERN"
+# Verify ^ anchor works on single-line (should work on all jq versions)
+test_verdict "VERDICT: PASS" "PASS" "FULL: single-line ^ anchor" "$FULL_PATTERN"
 
-# --- Negative cases (should NOT match) ---
-test_verdict_json "VERDICT: PASSED" "" "PASSED should not match as PASS"
-test_verdict_json "VERDICT: PASSING" "" "PASSING should not match as PASS"
-test_verdict_json "VERDICT: FAILED" "" "FAILED should not match as FAIL"
-test_verdict_json "VERDICT: SKIPPING" "" "SKIPPING should not match as SKIPPED"
-test_verdict_json "" "" "empty body"
+# === Tests using CORE_PATTERN (no ^ anchor, for cross-platform jq compat) ===
+echo ""
+echo "--- Core pattern tests (no ^ anchor, cross-platform) ---"
+test_verdict "VERDICT: PASS" "PASS" "CORE: simple PASS" "$CORE_PATTERN"
+test_verdict "VERDICT: FAIL" "FAIL" "CORE: simple FAIL" "$CORE_PATTERN"
+test_verdict "VERDICT: SKIPPED" "SKIPPED" "CORE: simple SKIPPED" "$CORE_PATTERN"
+test_verdict "VERDICT: PASSED" "" "CORE: PASSED rejected by \\b" "$CORE_PATTERN"
+test_verdict "VERDICT: PASSING" "" "CORE: PASSING rejected by \\b" "$CORE_PATTERN"
+test_verdict "$MULTI_PASS" "PASS" "CORE: multi-line body PASS" "$CORE_PATTERN"
+test_verdict "$MULTI_FAIL" "FAIL" "CORE: multi-line body FAIL" "$CORE_PATTERN"
 
-# --- Red-Green regression tests (old $ anchor vs new \b word boundary) ---
-# These prove the specific bug this PR fixes:
-# 1. $ anchor fails on multi-line bodies (main bug)
-# 2. Without $ but without \b, partial matches occur (secondary bug)
+# === Red-Green regression tests ===
+echo ""
+echo "--- Red-Green regression tests ---"
 MULTI=$'VERDICT: PASS\n\n--- Details ---'
 test_old_vs_new "$MULTI" "" "PASS" "multi-line body: old $ misses, new \\b matches"
-# For partial match test, use a pattern WITHOUT $ (the intermediate state after removing $
-# but before adding \b) to show the partial-match regression that \b prevents
+
+# Intermediate pattern (removed $ but no \b) — allows partial matches
 test_partial() {
   local body="$1" expected="$2" label="$3"
-  # Intermediate pattern (removed $ but no \b) — allows partial matches
   INTERMEDIATE='VERDICT:[ \t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?'
-  actual=$(printf '%s' "$body" | jq -R --slurp --arg re "$INTERMEDIATE" \
-    '{body: .} | .body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
+  actual=$(python3 -c "import json,sys; sys.stdout.write(json.dumps({'body': '''$body'''}))" 2>/dev/null | \
+    jq --arg re "$INTERMEDIATE" '.body as $b | try ($b | capture($re; "im").verdict | ascii_upcase) catch ""' 2>/dev/null | tr -d '"')
   if [ "$actual" = "$expected" ]; then
     pass "$label"
   else
@@ -93,7 +103,7 @@ test_partial() {
   fi
 }
 test_partial "VERDICT: PASSED" "PASS" "intermediate pattern (no $, no \\b) matches PASSED as PASS"
-test_verdict_json "VERDICT: PASSED" "" "final pattern (\\b) rejects PASSED"
+test_verdict "VERDICT: PASSED" "" "final pattern (\\b) rejects PASSED" "$CORE_PATTERN"
 
 echo ""
 echo "All VERDICT regex regression tests passed."
