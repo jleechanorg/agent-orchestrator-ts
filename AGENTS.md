@@ -136,9 +136,31 @@ await validateAndEmitExitProof(session, newStatus, deps);
 - `packages/plugins/agent-base/` — new plugin
 - `packages/plugins/agent-cursor/` — new plugin
 - `packages/plugins/agent-gemini/` — new plugin
+- `packages/plugins/agent-wafer/` — provider adapter plugin (Wafer/GLM-5.1)
+- `packages/plugins/agent-minimax/` — provider adapter plugin (MiniMax)
 - `packages/plugins/poller-github-pr/` — new plugin
 - All `packages/core/src/` files that are net new (evidence-bundle, failure-budget, merge-gate, mcp-mail, etc.)
 
+
+## Provider Agent Plugins (wafer, minimax)
+
+AO supports third-party LLM providers via thin adapter plugins that reuse the `claude` CLI but redirect API calls to an Anthropic-compatible endpoint. These are first-class `--agent` values — use them instead of inline model prefixes.
+
+| Agent flag | Provider | Base URL | API key env var | Default model |
+|------------|----------|----------|-----------------|---------------|
+| `--agent wafer` | Wafer | `https://pass.wafer.ai` | `WAFER_API_KEY` | `GLM-5.1` |
+| `--agent minimax` | MiniMax | `https://api.minimax.io/anthropic` | `MINIMAX_API_KEY` | (server-selected) |
+
+```bash
+ao spawn --agent wafer "implement fibonacci"
+ao spawn --agent minimax "implement fibonacci"
+```
+
+**How it works:** Both plugins set `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` in the worker environment so the `claude` binary sends requests to the provider's endpoint instead of Anthropic.
+
+**Plugin source:** `packages/plugins/agent-wafer/`, `packages/plugins/agent-minimax/`
+
+**Inline prefix alternative:** The `claude-code` plugin also supports `wafer.ai/` model prefix (e.g. `model: wafer.ai/GLM-5.1` in config). The dedicated `--agent wafer` plugin is preferred for clarity.
 
 ## Zero-Touch Policy Wiring (required)
 
