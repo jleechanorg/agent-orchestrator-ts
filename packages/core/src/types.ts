@@ -1296,6 +1296,15 @@ export interface OrchestratorConfig {
    * projects[].worktreeDir. The lifecycle-worker's orphan sweep uses this.
    */
   worktreeDir?: string;
+
+  /**
+   * Shell init files to source before spawning sessions. Each entry is sourced
+   * in order, allowing the daemon to inherit env vars (API keys, PATH extensions,
+   * etc.) from the user's shell profile. Only vars matching known API-key
+   * prefixes are merged into process.env to avoid PATH/PS1 pollution.
+   * Default: ["~/.bashrc"].
+   */
+  envSource?: string[];
 }
 
 /** Centralized auto-merge configuration (bd-n047) */
@@ -1333,6 +1342,8 @@ export interface DefaultPlugins {
    * (default: 3 — only kills after 3 consecutive SCM failures)
    */
   scmFailureThreshold?: number;
+  /** bd-g884: Shell init files to source for API keys; falls back to global envSource. */
+  envSource?: string[];
 }
 
 export interface RoleAgentConfig {

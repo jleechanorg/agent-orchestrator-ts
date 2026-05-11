@@ -37,9 +37,13 @@ const minimaxOverrides: Partial<Agent> = {
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
     const baseEnv = createAgentPlugin(minimaxConfig).getEnvironment(launchConfig);
     const apiKey = process.env.MINIMAX_API_KEY;
-    if (!apiKey) {
-      console.warn(
-        "[ao-plugin-agent-minimax] MINIMAX_API_KEY is not set — Claude Code may fail to authenticate with the MiniMax API.",
+    if (apiKey) {
+      console.debug(
+        "[ao-plugin-agent-minimax] MINIMAX_API_KEY resolved",
+      );
+    } else {
+      console.error(
+        "[ao-plugin-agent-minimax] MINIMAX_API_KEY not found. Set MINIMAX_API_KEY in your environment or in a file listed under envSource in agent-orchestrator.yaml.",
       );
     }
     const baseUrl =
