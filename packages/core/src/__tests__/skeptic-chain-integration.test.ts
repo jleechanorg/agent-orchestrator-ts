@@ -697,6 +697,7 @@ describe("skeptic chain integration", () => {
       expect(workflowSource).not.toContain('test("^[[:space:]>#*]*VERDICT:[[:space:]]*PASS');
       // The old body-text search pattern should not be present (it blocked FAIL/SKIPPED)
       expect(workflowSource).not.toContain('test("(^|\\\\n)[[:space:]>#*]*VERDICT:[[:space:]]*PASS');
+      expect(workflowSource).toContain('capture("(?:^|\\\\n)[ \\\\t]*');
     });
 
     it("returns null when no matching verdict exists", () => {
