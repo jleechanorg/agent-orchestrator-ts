@@ -128,9 +128,24 @@ jobs:
             fi
 
             _RAW_STDERR=$(mktemp)
-            RAW_COMMENTS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
-              --paginate 2>"$_RAW_STDERR")
+            _COMMENTS_TMP=$(mktemp)
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
+              --paginate > "$_COMMENTS_TMP" 2>"$_RAW_STDERR" || true
             GH_EXIT=$?
+            RAW_COMMENTS=$(cat "$_COMMENTS_TMP")
+            rm -f "$_COMMENTS_TMP"
+            if [ -z "$RAW_COMMENTS" ]; then
+              COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
+              echo "API warning: verdict lookup returned empty (attempt $i): $(cat "$_RAW_STDERR" | head -1)"
+              rm -f "$_RAW_STDERR"
+              if [ "$COMMENTS_API_FAILURES" -ge 3 ]; then
+                echo "ERROR: Too many consecutive verdict comment API failures" >&2
+                exit 1
+              fi
+              echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
+              sleep "$INTERVAL"
+              continue
+            fi
             if [ "$GH_EXIT" -ne 0 ]; then
               COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
               echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $i): $(cat "$_RAW_STDERR" | head -1)"
