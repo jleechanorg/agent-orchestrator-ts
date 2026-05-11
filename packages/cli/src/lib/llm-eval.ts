@@ -22,8 +22,6 @@ import { buildVerdictLineRe } from "../commands/skeptic/verdict-utils.js";
 
 const LLM_EVAL_TIMEOUT_MS = 300_000;
 const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.5";
-const DEFAULT_CLAUDE_MODEL =
-  process.env["AO_LLM_EVAL_CLAUDE_MODEL"] ?? "claude-sonnet-4-6";
 const DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/anthropic";
 
 /** Env vars to propagate minimax credentials to codex/claude exec calls.
@@ -114,46 +112,73 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
 
   const binary = await resolveCodexBinary();
 
-  try {
-    const result = execFileSync(
+  const execOptions: {
+    input: string;
+    encoding: "utf-8";
+    timeout: number;
+    maxBuffer: number;
+    stdio: ["pipe", "pipe", "pipe"];
+    env: Record<string, string | undefined>;
+  } = {
+    input: prompt,
+    encoding: "utf-8",
+    timeout: LLM_EVAL_TIMEOUT_MS,
+    maxBuffer: 1 << 20, // 1 MB — prevent stderr maxBuffer overflow
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      ...minimaxEnv(),
+    },
+  };
+
+  function attempt(): string {
+    return execFileSync(
       binary,
-      ["exec", "--model", DEFAULT_CODEX_MODEL, "-"],
-      {
-        input: prompt,
-        encoding: "utf-8",
-        timeout: LLM_EVAL_TIMEOUT_MS,
-        maxBuffer: 1 << 20, // 1 MB — prevent stderr maxBuffer overflow
-        stdio: ["pipe", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          ...minimaxEnv(),
-        },
-      },
-    );
-    const output = result.trim();
-    if (!STRICT_VERDICT_RE.test(output)) {
-      // Tool ran but model failed to produce required output — fail-closed.
-      return {
-        validVerdict: false,
-        output,
-        error: `Codex output missing VERDICT line (got ${output.slice(0, 100)}...)`,
-      };
-    }
-    return { validVerdict: true, output };
-  } catch (err: unknown) {
-    const errnoException = err as NodeJS.ErrnoException;
-    const msg = err instanceof Error ? err.message : String(err);
-    // Unavailable: binary not installed OR auth failure — try next tool
+      ["exec", "--model", DEFAULT_CODEX_MODEL, "-c", "check_for_update_on_startup=false", "-"],
+      execOptions,
+    ) as string;
+  }
+
+  let result: string;
+  try {
+    result = attempt();
+  } catch (primaryErr: unknown) {
+    const errnoException = primaryErr as NodeJS.ErrnoException;
+    const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+    // ENOENT / auth failures → binary unavailable, don't retry
     if (errnoException.code === "ENOENT" || isUnavailable(msg, errnoException.code as string)) {
       return { validVerdict: false, output: "", error: undefined }; // → try next
     }
-    // Truncate to first line only — Codex echoes the full prompt in its session log,
-    // which contains "VERDICT: PASS" as template example text. If we embed the full
-    // error message in the verdict comment, skeptic-gate.yml's grep finds the template
-    // text and incorrectly reports PASS. First line is always "Command failed: <cmd>".
-    const shortMsg = msg.split("\n")[0]?.slice(0, 300) ?? msg.slice(0, 300);
-    return { validVerdict: false, output: "", error: shortMsg };
+    // Otherwise, retry without the `-c config` flag — older Codex releases may reject it
+    console.warn(
+      `[llm-eval] Codex exec with check_for_update_on_startup=false failed: ${msg.split("\n")[0]}. Retrying without the flag.`,
+    );
+    try {
+      result = execFileSync(
+        binary,
+        ["exec", "--model", DEFAULT_CODEX_MODEL, "-"],
+        execOptions,
+      ) as string;
+    } catch (retryErr: unknown) {
+      const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+      const retryErrno = retryErr as NodeJS.ErrnoException;
+      if (retryErrno.code === "ENOENT" || isUnavailable(retryMsg, retryErrno.code as string)) {
+        return { validVerdict: false, output: "", error: undefined };
+      }
+      const shortMsg = retryMsg.split("\n")[0]?.slice(0, 300) ?? retryMsg.slice(0, 300);
+      return { validVerdict: false, output: "", error: shortMsg };
+    }
   }
+
+  const output = result.trim();
+  if (!STRICT_VERDICT_RE.test(output)) {
+    return {
+      validVerdict: false,
+      output,
+      error: `Codex output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+    };
+  }
+  return { validVerdict: true, output };
 }
 
 
@@ -169,6 +194,7 @@ function makeClaudeExecOptions(
   input: string;
   encoding: "utf-8";
   timeout: number;
+  maxBuffer: number;
   stdio: ["pipe", "pipe", "ignore"];
   cwd: string;
   env: Record<string, string | undefined>;
@@ -177,6 +203,7 @@ function makeClaudeExecOptions(
     input: prompt,
     encoding: "utf-8",
     timeout: LLM_EVAL_TIMEOUT_MS,
+    maxBuffer: 1 << 20,
     stdio: ["pipe", "pipe", "ignore"],
     cwd: "/tmp",
     env: {
@@ -226,7 +253,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
     try {
       const result = execFileSync(
         candidate,
-        ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
+        ["--dangerously-skip-permissions", "--print"],
         makeClaudeExecOptions(prompt),
       );
       const output = result.trim();
@@ -261,7 +288,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
         try {
           const retryResult = execFileSync(
             candidate,
-            ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
+            ["--dangerously-skip-permissions", "--print"],
             makeClaudeExecOptions(prompt),
           );
           const retryOutput = retryResult.trim();
@@ -313,6 +340,71 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   return { validVerdict: false, output: "", error: firstInfraError };
 }
 
+/** Known gemini binary locations, tried in order. */
+const GEMINI_BINARY_CANDIDATES = [
+  process.env["GEMINI_BINARY"] ?? "",
+  "/usr/local/bin/gemini",
+  "/opt/homebrew/bin/gemini",
+  "gemini",
+].filter(Boolean);
+
+/**
+ * Run gemini -p for headless evaluation.
+ * Gemini CLI supports `-p` for non-interactive headless mode.
+ * Fail-closed: missing VERDICT = failure.
+ */
+export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
+  const { execFileSync } = await import("node:child_process");
+
+  for (const candidate of GEMINI_BINARY_CANDIDATES) {
+    if (!candidate) continue;
+
+    if (candidate !== "gemini") {
+      try {
+        accessSync(candidate, fsConstants.X_OK);
+      } catch {
+        continue;
+      }
+    }
+
+    try {
+      const result = execFileSync(
+        candidate,
+        ["--yolo", "-p", ""],
+        {
+          input: prompt,
+          encoding: "utf-8",
+          timeout: LLM_EVAL_TIMEOUT_MS,
+          maxBuffer: 1 << 20,
+          stdio: ["pipe", "pipe", "ignore"],
+        },
+      );
+      const output = result.trim();
+      if (!STRICT_VERDICT_RE.test(output)) {
+        return {
+          validVerdict: false,
+          output,
+          error: `Gemini output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+        };
+      }
+      return { validVerdict: true, output };
+    } catch (err: unknown) {
+      const errno = (err as NodeJS.ErrnoException).code;
+      const msg = err instanceof Error ? err.message : String(err);
+
+      if (errno === "ENOENT") continue;
+
+      if (isUnavailable(msg, errno as string)) {
+        continue;
+      }
+
+      return { validVerdict: false, output: "", error: msg.split("\n")[0]?.slice(0, 300) };
+    }
+  }
+
+  return { validVerdict: false, output: "", error: undefined };
+}
+
 /**
  * Run a skeptic-style LLM evaluation and return the raw output.
  *
@@ -320,10 +412,10 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
  * @param options.model - Prefer this model ("codex" | "claude" | "gemini" | "cursor"); default "codex"
  *
  * Headless fallback chain:
- *   codex → claude
+ *   codex → claude → gemini
  *
- * Gemini and cursor are accepted for CLI compatibility but are excluded here:
- * gemini ignores stdin in headless mode, and cursor-agent blocks on Workspace Trust.
+ * cursor is accepted for CLI compatibility but excluded:
+ * cursor-agent blocks on Workspace Trust.
  */
 export async function llmEval(
   prompt: string,
@@ -334,11 +426,10 @@ export async function llmEval(
   const isMissingVerdict = (err?: string) =>
     err !== undefined && /missing VERDICT/i.test(err);
 
-  const chain: Array<"codex" | "claude"> = ["codex", "claude"];
-  const preferredHeadless = preferred === "claude" ? "claude" : "codex";
+  const chain: Array<"codex" | "claude" | "gemini"> = ["codex", "claude", "gemini"];
+  const preferredHeadless = preferred === "claude" ? "claude" : preferred === "gemini" ? "gemini" : "codex";
 
-  // Rotate so a supported preferred model comes first, followed by the other
-  // supported headless evaluator. Unsupported headless tools start at codex.
+  // Rotate so a supported preferred model comes first, followed by the others.
   const startIdx = Math.max(0, chain.indexOf(preferredHeadless));
   const ordered = [...chain.slice(startIdx), ...chain.slice(0, startIdx)];
 
@@ -353,6 +444,9 @@ export async function llmEval(
         break;
       case "claude":
         result = await tryClaudePrint(prompt);
+        break;
+      case "gemini":
+        result = await tryGeminiPrint(prompt);
         break;
     }
 

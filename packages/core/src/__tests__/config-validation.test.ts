@@ -657,6 +657,163 @@ describe("Config Defaults", () => {
   });
 });
 
+describe("Config Validation - envSource (bd-g884)", () => {
+  it("defaults envSource to [~/.bashrc] when not specified", () => {
+    const validated = validateConfig({
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    });
+    expect(validated.envSource).toEqual(["~/.bashrc"]);
+  });
+
+  it("accepts a single envSource file", () => {
+    const validated = validateConfig({
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+      envSource: ["~/.zshrc"],
+    });
+    expect(validated.envSource).toEqual(["~/.zshrc"]);
+  });
+
+  it("accepts multiple envSource files", () => {
+    const validated = validateConfig({
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+      envSource: ["~/.bashrc", "~/.profile", "/etc/environment"],
+    });
+    expect(validated.envSource).toEqual(["~/.bashrc", "~/.profile", "/etc/environment"]);
+  });
+
+  it("rejects non-array envSource", () => {
+    expect(() =>
+      validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+        envSource: "~/.bashrc", // String instead of array
+      }),
+    ).toThrow();
+  });
+
+  // Explicit absolute paths are rejected to prevent a repo-local config
+  // from referencing files outside the user's trusted home directory tree.
+  it("rejects explicit absolute path like /tmp/evil.sh", () => {
+    expect(() =>
+      validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+        envSource: ["/tmp/evil.sh"],
+      }),
+    ).toThrow(/shell dotfiles|untrusted/i);
+  });
+
+  // Non-dotfile paths under ~/ are rejected (e.g. ~/scripts/env.sh,
+  // ~/worktrees/repo/evil.sh) — only shell init dotfiles are allowed.
+  it("rejects non-dotfile path under home like ~/scripts/env.sh", () => {
+    expect(() =>
+      validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+        envSource: ["~/scripts/env.sh"],
+      }),
+    ).toThrow(/shell dotfiles|untrusted/i);
+  });
+
+  // Paths that escape home directory are rejected.
+  it("rejects path that escapes home directory", () => {
+    expect(() =>
+      validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+        envSource: ["~/../otheruser/evil.sh"],
+      }),
+    ).toThrow(/shell dotfiles|untrusted/i);
+  });
+
+  // defaults.envSource must be validated the same as top-level envSource.
+  // Without this, a repo-local config could bypass security via:
+  //   defaults: { envSource: ["/tmp/evil.sh"] }
+  describe("defaults.envSource security", () => {
+    it("rejects absolute path in defaults.envSource", () => {
+      expect(() =>
+        validateConfig({
+          projects: {
+            proj1: {
+              path: "/repos/test",
+              repo: "org/test",
+              defaultBranch: "main",
+            },
+          },
+          defaults: { envSource: ["/tmp/evil.sh"] },
+        }),
+      ).toThrow(/shell dotfiles|untrusted/i);
+    });
+
+    it("rejects non-dotfile path under home in defaults.envSource", () => {
+      expect(() =>
+        validateConfig({
+          projects: {
+            proj1: {
+              path: "/repos/test",
+              repo: "org/test",
+              defaultBranch: "main",
+            },
+          },
+          defaults: { envSource: ["~/scripts/env.sh"] },
+        }),
+      ).toThrow(/shell dotfiles|untrusted/i);
+    });
+
+    it("accepts shell dotfile in defaults.envSource", () => {
+      const validated = validateConfig({
+        projects: {
+          proj1: {
+            path: "/repos/test",
+            repo: "org/test",
+            defaultBranch: "main",
+          },
+        },
+        defaults: { envSource: ["~/.zshrc"] },
+      });
+      expect(validated.defaults?.envSource).toEqual(["~/.zshrc"]);
+    });
+  });
+});
+
 describe("Config Validation - Other reaction actions", () => {
   it("allows notify action (the AO default for merge-ready)", () => {
     const config = {

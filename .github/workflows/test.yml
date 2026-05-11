@@ -87,8 +87,21 @@ jobs:
           echo "Only accepting verdicts after: $TRIGGER_UPDATED"
 
           POLL_TIMEOUT=600  # seconds — MUST match (timeout-minutes - 1min-headroom) * 60
+          # Grace window: verdicts posted up to GRACE_SECS before the trigger are also
+          # accepted. This handles the case where `ao skeptic verify` runs before the
+          # CI's SKEPTIC_GATE_TRIGGER comment is posted (e.g. lifecycle-worker triggered
+          # by a prior /skeptic comment or skeptic-cron). The trigger timestamp is
+          # included so stale verdicts from old SHA commits are still rejected.
+          GRACE_SECS=300
           INTERVAL=15
           MAX_ATTEMPTS=$((POLL_TIMEOUT / INTERVAL))  # = 40; update POLL_TIMEOUT if INTERVAL changes
+
+          # Pre-compute trigger_epoch once (used for shell-side grace window check)
+          _TRIGGER_TS="$TRIGGER_UPDATED"
+          _TRIGGER_EPOCH=0
+          if printf '%s' "$_TRIGGER_TS" | grep -qE '^[[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2}T[[:digit:]:.]+Z$' 2>/dev/null; then
+            _TRIGGER_EPOCH=$(date -d "${_TRIGGER_TS//Z}" +%s 2>/dev/null || echo "0")
+          fi
 
           PR_STATE_API_FAILURES=0
           COMMENTS_API_FAILURES=0
@@ -115,9 +128,26 @@ jobs:
             fi
 
             _RAW_STDERR=$(mktemp)
-            RAW_COMMENTS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
-              --paginate 2>"$_RAW_STDERR")
+            _COMMENTS_TMP=$(mktemp)
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
+              --paginate > "$_COMMENTS_TMP" 2>"$_RAW_STDERR"
             GH_EXIT=$?
+            # Prevent set -e from killing the job; GH_EXIT is checked explicitly below
+            true
+            RAW_COMMENTS=$(cat "$_COMMENTS_TMP")
+            rm -f "$_COMMENTS_TMP"
+            if [ -z "$RAW_COMMENTS" ]; then
+              COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
+              echo "API warning: verdict lookup returned empty (attempt $i): $(cat "$_RAW_STDERR" | head -1)"
+              rm -f "$_RAW_STDERR"
+              if [ "$COMMENTS_API_FAILURES" -ge 3 ]; then
+                echo "ERROR: Too many consecutive verdict comment API failures" >&2
+                exit 1
+              fi
+              echo "Attempt $i/$MAX_ATTEMPTS — sleeping ${INTERVAL}s..."
+              sleep "$INTERVAL"
+              continue
+            fi
             if [ "$GH_EXIT" -ne 0 ]; then
               COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
               echo "API warning: verdict lookup failed (exit=$GH_EXIT, attempt $i): $(cat "$_RAW_STDERR" | head -1)"
@@ -132,8 +162,9 @@ jobs:
             fi
             rm -f "$_RAW_STDERR"
 
-            VERDICT_JSON=$(printf '%s\n' "$RAW_COMMENTS" \
-              | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
+            _VERDICT_TMP=$(mktemp)
+            printf '%s\n' "$RAW_COMMENTS" > "$_VERDICT_TMP"
+            VERDICT_JSON=$(jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
                 --arg pr_author "$PR_AUTHOR" \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
                 'add
@@ -149,8 +180,6 @@ jobs:
                       )
                       and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                       and (.verdict != "")
-                      and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
-                           >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                       and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
                       and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                       and ((.verdict != "PASS")
@@ -158,10 +187,12 @@ jobs:
                                and ($body | test("<!--\\s*skeptic-gate-8a\\s*:\\s*PASS\\s*-->"; "i"))
                                and ($body | test("<!--\\s*skeptic-gate-8b\\s*:\\s*PASS\\s*-->"; "i"))
                                and ($body | test("<!--\\s*skeptic-gate-8c\\s*:\\s*PASS\\s*-->"; "i"))
-                               and ($body | test("<!--\\s*skeptic-gate-8d\\s*:\\s*PASS\\s*-->"; "i"))))))
+                               and ($body | test("<!--\\s*skeptic-gate-8d\\s*:\\s*PASS\\s*-->"; "i")))))
                   ))
-                | last // empty' 2>/dev/null)
+
+                | last // empty' "$_VERDICT_TMP" 2>/dev/null)
             JQ_EXIT=$?
+            rm -f "$_VERDICT_TMP"
             if [ "$JQ_EXIT" -ne 0 ]; then
               COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
               echo "API warning: verdict parsing failed (exit=$JQ_EXIT, attempt $i)"
@@ -176,6 +207,23 @@ jobs:
             COMMENTS_API_FAILURES=0
             if [ -z "$VERDICT_JSON" ]; then
               VERDICT_JSON="empty"
+            fi
+
+            # Shell-side temporal check: verify VERDICT is fresh enough
+            # Grace window: accept verdicts posted up to GRACE_SECS before trigger
+            _VERDICT_EPOCH=0
+            if [ "$VERDICT_JSON" != "empty" ] && [ "$VERDICT_JSON" != "[]" ] && echo "$VERDICT_JSON" | jq -e '.body' >/dev/null 2>&1; then
+              _VDATE=$(echo "$VERDICT_JSON" | jq -r '.updated_at // empty' 2>/dev/null)
+              if [ -n "$_VDATE" ] && [ "$_VDATE" != "null" ]; then
+                _VERDICT_EPOCH=$(date -d "${_VDATE//Z}" +%s 2>/dev/null || echo "0")
+              fi
+            fi
+            _GRACE_START=$((_TRIGGER_EPOCH - GRACE_SECS))
+            if [ "$_VERDICT_EPOCH" -gt 0 ] && [ "$_VERDICT_EPOCH" -lt "$_GRACE_START" ]; then
+              echo "VERDICT too old (${_VERDICT_EPOCH} < grace_start=${_GRACE_START}) — sleeping..."
+              echo "Attempt $i/$MAX_ATTEMPTS — no fresh VERDICT yet, sleeping ${INTERVAL}s..."
+              sleep "$INTERVAL"
+              continue
             fi
 
             if ! echo "$VERDICT_JSON" | jq -e 'if . == null or (.body == null) then empty else .body end | length > 0' >/dev/null 2>&1; then

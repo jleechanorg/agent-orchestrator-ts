@@ -310,10 +310,11 @@ export async function createComment(
   repo: string,
   prNumber: number,
   body: string,
-): Promise<void> {
+): Promise<string> {
   await exec("gh", [
     "api",
     "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments",
     "--field", "body=" + body,
   ]);
+  return body;
 }

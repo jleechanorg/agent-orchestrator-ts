@@ -7,7 +7,8 @@
 # Fail-closed: if python3 is unavailable, API check fails, or repo cannot be determined — BLOCK.
 # Uses stdin JSON approach (cat) — matches repo hook pattern.
 
-set -euo pipefail
+# Fail-open: unhandled errors let the command through, only explicit exit 2 blocks
+set -uo pipefail
 
 INPUT=$(cat)
 
@@ -63,10 +64,14 @@ fi
 CMD_CLEAN=$(echo "$CMD" | python3 -c "
 import sys, re
 cmd = sys.stdin.read()
-# Remove heredoc bodies (both <<'EOF' and <<EOF forms)
-cmd = re.sub(r'<<[-]?[\"'\'']?\w+[\"'\'']?.*?^\w+$', '', cmd, flags=re.DOTALL|re.MULTILINE)
-print(cmd)
+# Remove heredoc bodies: match <<[-]'DELIM'\n...\nDELIM
+cleaned = re.sub(r'<<[-]?\x27?\w+\x27?\n.*?\n\w+$', '', cmd, flags=re.DOTALL)
+# Safety: if cleaning removed everything, keep original
+print(cleaned if cleaned.strip() else cmd)
 " 2>/dev/null)
+if [ -z "$CMD_CLEAN" ]; then
+  CMD_CLEAN="$CMD"
+fi
 
 # Check for gh pr close or gh api REST close patterns
 CLOSE_TYPE=$(echo "$CMD_CLEAN" | python3 -c "

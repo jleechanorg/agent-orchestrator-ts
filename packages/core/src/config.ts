@@ -11,18 +11,34 @@
  */
 
 import { readFileSync, existsSync, realpathSync } from "node:fs";
-import { resolve, join, basename } from "node:path";
+import { resolve, basename, sep } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ConfigNotFoundError, type OrchestratorConfig } from "./types.js";
+import { applyEnvSource } from "./env-source.js";
 import {
   findManagedConfigFile,
   findRepoLocalConfigFile,
   getLegacyConfigPaths,
 } from "./config-topology.js";
 import { deepMerge } from "./deep-merge.js";
-import { generateSessionPrefix } from "./paths.js";
+import { generateSessionPrefix, expandHome } from "./paths.js";
+
+/** Ensures envSource is bootstrapped exactly once per process lifetime. */
+let _envBootstrapDone = false;
+
+/**
+ * Bootstrap env vars from configured shell init files — runs exactly once per process.
+ * Prefer defaults.envSource if set (per-project override), fall back to global.
+ */
+function bootstrapEnvSource(config: OrchestratorConfig): void {
+  if (_envBootstrapDone) return;
+  const effective = config.defaults?.envSource ?? config.envSource;
+  assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
+  applyEnvSource(effective);
+  _envBootstrapDone = true;
+}
 
 function inferScmPlugin(project: {
   repo: string;
@@ -316,6 +332,26 @@ const DefaultPluginsSchema = z.object({
   autoMerge: AutoMergeDefaultsSchema.optional(),
   // Phase B: scmFailureThreshold — kills dead-agent sessions after N consecutive SCM failures
   scmFailureThreshold: z.number().int().min(1).max(100).optional(),
+  // bd-g884: shell init files to source for API keys; falls back to global envSource
+  // Security: restricted to shell dotfiles (same allowlist as top-level envSource).
+  envSource: z
+    .array(z.string())
+    .optional()
+    .refine(
+      (entries) =>
+        !entries ||
+        entries.every((e) => {
+          if (e === "/etc/environment") return true;
+          return (
+            e.startsWith("~/") &&
+            /^~\/\.[a-zA-Z][a-zA-Z0-9_-]*$/.test(e)
+          );
+        }),
+      {
+        message:
+          "Untrusted envSource: only shell dotfiles (~/.bashrc, ~/.zshrc, ...) or /etc/environment are allowed.",
+      },
+    ),
 });
 
 const OrchestratorConfigSchema = z.object({
@@ -343,18 +379,66 @@ const OrchestratorConfigSchema = z.object({
   autoMerge: AutoMergeOverrideSchema.optional(),
   // Global worktree base directory; can be overridden per-project.
   worktreeDir: z.string().optional(),
+  // bd-g884: Source shell init files to pull API keys into process.env.
+  // Security: envSource is restricted to known shell init files or /etc/environment.
+  // This prevents a malicious repo-local config from sourcing arbitrary scripts
+  // even if those scripts happen to live under ~/ (e.g. ~/worktrees/repo/evil.sh).
+  envSource: z
+    .array(z.string())
+    .default(["~/.bashrc"])
+    .refine(
+      (entries) =>
+        entries.every((e) => {
+          if (e === "/etc/environment") return true;
+          // Only allow shell dotfiles: ~/.bashrc, ~/.zshrc, ~/.profile, etc.
+          // Reject paths like ~/scripts/env.sh, ~/worktrees/repo/evil.sh.
+          return (
+            e.startsWith("~/") &&
+            /^~\/\.[a-zA-Z][a-zA-Z0-9_-]*$/.test(e)
+          );
+        }),
+      {
+        message:
+          "Untrusted envSource: only shell dotfiles (~/.bashrc, ~/.zshrc, ~/.profile, ...) or /etc/environment are allowed.",
+      },
+    ),
 });
 
 // =============================================================================
 // CONFIG LOADING
 // =============================================================================
 
-/** Expand ~ to home directory */
-function expandHome(filepath: string): string {
-  if (filepath.startsWith("~/")) {
-    return join(homedir(), filepath.slice(2));
+/**
+ * Guardrail: reject envSource paths that escape the user's home directory.
+ *
+ * Config files can live in repo-local .claude/ dirs, so a malicious repo
+ * could set `envSource: ["/tmp/evil.sh"]` to exec arbitrary scripts in the
+ * AO daemon's PID. We restrict envSource to the user's shell dotfiles
+ * (paths starting with ~/) or /etc/environment. Explicit absolute paths
+ * (not starting with ~/) are rejected because they could point to files
+ * outside the user's trusted home directory tree.
+ */
+function assertTrustedEnvSource(entries: string[]): void {
+  const homePrefix = `${homedir()}${sep}`;
+  for (const entry of entries) {
+    // Only allow ~/...-relative paths or /etc/environment.
+    // Reject explicit absolute paths (e.g. /Users/jleechan/scripts/env.sh)
+    // to prevent a repo-local config from referencing files outside ~/.
+    if (!entry.startsWith("~") && entry !== "/etc/environment") {
+      throw new Error(
+        `Untrusted envSource "${entry}": only "~" paths or /etc/environment are allowed.`,
+      );
+    }
+    const expanded = expandHome(entry);
+    if (
+      entry !== "/etc/environment" &&
+      !expanded.startsWith(homePrefix)
+    ) {
+      throw new Error(
+        `Untrusted envSource "${expanded}": resolves outside home directory.`,
+      );
+    }
   }
-  return filepath;
 }
 
 /** Expand all path fields in the config */
@@ -778,6 +862,9 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
   // Set the config path in the config object for hash generation
   config.configPath = path;
 
+  // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
+  bootstrapEnvSource(config);
+
   return config;
 }
 
@@ -802,6 +889,9 @@ export function loadConfigWithPath(configPath?: string): {
 
   // Set the config path in the config object for hash generation
   config.configPath = path;
+
+  // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
+  bootstrapEnvSource(config);
 
   return { config, path };
 }

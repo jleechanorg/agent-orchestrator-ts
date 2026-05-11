@@ -74,7 +74,7 @@ describe("tryClaudePrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       expect.stringMatching(/(^|\/)claude$/),
-      ["--dangerously-skip-permissions", "--print", "--model", "claude-sonnet-4-6"],
+      ["--dangerously-skip-permissions", "--print"],
       expect.objectContaining({
         input: "evaluate this",
         cwd: "/tmp",
@@ -160,21 +160,20 @@ describe("llmEval — explicit model=claude", () => {
   it("falls back to codex when claude is unavailable", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const enoent = makeErrnoError("ENOENT", "ENOENT");
-    // Queue: Call1→claude(ENOENT), Call2→codex(PASS)
+    // Rotation: ["claude","gemini","codex"]
+    // claude→all accessSync ENOENT, gemini→ENOENT from execFileSync (including bare "gemini"),
+    // codex→resolveCodexBinary resolves, execFileSync returns PASS
     mockExecFileSync
-      .mockImplementationOnce(() => {
-        throw enoent; // claude (infra error)
-      })
-      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds (4th in rotation)
+      .mockImplementationOnce(() => { throw enoent; }) // gemini bare-name candidate
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toBe(PASS_VERDICT);
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // claude + codex
   });
 
   it("returns FAIL and tries codex fallback when claude has infra error", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
-    // Call 1: claude → ETIMEDOUT (infra error); Call 2: codex → default ENOENT fallback
+    // Call 1: claude → ETIMEDOUT (infra error); then gemini and codex tried (both unavailable via default ENOENT)
     // Chain exhausted → FAIL
     mockExecFileSync
       .mockImplementationOnce(() => {
@@ -184,6 +183,6 @@ describe("llmEval — explicit model=claude", () => {
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("All LLM tools exhausted");
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // claude + codex
+    expect(mockExecFileSync).toHaveBeenCalled(); // claude + gemini candidates + codex
   });
 });

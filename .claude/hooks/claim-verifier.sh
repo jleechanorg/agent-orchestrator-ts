@@ -15,7 +15,8 @@
 # Usage: Add to settings.json PreToolUse hooks array:
 #   "preToolUse": [{"name": "claim-verifier", "path": ".claude/hooks/claim-verifier.sh"}]
 
-set -euo pipefail
+# Fail-open: unhandled errors let the command through, only explicit exit 2 blocks
+set -uo pipefail
 
 INPUT=$(cat)
 

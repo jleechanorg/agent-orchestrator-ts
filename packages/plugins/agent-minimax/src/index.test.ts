@@ -122,14 +122,27 @@ describe("getEnvironment", () => {
     expect(env["ANTHROPIC_MODEL"]).toBe("MiniMax-M2.7");
   });
 
-  it("warns when MINIMAX_API_KEY is missing", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("logs debug with source attribution when MINIMAX_API_KEY is resolved", () => {
+    process.env.MINIMAX_API_KEY = "sk-test";
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
     const agent = create();
     agent.getEnvironment(makeLaunchConfig());
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("MINIMAX_API_KEY is not set"),
+    expect(debug).toHaveBeenCalledWith(
+      expect.stringContaining("[ao-plugin-agent-minimax] MINIMAX_API_KEY resolved"),
     );
-    warn.mockRestore();
+    debug.mockRestore();
+  });
+
+  it("logs error with actionable advice when MINIMAX_API_KEY is missing", () => {
+    delete process.env.MINIMAX_API_KEY;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const agent = create();
+    agent.getEnvironment(makeLaunchConfig());
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("MINIMAX_API_KEY not found"),
+    );
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("envSource"));
+    error.mockRestore();
   });
 });
 

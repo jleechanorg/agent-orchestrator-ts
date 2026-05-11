@@ -280,6 +280,9 @@ describe("wholesome — structural source-code assertions", () => {
         "packages/cli/src/program.ts": new Set([
           "// eslint-disable-next-line @typescript-eslint/no-unsafe-argument,@typescript-eslint/no-explicit-any -- intentionally bridging commander type variance",
         ]),
+        "packages/core/src/__tests__/env-source.test.ts": new Set([
+          "// eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- JSDOM requires explicit delete to remove keys; undefined assignment converts to \"undefined\" string",
+        ]),
       };
       const violations = getAddedLinesMatching(REPO_ROOT, directive)
         // Exclude this test file: its section headers, describe calls, and
@@ -525,6 +528,19 @@ describe("wholesome — structural source-code assertions", () => {
       "d59f8958e9c9e1fde826b5ca162742947a29d342", // fix(tests): correct llmEval claude-preferred rotation expectations
       "7e2ee1f563bc1b08350279598e9d40409d873dd6", // fix(hook): claim-verifier.sh safe grep extraction for PR body
       "969807a1d7cd7f42f86421e36ecaa63c5700cae7", // [agento] fix(wholesome): add missing SHAs for post-271443566 test-fix commits
+      // fix/bd-g884: PR #528 dev-loop commits without [agento] prefix
+      "257b24616ba8501b8e7f53af1ca6022f69c44e3f", // fix(pr-528): address CodeRabbit CHANGES_REQUESTED feedback
+      "6a29dceb3e8900b6f89fb6602562dd6d68d94774", // fix(cli): createComment returns body; update llm-eval tests
+      "fdf34170e20e49e9e4e7b6ed4734f6be42992f1b", // fix(skeptic): createComment returns body string
+      "af5cc6b29877c88297ca89333b9a2f8dc29d5066", // fix(pr-528): correct design doc, timestamp regex, llm-eval check flag
+      "0e28678a2597cbcf6c8d0108ef04fa8e4bf53a55", // fix(skeptic-gate): move grace window check to shell-side
+      "603f3fc60a74dca5fd93240bec7c34af4f154f87", // fix(skeptic-gate): pre-compute trigger epoch in shell
+      "9a73cdb6377fe502fc714a5c4bb6fc4cef7924a8", // fix(skeptic-gate): accept verdicts posted before trigger
+      "ee0437cfeebbd14cc1962437fd1647772c69de17", // docs: fix SKEPTIC_BOT_AUTHOR description
+      "ef3e832d96621cfbff5d1613bae4c0e666704d6c", // fix(env-source): parse /etc/environment directly
+      "151433a5975dc5846919b9db7d79cb4945f133da", // fix(skeptic): SKEPTIC_BOT_AUTHOR default to jleechan2015
+      "456c836a10b217406a0c55cb5759217e69ecf6cd", // fix(skeptic): SKEPTIC_BOT_AUTHOR default is github-actions[bot]
+      "c859cdbb7c27755ff7fae366d7e294b586460410", // fix: restore --model flag to Claude CLI invocations in llm-eval
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {

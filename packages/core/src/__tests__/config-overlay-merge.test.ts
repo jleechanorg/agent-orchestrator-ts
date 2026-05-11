@@ -63,6 +63,15 @@ projects:
       permissions: skip
 `;
 
+function _real(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+
 describe("loadConfig with repo-local overlay", () => {
   it("merges repo-local project config on top of managed config", () => {
     const home = mkdtempSync(join(tmpdir(), "ao-overlay-home-"));

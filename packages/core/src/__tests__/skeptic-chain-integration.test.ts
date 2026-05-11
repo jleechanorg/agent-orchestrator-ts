@@ -660,7 +660,7 @@ describe("skeptic chain integration", () => {
         /if echo "\$PR_STATE" \| grep -qi "error\\\|rate limit\\\|authentication\\\|not found\\\|server error"; then([\s\S]*?)fi\s*\n\s*\n\s*if \[ "\$PR_STATE" = "closed" \]/,
       )?.[1];
       const verdictFailureBlock = reusableWorkflowSource.match(
-        /if \[ "\$GH_EXIT" -ne 0 \]; then([\s\S]*?)else/,
+        /if \[ -z "\$VERDICT_RAW" \] \|\| \[ "\$_GH_EXIT" -ne 0 \]; then([\s\S]*?)else/,
       )?.[1];
 
       expect(prStateFailureBlock).toContain('sleep $INTERVAL');

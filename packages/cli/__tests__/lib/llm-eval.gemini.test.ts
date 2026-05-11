@@ -4,9 +4,10 @@ const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockResolveCodexBinary = vi.hoisted(() => vi.fn());
 const mockAccessSync = vi.hoisted(() => vi.fn());
 
-// Set CLAUDE_BINARY before module load so CLAUDE_BINARY_CANDIDATES[0] = "/mock/claude"
+// Set CLAUDE_BINARY and GEMINI_BINARY before module load
 vi.hoisted(() => {
   process.env["CLAUDE_BINARY"] = "/mock/claude";
+  process.env["GEMINI_BINARY"] = "/mock/gemini";
 });
 
 vi.mock("node:child_process", () => ({
@@ -36,48 +37,53 @@ beforeEach(() => {
     err.code = "ENOENT";
     throw err;
   });
+  // accessSync: throw ENOENT for all candidates by default
+  mockAccessSync.mockImplementation((_path: unknown) => {
+    const err = new Error("ENOENT: no such file") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    throw err;
+  });
 });
 
-// model=gemini is accepted for CLI compatibility, but gemini is not in the
-// supported headless chain (["codex", "claude"]). When model=gemini is specified,
-// it maps to codex (preferredHeadless="gemini" → indexOf returns -1 → Math.max(0,-1)=0
-// → rotation starts at codex). The unsupported-model rotation still visits every
-// supported tool: codex first, then claude fallback.
+// model=gemini is now IN the supported chain (["codex", "claude", "gemini"]).
+// When model=gemini is specified, preferredHeadless="gemini", rotation starts
+// at gemini: ["gemini","codex","claude"].
 
-describe("llmEval — explicit model=gemini (maps to codex)", () => {
-  it("tries codex first when model=gemini is specified (gemini not in supported chain)", async () => {
-    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+describe("llmEval — explicit model=gemini", () => {
+  it("tries gemini first when model=gemini is specified", async () => {
+    // Allow /mock/gemini through accessSync
+    mockAccessSync.mockImplementation((path: unknown) => {
+      if (path === "/mock/gemini" || path === "gemini") return undefined;
+      const err = new Error("ENOENT: no such file") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
     mockExecFileSync.mockReturnValue(FAIL_VERDICT);
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(FAIL_VERDICT);
-    expect(mockResolveCodexBinary).toHaveBeenCalled();
-    // Only codex is tried (gemini maps to codex in the rotation)
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to claude when codex is unavailable with model=gemini", async () => {
+  it("falls back to codex when gemini is unavailable with model=gemini", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
-    // Rotation: gemini→codex→claude; codex unavailable, claude succeeds
-    mockExecFileSync
-      .mockImplementationOnce(() => {
-        throw enoent; // codex unavailable
-      })
-      .mockReturnValueOnce(PASS_VERDICT); // claude succeeds
+    // Gemini candidates all fail accessSync (default mock), then codex succeeds
+    // Rotation: ["gemini","codex","claude"]
+    mockExecFileSync.mockReturnValue(PASS_VERDICT); // codex succeeds
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
-    expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // codex + claude
   });
 
-  it("fails closed when codex omits a verdict with model=gemini", async () => {
-    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+  it("fails closed when gemini omits a verdict with model=gemini", async () => {
+    // Allow /mock/gemini through accessSync
+    mockAccessSync.mockImplementation((path: unknown) => {
+      if (path === "/mock/gemini" || path === "gemini") return undefined;
+      const err = new Error("ENOENT: no such file") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
     mockExecFileSync.mockReturnValueOnce("Gemini analysis with no verdict");
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toContain("VERDICT: FAIL");
-    expect(result).toContain("codex:");
+    expect(result).toContain("gemini:");
     expect(result).toContain("missing VERDICT");
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
   });
 });

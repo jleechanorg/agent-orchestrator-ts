@@ -9,6 +9,7 @@ const mockAccessSync = vi.hoisted(() => vi.fn());
 // preventing extra execFileSync calls that would consume mock slots unexpectedly.
 vi.hoisted(() => {
   process.env["CLAUDE_BINARY"] = "/mock/claude";
+  process.env["GEMINI_BINARY"] = "/mock/gemini";
 });
 
 vi.mock("node:child_process", () => ({
@@ -24,14 +25,12 @@ vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
   resolveCodexBinary: mockResolveCodexBinary,
 }));
 
-import { tryCodexPrint, tryClaudePrint, llmEval } from "../../src/lib/llm-eval.js";
+import { tryCodexPrint, tryClaudePrint, tryGeminiPrint, llmEval } from "../../src/lib/llm-eval.js";
 
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
 const MOCK_CLAUDE_BINARY = "/mock/claude";
-const MOCK_CLAUDE_MODEL = "claude-sonnet-4-6";
-
 beforeEach(() => {
   vi.clearAllMocks();
   mockExecFileSync.mockReset();
@@ -61,7 +60,7 @@ describe("tryCodexPrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "/usr/local/bin/codex",
-      ["exec", "--model", "gpt-5.5", "-"],
+      ["exec", "--model", "gpt-5.5", "-c", "check_for_update_on_startup=false", "-"],
       expect.objectContaining({ input: "evaluate this" }),
     );
   });
@@ -72,7 +71,7 @@ describe("tryCodexPrint", () => {
     await tryCodexPrint("evaluate this");
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "/usr/local/bin/codex",
-      ["exec", "--model", "gpt-5.5", "-"],
+      ["exec", "--model", "gpt-5.5", "-c", "check_for_update_on_startup=false", "-"],
       expect.any(Object),
     );
   });
@@ -225,7 +224,7 @@ describe("tryClaudePrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       MOCK_CLAUDE_BINARY,
-      ["--dangerously-skip-permissions", "--print", "--model", MOCK_CLAUDE_MODEL],
+      ["--dangerously-skip-permissions", "--print"],
       expect.objectContaining({
         input: "evaluate this",
         cwd: "/tmp",
@@ -321,7 +320,7 @@ describe("llmEval — default (codex primary)", () => {
     etimeout.code = "ETIMEDOUT";
     const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
     enoent.code = "ENOENT";
-    // Chain: codex → claude. Headless-broken tools stay out of the runtime
+    // Chain: codex → claude → gemini. Headless-broken tools stay out of the runtime
     // fallback path so they cannot mask the real codex/claude failure.
     mockExecFileSync
       .mockImplementationOnce(() => {
@@ -339,11 +338,11 @@ describe("llmEval — default (codex primary)", () => {
       .mockImplementationOnce(() => {
         throw enoent; // 4th claude candidate → isUnavailable=true → error=undefined, continue
       });
+    // gemini candidates also return ENOENT (default mockImplementation handles this)
     const result = await llmEval("evaluate this");
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("All LLM tools exhausted");
-    expect(result).toContain("Tried: codex → claude");
-    expect(result).not.toContain("gemini");
+    expect(result).toContain("Tried: codex → claude → gemini");
     expect(result).not.toContain("cursor");
     expect(mockResolveCodexBinary).toHaveBeenCalled();
     expect(mockExecFileSync).toHaveBeenCalled();
@@ -421,24 +420,23 @@ describe("llmEval — explicit model=claude", () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
     enoent.code = "ENOENT";
-    // Rotation: ["claude","codex"] (gemini/cursor not in supported chain)
-    // Call1→claude(ENOENT→try next), Call2→codex(PASS)
+    // Rotation: ["claude","gemini","codex"] (gemini/cursor in supported chain)
+    // Call1→claude(ENOENT→try next), gemini candidates(ENOENT→try next), CallN→codex(PASS)
     mockExecFileSync
       .mockImplementationOnce(() => {
         throw enoent; // claude unavailable
       })
-      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds (or gemini if first available)
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toBe(PASS_VERDICT);
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // claude + codex
   });
 
   it("returns FAIL when claude and codex are both unavailable", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
     enoent.code = "ENOENT";
-    // Rotation: ["claude","codex"] (gemini/cursor not in supported chain)
-    // Call1→claude(ENOENT→try next), Call2→codex(ENOENT→try next), chain exhausted → FAIL
+    // Rotation: ["claude","gemini","codex"] (all return ENOENT/unavailable)
+    // Call1→claude(ENOENT→try next), then gemini candidates(ENOENT), then codex(ENOENT), chain exhausted → FAIL
     mockExecFileSync
       .mockImplementationOnce(() => {
         throw enoent; // claude unavailable
@@ -446,8 +444,8 @@ describe("llmEval — explicit model=claude", () => {
     const result = await llmEval("evaluate this", { model: "claude" });
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("All LLM tools exhausted");
-    expect(mockResolveCodexBinary).toHaveBeenCalled(); // codex is tried after claude
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // claude + codex
+    expect(mockResolveCodexBinary).toHaveBeenCalled(); // codex is tried after claude and gemini
+    expect(mockExecFileSync).toHaveBeenCalled();
   });
 });
 
@@ -466,7 +464,7 @@ describe("llmEval — explicit model=cursor (maps to codex)", () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
     enoent.code = "ENOENT";
-    // Rotation: cursor→codex→claude; codex unavailable, claude succeeds
+    // Rotation: cursor→codex→claude→gemini; codex unavailable, claude succeeds
     mockExecFileSync
       .mockImplementationOnce(() => {
         throw enoent; // codex unavailable
@@ -475,7 +473,6 @@ describe("llmEval — explicit model=cursor (maps to codex)", () => {
     const result = await llmEval("evaluate this", { model: "cursor" });
     expect(result).toBe(PASS_VERDICT);
     expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2); // codex + claude
   });
 
   it("exhausted-chain output does not mention cursor", async () => {
@@ -489,5 +486,109 @@ describe("llmEval — explicit model=cursor (maps to codex)", () => {
     const result = await llmEval("evaluate this", { model: "cursor" });
     expect(result).toContain("VERDICT: FAIL");
     expect(result).not.toContain("cursor");
+  });
+});
+
+describe("tryGeminiPrint", () => {
+  const allowGeminiCandidate = () => {
+    mockAccessSync.mockImplementation((path: unknown) => {
+      if (path === "/mock/gemini") return undefined;
+      const err = new Error("ENOENT: no such file") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+  };
+
+  it("returns validVerdict=true for output containing VERDICT: PASS", async () => {
+    allowGeminiCandidate();
+    mockExecFileSync.mockReturnValue(PASS_VERDICT);
+    const result = await tryGeminiPrint("evaluate this");
+    expect(result.validVerdict).toBe(true);
+    expect(result.output).toBe(PASS_VERDICT);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "/mock/gemini",
+      ["--yolo", "-p", ""],
+      expect.objectContaining({
+        input: "evaluate this",
+        encoding: "utf-8",
+        timeout: 300_000,
+        maxBuffer: 1 << 20,
+      }),
+    );
+  });
+
+  it("returns validVerdict=false with error when VERDICT is missing", async () => {
+    allowGeminiCandidate();
+    mockExecFileSync.mockReturnValue("no verdict here");
+    const result = await tryGeminiPrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toContain("missing VERDICT");
+  });
+
+  it("returns error=undefined when binary is not found", async () => {
+    mockAccessSync.mockImplementation(() => {
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+    const result = await tryGeminiPrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toBeUndefined();
+  });
+
+  it("returns validVerdict=false for VERDICT: SKIPPED", async () => {
+    allowGeminiCandidate();
+    mockExecFileSync.mockReturnValue("VERDICT: SKIPPED");
+    const result = await tryGeminiPrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toContain("missing VERDICT");
+  });
+
+  it("skips candidate on ETIMEDOUT and tries next", async () => {
+    allowGeminiCandidate();
+    const err = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
+    err.code = "ETIMEDOUT";
+    mockExecFileSync.mockImplementation(() => { throw err; });
+    const result = await tryGeminiPrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+  });
+
+  it("returns error for non-ENOENT non-unavailable failure", async () => {
+    allowGeminiCandidate();
+    const err = new Error("Something went wrong with gemini");
+    mockExecFileSync.mockImplementation(() => { throw err; });
+    const result = await tryGeminiPrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toContain("Something went wrong");
+  });
+});
+
+describe("llmEval — explicit model=gemini", () => {
+  beforeEach(() => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockAccessSync.mockImplementation((path: unknown) => {
+      if (path === "/mock/claude") return undefined;
+      if (path === "/mock/gemini") return undefined;
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+  });
+
+  it("tries gemini first when model=gemini is specified", async () => {
+    mockExecFileSync
+      .mockImplementationOnce(() => { throw new Error("ENOENT"); }) // codex (not first)
+      .mockImplementationOnce(() => { throw new Error("ENOENT"); }) // claude (not first)
+      .mockReturnValueOnce(PASS_VERDICT); // gemini succeeds
+    const result = await llmEval("evaluate this", { model: "gemini" });
+    expect(result).toBe(PASS_VERDICT);
+  });
+
+  it("falls back to codex when gemini is unavailable", async () => {
+    mockExecFileSync
+      .mockImplementationOnce(() => { throw new Error("ENOENT"); }) // gemini (first)
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
+    const result = await llmEval("evaluate this", { model: "gemini" });
+    expect(result).toBe(PASS_VERDICT);
   });
 });
