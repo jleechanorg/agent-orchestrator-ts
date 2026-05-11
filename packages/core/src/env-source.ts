@@ -17,15 +17,19 @@ import { expandHome } from "./paths.js";
 /** Vars that would break the daemon or duplicate launchd-provided values. */
 const BLOCKED_VARS: ReadonlySet<string> = new Set([
   "PATH", "HOME", "PS1", "PWD", "OLDPWD", "SHELL", "USER",
+  "NODE_OPTIONS", // Can inject --require, --eval, etc.
 ]);
 
 /** Prefixes for vars that pose security risks (library injection, code eval). */
-const BLOCKED_PREFIXES = ["LD_", "DYLD_", "NODE_OPTIONS"] as const;
+const BLOCKED_PREFIXES: readonly string[] = ["LD_", "DYLD_"];
 
 function isBlocked(key: string): boolean {
   if (BLOCKED_VARS.has(key)) return true;
-  return BLOCKED_PREFIXES.some((p) => key.startsWith(p));
+  return BLOCKED_PREFIXES.some((p: string) => key.startsWith(p));
 }
+
+/** Valid env var name: letter/underscore start, alphanumerics + underscore. */
+const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** Snapshot of process.env at import time — used to compute the diff. */
 const ENV_BEFORE: Record<string, string | undefined> = { ...process.env };
@@ -72,6 +76,7 @@ export function sourceEnvFile(
         if (eqIndex === -1) continue;
         const key = trimmed.slice(0, eqIndex);
         const value = trimmed.slice(eqIndex + 1);
+        if (!ENV_KEY_RE.test(key)) continue;
         if (
           !isBlocked(key) &&
           process.env[key] === diffAgainst[key]
@@ -107,6 +112,7 @@ export function sourceEnvFile(
       const key = line.slice(0, eqIndex);
       const value = line.slice(eqIndex + 1);
 
+      if (!ENV_KEY_RE.test(key)) continue;
       // Skip blocklisted vars (PATH, HOME, LD_*, etc.) and vars already
       // overwritten between module load and this sourcing call.
       if (
