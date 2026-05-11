@@ -22,8 +22,6 @@ import { buildVerdictLineRe } from "../commands/skeptic/verdict-utils.js";
 
 const LLM_EVAL_TIMEOUT_MS = 300_000;
 const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.5";
-const DEFAULT_CLAUDE_MODEL =
-  process.env["AO_LLM_EVAL_CLAUDE_MODEL"] ?? "claude-4-sonnet";
 const DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/anthropic";
 
 /** Env vars to propagate minimax credentials to codex/claude exec calls.
@@ -253,7 +251,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
     try {
       const result = execFileSync(
         candidate,
-        ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
+        ["--dangerously-skip-permissions", "--print"],
         makeClaudeExecOptions(prompt),
       );
       const output = result.trim();
@@ -288,7 +286,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
         try {
           const retryResult = execFileSync(
             candidate,
-            ["--dangerously-skip-permissions", "--print", "--model", DEFAULT_CLAUDE_MODEL],
+            ["--dangerously-skip-permissions", "--print"],
             makeClaudeExecOptions(prompt),
           );
           const retryOutput = retryResult.trim();

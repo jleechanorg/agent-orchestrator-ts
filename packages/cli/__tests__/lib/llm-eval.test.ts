@@ -30,8 +30,6 @@ const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
 const MOCK_CLAUDE_BINARY = "/mock/claude";
-const MOCK_CLAUDE_MODEL = "claude-4-sonnet";
-
 beforeEach(() => {
   vi.clearAllMocks();
   mockExecFileSync.mockReset();
@@ -225,7 +223,7 @@ describe("tryClaudePrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       MOCK_CLAUDE_BINARY,
-      ["--dangerously-skip-permissions", "--print", "--model", MOCK_CLAUDE_MODEL],
+      ["--dangerously-skip-permissions", "--print"],
       expect.objectContaining({
         input: "evaluate this",
         cwd: "/tmp",
