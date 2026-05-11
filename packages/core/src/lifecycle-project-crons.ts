@@ -184,6 +184,6 @@ export async function maybeWarnBackfillDisabledWithOpenPRs(args: {
   } catch {
     /* fail-open: skip warning on list error */
   } finally {
-    args.lastBackfillWarnTimeByProject.set(args.projectId, Date.now());
+    args.lastBackfillWarnTimeByProject.set(args.projectId, args.nowMs);
   }
 }

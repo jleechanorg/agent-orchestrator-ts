@@ -37,7 +37,10 @@ vi.mock("../skeptic-cron-local.js", () => ({
   runLocalSkepticCron: mockRunLocalSkepticCron,
 }));
 
-import { runLifecycleProjectCrons } from "../lifecycle-project-crons.js";
+import {
+  maybeWarnBackfillDisabledWithOpenPRs,
+  runLifecycleProjectCrons,
+} from "../lifecycle-project-crons.js";
 
 function makeProject(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
   return {
@@ -233,5 +236,24 @@ describe("runLifecycleProjectCrons", () => {
         projectId: "my-app",
       }),
     );
+  });
+
+  it("uses injected time when recording the disabled-backfill warning throttle", async () => {
+    const lastBackfillWarnTimeByProject = new Map<string, number>();
+    const listOpenPRs = vi.fn().mockResolvedValue([{ number: 1, isDraft: false }]);
+    vi.mocked(registry.get).mockReturnValue({ listOpenPRs });
+
+    await maybeWarnBackfillDisabledWithOpenPRs({
+      projectId: "my-app",
+      project,
+      nowMs: 1_234_567,
+      correlationId: "corr-time",
+      observer,
+      registry,
+      lastBackfillWarnTimeByProject,
+      BACKFILL_WARN_INTERVAL_MS: 600_000,
+    });
+
+    expect(lastBackfillWarnTimeByProject.get("my-app")).toBe(1_234_567);
   });
 });
