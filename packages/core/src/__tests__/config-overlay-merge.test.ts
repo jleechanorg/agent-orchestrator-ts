@@ -63,7 +63,7 @@ projects:
       permissions: skip
 `;
 
-function real(path: string): string {
+function _real(path: string): string {
   try {
     return realpathSync(path);
   } catch {
