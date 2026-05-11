@@ -329,9 +329,9 @@ Already handled by the existing `poller-github-pr` plugin.
 | Configurable fix modes | ❌ | ✅ |
 | Draft exclusion | ✅ | ✅ |
 
-**REST fallback degradation:** The existing REST fallback (`GET /repos/{owner}/{repo}/pulls`) omits `latestReviews`, `statusCheckRollup`, and `mergeStateStatus`. When the GraphQL `gh pr list` query fails due to rate-limiting, the plugin falls back to REST and intentionally skips review-driven and CI-failure work items until GraphQL recovers. The new merge-conflict detection can partially survive REST fallback (the REST endpoint provides `mergeable_state`, which maps to `MergeableState`), but `mergeStateStatus` (DIRTY) is unavailable via REST. The implementation should:
-1. Map REST `mergeable_state` to `MergeableState` for partial merge-conflict detection
-2. Skip CI-failure and review-driven work items during REST fallback (existing behavior)
+**REST fallback degradation:** The existing REST list fallback (`GET /repos/{owner}/{repo}/pulls`) omits `latestReviews`, `statusCheckRollup`, and `mergeStateStatus`. When the GraphQL `gh pr list` query fails due to rate-limiting, the plugin falls back to REST and intentionally skips review-driven and CI-failure work items until GraphQL recovers. The REST list endpoint also does NOT include `mergeable_state` — that field is only available from the per-PR endpoint (`GET /repos/{owner}/{repo}/pulls/{number}`). Therefore, merge-conflict detection is also unavailable under REST list fallback. The implementation should:
+1. Skip all fixpr work items (merge-conflict, CI-failure, review-driven) during REST list fallback — no fixpr detection is possible
+2. Optionally add per-PR REST enrichment (`GET /repos/{owner}/{repo}/pulls/{number}`) for `mergeable_state` if partial conflict detection under rate-limit is desired
 3. Log a warning when REST fallback is active so operators know degraded coverage
 
 ## Appendix B: File Changes Summary
