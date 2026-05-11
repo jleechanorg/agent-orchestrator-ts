@@ -507,13 +507,12 @@ describe("tryGeminiPrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "/mock/gemini",
-      ["--yolo", "-p", ""],
+      ["--yolo"],
       expect.objectContaining({
         input: "evaluate this",
         encoding: "utf-8",
         timeout: 300_000,
         maxBuffer: 1 << 20,
-        cwd: "/tmp",
       }),
     );
   });

@@ -349,8 +349,9 @@ const GEMINI_BINARY_CANDIDATES = [
 ].filter(Boolean);
 
 /**
- * Run gemini -p for headless evaluation.
- * Gemini CLI supports `-p` for non-interactive headless mode.
+ * Run gemini --yolo for headless evaluation.
+ * Prompt is passed via stdin to avoid exposing contents in process listings
+ * and to avoid argument-length limits on long prompts.
  * Fail-closed: missing VERDICT = failure.
  */
 export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
@@ -370,14 +371,13 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
     try {
       const result = execFileSync(
         candidate,
-        ["--yolo", "-p", ""],
+        ["--yolo"],
         {
           input: prompt,
           encoding: "utf-8",
-          timeout: LLM_EVAL_TIMEOUT_MS,
+
           maxBuffer: 1 << 20,
           stdio: ["pipe", "pipe", "ignore"],
-          cwd: "/tmp",
         },
       );
       const output = result.trim();
