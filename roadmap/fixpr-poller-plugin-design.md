@@ -261,9 +261,19 @@ pollers:
 When `approvalRequired.ci-failing: true`, the poller does NOT spawn a fix
 session automatically. Instead it:
 
-1. Posts a PR comment describing the failing checks
+1. Posts a PR comment describing the failing checks (the "notification comment")
 2. Mentions the project's notified maintainer (via `notificationRouting`)
 3. Waits for a `/fixpr ci` reply comment on the PR before spawning
+
+**Authorization rules for `/fixpr ci` comments:**
+
+| Rule | Detail |
+|---|---|
+| Trusted authors | Only comments from users with write-access to the repo are accepted |
+| Freshness | Comment must be posted **after** the poller's notification comment |
+| Head binding | The approval only applies to the current head SHA at the time the `/fixpr ci` comment is posted; if the branch advances, the approval is stale |
+| Single-use dedupe | Once a `/fixpr ci` approval is consumed (spawn triggered), the same comment ID is recorded and not processed again on subsequent polls |
+| Stale rejection | If the head SHA has changed since the `/fixpr ci` comment was posted, the approval is ignored and a new notification + approval cycle begins |
 
 Once approved (or if `approvalRequired.ci-failing: false`):
 
