@@ -34,6 +34,7 @@ export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pk
   { slot: "agent", name: "cursor", pkg: "@jleechanorg/ao-plugin-agent-cursor" },
   { slot: "agent", name: "gemini", pkg: "@jleechanorg/ao-plugin-agent-gemini" },
   { slot: "agent", name: "minimax", pkg: "@jleechanorg/ao-plugin-agent-minimax" },
+  { slot: "agent", name: "wafer", pkg: "@jleechanorg/ao-plugin-agent-wafer" },
   { slot: "agent", name: "aider", pkg: "@jleechanorg/ao-plugin-agent-aider" },
   { slot: "agent", name: "opencode", pkg: "@jleechanorg/ao-plugin-agent-opencode" },
   // Workspaces
