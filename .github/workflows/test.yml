@@ -145,8 +145,9 @@ jobs:
             fi
             rm -f "$_RAW_STDERR"
 
-            VERDICT_JSON=$(printf '%s\n' "$RAW_COMMENTS" \
-              | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
+            _VERDICT_TMP=$(mktemp)
+            printf '%s\n' "$RAW_COMMENTS" > "$_VERDICT_TMP"
+            VERDICT_JSON=$(jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
                 --arg pr_author "$PR_AUTHOR" \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
                 'add
@@ -172,7 +173,8 @@ jobs:
                                and ($body | test("<!--\\s*skeptic-gate-8d\\s*:\\s*PASS\\s*-->"; "i"))))))
                   ))
 
-                | last // empty' 2>/dev/null)
+                | last // empty' "$_VERDICT_TMP" 2>/dev/null)
+            rm -f "$_VERDICT_TMP"
             JQ_EXIT=$?
             if [ "$JQ_EXIT" -ne 0 ]; then
               COMMENTS_API_FAILURES=$((COMMENTS_API_FAILURES + 1))
