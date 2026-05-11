@@ -513,6 +513,7 @@ describe("tryGeminiPrint", () => {
         encoding: "utf-8",
         timeout: 300_000,
         maxBuffer: 1 << 20,
+        cwd: "/tmp",
       }),
     );
   });
