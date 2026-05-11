@@ -1411,7 +1411,7 @@ describe("check (single session)", () => {
         if (slot === "runtime") return mockRuntime;
         if (slot === "agent") return mockAgent;
         if (slot === "scm") return mockSCM;
-        if (slot === "notifier" && name === "default") return mockNotifier;
+        if (slot === "notifier" && (name === "default" || name === "desktop")) return mockNotifier;
         return null;
       }),
     };

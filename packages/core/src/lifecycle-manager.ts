@@ -2074,16 +2074,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             data: { oldStatus, newStatus },
           });
           await notifyHuman(event, priority);
+        }
 
-          if (newStatus === "merge_conflicts") {
-            const conflictEvent = createEvent("worker.merge_conflict", {
-              sessionId: session.id,
-              projectId: session.projectId,
-              message: `Merge conflict detected for session ${session.id}`,
-              data: { oldStatus, newStatus },
-            });
-            await notifyHuman(conflictEvent, "warning");
-          }
+        if (newStatus === "merge_conflicts") {
+          const conflictEvent = createEvent("worker.merge_conflict", {
+            sessionId: session.id,
+            projectId: session.projectId,
+            message: `Merge conflict detected for session ${session.id}`,
+            data: { oldStatus, newStatus },
+          });
+          await notifyHuman(conflictEvent, "warning");
         }
       }
 
