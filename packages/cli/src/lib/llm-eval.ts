@@ -377,10 +377,15 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
           timeout: LLM_EVAL_TIMEOUT_MS,
           maxBuffer: 1 << 20,
           stdio: ["pipe", "pipe", "ignore"],
+          cwd: "/tmp",
+          env: {
+            ...process.env,
+            ...minimaxEnv(),
+          },
         },
       );
       const output = result.trim();
-      if (!STRICT_VERDICT_RE.test(output)) {
+
         return {
           validVerdict: false,
           output,

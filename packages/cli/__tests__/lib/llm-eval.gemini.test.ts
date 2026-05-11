@@ -49,6 +49,28 @@ beforeEach(() => {
 // When model=gemini is specified, preferredHeadless="gemini", rotation starts
 // at gemini: ["gemini","codex","claude"].
 
+describe("tryGeminiPrint — cwd isolation", () => {
+  it("runs gemini from /tmp, not the PR checkout directory", async () => {
+    // Allow /mock/gemini through accessSync
+    mockAccessSync.mockImplementation((path: unknown) => {
+      if (path === "/mock/gemini" || path === "gemini") return undefined;
+      const err = new Error("ENOENT: no such file") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+    mockExecFileSync.mockReturnValue(PASS_VERDICT);
+
+    const { tryGeminiPrint } = await import("../../src/lib/llm-eval.js");
+    await tryGeminiPrint("evaluate this");
+
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "/mock/gemini",
+      expect.any(Array),
+      expect.objectContaining({ cwd: "/tmp" }),
+    );
+  });
+});
+
 describe("llmEval — explicit model=gemini", () => {
   it("tries gemini first when model=gemini is specified", async () => {
     // Allow /mock/gemini through accessSync
