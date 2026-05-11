@@ -20,11 +20,11 @@ export function getManagedConfigPath(env: ManagedConfigEnvironment = "staging"):
     return (
       getPathOverride("AO_STAGING_CONFIG_PATH") ??
       getPathOverride("AO_CONFIG_STAGING_PATH") ??
-      resolve(homedir(), ".openclaw", CONFIG_FILENAME)
+      resolve(homedir(), ".hermes", CONFIG_FILENAME)
     );
   }
 
-  // Search order: explicit env override → HERMES_HOME → .hermes_prod → .openclaw_prod (legacy).
+  // Search order: explicit env override → HERMES_HOME → .hermes_prod.
   // Use existsSync so we actually discover files rather than just returning strings.
   const hermesHomeRaw = process.env.HERMES_HOME ?? "";
   const hermesHomeExpanded = hermesHomeRaw ? resolve(expandHome(hermesHomeRaw), CONFIG_FILENAME) : "";
@@ -32,17 +32,12 @@ export function getManagedConfigPath(env: ManagedConfigEnvironment = "staging"):
   const hermesProdPath = existsSync(resolve(homedir(), ".hermes_prod", CONFIG_FILENAME))
     ? resolve(homedir(), ".hermes_prod", CONFIG_FILENAME)
     : null;
-  const openclawProdPath = existsSync(resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME))
-    ? resolve(homedir(), ".openclaw_prod", CONFIG_FILENAME)
-    : null;
 
   return (
     getPathOverride("AO_PROD_CONFIG_PATH") ??
     getPathOverride("AO_PRODUCTION_CONFIG_PATH") ??
     hermesHomePath ??
     hermesProdPath ??
-    openclawProdPath ??
-    // Default: use .hermes_prod as the default production path when nothing exists yet.
     resolve(homedir(), ".hermes_prod", CONFIG_FILENAME)
   );
 }
@@ -69,6 +64,35 @@ export function findManagedConfigFile(): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Walk up from `startDir` (defaults to CWD) looking for a repo-local
+ * agent-orchestrator.yaml. Returns null if none found before reaching root.
+ * Intentionally skips the managed config paths — this only finds repo-local
+ * configs that would have been discovered by the walk-up search.
+ */
+export function findRepoLocalConfigFile(startDir?: string): string | null {
+  const configFiles = ["agent-orchestrator.yaml", "agent-orchestrator.yml"];
+  let dir = resolve(startDir ?? process.cwd());
+
+  while (true) {
+    for (const filename of configFiles) {
+      const candidate = resolve(dir, filename);
+      if (existsSync(candidate)) {
+        const managedStaging = getManagedConfigPath("staging");
+        const managedProd = getManagedConfigPath("production");
+        if (candidate !== managedStaging && candidate !== managedProd) {
+          return candidate;
+        }
+      }
+    }
+    const parent = resolve(dir, "..");
+    if (parent === dir) {
+      return null;
+    }
+    dir = parent;
+  }
 }
 
 export type ManagedConfigTopologyIssue =

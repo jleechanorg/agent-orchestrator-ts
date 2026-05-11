@@ -9,7 +9,8 @@
 # Override: include "Supersedes #N" in the PR body/command to bypass.
 # Fail-open: if checks fail (no git, no gh, no python3, parse error), allow.
 
-set -euo pipefail
+# Fail-open by default: only explicit exit 2 blocks; unhandled errors pass through
+set -uo pipefail
 
 # Fail open if python3 is missing
 if ! command -v python3 &>/dev/null; then

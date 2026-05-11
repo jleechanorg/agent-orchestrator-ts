@@ -17,12 +17,14 @@ export {
   findConfig,
   findConfigFile,
 } from "./config.js";
+export { deepMerge, isPlainObject } from "./deep-merge.js";
 export {
   findManagedConfigFile,
   getManagedConfigPath,
   getLegacyConfigPaths,
   getPreferredConfigSearchPaths,
   validateManagedConfigTopology,
+  findRepoLocalConfigFile,
 } from "./config-topology.js";
 export type {
   ManagedConfigEnvironment,
@@ -451,3 +453,33 @@ export {
 // workspace-worktree plugin so the same recovery logic is in one place.
 export { findRepoPathForWorktree } from "./utils/worktree-git.js";
 export type { RepoPathResult } from "./utils/worktree-git.js";
+
+// Long-running harness artifact schemas — research.md, plan.md, handoff.md
+export {
+  validateHarnessArtifact,
+  validateResearchArtifact,
+  validatePlanArtifact,
+  validateHandoffArtifact,
+  classifyContextUtilization,
+  computePlanProgress,
+  initContextMonitorState,
+  updateContextMonitorState,
+  incrementContextResetCount,
+  shouldContextReset,
+  CONTEXT_THRESHOLDS,
+  researchToMarkdown,
+  planToMarkdown,
+  handoffToMarkdown,
+} from "./harness-artifacts.js";
+export type {
+  ArtifactSection,
+  CodeReference,
+  ResearchArtifact,
+  PlanTodoItem,
+  PlanArtifact,
+  PlanProgress,
+  HandoffArtifact,
+  ArtifactValidationResult,
+  ContextUtilizationLevel,
+  ContextMonitorState,
+} from "./harness-artifacts.js";

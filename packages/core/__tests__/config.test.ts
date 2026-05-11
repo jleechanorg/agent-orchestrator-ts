@@ -80,7 +80,7 @@ describe("Config Loading", () => {
     });
 
     it("should prefer managed staging config over repo-local shadow config", () => {
-      const stagingDir = join(testDir, ".openclaw");
+      const stagingDir = join(testDir, ".hermes");
       mkdirSync(stagingDir, { recursive: true });
       const stagingConfig = join(stagingDir, "agent-orchestrator.yaml");
       const localConfig = join(testDir, "agent-orchestrator.yaml");

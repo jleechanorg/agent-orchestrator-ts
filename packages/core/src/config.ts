@@ -10,14 +10,19 @@
  * Everything else has sensible defaults.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { resolve, basename, sep } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ConfigNotFoundError, type OrchestratorConfig } from "./types.js";
 import { applyEnvSource } from "./env-source.js";
-import { findManagedConfigFile, getLegacyConfigPaths } from "./config-topology.js";
+import {
+  findManagedConfigFile,
+  findRepoLocalConfigFile,
+  getLegacyConfigPaths,
+} from "./config-topology.js";
+import { deepMerge } from "./deep-merge.js";
 import { generateSessionPrefix, expandHome } from "./paths.js";
 
 /** Ensures envSource is bootstrapped exactly once per process lifetime. */
@@ -691,6 +696,139 @@ export function findConfigFile(startDir?: string): string | null {
 }
 
 // =============================================================================
+// CONFIG OVERLAY (repo-local merge on top of managed config)
+// =============================================================================
+
+/**
+ * Determine whether the primary config is a managed config, and if so,
+ * find a repo-local config to overlay. Returns null when:
+ * - the primary config is already repo-local (walk-up found it, no overlay needed)
+ * - no repo-local config exists in the CWD tree
+ * - the repo-local config is the same file as the primary (identity guard)
+ *
+ * Uses realpathSync to normalize macOS /var ↔ /private/var symlink aliases.
+ */
+function findRepoLocalConfigOverlay(primaryPath: string): string | null {
+  const managedPath = findManagedConfigFile();
+  if (!managedPath) {
+    return null;
+  }
+
+  let primaryReal: string;
+  let managedReal: string;
+  try {
+    primaryReal = realpathSync(primaryPath);
+    managedReal = realpathSync(managedPath);
+  } catch {
+    primaryReal = resolve(primaryPath);
+    managedReal = resolve(managedPath);
+  }
+
+  if (primaryReal !== managedReal) {
+    return null;
+  }
+
+  const repoLocal = findRepoLocalConfigFile();
+  if (!repoLocal) {
+    return null;
+  }
+
+  let repoLocalReal: string;
+  try {
+    repoLocalReal = realpathSync(repoLocal);
+  } catch {
+    repoLocalReal = resolve(repoLocal);
+  }
+
+  if (repoLocalReal === primaryReal) {
+    return null;
+  }
+
+  return repoLocal;
+}
+
+/**
+ * Deep-merge a repo-local overlay on top of a managed config (parsed YAML objects).
+ * For `projects`, merges per-project by project key.
+ * For all other keys, deep-merge with overlay winning on conflict.
+ */
+function mergeConfigOverlay(
+  base: unknown,
+  overlayPath: string,
+): unknown {
+  const overlayRaw = readFileSync(overlayPath, "utf-8");
+  const overlay = parseYaml(overlayRaw);
+
+  if (typeof base !== "object" || base === null) {
+    return overlay;
+  }
+  if (typeof overlay !== "object" || overlay === null) {
+    return base;
+  }
+
+  const baseObj = base as Record<string, unknown>;
+  const overlayObj = overlay as Record<string, unknown>;
+
+  // Per-project deep merge: overlay project fields win over base project fields
+  if (
+    typeof baseObj["projects"] === "object" &&
+    baseObj["projects"] !== null &&
+    typeof overlayObj["projects"] === "object" &&
+    overlayObj["projects"] !== null
+  ) {
+    const baseProjects = baseObj["projects"] as Record<string, unknown>;
+    const overlayProjects = overlayObj["projects"] as Record<string, unknown>;
+    const mergedProjects: Record<string, unknown> = { ...baseProjects };
+
+    for (const [projectId, overlayProject] of Object.entries(overlayProjects)) {
+      const baseProject = mergedProjects[projectId];
+      if (
+        typeof baseProject === "object" &&
+        baseProject !== null &&
+        typeof overlayProject === "object" &&
+        overlayProject !== null
+      ) {
+        mergedProjects[projectId] = deepMerge(
+          baseProject as Record<string, unknown>,
+          overlayProject as Record<string, unknown>,
+        );
+      } else {
+        mergedProjects[projectId] = overlayProject;
+      }
+    }
+
+    baseObj["projects"] = mergedProjects;
+  }
+
+  // Deep-merge remaining top-level keys (defaults, reactions, notifiers, etc.)
+  for (const key of Object.keys(overlayObj)) {
+    if (key === "projects") {
+      continue; // already handled above
+    }
+    const baseVal = baseObj[key];
+    const overVal = overlayObj[key];
+
+    if (
+      typeof baseVal === "object" &&
+      baseVal !== null &&
+      typeof overVal === "object" &&
+      overVal !== null &&
+      !Array.isArray(baseVal) &&
+      !Array.isArray(overVal)
+    ) {
+      baseObj[key] = deepMerge(
+        baseVal as Record<string, unknown>,
+        overVal as Record<string, unknown>,
+      );
+    } else {
+      baseObj[key] = overVal;
+    }
+  }
+
+  return baseObj;
+}
+
+// =============================================================================
 // PUBLIC API
 // =============================================================================
 
@@ -711,7 +849,15 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
 
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
-  const config = validateConfig(parsed);
+
+  // Config overlay: when the primary config is a managed config (staging/prod),
+  // search for a repo-local config and deep-merge it on top. Repo-local wins
+  // for overlapping keys — this makes per-repo project overrides work even when
+  // a managed config shadows the walk-up search.
+  const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
+  const merged = overlayPath ? mergeConfigOverlay(parsed, overlayPath) : parsed;
+
+  const config = validateConfig(merged);
 
   // Set the config path in the config object for hash generation
   config.configPath = path;
@@ -735,7 +881,11 @@ export function loadConfigWithPath(configPath?: string): {
 
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
-  const config = validateConfig(parsed);
+
+  const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
+  const merged = overlayPath ? mergeConfigOverlay(parsed, overlayPath) : parsed;
+
+  const config = validateConfig(merged);
 
   // Set the config path in the config object for hash generation
   config.configPath = path;

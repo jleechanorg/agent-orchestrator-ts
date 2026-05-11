@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSkepticPrompt, isEvidenceAuthentic } from "../../commands/skeptic/prompt.js";
+import { extractSkepticGateMarkers, hasCompletePassingGateMarkers } from "../../commands/skeptic/verdict-utils.js";
 import type { PRInfo, ReviewInfo } from "../../commands/skeptic/gh-client.js";
 import type { MergeGateState } from "../../commands/skeptic/mergeGate.js";
 
@@ -357,6 +358,106 @@ describe("skeptic structured output", () => {
     });
   });
 
+  describe("Rule 14 — Scope Boundary Check (always active)", () => {
+    it("prompt contains Rule 14 scope boundary section regardless of PR content", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR({ body: "Just a tiny PR" }),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      expect(prompt).toContain("SCOPE BOUNDARY CHECK");
+      expect(prompt).toContain("Rule 14");
+      expect(prompt).toContain("14a");
+      expect(prompt).toContain("14b");
+      expect(prompt).toContain("14c");
+      expect(prompt).toContain("14d");
+    });
+
+    it("Rule 14 fails on out-of-scope diff changes not mentioned in PR description", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      expect(prompt).toContain("FAIL if the diff contains changes to files/directories that are not mentioned");
+      expect(prompt).toContain("not explained by the Goals or Tenets sections");
+    });
+
+    it("Rule 14 fails when PR scopes work to X but diff also changes Y", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      expect(prompt).toContain("FAIL if the PR description explicitly scopes work to X but the diff also changes Y");
+    });
+
+    it("Rule 14 gives pass for mechanical updates (package-lock.json, lockfile) in isolation", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      expect(prompt).toContain("Mechanical updates (package-lock.json, lockfile refreshes, lock bumps)");
+      expect(prompt).toContain("in isolation do not require PR description mention");
+    });
+
+    it("FAIL format includes Scope Boundary appendix section", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makeFailingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      const outputSection = prompt.split("OUTPUT FORMAT:")[1] ?? "";
+      expect(outputSection).toContain("## Scope Boundary");
+      expect(outputSection).toContain("Rule 14 gaps are found");
+    });
+
+    it("FAIL format appendix includes 8d marker slot", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makeFailingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+
+      const outputSection = prompt.split("OUTPUT FORMAT:")[1] ?? "";
+      expect(outputSection).toContain("<!-- skeptic-gate-8d:FAIL -->");
+      expect(outputSection).toContain("Scope boundary gap");
+    });
+
+    it("Rule 14 14e no-scope fallback: no scope claims found = informational, not FAIL", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      // 14e: If no scope claims found, do not FAIL Gate 8 for scope.
+      // Scope ambiguity is informational, not a failure.
+      expect(prompt).toContain("If no scope claims are found in the PR description");
+      expect(prompt).toContain("do not FAIL Gate 8 for scope");
+      expect(prompt).toContain("Scope ambiguity is informational, not a failure");
+    });
+  });
+
   describe("PASS vs FAIL — format discrimination", () => {
     it("PASS output does not require ## Background; FAIL does", () => {
       const passingPrompt = buildSkepticPrompt(
@@ -413,8 +514,8 @@ describe("skeptic structured output", () => {
     });
   });
 
-  describe("8a/8b/8c marker contract", () => {
-    it("PASS template always includes 8a and 8b markers but not 8c in the actual template lines", () => {
+  describe("8a/8b/8c/8d marker contract", () => {
+    it("PASS template always includes 8a, 8b, 8c, and 8d markers", () => {
       const prompt = buildSkepticPrompt(
         makeMinimalPR(),
         makePassingState(),
@@ -422,17 +523,15 @@ describe("skeptic structured output", () => {
         EMPTY_REVIEWS,
         null,
       );
-      // The PASS template section (before --- // END PASS) includes 8a and 8b
+      // The PASS template section (before --- // END PASS) includes all four sub-markers
       const passSection = prompt.split("--- // END PASS")[0] ?? "";
       expect(passSection).toContain("<!-- skeptic-gate-8a:PASS -->");
       expect(passSection).toContain("<!-- skeptic-gate-8b:PASS -->");
-      // 8c appears only in the instruction block (the "8c:PASS|FAIL" line), not as a concrete PASS template line
-      // Check that "<!-- skeptic-gate-8c:PASS -->" is NOT in the PASS template
-      const passTemplateMatch = passSection.match(/<!-- skeptic-gate-8c:PASS -->/);
-      expect(passTemplateMatch).toBeNull();
+      expect(passSection).toContain("<!-- skeptic-gate-8c:PASS -->");
+      expect(passSection).toContain("<!-- skeptic-gate-8d:PASS -->");
     });
 
-    it("8a/8b/8c are documented as informational only (not individual merge blockers)", () => {
+    it("8a/8b/8c/8d are documented as informational only (not individual merge blockers)", () => {
       const prompt = buildSkepticPrompt(
         makeMinimalPR(),
         makePassingState(),
@@ -440,11 +539,11 @@ describe("skeptic structured output", () => {
         EMPTY_REVIEWS,
         null,
       );
-      expect(prompt).toContain("Gate 8 sub-markers (8a/8b/8c) are informational");
-      expect(prompt).toContain("do not individually block merge");
+      expect(prompt).toContain("Gate 8 sub-markers (8a/8b/8c/8d) are informational");
+      expect(prompt).toContain("do not independently gate the merge");
     });
 
-    it("FAIL instruction says emit 8a/8b/8c only when gaps found", () => {
+    it("FAIL instruction says emit 8a/8b/8c/8d only when gaps found", () => {
       const prompt = buildSkepticPrompt(
         makeMinimalPR(),
         makeFailingState(),
@@ -453,8 +552,134 @@ describe("skeptic structured output", () => {
         null,
       );
       const outputSection = prompt.split("OUTPUT FORMAT:")[1] ?? "";
-      expect(outputSection).toContain("emit 8a/8b/8c only when Rule 12 or Rule 13 gaps are found");
+      expect(outputSection).toContain("emit only the relevant sub-marker(s): 8a for Rule 12 gaps");
+      expect(outputSection).toContain("8b for Rule 13 gaps");
+      expect(outputSection).toContain("8c for evidence-provenance gaps, and 8d for Rule 14 gaps");
     });
+
+    it("8d marker is documented in the gate marker list", () => {
+      const prompt = buildSkepticPrompt(
+        makeMinimalPR(),
+        makePassingState(),
+        EMPTY_DIFF,
+        EMPTY_REVIEWS,
+        null,
+      );
+      expect(prompt).toContain("<!-- skeptic-gate-8d:PASS|FAIL -->");
+      expect(prompt).toContain("Scope boundary");
+    });
+  });
+});
+
+describe("extractSkepticGateMarkers", () => {
+  it("extracts 8d PASS marker from verdict body", () => {
+    const body = "<!-- skeptic-agent-verdict -->\n<!-- skeptic-gate-8d:PASS -->\nVERDICT: PASS";
+    const markers = extractSkepticGateMarkers(body);
+    expect(markers).toContain("<!-- skeptic-gate-8d:PASS -->");
+  });
+
+  it("extracts 8d FAIL marker from verdict body", () => {
+    const body = "<!-- skeptic-gate-1:PASS -->\n<!-- skeptic-gate-8d:FAIL -->\nVERDICT: FAIL";
+    const markers = extractSkepticGateMarkers(body);
+    expect(markers).toContain("<!-- skeptic-gate-8d:FAIL -->");
+  });
+
+  it("extracts all gates 1-8 plus 8a/8b/8c/8d from complete verdict", () => {
+    const body = `<!-- skeptic-gate-1:PASS -->
+<!-- skeptic-gate-2:PASS -->
+<!-- skeptic-gate-3:PASS -->
+<!-- skeptic-gate-4:PASS -->
+<!-- skeptic-gate-5:PASS -->
+<!-- skeptic-gate-6:PASS -->
+<!-- skeptic-gate-7:PASS -->
+<!-- skeptic-gate-8:PASS -->
+<!-- skeptic-gate-8a:PASS -->
+<!-- skeptic-gate-8b:PASS -->
+<!-- skeptic-gate-8c:PASS -->
+<!-- skeptic-gate-8d:PASS -->
+VERDICT: PASS`;
+    const markers = extractSkepticGateMarkers(body);
+    expect(markers).toContain("<!-- skeptic-gate-8d:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-8a:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-8b:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-8c:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-1:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-2:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-3:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-4:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-5:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-6:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-7:PASS -->");
+    expect(markers).toContain("<!-- skeptic-gate-8:PASS -->");
+    expect(markers.filter((m) => m.includes("skeptic-gate-8d"))).toHaveLength(1);
+  });
+
+  it("is case-insensitive for marker names (8d vs 8D)", () => {
+    const body = "<!-- skeptic-gate-8D:PASS -->";
+    const markers = extractSkepticGateMarkers(body);
+    expect(markers).toContain("<!-- skeptic-gate-8D:PASS -->");
+  });
+});
+
+describe("hasCompletePassingGateMarkers", () => {
+  it("returns true when all 12 markers (gates 1-8 + 8a/8b/8c/8d) are PASS", () => {
+    // hasCompletePassingGateMarkers requires all primary gates 1-8 AND
+    // all sub-markers 8a/8b/8c/8d in PASS output (per prompt contract).
+    const completeBody = `<!-- skeptic-gate-1:PASS -->
+<!-- skeptic-gate-2:PASS -->
+<!-- skeptic-gate-3:PASS -->
+<!-- skeptic-gate-4:PASS -->
+<!-- skeptic-gate-5:PASS -->
+<!-- skeptic-gate-6:PASS -->
+<!-- skeptic-gate-7:PASS -->
+<!-- skeptic-gate-8:PASS -->
+<!-- skeptic-gate-8a:PASS -->
+<!-- skeptic-gate-8b:PASS -->
+<!-- skeptic-gate-8c:PASS -->
+<!-- skeptic-gate-8d:PASS -->
+VERDICT: PASS`;
+    expect(hasCompletePassingGateMarkers(completeBody)).toBe(true);
+  });
+
+  it("returns false when gate 8d is missing from a PASS verdict", () => {
+    const bodyWithout8d = `<!-- skeptic-gate-1:PASS -->
+<!-- skeptic-gate-2:PASS -->
+<!-- skeptic-gate-3:PASS -->
+<!-- skeptic-gate-4:PASS -->
+<!-- skeptic-gate-5:PASS -->
+<!-- skeptic-gate-6:PASS -->
+<!-- skeptic-gate-7:PASS -->
+<!-- skeptic-gate-8:PASS -->
+<!-- skeptic-gate-8a:PASS -->
+<!-- skeptic-gate-8b:PASS -->
+<!-- skeptic-gate-8c:PASS -->
+VERDICT: PASS`;
+    expect(hasCompletePassingGateMarkers(bodyWithout8d)).toBe(false);
+  });
+
+  it("returns false when any primary gate 1-8 is FAIL", () => {
+    const body = `<!-- skeptic-gate-1:PASS -->
+<!-- skeptic-gate-2:FAIL -->
+<!-- skeptic-gate-3:PASS -->
+<!-- skeptic-gate-4:PASS -->
+<!-- skeptic-gate-5:PASS -->
+<!-- skeptic-gate-6:PASS -->
+<!-- skeptic-gate-7:PASS -->
+<!-- skeptic-gate-8:PASS -->
+VERDICT: FAIL`;
+    expect(hasCompletePassingGateMarkers(body)).toBe(false);
+  });
+
+  it("returns false when any primary gate 1-8 is absent", () => {
+    const body = `<!-- skeptic-gate-1:PASS -->
+<!-- skeptic-gate-2:PASS -->
+<!-- skeptic-gate-3:PASS -->
+<!-- skeptic-gate-4:PASS -->
+<!-- skeptic-gate-5:PASS -->
+<!-- skeptic-gate-6:PASS -->
+<!-- skeptic-gate-8:PASS -->
+VERDICT: PASS`;
+    expect(hasCompletePassingGateMarkers(body)).toBe(false);
   });
 });
 
