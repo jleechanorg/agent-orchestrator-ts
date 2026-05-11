@@ -352,5 +352,8 @@ packages/plugins/poller-github-pr/
 
 packages/core/src/types.ts  — ADD mergeStateStatus + ApprovalState to GitHubPR
 
+packages/core/src/poller-manager.ts  — EXTEND template renderer with {{prNumber}} and {{reasons}} placeholders
+packages/core/src/__tests__/poller-manager.test.ts  — ADD unit tests for new placeholder rendering (prNumber interpolation, reasons array formatting, missing metadata fallback)
+
 agent-orchestrator.yaml      — ADD worldarchitect project + fixpr poller config
 ```

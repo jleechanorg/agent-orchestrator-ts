@@ -161,9 +161,14 @@ export async function fetchMergeGateState(
           "repos/" + owner + "/" + repo + "/commits/" + headSha + "/check-runs?per_page=100",
         ) as Array<{ check_runs?: Array<{ name: string; status: string; conclusion: string | null }> }>;
         const checkRunData = checkRunPages.flatMap(p => p.check_runs ?? []);
+        // Exclude self-referential "Skeptic Gate" check — its failure is the mechanism
+        // that polls for this verdict, creating a circular dependency. The check's
+        // own pass/fail is determined by whether THIS verdict appears, not by CI health.
+        const SKEPTIC_GATE_CHECK = /^Skeptic\s+Gate$/i;
+        const filtered = checkRunData.filter(r => !SKEPTIC_GATE_CHECK.test(r.name ?? ""));
         // Deduplicate by name, keeping latest conclusion
         const seen = new Map<string, CheckRunSummary>();
-        for (const run of checkRunData) {
+        for (const run of filtered) {
           const existing = seen.get(run.name);
           // Prefer completed runs over in-progress
           if (!existing || (run.status === "completed" && existing.status !== "completed")) {
