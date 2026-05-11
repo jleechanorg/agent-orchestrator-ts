@@ -144,15 +144,17 @@ process.stdin.on('data', c => input += c).on('end', () => {
 // =============================================================================
 
 function isWaferModel(model?: string): boolean {
-  return model?.startsWith("wafer/") ?? false;
+  if (!model) return false;
+  return model.startsWith("wafer/") || model.startsWith("wafer.ai/");
 }
 
 function isZaiModel(model?: string): boolean {
-  return model?.startsWith("zai/") ?? false;
+  if (!model) return false;
+  return model.startsWith("zai/") || model.startsWith("z.ai/");
 }
 
 function stripProviderPrefix(model: string): string {
-  return model.replace(/^(?:wafer|zai)\//, "");
+  return model.replace(/^(?:wafer(?:\.ai)?|zai|z\.ai)\//, "");
 }
 
 // =============================================================================
