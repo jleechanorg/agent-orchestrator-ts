@@ -340,6 +340,72 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   return { validVerdict: false, output: "", error: firstInfraError };
 }
 
+/** Known gemini binary locations, tried in order. */
+const GEMINI_BINARY_CANDIDATES = [
+  process.env["GEMINI_BINARY"] ?? "",
+  "/Users/jleechan/.nvm/versions/node/v22.22.0/bin/gemini",
+  "/usr/local/bin/gemini",
+  "/opt/homebrew/bin/gemini",
+  "gemini",
+].filter(Boolean);
+
+/**
+ * Run gemini -p for headless evaluation.
+ * Gemini CLI supports `-p` for non-interactive headless mode.
+ * Fail-closed: missing VERDICT = failure.
+ */
+export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
+  const { execFileSync } = await import("node:child_process");
+
+  for (const candidate of GEMINI_BINARY_CANDIDATES) {
+    if (!candidate) continue;
+
+    if (candidate !== "gemini") {
+      try {
+        accessSync(candidate, fsConstants.X_OK);
+      } catch {
+        continue;
+      }
+    }
+
+    try {
+      const result = execFileSync(
+        candidate,
+        ["-p", prompt],
+        {
+          input: "",
+          encoding: "utf-8",
+          timeout: LLM_EVAL_TIMEOUT_MS,
+          maxBuffer: 1 << 20,
+          stdio: ["pipe", "pipe", "ignore"],
+        },
+      );
+      const output = result.trim();
+      if (!STRICT_VERDICT_RE.test(output)) {
+        return {
+          validVerdict: false,
+          output,
+          error: `Gemini output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+        };
+      }
+      return { validVerdict: true, output };
+    } catch (err: unknown) {
+      const errno = (err as NodeJS.ErrnoException).code;
+      const msg = err instanceof Error ? err.message : String(err);
+
+      if (errno === "ENOENT") continue;
+
+      if (isUnavailable(msg, errno as string)) {
+        continue;
+      }
+
+      return { validVerdict: false, output: "", error: msg.split("\n")[0]?.slice(0, 300) };
+    }
+  }
+
+  return { validVerdict: false, output: "", error: undefined };
+}
+
 /**
  * Run a skeptic-style LLM evaluation and return the raw output.
  *
@@ -347,10 +413,10 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
  * @param options.model - Prefer this model ("codex" | "claude" | "gemini" | "cursor"); default "codex"
  *
  * Headless fallback chain:
- *   codex → claude
+ *   codex → claude → gemini
  *
- * Gemini and cursor are accepted for CLI compatibility but are excluded here:
- * gemini ignores stdin in headless mode, and cursor-agent blocks on Workspace Trust.
+ * cursor is accepted for CLI compatibility but excluded:
+ * cursor-agent blocks on Workspace Trust.
  */
 export async function llmEval(
   prompt: string,
@@ -361,11 +427,10 @@ export async function llmEval(
   const isMissingVerdict = (err?: string) =>
     err !== undefined && /missing VERDICT/i.test(err);
 
-  const chain: Array<"codex" | "claude"> = ["codex", "claude"];
-  const preferredHeadless = preferred === "claude" ? "claude" : "codex";
+  const chain: Array<"codex" | "claude" | "gemini"> = ["codex", "claude", "gemini"];
+  const preferredHeadless = preferred === "claude" ? "claude" : preferred === "gemini" ? "gemini" : "codex";
 
-  // Rotate so a supported preferred model comes first, followed by the other
-  // supported headless evaluator. Unsupported headless tools start at codex.
+  // Rotate so a supported preferred model comes first, followed by the others.
   const startIdx = Math.max(0, chain.indexOf(preferredHeadless));
   const ordered = [...chain.slice(startIdx), ...chain.slice(0, startIdx)];
 
@@ -380,6 +445,9 @@ export async function llmEval(
         break;
       case "claude":
         result = await tryClaudePrint(prompt);
+        break;
+      case "gemini":
+        result = await tryGeminiPrint(prompt);
         break;
     }
 
