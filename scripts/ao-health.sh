@@ -8,6 +8,9 @@
 
 set -uo pipefail
 
+# Escape a string for use in an ERE (extended regular expression).
+escape_ere() { printf '%s' "$1" | sed 's/[][().*^$+?{}|\\]/\\&/g'; }
+
 # ── Config ──────────────────────────────────────────────────────────────────
 REPO_ROOT="${AO_REPO_ROOT:-$HOME/project_agento/agent-orchestrator}"
 LOCK_DIR="/tmp/ao-health.lock"
@@ -70,7 +73,8 @@ FAILURES=0
 STARTED=0
 
 for project in $PROJECTS; do
-    if pgrep -f "lifecycle-worker[[:space:]]$project([[:space:]]|$)" > /dev/null 2>&1; then
+    escaped_project="$(escape_ere "$project")"
+    if pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" > /dev/null 2>&1; then
         continue
     fi
 
@@ -80,7 +84,7 @@ for project in $PROJECTS; do
     STARTED=$((STARTED + 1))
     sleep 2
 
-    if pgrep -f "lifecycle-worker[[:space:]]$project([[:space:]]|$)" > /dev/null 2>&1; then
+    if pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" > /dev/null 2>&1; then
         log "OK: $project worker started"
     else
         log "FAIL: $project worker failed to start"
@@ -96,7 +100,8 @@ for pid in $ALL_PIDS; do
     CMD=$(ps -p "$pid" -o args= 2>/dev/null) || continue
     MATCHED=false
     for project in $PROJECTS; do
-        if echo "$CMD" | grep -qE "lifecycle-worker[[:space:]]$project([[:space:]]|$)"; then
+        escaped_project="$(escape_ere "$project")"
+        if echo "$CMD" | grep -qE "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)"; then
             MATCHED=true
             break
         fi
