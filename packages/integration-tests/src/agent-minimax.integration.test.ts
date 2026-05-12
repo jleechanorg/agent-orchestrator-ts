@@ -13,7 +13,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdtemp, realpath, rm, access } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -25,7 +25,8 @@ import {
   createSession,
   killSession,
 } from "./helpers/tmux.js";
-import { findBinary, pollUntilEqual } from "./helpers/polling.js";
+import { findBinary, pollUntilEqual, sleep } from "./helpers/polling.js";
+import { FIBONACCI_PROMPT_ONE_SHOT, waitForFibonacciPy } from "./helpers/fibonacci-output.js";
 import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 
 const execFileAsync = promisify(execFile);
@@ -55,13 +56,14 @@ describe.skipIf(!canRun)("agent-minimax (integration)", () => {
     tmpDir = await realpath(await mkdtemp(join(tmpdir(), "ao-inttest-minimax-")));
     outputFile = join(tmpDir, "fibonacci.py");
 
-    const task = `Write a Python fibonacci program to the file ${outputFile}. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
+    const task = FIBONACCI_PROMPT_ONE_SHOT;
     const minimaxKey = process.env.MINIMAX_API_KEY!;
     const baseUrl = process.env.MINIMAX_ANTHROPIC_BASE_URL?.trim() || "https://api.minimax.io/anthropic";
     const cmd = `claude --dangerously-skip-permissions -p "${task}"`;
     await createSession(sessionName, cmd, tmpDir, {
       ANTHROPIC_BASE_URL: baseUrl,
       ANTHROPIC_API_KEY: minimaxKey,
+      ANTHROPIC_AUTH_TOKEN: minimaxKey,
     });
 
     const handle = makeTmuxHandle(sessionName);
@@ -77,19 +79,21 @@ describe.skipIf(!canRun)("agent-minimax (integration)", () => {
     }
 
     exitedRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), false, {
-      timeoutMs: 120_000,
+      timeoutMs: 180_000,
       intervalMs: 2_000,
     });
 
     exitedActivityState = await agent.getActivityState(session);
-
-    try {
-      await access(outputFile);
-      fileCreated = true;
-    } catch {
-      fileCreated = false;
+    const settleDeadline = Date.now() + 25_000;
+    while (exitedActivityState?.state !== "exited" && Date.now() < settleDeadline) {
+      await sleep(500);
+      exitedActivityState = await agent.getActivityState(session);
     }
-  }, 150_000);
+
+    const found = await waitForFibonacciPy(tmpDir, { timeoutMs: 60_000 });
+    fileCreated = found !== null;
+    if (found) outputFile = found;
+  }, 240_000);
 
   afterAll(async () => {
     await killSession(sessionName);

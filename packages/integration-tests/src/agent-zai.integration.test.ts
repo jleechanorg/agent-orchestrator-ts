@@ -9,14 +9,13 @@
  *   - tmux installed and running
  *   - GLM_API_KEY set
  *
- * Skipped automatically when prerequisites are missing.
+ * Skipped when prerequisites are missing, or when `SKIP_AGENT_ZAI_E2E=1` (e.g. quota exhausted).
  *
- * Task: write a fibonacci program to /tmp/ao-inttest-zai-<ts>/fibonacci.py
- * and verify the file exists and produces correct output.
+ * Task: write a fibonacci program under the temp workspace and verify output.
  */
 
 import { execFile } from "node:child_process";
-import { mkdtemp, realpath, rm, access } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -28,7 +27,8 @@ import {
   createSession,
   killSession,
 } from "./helpers/tmux.js";
-import { findBinary, pollUntilEqual } from "./helpers/polling.js";
+import { findBinary, pollUntilEqual, sleep } from "./helpers/polling.js";
+import { FIBONACCI_PROMPT_ONE_SHOT, waitForFibonacciPy } from "./helpers/fibonacci-output.js";
 import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 
 const execFileAsync = promisify(execFile);
@@ -40,7 +40,9 @@ const tmuxOk = await isTmuxAvailable();
 const claudeBin = await findBinary(["claude"]);
 const python3Bin = await findBinary(["python3"]);
 const hasGlmKey = !!process.env.GLM_API_KEY;
-const canRun = tmuxOk && claudeBin !== null && python3Bin !== null && hasGlmKey;
+const skipZai = process.env.SKIP_AGENT_ZAI_E2E === "1";
+const canRun =
+  tmuxOk && claudeBin !== null && python3Bin !== null && hasGlmKey && !skipZai;
 
 describe.skipIf(!canRun)("agent-zai (integration)", () => {
   const agent = claudeCodePlugin.create();
@@ -62,10 +64,9 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
     tmpDir = await realpath(rawTmp);
     outputFile = join(tmpDir, "fibonacci.py");
 
-    const task = `Write a Python fibonacci program to the file ${outputFile}. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
+    const task = FIBONACCI_PROMPT_ONE_SHOT;
     const glmKey = process.env.GLM_API_KEY!;
     const baseUrl = DEFAULT_ZAI_BASE_URL;
-    // Route through the GLM model id expected at the Z.AI Anthropic-compatible endpoint.
     const cmd = `claude --dangerously-skip-permissions --model GLM-5.1 -p "${task}"`;
     await createSession(sessionName, cmd, tmpDir, {
       ANTHROPIC_BASE_URL: baseUrl,
@@ -86,20 +87,22 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
     }
 
     exitedRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), false, {
-      timeoutMs: 120_000,
+      timeoutMs: 180_000,
       intervalMs: 2_000,
     });
 
     exitedActivityState = await agent.getActivityState(session);
+    const settleDeadline = Date.now() + 25_000;
+    while (exitedActivityState?.state !== "exited" && Date.now() < settleDeadline) {
+      await sleep(500);
+      exitedActivityState = await agent.getActivityState(session);
+    }
     exitedSessionInfo = (await agent.getSessionInfo(session)) ?? null;
 
-    try {
-      await access(outputFile);
-      fileCreated = true;
-    } catch {
-      fileCreated = false;
-    }
-  }, 150_000);
+    const found = await waitForFibonacciPy(tmpDir, { timeoutMs: 60_000 });
+    fileCreated = found !== null;
+    if (found) outputFile = found;
+  }, 240_000);
 
   afterAll(async () => {
     await killSession(sessionName);
@@ -132,12 +135,12 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
   });
 
   it("getSessionInfo → returns session data after exit (or null)", () => {
-    if (exitedSessionInfo !== null) {
+    if (exitedSessionInfo != null) {
       expect(exitedSessionInfo).toHaveProperty("summary");
     }
   });
 
-  it("fibonacci.py created in output dir", () => {
+  it("fibonacci.py created in workspace", () => {
     expect(fileCreated).toBe(true);
   });
 

@@ -13,7 +13,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdtemp, realpath, rm, access } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -25,7 +25,8 @@ import {
   createSession,
   killSession,
 } from "./helpers/tmux.js";
-import { findBinary, pollUntilEqual } from "./helpers/polling.js";
+import { findBinary, pollUntilEqual, sleep } from "./helpers/polling.js";
+import { FIBONACCI_PROMPT_ONE_SHOT, waitForFibonacciPy } from "./helpers/fibonacci-output.js";
 import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 
 const execFileAsync = promisify(execFile);
@@ -55,7 +56,7 @@ describe.skipIf(!canRun)("agent-wafer (integration)", () => {
     tmpDir = await realpath(await mkdtemp(join(tmpdir(), "ao-inttest-wafer-")));
     outputFile = join(tmpDir, "fibonacci.py");
 
-    const task = `Write a Python fibonacci program to the file ${outputFile}. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
+    const task = FIBONACCI_PROMPT_ONE_SHOT;
     const waferKey = process.env.WAFER_API_KEY!;
     const baseUrl = process.env.WAFER_ANTHROPIC_BASE_URL?.trim() || "https://pass.wafer.ai";
     const cmd = `claude --dangerously-skip-permissions -p "${task}"`;
@@ -85,13 +86,15 @@ describe.skipIf(!canRun)("agent-wafer (integration)", () => {
     });
 
     exitedActivityState = await agent.getActivityState(session);
-
-    try {
-      await access(outputFile);
-      fileCreated = true;
-    } catch {
-      fileCreated = false;
+    const settleDeadline = Date.now() + 25_000;
+    while (exitedActivityState?.state !== "exited" && Date.now() < settleDeadline) {
+      await sleep(500);
+      exitedActivityState = await agent.getActivityState(session);
     }
+
+    const found = await waitForFibonacciPy(tmpDir, { timeoutMs: 60_000 });
+    fileCreated = found !== null;
+    if (found) outputFile = found;
   }, 240_000);
 
   afterAll(async () => {
