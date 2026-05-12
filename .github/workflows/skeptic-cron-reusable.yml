@@ -239,7 +239,7 @@ jobs:
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
           STALE_HOURS: ${{ inputs.stale_hours }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
-          SKEPTIC_CRON_AUTO_MERGE: ${{ inputs.auto_merge }}
+          SKEPTIC_CRON_AUTO_MERGE: ${{ inputs.auto_merge != '' && inputs.auto_merge || vars.SKEPTIC_CRON_AUTO_MERGE || 'true' }}
           SKEPTIC_MERGE_DENYLIST: ${{ vars.SKEPTIC_MERGE_DENYLIST || '' }}
         run: |
           set -uo pipefail
