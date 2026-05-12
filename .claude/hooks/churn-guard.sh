@@ -62,7 +62,20 @@ if has_gh_api and has_pulls_collection:
     if re.search(r'(?:--method|-X)[=\s]+POST', cmd, re.IGNORECASE):
         print('YES')
         sys.exit(0)
-    # Implicit POST via field flags: -f, -F, --field, --raw-field (can appear anywhere)
+    # Implicit POST via field flags: -f, -F, --field, --raw-field
+    # BUT: gh api with -f key=value is GET (query params) unless it's the pulls collection
+    # and the flags look like form data (not query params like state=open, per_page=N).
+    # If --method GET or -X GET is explicit, -f is query params, not POST body.
+    if re.search(r'(?:--method|-X)[=\s]+GET', cmd, re.IGNORECASE):
+        print('NO')
+        sys.exit(0)
+    # Check if -f flags look like query params (common GET patterns for gh api)
+    # Query param pattern: -f state=, -f per_page=, -f sort=, -f direction=, -f page=
+    f_flags = re.findall(r'(?:\s|^)-(?:f|F)\s+(\w+)=', cmd)
+    if f_flags and all(re.match(r'^(state|per_page|page|sort|direction|order|since|until|q|sha|ref|base|head|filter|labels|milestone|assignee|creator|mentioned|sort|direction|type|visibility|affiliation|role)$', k) for k in f_flags):
+        print('NO')
+        sys.exit(0)
+    # Otherwise, -f/-F/--field/--raw-field on the pulls collection = POST (PR creation)
     if re.search(r'(?:\s|^)(?:-[fF]\s|--field\s|--raw-field\s)', cmd):
         print('YES')
         sys.exit(0)

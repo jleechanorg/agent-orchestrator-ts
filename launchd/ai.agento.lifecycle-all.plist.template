@@ -48,6 +48,11 @@
     <string>MiniMax-M2.7</string>
     <key>CLAUDE_BINARY</key>
     <string>@CLAUDE_BINARY@</string>
+    <!-- Go binaries (gh) use Security.framework for TLS cert verification in
+         interactive sessions but fail with x509:OSStatus -26276 in launchd agents.
+         SSL_CERT_FILE tells Go to use the PEM file instead. -->
+    <key>SSL_CERT_FILE</key>
+    <string>/etc/ssl/cert.pem</string>
   </dict>
 
   <key>StandardOutPath</key>
