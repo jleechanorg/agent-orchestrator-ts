@@ -9,7 +9,7 @@ Invoke the babysit skill protocol:
 
 1. **Survey**: List all open PRs with `gh pr list --state open`
 2. **Classify**: Sort into merge-ready / needs-fix / blocked / stale
-3. **Dispatch**: Spawn parallel subagents for all independent needs-fix PRs
+3. **Dispatch**: Spawn parallel AO workers for all independent needs-fix PRs
 4. **Monitor**: Collect results, push fixes, re-survey
 
 See `.claude/skills/babysit/SKILL.md` for full protocol.

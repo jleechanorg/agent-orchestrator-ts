@@ -19,7 +19,7 @@ Prevents the most common agent failure: spending an entire session on one PR whi
 ### Step 1 — Survey ALL open PRs
 
 ```bash
-gh pr list --state open --json number,title,mergeable,reviewDecision,updatedAt --jq '.[] | "\(.number) | \(.title) | mergeable=\(.mergeable) | review=\(.reviewDecision) | \(.updatedAt[:10])"'
+gh pr list --state open --json number,title,mergeable,reviewDecision,statusCheckRollup,updatedAt --jq '.[] | "\(.number) | \(.title) | mergeable=\(.mergeable) | review=\(.reviewDecision) | ci=\(.statusCheckRollup | map(.conclusion) | group_by(.) | map({(.[0] // "pending"): length}) | add) | \(.updatedAt[:10])"'
 ```
 
 **Mandatory.** Do this BEFORE any single-PR work. No exceptions.
@@ -33,19 +33,19 @@ gh pr list --state open --json number,title,mergeable,reviewDecision,updatedAt -
 | **blocked** | CONFLICTING, depends on another PR, or external blocker | Log blocker, skip for now |
 | **stale** | No activity >7 days | Close or ping owner |
 
-### Step 3 — Spawn parallel subagents
+### Step 3 — Spawn parallel AO workers
 
-For each **needs-fix** PR that is independent (no mutual dependencies), spawn a subagent in a single message:
+For each **needs-fix** PR that is independent (no mutual dependencies), spawn an AO worker per PR:
 
-```
-Agent({ subagent_type: "general-purpose", name: "fix-pr-N", ... })  // one per PR
+```text
+ao spawn --claim-pr N  // one per PR, uses AO worker model
 ```
 
 **Rules:**
-- Spawn ALL independent fix agents in a SINGLE message (parallel, not sequential)
-- Each agent gets: PR number, specific failure (CI test name, review thread, skeptic gate), and the fix scope
-- Use `isolation: "worktree"` when agents will edit code
-- Max 5 concurrent agents to avoid context explosion
+- Spawn ALL independent fix workers in parallel (one `ao spawn` per PR)
+- Each worker gets: PR number, specific failure (CI test name, review thread, skeptic gate), and the fix scope
+- AO manages worktree creation, session metadata, and CI monitoring automatically
+- Max 5 concurrent workers to avoid context explosion
 
 ### Step 4 — Monitor and collect
 
