@@ -220,6 +220,15 @@ if ! command -v ao >/dev/null 2>&1; then
   exit 1
 fi
 
+# pnpm install -g . may not create the bin link if dist/ didn't exist at
+# install time (the build runs after pnpm install but before this step).
+# Ensure the symlink exists as a fallback.
+CLI_DIST="$REPO_ROOT/packages/cli/dist/index.js"
+if [ -f "$CLI_DIST" ] && [ -d "$PNPM_HOME" ] && ! command -v ao &> /dev/null; then
+  chmod +x "$CLI_DIST"
+  ln -sf "$CLI_DIST" "$PNPM_HOME/ao"
+fi
+
 echo ""
 echo "Installing repo AO skill into user skill directories..."
 bash "$REPO_ROOT/scripts/install-repo-skills.sh"

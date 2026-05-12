@@ -72,18 +72,15 @@ append_pnpm_global_paths
 
 # Step 4: Verify ao command is available
 start_step "Step 4: Verify ao command"
-# Debug: understand why ao is not in PATH
-echo "  PATH=$PATH"
-echo "  PNPM_HOME=$PNPM_HOME"
-echo "  pnpm bin -g: $(pnpm bin -g 2>/dev/null || echo 'unknown')"
-echo "  PNPM_HOME ls:" && ls -la "$PNPM_HOME" 2>/dev/null || echo "  (dir missing)"
-echo "  PNPM_HOME/global ls:" && ls -la "$PNPM_HOME/global" 2>/dev/null || echo "  (dir missing)"
-echo "  pnpm list -g --depth 0:" && pnpm list -g --depth 0 2>/dev/null || echo "  (failed)"
-echo "  Check dist/index.js:" && ls -la /workspace/agent-orchestrator/packages/cli/dist/index.js 2>/dev/null || echo "  (not found)"
-# Try explicit reinstall
-echo "  Attempting manual pnpm install -g . ..."
-cd /workspace/agent-orchestrator/packages/cli && pnpm install -g . 2>&1; cd /workspace/agent-orchestrator
-echo "  After manual install, ls PNPM_HOME:" && ls -la "$PNPM_HOME" 2>/dev/null
+if ! command -v ao &> /dev/null; then
+  # pnpm install -g . may not create the bin link; create it manually
+  CLI_ENTRY="/workspace/agent-orchestrator/packages/cli/dist/index.js"
+  if [ -f "$CLI_ENTRY" ] && [ -d "$PNPM_HOME" ]; then
+    chmod +x "$CLI_ENTRY"
+    ln -sf "$CLI_ENTRY" "$PNPM_HOME/ao"
+    echo "  Created ao symlink: $PNPM_HOME/ao -> $CLI_ENTRY"
+  fi
+fi
 if ! command -v ao &> /dev/null; then
     fail_step "Step 4: ao command not found (pnpm install -g failed?)"
 fi
