@@ -1,6 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { getAgent, getAgentByName } from "../../src/lib/plugins.js";
 import type { OrchestratorConfig } from "@jleechanorg/ao-core";
+
+const prevEnv = { ...process.env };
+
+beforeEach(() => {
+  process.env = { ...prevEnv };
+});
+
+afterEach(() => {
+  process.env = prevEnv;
+});
 
 function makeConfig(
   defaultAgent: string,
@@ -80,11 +90,12 @@ describe("getAgentByName", () => {
   });
 
   it("returns agent for wafer", () => {
+    process.env.WAFER_API_KEY = "test-wafer-key";
     const agent = getAgentByName("wafer");
     expect(agent.name).toBe("wafer");
     const env = agent.getEnvironment({ sessionId: "test" });
     expect(env.ANTHROPIC_BASE_URL).toBe("https://pass.wafer.ai");
-    expect(env.ANTHROPIC_API_KEY).toBeDefined();
+    expect(env.ANTHROPIC_API_KEY).toBe("test-wafer-key");
   });
 
   it("throws on unknown name", () => {
