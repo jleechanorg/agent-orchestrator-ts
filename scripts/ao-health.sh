@@ -79,7 +79,7 @@ for project in $PROJECTS; do
     fi
 
     log "START: $project worker missing, starting..."
-    nohup ao lifecycle-worker "$project" >> "$LOG_FILE" 2>&1 &
+    AO_CONFIG_PATH="$CONFIG_PATH" nohup ao lifecycle-worker "$project" >> "$LOG_FILE" 2>&1 &
     disown
     STARTED=$((STARTED + 1))
     sleep 2
