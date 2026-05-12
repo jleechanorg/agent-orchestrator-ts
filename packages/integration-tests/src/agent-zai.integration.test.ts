@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
 import claudeCodePlugin from "@jleechanorg/ao-plugin-agent-claude-code";
 import {
   isTmuxAvailable,
@@ -34,7 +35,22 @@ import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 const execFileAsync = promisify(execFile);
 
 const SESSION_PREFIX = "ao-inttest-zai-";
-const DEFAULT_ZAI_BASE_URL = "https://api.z.ai/api/anthropic";
+
+function makeLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaunchConfig {
+  return {
+    sessionId: "inttest-zai",
+    projectConfig: {
+      name: "inttest-zai",
+      repo: "jleechanorg/agent-orchestrator",
+      path: "/workspace",
+      defaultBranch: "main",
+      sessionPrefix: "zai",
+    },
+    model: "z.ai/GLM-5.1",
+    permissions: "permissionless" as const,
+    ...overrides,
+  };
+}
 
 const tmuxOk = await isTmuxAvailable();
 const claudeBin = await findBinary(["claude"]);
@@ -65,14 +81,10 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
     outputFile = join(tmpDir, "fibonacci.py");
 
     const task = FIBONACCI_PROMPT_ONE_SHOT;
-    const glmKey = process.env.GLM_API_KEY!;
-    const baseUrl = DEFAULT_ZAI_BASE_URL;
-    const cmd = `claude --dangerously-skip-permissions --model GLM-5.1 -p "${task}"`;
-    await createSession(sessionName, cmd, tmpDir, {
-      ANTHROPIC_BASE_URL: baseUrl,
-      ANTHROPIC_API_KEY: glmKey,
-      ANTHROPIC_AUTH_TOKEN: glmKey,
-    });
+    const launchCfg = makeLaunchConfig();
+    const cmd = `${agent.getLaunchCommand(launchCfg)} -p "${task}"`;
+    const pluginEnv = agent.getEnvironment(launchCfg);
+    await createSession(sessionName, cmd, tmpDir, pluginEnv);
 
     const handle = makeTmuxHandle(sessionName);
     const session = makeSession("inttest-zai", handle, tmpDir);

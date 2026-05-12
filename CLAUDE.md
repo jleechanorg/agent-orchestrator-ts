@@ -231,7 +231,7 @@ pnpm --filter @jleechanorg/ao-core test
 pnpm test
 
 # Provider integration tests (require real API keys + tmux)
-pnpm --filter @jleechanorg/ao-integration-tests test:integration -- --grep="agent-(wafer|minimax|zai)"
+pnpm --filter @jleechanorg/ao-integration-tests test:integration -- -t "agent-(wafer|minimax|zai)"
 ```
 
 ### Provider E2E test coverage

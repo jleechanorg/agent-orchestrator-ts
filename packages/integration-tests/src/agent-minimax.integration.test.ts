@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
 import minimaxPlugin from "@jleechanorg/ao-plugin-agent-minimax";
 import {
   isTmuxAvailable,
@@ -32,6 +33,21 @@ import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 const execFileAsync = promisify(execFile);
 
 const SESSION_PREFIX = "ao-inttest-minimax-";
+
+function makeLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaunchConfig {
+  return {
+    sessionId: "inttest-minimax",
+    projectConfig: {
+      name: "inttest-minimax",
+      repo: "jleechanorg/agent-orchestrator",
+      path: "/workspace",
+      defaultBranch: "main",
+      sessionPrefix: "minimax",
+    },
+    permissions: "permissionless" as const,
+    ...overrides,
+  };
+}
 
 const tmuxOk = await isTmuxAvailable();
 const claudeBin = await findBinary(["claude"]);
@@ -57,14 +73,10 @@ describe.skipIf(!canRun)("agent-minimax (integration)", () => {
     outputFile = join(tmpDir, "fibonacci.py");
 
     const task = FIBONACCI_PROMPT_ONE_SHOT;
-    const minimaxKey = process.env.MINIMAX_API_KEY!;
-    const baseUrl = process.env.MINIMAX_ANTHROPIC_BASE_URL?.trim() || "https://api.minimax.io/anthropic";
-    const cmd = `claude --dangerously-skip-permissions -p "${task}"`;
-    await createSession(sessionName, cmd, tmpDir, {
-      ANTHROPIC_BASE_URL: baseUrl,
-      ANTHROPIC_API_KEY: minimaxKey,
-      ANTHROPIC_AUTH_TOKEN: minimaxKey,
-    });
+    const launchCfg = makeLaunchConfig();
+    const cmd = `${agent.getLaunchCommand(launchCfg)} -p "${task}"`;
+    const pluginEnv = agent.getEnvironment(launchCfg);
+    await createSession(sessionName, cmd, tmpDir, pluginEnv);
 
     const handle = makeTmuxHandle(sessionName);
     const session = makeSession("inttest-minimax", handle, tmpDir);

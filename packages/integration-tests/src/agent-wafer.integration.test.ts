@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
 import waferPlugin from "@jleechanorg/ao-plugin-agent-wafer";
 import {
   isTmuxAvailable,
@@ -32,6 +33,22 @@ import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 const execFileAsync = promisify(execFile);
 
 const SESSION_PREFIX = "ao-inttest-wafer-";
+
+function makeLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaunchConfig {
+  return {
+    sessionId: "inttest-wafer",
+    projectConfig: {
+      name: "inttest-wafer",
+      repo: "jleechanorg/agent-orchestrator",
+      path: "/workspace",
+      defaultBranch: "main",
+      sessionPrefix: "wafer",
+    },
+    model: "GLM-5.1",
+    permissions: "permissionless" as const,
+    ...overrides,
+  };
+}
 
 const tmuxOk = await isTmuxAvailable();
 const claudeBin = await findBinary(["claude"]);
@@ -57,16 +74,10 @@ describe.skipIf(!canRun)("agent-wafer (integration)", () => {
     outputFile = join(tmpDir, "fibonacci.py");
 
     const task = FIBONACCI_PROMPT_ONE_SHOT;
-    const waferKey = process.env.WAFER_API_KEY!;
-    const baseUrl = process.env.WAFER_ANTHROPIC_BASE_URL?.trim() || "https://pass.wafer.ai";
-    const cmd = `claude --dangerously-skip-permissions -p "${task}"`;
-    const model = process.env.WAFER_MODEL?.trim() || "GLM-5.1";
-    await createSession(sessionName, cmd, tmpDir, {
-      ANTHROPIC_BASE_URL: baseUrl,
-      ANTHROPIC_API_KEY: waferKey,
-      ANTHROPIC_AUTH_TOKEN: waferKey,
-      ANTHROPIC_MODEL: model,
-    });
+    const launchCfg = makeLaunchConfig();
+    const cmd = `${agent.getLaunchCommand(launchCfg)} -p "${task}"`;
+    const pluginEnv = agent.getEnvironment(launchCfg);
+    await createSession(sessionName, cmd, tmpDir, pluginEnv);
 
     const handle = makeTmuxHandle(sessionName);
     const session = makeSession("inttest-wafer", handle, tmpDir);
