@@ -1,6 +1,6 @@
 ---
 name: babysit
-description: Multi-PR triage — survey all open PRs, classify, and spawn parallel subagents to bring them to green.
+description: Multi-PR triage — survey all open PRs, classify, and spawn parallel AO workers to bring them to green.
 ---
 
 # /babysit — Bring all PRs to green

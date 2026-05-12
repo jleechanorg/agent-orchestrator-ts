@@ -5,7 +5,7 @@
 | Topic | Read first |
 |-------|------------|
 | AO / autonomy / OpenClaw | `skills/agent-orchestrator/SKILL.md`, `~/.claude/skills/auton/SKILL.md`, `babysit-openclaw`, `openclaw-diagnostics`, `ao-session-monitor`, `ao-worker-dispatch` |
-| Multi-PR triage | **`babysit/SKILL.md`** (`/babysit`) — survey all open PRs, classify, spawn parallel subagents |
+| Multi-PR triage | **`babysit/SKILL.md`** (`/babysit`) — survey all open PRs, classify, spawn parallel AO workers |
 | Evidence / media | `~/.claude/skills/evidence-standards/SKILL.md`, `tmux-video-evidence`, `ui-video-evidence`, `streaming-evidence-standards` |
 | Skeptic / gates | `~/.claude/skills/skeptic-agent/SKILL.md`, `validation-gate`, `hook-refire-shortcircuit` |
 | Evolve / roadmap ops | `~/.claude/skills/evolve-loop/SKILL.md`, `nextsteps/SKILL.md` |
