@@ -16,11 +16,12 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, access } from "node:fs/promises";
+import { mkdtemp, realpath, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
 import claudeCodePlugin from "@jleechanorg/ao-plugin-agent-claude-code";
 import {
   isTmuxAvailable,
@@ -34,7 +35,22 @@ import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 const execFileAsync = promisify(execFile);
 
 const SESSION_PREFIX = "ao-inttest-zai-";
-const DEFAULT_ZAI_BASE_URL = "https://api.z.ai/api/anthropic";
+
+function makeZaiLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaunchConfig {
+  return {
+    sessionId: "inttest-zai",
+    projectConfig: {
+      name: "inttest-zai",
+      repo: "jleechanorg/agent-orchestrator",
+      path: "/workspace",
+      defaultBranch: "main",
+      sessionPrefix: "zai",
+    },
+    model: "z.ai/GLM-5.1",
+    permissions: "permissionless",
+    ...overrides,
+  };
+}
 
 const tmuxOk = await isTmuxAvailable();
 const claudeBin = await findBinary(["claude"]);
@@ -50,25 +66,24 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
 
   let aliveRunning = false;
   let aliveActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
-  let aliveSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>>;
+  let aliveSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>> | null = null;
   let exitedRunning: boolean;
   let exitedActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
-  let exitedSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>>;
+  let exitedSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>> | null = null;
   let fileCreated = false;
 
   beforeAll(async () => {
     await killSessionsByPrefix(SESSION_PREFIX);
-    tmpDir = await mkdtemp(join(tmpdir(), "ao-inttest-zai-"));
+    const rawTmp = await mkdtemp(join(tmpdir(), "ao-inttest-zai-"));
+    tmpDir = await realpath(rawTmp);
     outputFile = join(tmpDir, "fibonacci.py");
 
     const task = `Write a Python fibonacci program to the file ${outputFile}. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
-    const glmKey = process.env.GLM_API_KEY!;
-    const baseUrl = DEFAULT_ZAI_BASE_URL;
-    const cmd = `claude --dangerously-skip-permissions -p "${task}"`;
-    await createSession(sessionName, cmd, tmpDir, {
-      ANTHROPIC_BASE_URL: baseUrl,
-      ANTHROPIC_API_KEY: glmKey,
-    });
+    const launchCfg = makeZaiLaunchConfig();
+    const baseLaunch = agent.getLaunchCommand(launchCfg);
+    const pluginEnv = agent.getEnvironment(launchCfg);
+    const cmd = `${baseLaunch} -p "${task}"`;
+    await createSession(sessionName, cmd, tmpDir, pluginEnv);
 
     const handle = makeTmuxHandle(sessionName);
     const session = makeSession("inttest-zai", handle, tmpDir);
@@ -80,7 +95,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
 
     if (aliveRunning) {
       aliveActivityState = await agent.getActivityState(session);
-      aliveSessionInfo = await agent.getSessionInfo(session);
+      aliveSessionInfo = (await agent.getSessionInfo(session)) ?? null;
     }
 
     exitedRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), false, {
@@ -89,7 +104,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
     });
 
     exitedActivityState = await agent.getActivityState(session);
-    exitedSessionInfo = await agent.getSessionInfo(session);
+    exitedSessionInfo = (await agent.getSessionInfo(session)) ?? null;
 
     try {
       await access(outputFile);
@@ -116,7 +131,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
   });
 
   it("getSessionInfo → returns session data while running (or null)", () => {
-    if (aliveSessionInfo !== null) {
+    if (aliveSessionInfo != null) {
       expect(aliveSessionInfo).toHaveProperty("summary");
     }
   });
@@ -130,7 +145,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
   });
 
   it("getSessionInfo → returns session data after exit (or null)", () => {
-    if (exitedSessionInfo !== null) {
+    if (exitedSessionInfo != null) {
       expect(exitedSessionInfo).toHaveProperty("summary");
     }
   });
