@@ -26,47 +26,14 @@ import { expandHome } from "./paths.js";
  */
 const BLOCKED_PREFIXES = [
   // Shell / runtime injection
-  "PATH",
-  "SHELL",
-  "BASH_ENV",
   "BASH_FUNC_",
-  "NODE_OPTIONS",
-  "LD_PRELOAD",
-  "DYLD_INSERT_LIBRARIES",
-  "DYLD_FRAMEWORK_PATH",
-  // Host identity / info leakage
-  "HOME",
-  "USER",
-  "LOGNAME",
-  "HOSTNAME",
-  "HOST",
-  // Terminal / display control
-  "TERM",
-  "DISPLAY",
-  "PAGER",
-  "EDITOR",
-  "VISUAL",
-  "COLORTERM",
-  "LS_COLORS",
-  "LSCOLORS",
-  // Shell config / prompt
-  "PS1",
-  "PS2",
-  "PS3",
-  "PS4",
-  "PROMPT_COMMAND",
-  "HISTFILE",
-  "HISTSIZE",
-  "LESSOPEN",
-  "LESSCLOSE",
+  "LD_",
+  "DYLD_",
   // XDG / desktop
   "XDG_",
   "DBUS_",
   // macOS-specific
-  "SECURITYSESSIONID",
-  "TERM_SESSION_ID",
   "ITERM_",
-  "TERM_PROGRAM",
 ] as const;
 
 const BLOCKED_EXACT = new Set([
