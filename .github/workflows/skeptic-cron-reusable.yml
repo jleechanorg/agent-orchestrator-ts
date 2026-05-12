@@ -106,7 +106,8 @@ jobs:
 
             # Gate 4: Bugbot
             BUGBOT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs --paginate 2>/dev/null | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' 2>/dev/null || echo "error")
-            if [[ ! "$BUGBOT" =~ ^(success|neutral|skipped|none|error)$ ]]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
+            if [ "$BUGBOT" = "error" ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
+            if [[ ! "$BUGBOT" =~ ^(success|neutral|skipped|none)$ ]]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
 
             COMMENTS_RAW=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null || echo "[]")
             PASS_REQUEST_ID=$(echo "$COMMENTS_RAW" | jq -sr \
@@ -348,8 +349,12 @@ jobs:
             BUGBOT_CONCLUSION=$(gh api repos/$GITHUB_REPOSITORY/commits/"$HEAD_SHA"/check-runs \
               --paginate 2>/dev/null \
               | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' \
-              2>/dev/null || echo "none")
-            if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ] || [ "$BUGBOT_CONCLUSION" = "none" ]; then
+              2>/dev/null || echo "error")
+            if [ "$BUGBOT_CONCLUSION" = "error" ]; then
+              BUGBOT_STATUS="FAIL (bugbot-check-unavailable)"
+            elif [ "$BUGBOT_CONCLUSION" = "none" ]; then
+              BUGBOT_STATUS="PASS"
+            elif [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ]; then
               BUGBOT_STATUS="PASS"
             else
               BUGBOT_STATUS="FAIL (bugbot=$BUGBOT_CONCLUSION)"
@@ -521,21 +526,6 @@ jobs:
             # 7. Skeptic verdict
             SKEPTIC_RAW=$(gh api repos/$GITHUB_REPOSITORY/issues/"$PR_NUM"/comments \
               --paginate 2>/dev/null || echo "[]")
-            REQUEST_ID=$(echo "$SKEPTIC_RAW" | jq -sr --arg sha "$HEAD_SHA" \
-              'add
-              | map(. + {request_id: (try (.body | capture("<!--\\s*skeptic-request-id-(?<request_id>[A-Za-z0-9_.:-]+)\\s*-->"; "i").request_id) catch "")})
-              | map(select(
-                  (.user.login | ascii_downcase) == "github-actions[bot]"
-                  and (.body | test("SKEPTIC_CRON_TRIGGER"; "i"))
-                  and (.body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
-                  and (.body | test("<!--\\s*skeptic-head-sha-" + $sha + "\\s*-->"; "i"))
-                  and (.request_id != "")
-                ))
-              | sort_by(.created_at // .updated_at // "")
-              | last.request_id // ""' 2>/dev/null || echo "")
-            if [ -z "$REQUEST_ID" ]; then
-              REQUEST_ID="cron-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${PR_NUM}-${HEAD_SHA:0:12}"
-            fi
             SKEPTIC_VERDICT_JSON=$(echo "$SKEPTIC_RAW" | jq -s \
               --arg author "$SKEPTIC_BOT_AUTHOR" \
               --arg sha "$HEAD_SHA" \
