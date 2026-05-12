@@ -173,7 +173,7 @@ Provider E2E tests live in `packages/integration-tests/src/`:
 
 ```bash
 # Run all provider integration tests (requires real API keys + tmux)
-pnpm --filter @jleechanorg/ao-integration-tests test:integration -- --testPathPattern="agent-(wafer|minimax|zai)"
+pnpm --filter @jleechanorg/ao-integration-tests test:integration -- --grep="agent-(wafer|minimax|zai)"
 ```
 
 | Test file | Provider | API key required | Assertions |

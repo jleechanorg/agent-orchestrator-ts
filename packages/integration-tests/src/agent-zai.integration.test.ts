@@ -71,6 +71,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
     await createSession(sessionName, cmd, tmpDir, {
       ANTHROPIC_BASE_URL: baseUrl,
       ANTHROPIC_API_KEY: glmKey,
+      ANTHROPIC_AUTH_TOKEN: glmKey,
     });
 
     const handle = makeTmuxHandle(sessionName);
