@@ -79,6 +79,14 @@ describe("getAgentByName", () => {
     expect(getAgentByName("minimax").name).toBe("minimax");
   });
 
+  it("returns agent for wafer", () => {
+    const agent = getAgentByName("wafer");
+    expect(agent.name).toBe("wafer");
+    const env = agent.getEnvironment({ sessionId: "test" });
+    expect(env.ANTHROPIC_BASE_URL).toBe("https://pass.wafer.ai");
+    expect(env.ANTHROPIC_API_KEY).toBeDefined();
+  });
+
   it("throws on unknown name", () => {
     expect(() => getAgentByName("unknown")).toThrow("Unknown agent plugin: unknown");
   });
