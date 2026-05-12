@@ -159,8 +159,11 @@ describe("getEnvironment", () => {
 describe("getRestoreCommand", () => {
   it("returns null so launch does not pass incompatible --model on resume", async () => {
     const agent = create();
+    if (!agent.getRestoreCommand) {
+      throw new Error("Expected getRestoreCommand to be defined");
+    }
     await expect(
-      agent.getRestoreCommand!(
+      agent.getRestoreCommand(
         {
           id: "s1",
           projectId: "p",

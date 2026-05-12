@@ -32,7 +32,9 @@ export async function waitForFibonacciPy(
   while (Date.now() < deadline) {
     const p = await resolveFibonacciPy(workspaceRoot);
     if (p) return p;
-    await sleep(intervalMs);
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await sleep(Math.min(intervalMs, remaining));
   }
   return null;
 }
