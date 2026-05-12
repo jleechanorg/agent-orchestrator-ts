@@ -1,33 +1,119 @@
 /**
- * env-source — source shell init files and merge API-key env vars into process.env.
+ * env-source — source shell init files and merge env vars into process.env.
  *
  * The AO daemon does NOT inherit from ~/.bashrc when it starts (it is not a login
  * shell). This module lets the config specify init files to source at startup so that
- * API keys (MINIMAX_API_KEY, ANTHROPIC_API_KEY, etc.) are available to plugins via
- * process.env without duplicating secrets into YAML config or .env files.
+ * API keys and other useful vars are available to plugins via process.env without
+ * duplicating secrets into YAML config or .env files.
  *
- * Only vars matching known API-key prefixes are merged to avoid PATH/PS1 pollution.
+ * Dangerous system and shell-injection vars are blocked to avoid PATH/PS1 pollution
+ * and runtime injection attacks.
  */
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { expandHome } from "./paths.js";
 
-/** Prefixes of env vars that are safe to import from sourced shell init files. */
-const ALLOWED_PREFIXES = [
-  "MINIMAX_",
-  "ANTHROPIC_",
-  "OPENAI_",
-  "MCP_AGENT_MAIL_",
-  "AO_",
+/**
+ * Prefixes and exact names of env vars that are DANGEROUS to import.
+ *
+ * These are blocked because they can:
+ * - Change shell/runtime behavior (PATH, SHELL, BASH_ENV, NODE_OPTIONS)
+ * - Leak host info (HOME, USER, HOSTNAME, LOGNAME)
+ * - Control terminal/display behavior (TERM, DISPLAY, PAGER, EDITOR)
+ * - Allow shell function injection (BASH_FUNC_)
+ * - Affect process execution (LD_PRELOAD, DYLD_INSERT_LIBRARIES)
+ */
+const BLOCKED_PREFIXES = [
+  // Shell / runtime injection
+  "PATH",
+  "SHELL",
+  "BASH_ENV",
+  "BASH_FUNC_",
+  "NODE_OPTIONS",
+  "LD_PRELOAD",
+  "DYLD_INSERT_LIBRARIES",
+  "DYLD_FRAMEWORK_PATH",
+  // Host identity / info leakage
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "HOSTNAME",
+  "HOST",
+  // Terminal / display control
+  "TERM",
+  "DISPLAY",
+  "PAGER",
+  "EDITOR",
+  "VISUAL",
+  "COLORTERM",
+  "LS_COLORS",
+  "LSCOLORS",
+  // Shell config / prompt
+  "PS1",
+  "PS2",
+  "PS3",
+  "PS4",
+  "PROMPT_COMMAND",
+  "HISTFILE",
+  "HISTSIZE",
+  "LESSOPEN",
+  "LESSCLOSE",
+  // XDG / desktop
+  "XDG_",
+  "DBUS_",
+  // macOS-specific
+  "SECURITYSESSIONID",
+  "TERM_SESSION_ID",
+  "ITERM_",
+  "TERM_PROGRAM",
 ] as const;
+
+const BLOCKED_EXACT = new Set([
+  "PATH",
+  "SHELL",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "HOSTNAME",
+  "HOST",
+  "TERM",
+  "DISPLAY",
+  "PAGER",
+  "EDITOR",
+  "VISUAL",
+  "PS1",
+  "PS2",
+  "PS3",
+  "PS4",
+  "PROMPT_COMMAND",
+  "HISTFILE",
+  "HISTSIZE",
+  "BASH_ENV",
+  "NODE_OPTIONS",
+  "LD_PRELOAD",
+  "DYLD_INSERT_LIBRARIES",
+  "COLORTERM",
+  "LESSOPEN",
+  "LESSCLOSE",
+  "LSCOLORS",
+  "SECURITYSESSIONID",
+  "TERM_SESSION_ID",
+  "TERM_PROGRAM",
+]);
+
+/** Check if an env var name should be blocked from import. */
+export function isBlocked(key: string): boolean {
+  if (BLOCKED_EXACT.has(key)) return true;
+  return BLOCKED_PREFIXES.some((p) => key.startsWith(p));
+}
 
 /** Snapshot of process.env at import time — used to compute the diff. */
 const ENV_BEFORE: Record<string, string | undefined> = { ...process.env };
 
 /**
  * Source a single shell init file and return any NEW env vars it defines
- * that match allowed prefixes.
+ * that are not blocked.
  *
  * Shell dotfiles (e.g. ~/.bashrc): runs `bash -c 'source <file>; env'` and diffs
  * the output against the env snapshot taken before sourcing. Only vars that appeared
@@ -68,7 +154,7 @@ export function sourceEnvFile(
         const key = trimmed.slice(0, eqIndex);
         const value = trimmed.slice(eqIndex + 1);
         if (
-          ALLOWED_PREFIXES.some((p) => key.startsWith(p)) &&
+          !isBlocked(key) &&
           process.env[key] === diffAgainst[key]
         ) {
           newVars[key] = value;
@@ -102,10 +188,10 @@ export function sourceEnvFile(
       const key = line.slice(0, eqIndex);
       const value = line.slice(eqIndex + 1);
 
-      // Only include vars that match an allowed prefix AND that won't overwrite
+      // Only include vars that are NOT blocked AND that won't overwrite
       // an existing process.env value set between module load and this sourcing call.
       if (
-        ALLOWED_PREFIXES.some((p) => key.startsWith(p)) &&
+        !isBlocked(key) &&
         process.env[key] === diffAgainst[key]
       ) {
         newVars[key] = value;
@@ -119,7 +205,7 @@ export function sourceEnvFile(
 }
 
 /**
- * Source all configured init files and merge allowed env vars into process.env.
+ * Source all configured init files and merge non-blocked env vars into process.env.
  *
  * Called once at daemon startup (before any plugins are loaded) via
  * `bootstrapEnvSource` in config.ts after the config is validated.

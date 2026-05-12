@@ -1,6 +1,6 @@
 /**
- * Unit tests for env-source.ts — sources shell init files and merges API-key
- * env vars into process.env without polluting PATH/PS1.
+ * Unit tests for env-source.ts — sources shell init files and merges env vars
+ * into process.env, blocking dangerous system/shell-injection vars.
  *
  * Tests use the real sourceEnvFile/applyEnvSource exports via vi.mock.
  * SNAPSHOT_KEYS are deleted BEFORE vi.hoisted/vi.mock evaluation so that
@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Delete ALLOWED_PREFIX vars BEFORE the hoisted mock and env-source import
+// Delete API-key vars BEFORE the hoisted mock and env-source import
 // so that ENV_BEFORE captures them as undefined.
 for (const k of [
   "MINIMAX_API_KEY",
@@ -40,19 +40,7 @@ vi.mock("node:fs", () => ({
   readFileSync: mockReadFileSync,
 }));
 
-const { sourceEnvFile, applyEnvSource } = await import("../env-source.js");
-
-/**
- * Replicate the ALLOWED_PREFIXES constant from env-source.ts so tests
- * can verify the correct set of prefixes is used.
- */
-const ALLOWED_PREFIXES = [
-  "MINIMAX_",
-  "ANTHROPIC_",
-  "OPENAI_",
-  "MCP_AGENT_MAIL_",
-  "AO_",
-] as const;
+const { sourceEnvFile, applyEnvSource, isBlocked } = await import("../env-source.js");
 
 /**
  * Mirror the parse logic from sourceEnvFile so we can test the parsing
@@ -65,7 +53,7 @@ function parseEnvOutput(output: string): Record<string, string> {
     if (eqIndex === -1) continue;
     const key = line.slice(0, eqIndex);
     const value = line.slice(eqIndex + 1);
-    if (ALLOWED_PREFIXES.some((p) => key.startsWith(p))) {
+    if (!isBlocked(key)) {
       result[key] = value;
     }
   }
@@ -94,6 +82,60 @@ beforeEach(() => {
   mockExecFileSync.mockReturnValue(Buffer.from(""));
 });
 afterEach(() => clearApiKeys());
+
+describe("isBlocked — blocklist contract", () => {
+  it("blocks PATH", () => {
+    expect(isBlocked("PATH")).toBe(true);
+  });
+
+  it("blocks HOME", () => {
+    expect(isBlocked("HOME")).toBe(true);
+  });
+
+  it("blocks SHELL", () => {
+    expect(isBlocked("SHELL")).toBe(true);
+  });
+
+  it("blocks BASH_ENV (shell injection)", () => {
+    expect(isBlocked("BASH_ENV")).toBe(true);
+  });
+
+  it("blocks BASH_FUNC_ prefix (shell function injection)", () => {
+    expect(isBlocked("BASH_FUNC_foo%%")).toBe(true);
+  });
+
+  it("blocks NODE_OPTIONS (Node injection)", () => {
+    expect(isBlocked("NODE_OPTIONS")).toBe(true);
+  });
+
+  it("blocks LD_PRELOAD (shared-lib injection)", () => {
+    expect(isBlocked("LD_PRELOAD")).toBe(true);
+  });
+
+  it("blocks DYLD_INSERT_LIBRARIES (macOS shared-lib injection)", () => {
+    expect(isBlocked("DYLD_INSERT_LIBRARIES")).toBe(true);
+  });
+
+  it("blocks PS1 (prompt)", () => {
+    expect(isBlocked("PS1")).toBe(true);
+  });
+
+  it("blocks XDG_ prefix", () => {
+    expect(isBlocked("XDG_CONFIG_HOME")).toBe(true);
+  });
+
+  it("allows MINIMAX_API_KEY", () => {
+    expect(isBlocked("MINIMAX_API_KEY")).toBe(false);
+  });
+
+  it("allows ANTHROPIC_API_KEY", () => {
+    expect(isBlocked("ANTHROPIC_API_KEY")).toBe(false);
+  });
+
+  it("allows custom MY_APP_CONFIG", () => {
+    expect(isBlocked("MY_APP_CONFIG")).toBe(false);
+  });
+});
 
 describe("sourceEnvFile — real exports", () => {
   it("returns MINIMAX_ vars from sourced output", () => {
@@ -129,7 +171,7 @@ describe("sourceEnvFile — real exports", () => {
     expect(sourceEnvFile("~/.bashrc")).toHaveProperty("AO_CLI_PATH", "/usr/local/bin/ao");
   });
 
-  it("excludes PATH, HOME, and other system vars", () => {
+  it("excludes PATH, HOME, and other blocked vars", () => {
     mockExecFileSync.mockReturnValue(
       Buffer.from("PATH=/usr/bin:/bin\nHOME=/Users/test\nMINIMAX_API_KEY=sk-cp-test"),
     );
@@ -137,6 +179,33 @@ describe("sourceEnvFile — real exports", () => {
     expect(result).not.toHaveProperty("PATH");
     expect(result).not.toHaveProperty("HOME");
     expect(result).toHaveProperty("MINIMAX_API_KEY", "sk-cp-test");
+  });
+
+  it("excludes BASH_ENV (shell injection)", () => {
+    mockExecFileSync.mockReturnValue(
+      Buffer.from("BASH_ENV=/tmp/malicious.sh\nMINIMAX_API_KEY=sk-cp-test"),
+    );
+    const result = sourceEnvFile("~/.bashrc");
+    expect(result).not.toHaveProperty("BASH_ENV");
+    expect(result).toHaveProperty("MINIMAX_API_KEY", "sk-cp-test");
+  });
+
+  it("excludes BASH_FUNC_ vars (shell function injection)", () => {
+    mockExecFileSync.mockReturnValue(
+      Buffer.from("BASH_FUNC_foo%%=() { echo pwned }\nANTHROPIC_API_KEY=sk-ant-test"),
+    );
+    const result = sourceEnvFile("~/.bashrc");
+    expect(result).not.toHaveProperty("BASH_FUNC_foo%%");
+    expect(result).toHaveProperty("ANTHROPIC_API_KEY", "sk-ant-test");
+  });
+
+  it("excludes NODE_OPTIONS (Node injection)", () => {
+    mockExecFileSync.mockReturnValue(
+      Buffer.from("NODE_OPTIONS=--require=/tmp/evil.js\nOPENAI_API_KEY=sk-openai"),
+    );
+    const result = sourceEnvFile("~/.bashrc");
+    expect(result).not.toHaveProperty("NODE_OPTIONS");
+    expect(result).toHaveProperty("OPENAI_API_KEY", "sk-openai");
   });
 
   it("returns empty when file does not exist", () => {
@@ -185,7 +254,7 @@ describe("sourceEnvFile — real exports", () => {
   });
 });
 
-describe("parseEnvOutput — allowed prefixes (contract)", () => {
+describe("parseEnvOutput — blocklist (contract)", () => {
   it("includes MINIMAX_ vars", () => {
     const output = "MINIMAX_API_KEY=sk-cp-test\nHOME=/Users/test";
     expect(parseEnvOutput(output)).toHaveProperty("MINIMAX_API_KEY", "sk-cp-test");
@@ -211,7 +280,12 @@ describe("parseEnvOutput — allowed prefixes (contract)", () => {
     expect(parseEnvOutput(output)).toHaveProperty("AO_CLI_PATH", "/usr/local/bin/ao");
   });
 
-  it("excludes PATH, HOME, and other system vars", () => {
+  it("includes custom non-blocked vars", () => {
+    const output = "MY_CUSTOM_VAR=hello";
+    expect(parseEnvOutput(output)).toHaveProperty("MY_CUSTOM_VAR", "hello");
+  });
+
+  it("excludes PATH, HOME, and other blocked system vars", () => {
     const output = [
       "PATH=/usr/bin:/bin",
       "HOME=/Users/test",
@@ -225,6 +299,20 @@ describe("parseEnvOutput — allowed prefixes (contract)", () => {
     expect(result).not.toHaveProperty("USER");
     expect(result).not.toHaveProperty("SHELL");
     expect(result).toHaveProperty("MINIMAX_API_KEY");
+  });
+
+  it("excludes BASH_ENV, BASH_FUNC_, NODE_OPTIONS", () => {
+    const output = [
+      "BASH_ENV=/tmp/evil.sh",
+      "BASH_FUNC_foo%%=() { echo hi }",
+      "NODE_OPTIONS=--require=/tmp/evil.js",
+      "MY_VAR=safe",
+    ].join("\n");
+    const result = parseEnvOutput(output);
+    expect(result).not.toHaveProperty("BASH_ENV");
+    expect(result).not.toHaveProperty("BASH_FUNC_foo%%");
+    expect(result).not.toHaveProperty("NODE_OPTIONS");
+    expect(result).toHaveProperty("MY_VAR", "safe");
   });
 
   it("handles empty output gracefully", () => {
@@ -336,9 +424,9 @@ describe("sourceEnvFile — /etc/environment direct parsing", () => {
     expect(result).toEqual({});
   });
 
-  it("filters by allowed prefixes for /etc/environment", () => {
+  it("blocks dangerous vars from /etc/environment", () => {
     mockReadFileSync.mockReturnValue(
-      "MINIMAX_API_KEY=sk-minimax\nANTHROPIC_API_KEY=sk-anthropic\nOPENAI_API_KEY=sk-openai\nMCP_AGENT_MAIL_URL=https://mail.example.com\nAO_CLI_PATH=/usr/local/bin/ao\nHOME=/test\nUSER=testuser\n",
+      "MINIMAX_API_KEY=sk-minimax\nANTHROPIC_API_KEY=sk-anthropic\nOPENAI_API_KEY=sk-openai\nMCP_AGENT_MAIL_URL=https://mail.example.com\nAO_CLI_PATH=/usr/local/bin/ao\nHOME=/test\nUSER=testuser\nBASH_ENV=/tmp/evil.sh\nNODE_OPTIONS=--require=/tmp/x.js\n",
     );
     const result = sourceEnvFile("/etc/environment");
     expect(result).toEqual({
@@ -348,6 +436,10 @@ describe("sourceEnvFile — /etc/environment direct parsing", () => {
       MCP_AGENT_MAIL_URL: "https://mail.example.com",
       AO_CLI_PATH: "/usr/local/bin/ao",
     });
+    expect(result).not.toHaveProperty("HOME");
+    expect(result).not.toHaveProperty("USER");
+    expect(result).not.toHaveProperty("BASH_ENV");
+    expect(result).not.toHaveProperty("NODE_OPTIONS");
   });
 
   it("returns empty when readFileSync throws for /etc/environment", () => {
