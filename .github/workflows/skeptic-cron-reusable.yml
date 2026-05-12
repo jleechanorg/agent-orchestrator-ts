@@ -27,7 +27,7 @@ on:
         description: "Whether to auto-merge 7-green PRs"
         type: string
         required: false
-        default: "true"
+        default: ""
 
 jobs:
   skeptic_cron:
