@@ -29,7 +29,7 @@ gh pr list --state open --json number,title,mergeable,reviewDecision,statusCheck
 | Category | Criteria | Action |
 |----------|----------|--------|
 | **merge-ready** | Mergeable + review APPROVED + CI green | Merge (or verify 7-green then merge) |
-| **needs-fix** | CI red, review CHANGES_REQUESTED, or skeptic FAIL | Spawn parallel subagent per PR |
+| **needs-fix** | CI red, review CHANGES_REQUESTED, or skeptic FAIL | Spawn parallel AO worker per PR |
 | **blocked** | CONFLICTING, depends on another PR, or external blocker | Log blocker, skip for now |
 | **stale** | No activity >7 days | Close or ping owner |
 
@@ -49,7 +49,7 @@ ao spawn --claim-pr N  // one per PR, uses AO worker model
 
 ### Step 4 — Monitor and collect
 
-- Wait for agents to complete (they auto-notify)
+- Wait for workers to complete (they auto-notify)
 - Collect results, push fixes, re-trigger CI
 - Re-survey after batch completes to catch newly unblocked PRs
 
@@ -57,7 +57,7 @@ ao spawn --claim-pr N  // one per PR, uses AO worker model
 
 If a PR needs >30 minutes of your own direct work:
 1. Stop. Re-survey. Are other PRs getting neglected?
-2. If yes, spawn a subagent for the stuck PR and move on
+2. If yes, spawn an AO worker for the stuck PR and move on
 3. If no, continue but set a 15-minute check-in timer
 
 ## Anti-patterns (DO NOT)
@@ -69,4 +69,4 @@ If a PR needs >30 minutes of your own direct work:
 
 ## Why this exists
 
-Session 2026-05-12: 9 open PRs, entire session spent on #548 serially (6 commit/push/skeptic cycles). The "prefer parallel subagents" rule was advisory, not procedural. This skill makes the triage+dispatch protocol mandatory.
+Session 2026-05-12: 9 open PRs, entire session spent on #548 serially (6 commit/push/skeptic cycles). The "prefer parallel workers" rule was advisory, not procedural. This skill makes the triage+dispatch protocol mandatory.
