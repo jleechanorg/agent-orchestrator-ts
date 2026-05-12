@@ -21,7 +21,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
 import claudeCodePlugin from "@jleechanorg/ao-plugin-agent-claude-code";
 import {
   isTmuxAvailable,
@@ -35,22 +34,7 @@ import { makeTmuxHandle, makeSession } from "./helpers/session-factory.js";
 const execFileAsync = promisify(execFile);
 
 const SESSION_PREFIX = "ao-inttest-zai-";
-
-function makeZaiLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaunchConfig {
-  return {
-    sessionId: "inttest-zai",
-    projectConfig: {
-      name: "inttest-zai",
-      repo: "jleechanorg/agent-orchestrator",
-      path: "/workspace",
-      defaultBranch: "main",
-      sessionPrefix: "zai",
-    },
-    model: "z.ai/GLM-5.1",
-    permissions: "permissionless",
-    ...overrides,
-  };
-}
+const DEFAULT_ZAI_BASE_URL = "https://api.z.ai/api/anthropic";
 
 const tmuxOk = await isTmuxAvailable();
 const claudeBin = await findBinary(["claude"]);
@@ -79,11 +63,14 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
     outputFile = join(tmpDir, "fibonacci.py");
 
     const task = `Write a Python fibonacci program to the file ${outputFile}. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
-    const launchCfg = makeZaiLaunchConfig();
-    const baseLaunch = agent.getLaunchCommand(launchCfg);
-    const pluginEnv = agent.getEnvironment(launchCfg);
-    const cmd = `${baseLaunch} -p "${task}"`;
-    await createSession(sessionName, cmd, tmpDir, pluginEnv);
+    const glmKey = process.env.GLM_API_KEY!;
+    const baseUrl = DEFAULT_ZAI_BASE_URL;
+    // Route through the GLM model id expected at the Z.AI Anthropic-compatible endpoint.
+    const cmd = `claude --dangerously-skip-permissions --model GLM-5.1 -p "${task}"`;
+    await createSession(sessionName, cmd, tmpDir, {
+      ANTHROPIC_BASE_URL: baseUrl,
+      ANTHROPIC_API_KEY: glmKey,
+    });
 
     const handle = makeTmuxHandle(sessionName);
     const session = makeSession("inttest-zai", handle, tmpDir);
@@ -99,7 +86,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
     }
 
     exitedRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), false, {
-      timeoutMs: 180_000,
+      timeoutMs: 120_000,
       intervalMs: 2_000,
     });
 
@@ -112,7 +99,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
     } catch {
       fileCreated = false;
     }
-  }, 240_000);
+  }, 150_000);
 
   afterAll(async () => {
     await killSession(sessionName);
