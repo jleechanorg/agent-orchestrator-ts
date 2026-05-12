@@ -21,7 +21,9 @@
     "@jleechanorg/ao-plugin-runtime-process": "workspace:*",
     "@jleechanorg/ao-plugin-workspace-worktree": "workspace:*",
     "@jleechanorg/ao-plugin-workspace-clone": "workspace:*",
-    "@jleechanorg/ao-plugin-tracker-linear": "workspace:*"
+    "@jleechanorg/ao-plugin-tracker-linear": "workspace:*",
+    "@jleechanorg/ao-plugin-agent-minimax": "workspace:*",
+    "@jleechanorg/ao-plugin-agent-wafer": "workspace:*"
   },
   "devDependencies": {
     "@jleechanorg/ao-plugin-notifier-desktop": "workspace:*",

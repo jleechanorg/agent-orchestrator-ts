@@ -229,7 +229,18 @@ TDD is MANDATORY for all bug fixes and features. You MUST capture the "Red" phas
 ```bash
 pnpm --filter @jleechanorg/ao-core test
 pnpm test
+
+# Provider integration tests (require real API keys + tmux)
+pnpm --filter @jleechanorg/ao-integration-tests test:integration -- --testPathPattern="agent-(wafer|minimax|zai)"
 ```
+
+### Provider E2E test coverage
+
+| Provider | Test file | API key | Assertions |
+|----------|-----------|---------|------------|
+| Wafer/GLM-5.1 | `agent-wafer.integration.test.ts` | `WAFER_API_KEY` | 6 |
+| MiniMax | `agent-minimax.integration.test.ts` | `MINIMAX_API_KEY` | 6 |
+| Z.AI/GLM-5.1 | `agent-zai.integration.test.ts` | `GLM_API_KEY` | 8 |
 
 ## Fork / PR target
 

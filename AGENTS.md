@@ -142,7 +142,7 @@ await validateAndEmitExitProof(session, newStatus, deps);
 - All `packages/core/src/` files that are net new (evidence-bundle, failure-budget, merge-gate, mcp-mail, etc.)
 
 
-## Provider Agent Plugins (wafer, minimax)
+## Provider Agent Plugins (wafer, minimax, zai)
 
 AO supports third-party LLM providers via thin adapter plugins that reuse the `claude` CLI but redirect API calls to an Anthropic-compatible endpoint. These are first-class `--agent` values — use them instead of inline model prefixes.
 
@@ -150,17 +150,37 @@ AO supports third-party LLM providers via thin adapter plugins that reuse the `c
 |------------|----------|----------|-----------------|---------------|
 | `--agent wafer` | Wafer | `https://pass.wafer.ai` | `WAFER_API_KEY` | `GLM-5.1` |
 | `--agent minimax` | MiniMax | `https://api.minimax.io/anthropic` | `MINIMAX_API_KEY` | (server-selected) |
+| inline prefix | Z.AI | `https://api.z.ai/api/anthropic` | `GLM_API_KEY` | `GLM-5.1` |
 
 ```bash
+# Dedicated plugins
 ao spawn --agent wafer "implement fibonacci"
 ao spawn --agent minimax "implement fibonacci"
+
+# Z.AI — no dedicated plugin; use claude-code with env overrides
+ao spawn --agent claude-code --model "zai/GLM-5.1" "implement fibonacci"
 ```
 
-**How it works:** Both plugins set `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` in the worker environment so the `claude` binary sends requests to the provider's endpoint instead of Anthropic.
+**How it works:** Both plugins set `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` (and `ANTHROPIC_AUTH_TOKEN` for Wafer's Bearer auth) in the worker environment so the `claude` binary sends requests to the provider's endpoint instead of Anthropic.
 
 **Plugin source:** `packages/plugins/agent-wafer/`, `packages/plugins/agent-minimax/`
 
-**Inline prefix alternative:** The `claude-code` plugin also supports `wafer.ai/` model prefix (e.g. `model: wafer.ai/GLM-5.1` in config). The dedicated `--agent wafer` plugin is preferred for clarity.
+**Inline prefix alternative:** The `claude-code` plugin also supports `wafer.ai/` and `MiniMax-` model prefixes (e.g. `model: wafer.ai/GLM-5.1` in config). The dedicated `--agent wafer` / `--agent minimax` plugins are preferred for clarity.
+
+### Integration tests
+
+Provider E2E tests live in `packages/integration-tests/src/`:
+
+```bash
+# Run all provider integration tests (requires real API keys + tmux)
+pnpm --filter @jleechanorg/ao-integration-tests test:integration -- --testPathPattern="agent-(wafer|minimax|zai)"
+```
+
+| Test file | Provider | API key required | Assertions |
+|-----------|----------|-----------------|------------|
+| `agent-wafer.integration.test.ts` | Wafer/GLM-5.1 | `WAFER_API_KEY` | 6 (process lifecycle + fibonacci output) |
+| `agent-minimax.integration.test.ts` | MiniMax | `MINIMAX_API_KEY` | 6 (process lifecycle + fibonacci output) |
+| `agent-zai.integration.test.ts` | Z.AI/GLM-5.1 | `GLM_API_KEY` | 8 (process lifecycle + fibonacci + session info) |
 
 ## Zero-Touch Policy Wiring (required)
 
