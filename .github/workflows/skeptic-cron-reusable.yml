@@ -649,3 +649,4 @@ jobs:
           echo "merged_count=$MERGED" >> "$GITHUB_OUTPUT"
           echo ""
           echo "=== Skeptic cron complete: $MERGED PR(s) merged ==="
+ 
