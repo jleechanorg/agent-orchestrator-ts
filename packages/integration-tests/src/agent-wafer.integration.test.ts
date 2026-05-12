@@ -13,7 +13,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, access } from "node:fs/promises";
+import { mkdtemp, realpath, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -52,7 +52,7 @@ describe.skipIf(!canRun)("agent-wafer (integration)", () => {
 
   beforeAll(async () => {
     await killSessionsByPrefix(SESSION_PREFIX);
-    tmpDir = await mkdtemp(join(tmpdir(), "ao-inttest-wafer-"));
+    tmpDir = await realpath(await mkdtemp(join(tmpdir(), "ao-inttest-wafer-")));
     outputFile = join(tmpDir, "fibonacci.py");
 
     const task = `Write a Python fibonacci program to the file ${outputFile}. The program should print the first 10 fibonacci numbers when run. Write only the file, no explanation.`;
