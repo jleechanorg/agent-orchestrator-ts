@@ -229,11 +229,43 @@ TDD is MANDATORY for all bug fixes and features. You MUST capture the "Red" phas
 ```bash
 pnpm --filter @jleechanorg/ao-core test
 pnpm test
+
+# Provider integration tests (require real API keys + tmux)
+pnpm --filter @jleechanorg/ao-integration-tests test:integration -- -t "agent-(wafer|minimax|zai)"
 ```
+
+### Provider E2E test coverage
+
+| Provider | Test file | API key | Assertions |
+|----------|-----------|---------|------------|
+| Wafer/GLM-5.1 | `agent-wafer.integration.test.ts` | `WAFER_API_KEY` | 6 |
+| MiniMax | `agent-minimax.integration.test.ts` | `MINIMAX_API_KEY` | 6 |
+| Z.AI/GLM-5.1 | `agent-zai.integration.test.ts` | `GLM_API_KEY` | 8 |
 
 ## Fork / PR target
 
 `jleechanorg/agent-orchestrator`. Never upstream `ComposioHQ` PR without explicit approval. Strip fork artifacts for upstream cherry-picks.
+
+## Provider Agent Plugins (wafer, minimax)
+
+AO supports third-party LLM providers via thin adapter plugins that reuse the `claude` CLI binary but redirect API calls to a different Anthropic-compatible endpoint.
+
+| Agent flag | Provider | Base URL | API key env var | Default model |
+|------------|----------|----------|-----------------|---------------|
+| `--agent wafer` | Wafer | `https://pass.wafer.ai` | `WAFER_API_KEY` | `GLM-5.1` |
+| `--agent minimax` | MiniMax | `https://api.minimax.io/anthropic` | `MINIMAX_API_KEY` | (server-selected) |
+
+**How it works:** Both plugins set `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` in the worker environment so the `claude` binary sends requests to the provider's endpoint instead of Anthropic. The provider must expose an Anthropic-compatible API.
+
+**Usage:**
+```bash
+ao spawn --agent wafer "implement fibonacci"
+ao spawn --agent minimax "implement fibonacci"
+```
+
+**Inline prefix alternative:** The `claude-code` plugin also supports `wafer.ai/` model prefix (e.g. `model: wafer.ai/GLM-5.1` in config). The dedicated `--agent wafer` plugin is preferred for clarity.
+
+**Plugin source:** `packages/plugins/agent-wafer/`, `packages/plugins/agent-minimax/`
 
 ## Binary Installation — Canonical Install Paths
 
