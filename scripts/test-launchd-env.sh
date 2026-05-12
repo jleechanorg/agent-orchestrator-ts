@@ -22,7 +22,7 @@ if [ -f "$PLIST_PATH" ]; then
     echo "FAIL: Unsubstituted template variables in $PLIST_PATH:"
     echo "$unsubstituted"
     echo "These expand to empty strings in launchd env, causing 401 auth failures."
-    echo "Fix: re-run bash scripts/setup-launchd.sh lifecycle"
+    echo "Fix: re-run bash scripts/setup-launchd.sh health"
     exit 1
   fi
 else
