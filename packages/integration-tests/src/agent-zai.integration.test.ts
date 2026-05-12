@@ -135,7 +135,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
   });
 
   it("getSessionInfo → returns session data after exit (or null)", () => {
-    if (exitedSessionInfo != null) {
+    if (exitedSessionInfo !== null) {
       expect(exitedSessionInfo).toHaveProperty("summary");
     }
   });
