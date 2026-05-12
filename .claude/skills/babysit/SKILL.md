@@ -1,0 +1,72 @@
+---
+name: babysit
+description: Multi-PR triage and parallel work dispatcher. Prevents single-PR tunnel vision by enforcing a survey-before-deep-dive protocol.
+---
+
+# babysit — Multi-PR Triage & Parallel Dispatch
+
+Prevents the most common agent failure: spending an entire session on one PR while other PRs rot.
+
+## When to use
+
+- Session start (always, if repo has open PRs)
+- After resuming from context compaction
+- When the user says "bring PRs to green" or similar
+- Any time you catch yourself iterating on a single PR for >15 minutes without checking others
+
+## Protocol
+
+### Step 1 — Survey ALL open PRs
+
+```bash
+gh pr list --state open --json number,title,mergeable,reviewDecision,updatedAt --jq '.[] | "\(.number) | \(.title) | mergeable=\(.mergeable) | review=\(.reviewDecision) | \(.updatedAt[:10])"'
+```
+
+**Mandatory.** Do this BEFORE any single-PR work. No exceptions.
+
+### Step 2 — Classify each PR
+
+| Category | Criteria | Action |
+|----------|----------|--------|
+| **merge-ready** | Mergeable + review APPROVED + CI green | Merge (or verify 7-green then merge) |
+| **needs-fix** | CI red, review CHANGES_REQUESTED, or skeptic FAIL | Spawn parallel subagent per PR |
+| **blocked** | CONFLICTING, depends on another PR, or external blocker | Log blocker, skip for now |
+| **stale** | No activity >7 days | Close or ping owner |
+
+### Step 3 — Spawn parallel subagents
+
+For each **needs-fix** PR that is independent (no mutual dependencies), spawn a subagent in a single message:
+
+```
+Agent({ subagent_type: "general-purpose", name: "fix-pr-N", ... })  // one per PR
+```
+
+**Rules:**
+- Spawn ALL independent fix agents in a SINGLE message (parallel, not sequential)
+- Each agent gets: PR number, specific failure (CI test name, review thread, skeptic gate), and the fix scope
+- Use `isolation: "worktree"` when agents will edit code
+- Max 5 concurrent agents to avoid context explosion
+
+### Step 4 — Monitor and collect
+
+- Wait for agents to complete (they auto-notify)
+- Collect results, push fixes, re-trigger CI
+- Re-survey after batch completes to catch newly unblocked PRs
+
+### Step 5 — Escalate stuck PRs
+
+If a PR needs >30 minutes of your own direct work:
+1. Stop. Re-survey. Are other PRs getting neglected?
+2. If yes, spawn a subagent for the stuck PR and move on
+3. If no, continue but set a 15-minute check-in timer
+
+## Anti-patterns (DO NOT)
+
+- ❌ Spend entire session on one PR without surveying others
+- ❌ Run `ao skeptic verify` serially on each PR — parallelize
+- ❌ Fix one gate, push, wait, fix next gate — batch fixes before pushing
+- ❌ Treat a context-resume summary as a single-PR task queue
+
+## Why this exists
+
+Session 2026-05-12: 9 open PRs, entire session spent on #548 serially (6 commit/push/skeptic cycles). The "prefer parallel subagents" rule was advisory, not procedural. This skill makes the triage+dispatch protocol mandatory.
