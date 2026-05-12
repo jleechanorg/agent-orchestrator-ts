@@ -36,7 +36,7 @@ fi
 # so the highest-PID worker is the one started after the last plist install.
 # Filter out workers from stale sessions (e.g., source-tree dist/index.js paths).
 youngest_pid=$(
-  pgrep -f "lifecycle-worker" | sort -n | tail -1
+  pgrep -f "lifecycle-worker" | sort -n | tail -1 || true
 )
 
 if [ -z "$youngest_pid" ]; then

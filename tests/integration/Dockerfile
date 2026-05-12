@@ -30,12 +30,14 @@ COPY . /workspace/agent-orchestrator
 # Create a test user (simulates developer's home directory)
 RUN useradd -m -s /bin/bash testuser
 
-# Configure npm to use user-local prefix (no sudo needed for npm link)
+# Configure npm to use user-local prefix (no sudo needed for npm install -g)
 RUN mkdir -p /home/testuser/.npm-global && \
     chown -R testuser:testuser /home/testuser/.npm-global
 USER testuser
 RUN npm config set prefix '/home/testuser/.npm-global'
-ENV PATH="/home/testuser/.npm-global/bin:$PATH"
+# pnpm install -g installs to PNPM_HOME; setup.sh also uses this path
+ENV PNPM_HOME=/home/testuser/.local/share/pnpm
+ENV PATH="/home/testuser/.local/share/pnpm:/home/testuser/.npm-global/bin:$PATH"
 
 WORKDIR /home/testuser
 
