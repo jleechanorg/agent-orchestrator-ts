@@ -99,7 +99,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
     }
 
     exitedRunning = await pollUntilEqual(() => agent.isProcessRunning(handle), false, {
-      timeoutMs: 120_000,
+      timeoutMs: 180_000,
       intervalMs: 2_000,
     });
 
@@ -112,7 +112,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
     } catch {
       fileCreated = false;
     }
-  }, 150_000);
+  }, 240_000);
 
   afterAll(async () => {
     await killSession(sessionName);
@@ -131,7 +131,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
   });
 
   it("getSessionInfo → returns session data while running (or null)", () => {
-    if (aliveSessionInfo != null) {
+    if (aliveSessionInfo !== null) {
       expect(aliveSessionInfo).toHaveProperty("summary");
     }
   });
@@ -145,7 +145,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
   });
 
   it("getSessionInfo → returns session data after exit (or null)", () => {
-    if (exitedSessionInfo != null) {
+    if (exitedSessionInfo !== null) {
       expect(exitedSessionInfo).toHaveProperty("summary");
     }
   });

@@ -158,7 +158,7 @@ ao spawn --agent wafer "implement fibonacci"
 ao spawn --agent minimax "implement fibonacci"
 
 # Z.AI — no dedicated plugin; use claude-code with env overrides
-ao spawn --agent claude-code --model "zai/GLM-5.1" "implement fibonacci"
+ao spawn --agent claude-code --model "z.ai/GLM-5.1" "implement fibonacci"
 ```
 
 **How it works:** Both plugins set `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` (and `ANTHROPIC_AUTH_TOKEN` for Wafer's Bearer auth) in the worker environment so the `claude` binary sends requests to the provider's endpoint instead of Anthropic.
