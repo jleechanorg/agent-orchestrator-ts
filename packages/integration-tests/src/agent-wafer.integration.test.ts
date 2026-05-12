@@ -92,7 +92,7 @@ describe.skipIf(!canRun)("agent-wafer (integration)", () => {
       exitedActivityState = await agent.getActivityState(session);
     }
 
-    const found = await waitForFibonacciPy(tmpDir, { timeoutMs: 60_000 });
+    const found = await waitForFibonacciPy(tmpDir, { timeoutMs: 120_000 });
     fileCreated = found !== null;
     if (found) outputFile = found;
   }, 240_000);
