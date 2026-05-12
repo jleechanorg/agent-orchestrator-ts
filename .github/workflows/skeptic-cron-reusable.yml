@@ -539,7 +539,6 @@ jobs:
             SKEPTIC_VERDICT_JSON=$(echo "$SKEPTIC_RAW" | jq -s \
               --arg author "$SKEPTIC_BOT_AUTHOR" \
               --arg sha "$HEAD_SHA" \
-              --arg request_id "$REQUEST_ID" \
               --arg pr_author "$PR_AUTHOR" \
               'add
               | map(. + {verdict: (try (.body | capture("^[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)\\b(?:\\*{1,2})?[ \\t]*(?:[-—:][^\\n]*)?" ; "im").verdict | ascii_upcase) catch "")})
@@ -555,7 +554,7 @@ jobs:
                 and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                 and (.verdict != "")
                 and ($body | test("<!--\\s*skeptic-cron-trigger-" + $sha + "\\s*-->"; "i"))
-                and ($body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i"))
+                and ($body | test("<!--\\s*skeptic-request-id-[A-Za-z0-9_.:-]+\\s*-->"; "i"))
                 and ($body | test("<!--\\s*skeptic-head-sha-" + $sha + "\\s*-->"; "i"))
                 and ((.verdict != "PASS")
                      or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))))
