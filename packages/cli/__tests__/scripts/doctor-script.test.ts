@@ -57,7 +57,18 @@ function createHealthyPath(binDir: string): void {
   createFakeBinary(
     binDir,
     "pnpm",
-    'if [ "$1" = "--version" ]; then\n  printf "9.15.4\\n"\n  exit 0\nfi\nexit 0',
+    [
+      "if [ \"$1\" = \"install\" ] && [ \"$2\" = \"-g\" ]; then",
+      "  mkdir -p \"${PNPM_HOME:-$HOME/.local/share/pnpm}\"",
+      "  printf '#!/bin/bash\\nao ok\\n' > \"${PNPM_HOME:-$HOME/.local/share/pnpm}/ao\"",
+      "  chmod +x \"${PNPM_HOME:-$HOME/.local/share/pnpm}/ao\"",
+      "fi",
+      'if [ "$1" = "--version" ]; then',
+      '  printf "9.15.4\\n"',
+      '  exit 0',
+      "fi",
+      "exit 0",
+    ].join("\n"),
   );
   createFakeBinary(
     binDir,
@@ -98,7 +109,7 @@ describe("scripts/ao-doctor.sh", () => {
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        // Isolate from a global `ao` on the developer PATH (would skip npm link in --fix tests)
+        // Isolate from a global `ao` on the developer PATH (would skip launcher fix in --fix tests)
         PATH: `${binDir}:/usr/bin:/bin`,
         AO_REPO_ROOT: fakeRepo,
         AO_CONFIG_PATH: configPath,
@@ -123,14 +134,6 @@ describe("scripts/ao-doctor.sh", () => {
     createHealthyPath(binDir);
     rmSync(join(binDir, "ao"), { force: true });
 
-    const npmLog = join(tempRoot, "npm.log");
-    writeFileSync(npmLog, "");
-    createFakeBinary(
-      binDir,
-      "npm",
-      `printf '%s\\n' "$*" >> ${JSON.stringify(npmLog)}\nif [ "$1" = "bin" ]; then\n  printf "/tmp/npm-bin\\n"\nfi\nexit 0`,
-    );
-
     const configPath = join(tempRoot, "agent-orchestrator.yaml");
     const dataDir = join(tempRoot, "data");
     const worktreeDir = join(tempRoot, "worktrees");
@@ -150,10 +153,14 @@ describe("scripts/ao-doctor.sh", () => {
     const oldTimestamp = new Date(Date.now() - 2 * 60 * 60 * 1000);
     utimesSync(staleFile, oldTimestamp, oldTimestamp);
 
+    const pnpmHome = join(tempRoot, "pnpm-global");
+    mkdirSync(pnpmHome, { recursive: true });
+
     const result = spawnSync("bash", [scriptPath, "--fix"], {
       env: {
         ...process.env,
-        PATH: `${binDir}:/usr/bin:/bin`,
+        PATH: `${pnpmHome}:${binDir}:/usr/bin:/bin`,
+        PNPM_HOME: pnpmHome,
         AO_REPO_ROOT: fakeRepo,
         AO_CONFIG_PATH: configPath,
         AO_STAGING_CONFIG_PATH: join(tempRoot, ".openclaw", "agent-orchestrator.yaml"),
@@ -163,7 +170,6 @@ describe("scripts/ao-doctor.sh", () => {
       encoding: "utf8",
     });
 
-    const npmCommands = readFileSync(npmLog, "utf8");
     const staleStillExists = existsSync(staleFile);
     const dataDirExists = existsSync(dataDir);
     const worktreeDirExists = existsSync(worktreeDir);
@@ -173,7 +179,7 @@ describe("scripts/ao-doctor.sh", () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("FIXED");
-    expect(npmCommands).toContain("link");
+    expect(result.stdout).toContain("pnpm install -g");
     expect(result.stdout).toContain("launcher");
     expect(result.stdout).toContain("stale temp files");
     expect(staleStillExists).toBe(false);

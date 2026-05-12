@@ -1,28 +1,25 @@
 #!/usr/bin/env bash
-# Fix ao binary permissions and npm link after ao-update fails with "Permission denied"
-# Root cause: dist/index.js lacks execute bit; npm arborist state is stale
+# Fix ao CLI global install after ao-update/setup fails (permissions or stale global package).
+# Uses pnpm install -g . (npm link / npm install -g from tarball do not work for this monorepo).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLI_DIR="$REPO_ROOT/packages/cli"
-NODE_BIN="$(dirname "$(command -v node)")"
-GLOBAL_MODULES="$(npm root -g)"
+PNPM_BIN="$(command -v pnpm || true)"
 
-echo "==> Fixing ao link..."
-
-# 1. Remove stale global link (arborist gets confused when it already exists)
-if [ -e "$GLOBAL_MODULES/@jleechanorg/ao-cli" ]; then
-  echo "  Removing stale global @jleechanorg/ao-cli link..."
-  rm -rf "$GLOBAL_MODULES/@jleechanorg/ao-cli"
+echo "==> Refreshing global ao (pnpm install -g)..."
+if [ -z "$PNPM_BIN" ]; then
+  echo "ERROR: pnpm not found." >&2
+  exit 1
 fi
 
-# 2. Remove stale ao bin symlink
-if [ -e "$NODE_BIN/ao" ]; then
-  echo "  Removing stale ao bin symlink..."
-  rm -f "$NODE_BIN/ao"
-fi
+export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+export PATH="$PNPM_HOME:$PATH"
+mkdir -p "$PNPM_HOME" 2>/dev/null || true
 
-# 3. Ensure dist/index.js exists and has execute bit
+# Drop stale global install if present (ignore if absent)
+pnpm remove -g @jleechanorg/ao-cli 2>/dev/null || true
+
 DIST="$CLI_DIR/dist/index.js"
 if [ ! -f "$DIST" ]; then
   echo "  dist/index.js missing — building..."
@@ -31,14 +28,17 @@ fi
 chmod +x "$DIST"
 echo "  chmod +x $DIST"
 
-# 4. Re-link
-echo "  Running npm link from $CLI_DIR..."
-(cd "$CLI_DIR" && npm link)
-
-# 5. Verify
-if ao --version &>/dev/null; then
-  echo "==> ao $(ao --version) linked successfully"
+echo "  Running pnpm install -g . from $CLI_DIR..."
+if (cd "$CLI_DIR" && "$PNPM_BIN" install -g .); then
+  :
 else
-  echo "ERROR: ao still not working after relink" >&2
+  echo "  Retrying with sudo..."
+  sudo -H env PNPM_HOME="$PNPM_HOME" PATH="$PNPM_HOME:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g "$CLI_DIR"
+fi
+
+if ao --version &>/dev/null; then
+  echo "==> ao $(ao --version) installed successfully"
+else
+  echo "ERROR: ao still not working after pnpm install -g" >&2
   exit 1
 fi
