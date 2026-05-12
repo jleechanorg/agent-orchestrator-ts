@@ -252,7 +252,7 @@ Before opening a PR, verify:
 
 | Audience | Install command | Notes |
 |----------|---------------|-------|
-| **This repo's maintainers** (you) | `bash scripts/setup.sh` | Builds from current source tree via `npm link` — always latest SHA |
+| **This repo's maintainers** (you) | `bash scripts/setup.sh` | Builds from current source tree via **`pnpm install -g .`** — always latest SHA |
 | **Other people / other machines** | `npm install -g @jleechanorg/ao-cli` | Standard npm install — published package |
 
 **Why this matters for all agents**: If Codex or Cursor spawns an AO worker via `ao spawn`, that worker inherits the `PATH`-resolved `ao` binary. For this repo's maintainers, `scripts/setup.sh` ensures the running binary always matches the source tree SHA. The global npm package lags behind source between `release.yml` publishes.

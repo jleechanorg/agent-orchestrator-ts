@@ -174,19 +174,23 @@ check_launcher() {
     return
   fi
 
-  if [ "$FIX_MODE" = true ] && command -v npm >/dev/null 2>&1 && [ -d "$REPO_ROOT/packages/cli" ]; then
-    if (cd "$REPO_ROOT/packages/cli" && npm link >/dev/null 2>&1) && command -v ao >/dev/null 2>&1; then
-      fixed "ao launcher refreshed with npm link"
+  if [ "$FIX_MODE" = true ] && [ -d "$REPO_ROOT/packages/cli" ]; then
+    PNPM_BIN="$(command -v pnpm || true)"
+    export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+    export PATH="$PNPM_HOME:${PATH:-}"
+    mkdir -p "$PNPM_HOME" 2>/dev/null || true
+    if [ -n "$PNPM_BIN" ] && (cd "$REPO_ROOT/packages/cli" && "$PNPM_BIN" install -g . >/dev/null 2>&1) && command -v ao >/dev/null 2>&1; then
+      fixed "ao launcher refreshed with pnpm install -g"
       return
     fi
-    if [ -t 0 ]; then
+    if [ -n "$PNPM_BIN" ] && [ -t 0 ]; then
       printf '  Permission denied. Retrying with sudo...\n'
-      if (cd "$REPO_ROOT/packages/cli" && sudo npm link >/dev/null 2>&1) && command -v ao >/dev/null 2>&1; then
-        fixed "ao launcher refreshed with sudo npm link"
+      if (cd "$REPO_ROOT/packages/cli" && sudo -H env PNPM_HOME="$PNPM_HOME" PATH="$PNPM_HOME:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g . >/dev/null 2>&1) && command -v ao >/dev/null 2>&1; then
+        fixed "ao launcher refreshed with sudo pnpm install -g"
         return
       fi
     fi
-    warn "ao launcher refresh failed. Fix: cd $REPO_ROOT/packages/cli && sudo npm link"
+    warn "ao launcher refresh failed. Fix: cd $REPO_ROOT/packages/cli && pnpm install -g . (maintainers) or npm install -g @jleechanorg/ao-cli (published package users)"
     return
   fi
 
@@ -242,7 +246,7 @@ check_install_layout() {
 }
 
 check_runtime_sanity() {
-  # Canonical: packages/cli/dist/index.js (result of npm link from setup/update scripts).
+  # Canonical: packages/cli/dist/index.js (pnpm install -g from setup/update refreshes the launcher).
   # Also supports legacy paths and npm-install layouts.
   local launcher=""
   if [ -f "$REPO_ROOT/packages/cli/dist/index.js" ]; then

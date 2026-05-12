@@ -61,26 +61,19 @@ cd "$REPO_ROOT"
 # is built and run separately via pnpm next dev.
 pnpm --filter @jleechanorg/ao-cli build 2>&1 | tail -1
 
-echo "Linking ao CLI globally..."
+echo "Linking ao CLI globally (pnpm install -g)..."
 cd "$REPO_ROOT/packages/cli"
-# Use pnpm install -g for pnpm monorepos (npm install -g fails on workspace:* deps).
-# Set PNPM_HOME to a dir in PATH so pnpm can find the global bin.
 export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
 export PATH="$PNPM_HOME:$PATH"
 if ! mkdir -p "$PNPM_HOME" 2>/dev/null; then
-  # Fallback: use npm link if pnpm global dir is not writable
-  if npm link 2>/dev/null; then
-    echo "[ok] ao CLI linked via npm"
-  else
-    echo "WARNING: Could not link ao CLI globally." >&2
-    echo "  Try manually: cd packages/cli && npm link"
-  fi
+  echo "WARNING: Could not create PNPM_HOME ($PNPM_HOME)." >&2
+  echo "  Fix permissions or set PNPM_HOME, then: cd packages/cli && pnpm install -g ." >&2
 else
-  if pnpm install -g . 2>/dev/null; then
+  if command -v pnpm >/dev/null 2>&1 && pnpm install -g . 2>/dev/null; then
     echo "[ok] ao CLI installed globally via pnpm"
   else
     echo "WARNING: pnpm install -g failed." >&2
-    echo "  Try manually: cd packages/cli && pnpm install -g ."
+    echo "  Try: cd packages/cli && pnpm install -g ." >&2
   fi
 fi
 cd "$REPO_ROOT"

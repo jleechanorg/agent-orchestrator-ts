@@ -241,7 +241,7 @@ pnpm test
 
 | Audience | Install command | Notes |
 |----------|---------------|-------|
-| **This repo's maintainers** (you) | `bash scripts/setup.sh` | Builds from current source tree via `npm link` — always latest SHA |
+| **This repo's maintainers** (you) | `bash scripts/setup.sh` | Builds from current source tree via **`pnpm install -g .`** (from `packages/cli`) — always latest SHA |
 | **Other people / other machines** | `npm install -g @jleechanorg/ao-cli` | Standard npm install — published package |
 
 | Task | Command |
@@ -250,13 +250,13 @@ pnpm test
 | Update to latest main | `bash scripts/ao-update.sh` |
 | Verify install health | `ao doctor` |
 
-**Why `scripts/setup.sh`?** It builds from the current source tree and runs `npm link`, which symlinks `packages/cli/dist/index.js` into the global npm prefix. The running binary always matches the source tree SHA — no lag.
+**Why `scripts/setup.sh`?** It builds from the current source tree and runs **`pnpm install -g .`** in `packages/cli`, which registers the built `ao` in your pnpm global bin (set **`PNPM_HOME`** and put it on **`PATH`** — the script prints hints if `ao` is missing). Plain **`npm install -g .`** cannot install this monorepo CLI because scoped workspace dependencies are not all on the public registry. The running binary matches the source tree SHA — no lag.
 
 **Why `scripts/ao-update.sh` over `npm update -g`?** `ao-update.sh` kills existing lifecycle-workers before rebuilding, then restarts them. Running `npm update` without this sequence leaves old workers on stale code while a new binary is installed.
 
 **After every install or update, run `ao doctor` and confirm zero FAIL results before spawning workers.** `ao doctor` detects non-canonical lifecycle-workers (running from a different binary path than `command -v ao`). If `ao doctor --fix` is needed, run it and re-verify.
 
-**All worker invocations (including launchd plist) must call `ao` as a command resolved from PATH — never a hardcoded path.** After `scripts/setup.sh` or `scripts/ao-update.sh`, the `npm link` step makes `packages/cli/dist/index.js` the `PATH`-visible `ao` binary. For `npm install -g` users, the binary lives in the global npm prefix instead.
+**All worker invocations (including launchd plist) must call `ao` as a command resolved from PATH — never a hardcoded path.** After `scripts/setup.sh` or `scripts/ao-update.sh`, the **`pnpm install -g .`** step makes the built CLI the `PATH`-visible `ao` binary (under **`PNPM_HOME`** by default). For published-package users, `npm install -g @jleechanorg/ao-cli` installs into the npm global prefix instead.
 
 **Verify the publish pipeline works before documenting an install path.** If a mechanism (e.g. `release.yml`, a workflow, a script) is broken, fix it before documenting the install path that depends on it. Documenting a broken install path creates a bad experience for every user who follows it.
 

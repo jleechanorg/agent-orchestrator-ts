@@ -53,7 +53,7 @@ esac\nexit 0`,
     createFakeBinary(
       binDir,
       "pnpm",
-      `printf 'pnpm %s\\n' "$*" >> ${JSON.stringify(commandLog)}\nif [ "$1" = "--version" ]; then\n  printf '9.15.4\\n'\nfi\nexit 0`,
+      `printf 'pnpm %s\\n' "$*" >> ${JSON.stringify(commandLog)}\nif [ "$1" = "--version" ]; then\n  printf '9.15.4\\n'\nfi\nif [ "$1" = "install" ] && [ "$2" = "-g" ]; then\n  exit 0\nfi\nexit 0`,
     );
     createFakeBinary(
       binDir,
@@ -80,7 +80,7 @@ esac\nexit 0`,
     expect(commands).toContain("pnpm install");
     expect(commands).toContain("pnpm --filter @jleechanorg/ao-core clean");
     expect(commands).toContain("pnpm --filter @jleechanorg/ao-cli build");
-    expect(commands).toContain("npm link");
+    expect(commands).toContain("pnpm install -g .");
   });
 
   it("runs the built-in smoke commands in smoke-only mode", () => {

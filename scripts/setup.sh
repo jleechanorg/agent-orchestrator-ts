@@ -1,6 +1,6 @@
 #!/bin/bash
 # Agent Orchestrator setup script
-# Validates prerequisites, installs dependencies, builds packages, and links the CLI globally
+# Validates prerequisites, installs dependencies, builds packages, and installs the CLI globally (pnpm install -g).
 
 set -e  # Exit on error
 
@@ -123,7 +123,8 @@ else
   fi
 fi
 
-# ─── Install, build, link ────────────────────────────────────────────────────
+# ─── Install, build, global CLI (pnpm install -g — not npm link; workspace deps
+# cannot be installed via npm install -g from this tree) ─────────────────────
 
 echo ""
 echo "Installing dependencies..."
@@ -138,15 +139,31 @@ echo "Building all packages..."
 pnpm build
 
 echo ""
-echo "Linking CLI globally..."
+echo "Installing CLI globally (pnpm install -g . from packages/cli)..."
+PNPM_BIN="$(command -v pnpm || true)"
+if [ -z "$PNPM_BIN" ]; then
+  echo "ERROR: pnpm not found. Enable corepack (corepack prepare pnpm --activate) or install pnpm."
+  exit 1
+fi
+export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+export PATH="$PNPM_HOME:$PATH"
 cd packages/cli
-if npm link 2>/dev/null; then
+if ! mkdir -p "$PNPM_HOME" 2>/dev/null; then
+  echo "ERROR: cannot create PNPM_HOME: $PNPM_HOME"
+  exit 1
+fi
+if "$PNPM_BIN" install -g .; then
   :
 elif [ "$INTERACTIVE" = true ]; then
   echo "  Permission denied. Retrying with sudo..."
-  sudo npm link
+  if sudo -H env PNPM_HOME="$PNPM_HOME" PATH="$PNPM_HOME:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g .; then
+    :
+  else
+    echo "ERROR: pnpm install -g failed. Run: cd packages/cli && sudo pnpm install -g ."
+    exit 1
+  fi
 else
-  echo "ERROR: Permission denied. Run manually: cd packages/cli && sudo npm link"
+  echo "ERROR: Permission denied. Run manually: cd packages/cli && pnpm install -g ."
   exit 1
 fi
 cd "$REPO_ROOT"
@@ -163,9 +180,11 @@ if command -v ao &> /dev/null; then
 else
   NPM_BIN="$(npm bin -g 2>/dev/null || npm config get prefix)/bin"
   echo "WARNING: 'ao' is not in your PATH."
+  echo "  pnpm global bin dir: ${PNPM_HOME:-$HOME/.local/share/pnpm}"
   echo "  Add this to your shell profile (~/.zshrc or ~/.bashrc):"
   echo ""
-  echo "    export PATH=\"$NPM_BIN:\$PATH\""
+  echo "    export PNPM_HOME=\"\${PNPM_HOME:-\$HOME/.local/share/pnpm}\""
+  echo "    export PATH=\"\$PNPM_HOME:$NPM_BIN:\$PATH\""
   echo ""
   echo "  Then restart your terminal or run: source ~/.zshrc"
 fi

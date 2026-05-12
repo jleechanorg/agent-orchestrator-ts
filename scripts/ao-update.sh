@@ -245,16 +245,24 @@ if [ "$SMOKE_ONLY" = false ]; then
   run_cmd pnpm --filter @jleechanorg/ao-cli build
   run_cmd pnpm --filter @jleechanorg/ao-web build
 
-  printf '\nRefreshing ao launcher...\n'
+  printf '\nRefreshing ao launcher (pnpm install -g)...\n'
   (
     cd "$REPO_ROOT/packages/cli"
-    if npm link 2>/dev/null; then
+    PNPM_BIN="$(command -v pnpm || true)"
+    if [ -z "$PNPM_BIN" ]; then
+      printf 'ERROR: pnpm not found; cannot refresh ao CLI globally.\n'
+      exit 1
+    fi
+    export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+    export PATH="$PNPM_HOME:$PATH"
+    mkdir -p "$PNPM_HOME" 2>/dev/null || true
+    if "$PNPM_BIN" install -g .; then
       :
     elif [ -t 0 ]; then
       printf '  Permission denied. Retrying with sudo...\n'
-      sudo npm link
+      sudo -H env PNPM_HOME="$PNPM_HOME" PATH="$PNPM_HOME:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g .
     else
-      printf 'ERROR: Permission denied. Run manually: cd %s/packages/cli && sudo npm link\n' "$REPO_ROOT"
+      printf 'ERROR: Permission denied. Run manually: cd %s/packages/cli && pnpm install -g .\n' "$REPO_ROOT"
       exit 1
     fi
   )
