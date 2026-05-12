@@ -69,7 +69,7 @@ append_pnpm_global_paths
 # Step 4: Verify ao command is available
 start_step "Step 4: Verify ao command"
 if ! command -v ao &> /dev/null; then
-    fail_step "Step 4: ao command not found (npm link failed?)"
+    fail_step "Step 4: ao command not found (pnpm install -g failed?)"
 fi
 ao --version || fail_step "Step 4: ao --version failed"
 end_step "Step 4: ao command available"

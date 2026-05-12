@@ -32,7 +32,7 @@ COPY . /workspace/agent-orchestrator
 # Create a test user (simulates developer's home directory)
 RUN useradd -m -s /bin/bash testuser
 
-# Configure npm to use user-local prefix (no sudo needed for npm link)
+# Configure npm to use user-local prefix (no sudo needed for npm install -g)
 RUN mkdir -p /home/testuser/.npm-global && \
     chown -R testuser:testuser /home/testuser/.npm-global
 USER testuser

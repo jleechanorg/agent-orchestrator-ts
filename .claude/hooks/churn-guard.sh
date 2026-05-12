@@ -69,10 +69,10 @@ if has_gh_api and has_pulls_collection:
     if re.search(r'(?:--method|-X)[=\s]+GET', cmd, re.IGNORECASE):
         print('NO')
         sys.exit(0)
-    # Check if -f flags look like query params (common GET patterns for gh api)
-    # Query param pattern: -f state=, -f per_page=, -f sort=, -f direction=, -f page=
-    f_flags = re.findall(r'(?:\s|^)-(?:f|F)\s+(\w+)=', cmd)
-    if f_flags and all(re.match(r'^(state|per_page|page|sort|direction|order|since|until|q|sha|ref|base|head|filter|labels|milestone|assignee|creator|mentioned|sort|direction|type|visibility|affiliation|role)$', k) for k in f_flags):
+    # Check if field flags look like query params (common GET patterns for gh api)
+    # Query param pattern: -f state=, --field per_page=, -f sort=, --field direction=
+    f_flags = re.findall(r'(?:\s|^)(?:-[fF]|--field|--raw-field)\s+([A-Za-z_]\w*)=', cmd)
+    if f_flags and all(re.match(r'^(state|per_page|page|sort|direction|order|since|until|q|sha|ref|base|head|filter|labels|milestone|assignee|creator|mentioned|type|visibility|affiliation|role)$', k, re.IGNORECASE) for k in f_flags):
         print('NO')
         sys.exit(0)
     # Otherwise, -f/-F/--field/--raw-field on the pulls collection = POST (PR creation)
