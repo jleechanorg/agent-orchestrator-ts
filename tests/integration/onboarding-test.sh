@@ -72,6 +72,12 @@ append_pnpm_global_paths
 
 # Step 4: Verify ao command is available
 start_step "Step 4: Verify ao command"
+# Debug: show PATH and pnpm global bin
+echo "  PATH=$PATH"
+echo "  PNPM_HOME=$PNPM_HOME"
+echo "  pnpm global bin: $(pnpm bin -g 2>/dev/null || echo 'unknown')"
+echo "  ls PNPM_HOME: $(ls -la "$PNPM_HOME" 2>/dev/null | grep ao || echo 'no ao found')"
+echo "  which ao: $(which ao 2>/dev/null || echo 'not found')"
 if ! command -v ao &> /dev/null; then
     fail_step "Step 4: ao command not found (pnpm install -g failed?)"
 fi
