@@ -76,8 +76,9 @@ start_step "Step 4: Verify ao command"
 echo "  PATH=$PATH"
 echo "  PNPM_HOME=$PNPM_HOME"
 echo "  pnpm global bin: $(pnpm bin -g 2>/dev/null || echo 'unknown')"
-echo "  ls PNPM_HOME: $(ls -la "$PNPM_HOME" 2>/dev/null | grep ao || echo 'no ao found')"
-echo "  which ao: $(which ao 2>/dev/null || echo 'not found')"
+echo "  PNPM_HOME contents: $(ls "$PNPM_HOME" 2>/dev/null || echo 'dir missing')"
+echo "  pnpm list -g: $(pnpm list -g 2>/dev/null || echo 'failed')"
+echo "  find ao: $(find /home/testuser -name 'ao' -o -name 'ao.cmd' 2>/dev/null | head -5 || echo 'none')"
 if ! command -v ao &> /dev/null; then
     fail_step "Step 4: ao command not found (pnpm install -g failed?)"
 fi
