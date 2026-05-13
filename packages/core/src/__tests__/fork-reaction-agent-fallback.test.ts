@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { handleAgentFallback, resolveNextFallbackAgent } from "../fork-reaction-agent-fallback.js";
+import { handleAgentFallback, resolveNextFallbackAgent, type AgentFallbackDeps } from "../fork-reaction-agent-fallback.js";
 import type { Session, OrchestratorConfig, ReactionConfig, SessionManager } from "../types.js";
 import type { ProjectObserver } from "../observability.js";
-import type { AgentFallbackDeps } from "../fork-reaction-agent-fallback.js";
 
 // resolveNextFallbackAgent is exported for testability
 describe("resolveNextFallbackAgent", () => {

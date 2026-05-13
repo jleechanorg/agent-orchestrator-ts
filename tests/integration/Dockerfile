@@ -35,7 +35,8 @@ RUN mkdir -p /home/testuser/.npm-global && \
     chown -R testuser:testuser /home/testuser/.npm-global
 USER testuser
 RUN npm config set prefix '/home/testuser/.npm-global'
-ENV PATH="/home/testuser/.npm-global/bin:$PATH"
+ENV PNPM_HOME="/home/testuser/.local/share/pnpm"
+ENV PATH="$PNPM_HOME:/home/testuser/.npm-global/bin:$PATH"
 
 WORKDIR /home/testuser
 
