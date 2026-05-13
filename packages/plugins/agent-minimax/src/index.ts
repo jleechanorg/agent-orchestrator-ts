@@ -5,6 +5,7 @@ import {
   type PluginModule,
   type ProjectConfig,
   type Session,
+  shellEscape,
 } from "@jleechanorg/ao-core";
 import { execFileSync } from "node:child_process";
 
@@ -36,8 +37,8 @@ const minimaxOverrides: Partial<Agent> = {
     const model = process.env.MINIMAX_MODEL?.trim() || "";
     const baseCmd = createAgentPlugin(minimaxConfig).getLaunchCommand(rest);
     // Inline env vars survive tmux shell startup overrides (.bashrc etc.)
-    const modelPrefix = model ? ` ANTHROPIC_MODEL=${model}` : "";
-    return `ANTHROPIC_BASE_URL=${baseUrl} ANTHROPIC_API_KEY=${apiKey}${modelPrefix} ${baseCmd}`;
+    const modelPrefix = model ? ` ANTHROPIC_MODEL=${shellEscape(model)}` : "";
+    return `ANTHROPIC_BASE_URL=${shellEscape(baseUrl)} ANTHROPIC_API_KEY=${shellEscape(apiKey)}${modelPrefix} ${baseCmd}`;
   },
 
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {

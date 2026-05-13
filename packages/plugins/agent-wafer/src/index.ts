@@ -5,6 +5,7 @@ import {
   type PluginModule,
   type ProjectConfig,
   type Session,
+  shellEscape,
 } from "@jleechanorg/ao-core";
 import { execFileSync } from "node:child_process";
 
@@ -36,7 +37,7 @@ const waferOverrides: Partial<Agent> = {
     const apiKey = process.env.WAFER_API_KEY || "";
     const baseCmd = createAgentPlugin(waferConfig).getLaunchCommand({ ...rest, model });
     // Inline env vars survive tmux shell startup overrides (.bashrc etc.)
-    return `ANTHROPIC_BASE_URL=${baseUrl} ANTHROPIC_API_KEY=${apiKey} ANTHROPIC_MODEL=${model} ${baseCmd}`;
+    return `ANTHROPIC_BASE_URL=${shellEscape(baseUrl)} ANTHROPIC_API_KEY=${shellEscape(apiKey)} ANTHROPIC_MODEL=${shellEscape(model)} ${baseCmd}`;
   },
 
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
