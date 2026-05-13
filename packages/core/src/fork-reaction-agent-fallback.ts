@@ -153,6 +153,18 @@ export async function handleAgentFallback(
     return { reactionType: reactionKey, success: false, action, escalated: false };
   }
 
+  // Kill the superseded session to free its worktree/tmux before spawning.
+  // Without this, the worktree plugin refuses to check out the same branch
+  // in a new worktree while the old one still holds it.
+  try {
+    await sessionManager.kill(sessionId);
+  } catch (killErr) {
+    const killMsg = killErr instanceof Error ? killErr.message : String(killErr);
+    console.warn(
+      `[agent-fallback] session.kill(${sessionId}) failed before fallback spawn: ${killMsg} — proceeding`,
+    );
+  }
+
   // Spawn a new session with the fallback agent
   const spawnOpts: SessionSpawnConfig = {
     projectId,

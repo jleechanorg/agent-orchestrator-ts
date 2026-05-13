@@ -97,6 +97,7 @@ function makeDeps(): AgentFallbackDeps {
   return {
     sessionManager: {
       spawn: vi.fn().mockResolvedValue({ id: "ao-5220" }),
+      kill: vi.fn().mockResolvedValue(undefined),
       send: vi.fn(),
       get: vi.fn(),
     } satisfies Partial<SessionManager> as SessionManager,
@@ -132,6 +133,7 @@ describe("handleAgentFallback", () => {
 
     expect(result.success).toBe(true);
     expect(result.action).toBe("agent-fallback");
+    expect(deps.sessionManager.kill).toHaveBeenCalledWith("ao-5215");
     expect(deps.sessionManager.spawn).toHaveBeenCalledWith(
       expect.objectContaining({ agent: "gemini", projectId: "agent-orchestrator" }),
     );
@@ -155,6 +157,7 @@ describe("handleAgentFallback", () => {
     );
 
     expect(result.success).toBe(true);
+    expect(deps.sessionManager.kill).not.toHaveBeenCalled();
     expect(deps.sessionManager.spawn).not.toHaveBeenCalled();
   });
 
@@ -174,6 +177,7 @@ describe("handleAgentFallback", () => {
     );
 
     expect(result.success).toBe(true);
+    expect(deps.sessionManager.kill).not.toHaveBeenCalled();
     expect(deps.sessionManager.spawn).not.toHaveBeenCalled();
   });
 
@@ -324,6 +328,52 @@ describe("handleAgentFallback", () => {
 
     // currentAgent resolves to project.agent ("wafer"), so next in chain is "gemini"
     expect(result.success).toBe(true);
+    expect(deps.sessionManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ agent: "gemini" }),
+    );
+  });
+
+  it("kills superseded session before spawning fallback", async () => {
+    const session = makeSession();
+    const deps = makeDeps();
+
+    const result = await handleAgentFallback(
+      "ao-5215",
+      "agent-orchestrator",
+      "agent-exited",
+      reactionConfig,
+      session,
+      true,
+      "corr-123",
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    expect(deps.sessionManager.kill).toHaveBeenCalledWith("ao-5215");
+    // kill is called before spawn
+    const killOrder = deps.sessionManager.kill.mock.invocationCallOrder[0];
+    const spawnOrder = deps.sessionManager.spawn.mock.invocationCallOrder[0];
+    expect(killOrder).toBeLessThan(spawnOrder);
+  });
+
+  it("proceeds with spawn even when kill of superseded session fails", async () => {
+    const session = makeSession();
+    const deps = makeDeps();
+    (deps.sessionManager.kill as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("kill failed"));
+
+    const result = await handleAgentFallback(
+      "ao-5215",
+      "agent-orchestrator",
+      "agent-exited",
+      reactionConfig,
+      session,
+      true,
+      "corr-123",
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    expect(deps.sessionManager.kill).toHaveBeenCalledWith("ao-5215");
     expect(deps.sessionManager.spawn).toHaveBeenCalledWith(
       expect.objectContaining({ agent: "gemini" }),
     );
