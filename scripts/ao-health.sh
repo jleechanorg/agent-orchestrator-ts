@@ -44,13 +44,15 @@ source "$REPO_ROOT/scripts/lib/ao-config-topology.sh" 2>/dev/null || {
 CONFIG_PATH=$(ao_find_config_path) || { log "FATAL: no config found"; exit 1; }
 
 PROJECTS=$(
-  python3 - "$CONFIG_PATH" <<'PY' 2>/dev/null
-import yaml, sys
-c = yaml.safe_load(open(sys.argv[1])) or {}
+  python3 - "$CONFIG_PATH" <<'PYEOF' 2>/dev/null
+import sys
+yaml = __import__('yaml')
+config_path = sys.argv[1]
+c = yaml.safe_load(open(config_path)) or {}
 ps = c.get('projects', {})
 if isinstance(ps, dict):
     print(' '.join(ps.keys()))
-PY
+PYEOF
 ) || { log "FATAL: config parse failed"; exit 1; }
 
 if [ -z "$PROJECTS" ]; then
