@@ -69,6 +69,7 @@ import { validateAndEmitExitProof } from "./session-exit-proof.js";
 import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { handleRespawnForReview } from "./fork-reaction-rfr.js";
+import { handleAgentFallback } from "./fork-reaction-agent-fallback.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { resolveScmFailureThreshold } from "./scm-failure-threshold.js";
 import { getAllSessionPrefixes, isOrchestratorSessionForPrefix } from "./session-prefixes.js";
@@ -1417,6 +1418,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         });
       }
 
+      // Agent fallback: when agent dies with quota/rate-limit, respawn with next agent in chain
+      case "agent-fallback": {
+        if (!session) {
+          return {
+            reactionType: reactionKey,
+            success: false,
+            action: "agent-fallback",
+            escalated: false,
+          };
+        }
+        return handleAgentFallback(sessionId, projectId, reactionKey, reactionConfig, session, agentDead, reactionCorrelationId, {
+          sessionManager,
+          config,
+          notifyHuman,
+          createEvent,
+          observer,
+        });
+      }
+
       default: {
         // Log warning for unknown reaction action types
         console.warn(`Unknown reaction action type: ${action}`);
@@ -1877,6 +1897,27 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           executeReaction,
           agentDead: true, // killed-status absorbed block: agent is confirmed dead
         }, undefined);
+
+        // Dispatch agent-fallback for dead agents with open PRs (absorbed killed transition).
+        // Without this, a dead agent that still has an open PR stays in its prior state
+        // and the agent-fallback reaction (which only fires on the agent-exited transition)
+        // never triggers. Check for the "agent-fallback" reaction config explicitly.
+        if (agentDead) {
+          const fallbackKey = eventToReactionKey("session.killed");
+          const fallbackConfig = fallbackKey ? getReactionConfigForSession(session, fallbackKey) : null;
+          if (fallbackConfig && fallbackConfig.action === "agent-fallback") {
+            await executeReaction(
+              session.id,
+              session.projectId,
+              fallbackKey!,
+              fallbackConfig,
+              session,
+              correlationId,
+              false,
+              agentDead,
+            );
+          }
+        }
         return;
       }
 
@@ -1993,6 +2034,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionConfig,
                 session,
                 correlationId,
+                false, // isPeriodic: transition-driven, not a periodic nudge
                 agentDead,
               );
               transitionReaction = { key: reactionKey, result: reactionResult };

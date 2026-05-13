@@ -1108,8 +1108,8 @@ export interface ReactionConfig {
   /** Whether this reaction is enabled */
   auto: boolean;
 
-  /** What to do: send message to agent, notify human, auto-merge, request-merge, parallel-retry, skeptic-review, respawn-for-review, claim-verification */
-  action: "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry" | "skeptic-review" | "respawn-for-review" | "claim-verification";
+  /** What to do: send message to agent, notify human, auto-merge, request-merge, parallel-retry, skeptic-review, respawn-for-review, claim-verification, agent-fallback */
+  action: "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry" | "skeptic-review" | "respawn-for-review" | "claim-verification" | "agent-fallback";
 
   /** Message to send (for send-to-agent) */
   message?: string;
@@ -1333,6 +1333,7 @@ export interface DefaultPlugins {
   /** Merged before role/project overrides (permissions, model, etc.). */
   agentConfig?: AgentSpecificConfig;
   modelByCli?: Record<string, CliModelDefaults>;
+  fallbackAgents?: string[];
   orchestrator?: RoleAgentConfig;
   worker?: RoleAgentConfig;
   /** Default auto-merge settings for all projects (bd-n047) */
@@ -1445,6 +1446,12 @@ export interface ProjectConfig {
 
   /** Override default agent */
   agent?: string;
+
+  /** Per-project default agent override (takes precedence over project.agent for fallback chain head) */
+  defaultAgent?: string;
+
+  /** Per-project fallback chain (overrides defaults.fallbackAgents) */
+  fallbackAgents?: string[];
 
   /** Override default workspace */
   workspace?: string;

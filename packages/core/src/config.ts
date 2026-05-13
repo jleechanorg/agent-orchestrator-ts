@@ -75,7 +75,7 @@ function inferScmPlugin(project: {
 const ReactionConfigSchema = z.object({
   auto: z.boolean().default(true),
   action: z
-    .enum(["send-to-agent", "notify", "auto-merge", "request-merge", "parallel-retry", "skeptic-review", "respawn-for-review", "claim-verification"])
+    .enum(["send-to-agent", "notify", "auto-merge", "request-merge", "parallel-retry", "skeptic-review", "respawn-for-review", "claim-verification", "agent-fallback"])
     .default("notify"),
   message: z.string().optional(),
   priority: z.enum(["urgent", "action", "warning", "info"]).optional(),
@@ -274,6 +274,8 @@ const ProjectConfigSchema = z.object({
     .optional(),
   runtime: z.string().optional(),
   agent: z.string().optional(),
+  defaultAgent: z.string().optional(),
+  fallbackAgents: z.array(z.string()).optional(),
   workspace: z.string().optional(),
   tracker: TrackerConfigSchema.optional(),
   scm: SCMConfigSchema.optional(),
@@ -326,6 +328,7 @@ const DefaultPluginsSchema = z.object({
   notifiers: z.array(z.string()).default(["composio"]),
   agentConfig: AgentSpecificConfigSchema.optional(),
   modelByCli: z.record(CliModelDefaultsSchema).optional(),
+  fallbackAgents: z.array(z.string()).optional(),
   orchestrator: RoleAgentDefaultsSchema,
   worker: RoleAgentDefaultsSchema,
   // bd-n047: default auto-merge settings for all projects
