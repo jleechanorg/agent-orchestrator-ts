@@ -89,19 +89,23 @@ log "START projects=$PROJECTS"
 MAIN_REPO="${AO_MAIN_REPO:-$REPO_ROOT}"
 BRANCH=$(git -C "$MAIN_REPO" branch --show-current 2>/dev/null) || true
 if [ "$BRANCH" != "main" ]; then
-    log "WARN: MAIN_REPO=$MAIN_REPO not on main (was $BRANCH); forcing stable main"
-    if git -C "$MAIN_REPO" rebase --abort 2>/dev/null; then
-        log "WARN: aborted in-progress rebase in $MAIN_REPO"
+    if [ "${AO_FORCE_MAIN:-}" != "true" ]; then
+        log "WARN: MAIN_REPO=$MAIN_REPO not on main (was $BRANCH); skipping force-main (set AO_FORCE_MAIN=true to enable)"
+    else
+        log "WARN: MAIN_REPO=$MAIN_REPO not on main (was $BRANCH); forcing stable main (AO_FORCE_MAIN=true)"
+        if git -C "$MAIN_REPO" rebase --abort 2>/dev/null; then
+            log "WARN: aborted in-progress rebase in $MAIN_REPO"
+        fi
+        if git -C "$MAIN_REPO" merge --abort 2>/dev/null; then
+            log "WARN: aborted in-progress merge in $MAIN_REPO"
+        fi
+        git -C "$MAIN_REPO" checkout main 2>/dev/null || {
+            log "FATAL: cannot checkout main"; exit 1
+        }
+        log "INFO: checked out main in $MAIN_REPO"
+        git -C "$MAIN_REPO" pull --ff-only 2>/dev/null || true
+        log "INFO: git pull --ff-only completed in $MAIN_REPO"
     fi
-    if git -C "$MAIN_REPO" merge --abort 2>/dev/null; then
-        log "WARN: aborted in-progress merge in $MAIN_REPO"
-    fi
-    git -C "$MAIN_REPO" checkout main 2>/dev/null || {
-        log "FATAL: cannot checkout main"; exit 1
-    }
-    log "INFO: checked out main in $MAIN_REPO"
-    git -C "$MAIN_REPO" pull --ff-only 2>/dev/null || true
-    log "INFO: git pull --ff-only completed in $MAIN_REPO"
 fi
 
 # ── Ensure lifecycle-worker for each project ─────────────────────────────────

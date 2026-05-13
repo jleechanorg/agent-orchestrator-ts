@@ -244,6 +244,8 @@ if [ "$SMOKE_ONLY" = false ]; then
   run_cmd pnpm --filter @jleechanorg/ao-core build
   run_cmd pnpm --filter @jleechanorg/ao-cli build
   run_cmd pnpm --filter @jleechanorg/ao-web build
+  run_cmd pnpm --filter @jleechanorg/ao-plugin-agent-wafer build
+  run_cmd pnpm --filter @jleechanorg/ao-plugin-agent-minimax build
 
   printf '\nRefreshing ao launcher (pnpm install -g %s)...\n' "$REPO_ROOT/packages/cli"
   (
