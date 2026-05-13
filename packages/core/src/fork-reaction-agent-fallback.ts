@@ -114,8 +114,10 @@ export async function handleAgentFallback(
   const defaultAgent = projectConfig?.defaultAgent ?? projectConfig?.agent ?? config.defaults.agent;
   const fallbackAgents = projectConfig?.fallbackAgents ?? config.defaults.fallbackAgents;
 
-  // Check idempotency guard before escalation
-  if (session.metadata?.["fallback_spawned"] === "true") {
+  // Check idempotency guard before escalation — skip if fallback already
+  // completed (spawned) or in progress (pending, e.g. kill succeeded but
+  // spawn hasn't yet).
+  if (session.metadata?.["fallback_spawned"] === "true" || session.metadata?.["fallback_pending"] === "true") {
     return {
       reactionType: reactionKey,
       success: true,
@@ -153,23 +155,24 @@ export async function handleAgentFallback(
     return { reactionType: reactionKey, success: false, action, escalated: false };
   }
 
-  // ── Ghost session prevention ─────────────────────────────────────
+  // ── Two-phase metadata: pending before kill, spawned after spawn ──
+  // Phase 1: Mark fallback as PENDING before kill. If spawn fails,
+  // future fallback checks see "pending" (not "spawned") and can retry.
+  // Phase 2: After successful spawn, overwrite with "spawned".
   // Metadata MUST be persisted BEFORE kill(). After kill(), the active
   // metadata file is archived/deleted by sessionManager.kill(). Any
   // updateMetadata() call AFTER kill would recreate it from {} with
   // defaults (status="spawning"), resurrecting a ghost session.
-  // There is NO updateSessionMetadataHelper() call after spawn — the
-  // only metadata write is this one, before kill.
-  session.metadata["fallback_spawned"] = "true";
+  session.metadata["fallback_pending"] = "true";
   session.metadata["fallback_agent"] = nextAgent;
   try {
     updateSessionMetadataHelper(session, {
-      fallback_spawned: "true",
+      fallback_pending: "true",
       fallback_agent: nextAgent,
     }, config);
   } catch (metaErr) {
     console.warn(
-      `[agent-fallback] metadata persist before kill failed: ${metaErr instanceof Error ? metaErr.message : String(metaErr)} — proceeding`,
+      `[agent-fallback] metadata persist (pending) before kill failed: ${metaErr instanceof Error ? metaErr.message : String(metaErr)} — proceeding`,
     );
   }
 
@@ -220,6 +223,23 @@ export async function handleAgentFallback(
       },
       level: "info",
     });
+
+    // Phase 2: Spawn succeeded — promote pending → spawned.
+    // This runs inside the try block so a spawn failure leaves metadata
+    // as fallback_pending=true (allowing future retry), not spawned.
+    session.metadata["fallback_spawned"] = "true";
+    session.metadata["fallback_pending"] = "false";
+    try {
+      updateSessionMetadataHelper(session, {
+        fallback_spawned: "true",
+        fallback_pending: "false",
+        fallback_agent: nextAgent,
+      }, config);
+    } catch (metaErr2) {
+      console.warn(
+        `[agent-fallback] metadata persist (spawned) after spawn failed: ${metaErr2 instanceof Error ? metaErr2.message : String(metaErr2)} — non-fatal`,
+      );
+    }
   } catch (spawnErr) {
     const errMsg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
     observer.recordOperation({

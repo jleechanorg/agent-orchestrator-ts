@@ -302,7 +302,7 @@ jobs:
           # AO worker posts verdict via GITHUB_TOKEN (authenticates as github-actions[bot]).
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
           # Safety controls: SKEPTIC_CRON_AUTO_MERGE=false disables auto-merge; SKEPTIC_MERGE_DENYLIST excludes specific PRs.
-          SKEPTIC_CRON_AUTO_MERGE: ${{ vars.SKEPTIC_CRON_AUTO_MERGE || 'true' }}
+          SKEPTIC_CRON_AUTO_MERGE: ${{ vars.SKEPTIC_CRON_AUTO_MERGE || 'false' }}
           SKEPTIC_MERGE_DENYLIST: ${{ vars.SKEPTIC_MERGE_DENYLIST || '' }}
         run: |
           MERGED=0
