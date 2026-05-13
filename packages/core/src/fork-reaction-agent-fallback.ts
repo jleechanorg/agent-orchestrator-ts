@@ -60,22 +60,18 @@ export function resolveNextFallbackAgent(
   // Build the canonical chain: [defaultAgent, ...fallbackAgents]
   const canonicalChain = [defaultAgent, ...fallbackAgents];
   // Check if currentAgent is already in the chain (case-insensitive)
-  const currentInChain = canonicalChain.some(
-    (a) => a.toLowerCase() === currentAgent.toLowerCase(),
-  );
+  const currentInChain = canonicalChain.some((a) => a.toLowerCase() === currentAgent.toLowerCase());
   // If currentAgent is not in the chain, prepend it (project-level override scenario)
   const chain = currentInChain ? canonicalChain : [currentAgent, ...canonicalChain];
   // Deduplicate while preserving order (case-insensitive)
   const seen = new Set<string>();
-  const uniqueChain = chain.filter(agent => {
+  const uniqueChain = chain.filter((agent) => {
     const lower = agent.toLowerCase();
     if (seen.has(lower)) return false;
     seen.add(lower);
     return true;
   });
-  const currentIdx = uniqueChain.findIndex(
-    (a) => a.toLowerCase() === currentAgent.toLowerCase(),
-  );
+  const currentIdx = uniqueChain.findIndex((a) => a.toLowerCase() === currentAgent.toLowerCase());
   if (currentIdx === -1 || currentIdx >= uniqueChain.length - 1) return undefined;
   return uniqueChain[currentIdx + 1];
 }
@@ -117,7 +113,10 @@ export async function handleAgentFallback(
   // Check idempotency guard before escalation — skip if fallback already
   // completed (spawned) or in progress (pending, e.g. kill succeeded but
   // spawn hasn't yet).
-  if (session.metadata?.["fallback_spawned"] === "true" || session.metadata?.["fallback_pending"] === "true") {
+  if (
+    session.metadata?.["fallback_spawned"] === "true" ||
+    session.metadata?.["fallback_pending"] === "true"
+  ) {
     return {
       reactionType: reactionKey,
       success: true,
@@ -166,10 +165,14 @@ export async function handleAgentFallback(
   session.metadata["fallback_pending"] = "true";
   session.metadata["fallback_agent"] = nextAgent;
   try {
-    updateSessionMetadataHelper(session, {
-      fallback_pending: "true",
-      fallback_agent: nextAgent,
-    }, config);
+    updateSessionMetadataHelper(
+      session,
+      {
+        fallback_pending: "true",
+        fallback_agent: nextAgent,
+      },
+      config,
+    );
   } catch (metaErr) {
     console.warn(
       `[agent-fallback] metadata persist (pending) before kill failed: ${metaErr instanceof Error ? metaErr.message : String(metaErr)} — proceeding`,
@@ -224,22 +227,9 @@ export async function handleAgentFallback(
       level: "info",
     });
 
-    // Phase 2: Spawn succeeded — promote pending → spawned.
-    // This runs inside the try block so a spawn failure leaves metadata
-    // as fallback_pending=true (allowing future retry), not spawned.
-    session.metadata["fallback_spawned"] = "true";
-    session.metadata["fallback_pending"] = "false";
-    try {
-      updateSessionMetadataHelper(session, {
-        fallback_spawned: "true",
-        fallback_pending: "false",
-        fallback_agent: nextAgent,
-      }, config);
-    } catch (metaErr2) {
-      console.warn(
-        `[agent-fallback] metadata persist (spawned) after spawn failed: ${metaErr2 instanceof Error ? metaErr2.message : String(metaErr2)} — non-fatal`,
-      );
-    }
+    // Phase 2: Spawn succeeded. No metadata write needed — the old session
+    // was killed and its metadata file archived. Writing to it here would
+    // recreate a ghost session (see warning at lines 162-165).
   } catch (spawnErr) {
     const errMsg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
     observer.recordOperation({

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { handleAgentFallback, resolveNextFallbackAgent, type AgentFallbackDeps } from "../fork-reaction-agent-fallback.js";
+import {
+  handleAgentFallback,
+  resolveNextFallbackAgent,
+  type AgentFallbackDeps,
+} from "../fork-reaction-agent-fallback.js";
 import type { Session, OrchestratorConfig, ReactionConfig, SessionManager } from "../types.js";
 import type { ProjectObserver } from "../observability.js";
 
@@ -56,7 +60,16 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     activity: null,
     branch: "feat/test",
     issueId: null,
-    pr: { number: 551, url: "https://github.com/test/pr/551", title: "Test PR", branch: "feat/test", baseBranch: "main", isDraft: false, owner: "test", repo: "test" },
+    pr: {
+      number: 551,
+      url: "https://github.com/test/pr/551",
+      title: "Test PR",
+      branch: "feat/test",
+      baseBranch: "main",
+      isDraft: false,
+      owner: "test",
+      repo: "test",
+    },
     workspacePath: "/tmp/test",
     runtimeHandle: null,
     agentInfo: null,
@@ -142,8 +155,6 @@ describe("handleAgentFallback", () => {
     expect(deps.sessionManager.spawn).toHaveBeenCalledWith(
       expect.objectContaining({ agent: "gemini", projectId: "agent-orchestrator" }),
     );
-    expect(session.metadata["fallback_spawned"]).toBe("true");
-    expect(session.metadata["fallback_pending"]).toBe("false");
     expect(session.metadata["fallback_agent"]).toBe("gemini");
   });
 
@@ -154,17 +165,24 @@ describe("handleAgentFallback", () => {
     const deps = makeDeps();
 
     await handleAgentFallback(
-      "ao-5215", "agent-orchestrator", "agent-exited", reactionConfig, session, true, "corr-123", deps,
+      "ao-5215",
+      "agent-orchestrator",
+      "agent-exited",
+      reactionConfig,
+      session,
+      true,
+      "corr-123",
+      deps,
     );
 
-    // updateSessionMetadataHelper is called twice: pending before kill, spawned after spawn
-    expect(updateSessionMetadataHelper).toHaveBeenCalledTimes(2);
+    // updateSessionMetadataHelper is called once: pending before kill
+    // No metadata write after kill to prevent ghost session recreation
+    expect(updateSessionMetadataHelper).toHaveBeenCalledTimes(1);
     const pendingCall = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(pendingCall[1]).toEqual(expect.objectContaining({ fallback_pending: "true" }));
-    const spawnedCall = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.calls[1];
-    expect(spawnedCall[1]).toEqual(expect.objectContaining({ fallback_spawned: "true", fallback_pending: "false" }));
-    // Both metadata writes happen before kill in invocation order
-    const metaOrder = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    // Metadata write happens before kill
+    const metaOrder = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock
+      .invocationCallOrder[0];
     const killOrder = deps.sessionManager.kill.mock.invocationCallOrder[0];
     expect(metaOrder).toBeLessThan(killOrder);
   });
@@ -339,7 +357,9 @@ describe("handleAgentFallback", () => {
   it("returns failure when sessionManager.spawn rejects (metadata already written)", async () => {
     const session = makeSession();
     const deps = makeDeps();
-    (deps.sessionManager.spawn as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("spawn failed"));
+    (deps.sessionManager.spawn as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("spawn failed"),
+    );
 
     const result = await handleAgentFallback(
       "ao-5215",
@@ -354,10 +374,8 @@ describe("handleAgentFallback", () => {
 
     expect(result.success).toBe(false);
     expect(result.escalated).toBe(false);
-    // On spawn failure: pending=true (pre-kill write) but spawned is NOT set
-    // (spawned is only written after successful spawn)
+    // On spawn failure: pending=true (pre-kill write) remains in metadata
     expect(session.metadata["fallback_pending"]).toBe("true");
-    expect(session.metadata["fallback_spawned"]).toBeUndefined();
     expect(session.metadata["fallback_agent"]).toBe("gemini");
   });
 
@@ -411,7 +429,9 @@ describe("handleAgentFallback", () => {
   it("proceeds with spawn even when kill of superseded session fails", async () => {
     const session = makeSession();
     const deps = makeDeps();
-    (deps.sessionManager.kill as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("kill failed"));
+    (deps.sessionManager.kill as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("kill failed"),
+    );
 
     const result = await handleAgentFallback(
       "ao-5215",
@@ -431,34 +451,37 @@ describe("handleAgentFallback", () => {
     );
   });
 
-  it("two-phase metadata write: pending before kill, spawned after spawn", async () => {
+  it("metadata write only before kill to prevent ghost session recreation", async () => {
     const { updateSessionMetadataHelper } = await import("../fork-utils.js");
     (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mockClear();
     const session = makeSession();
     const deps = makeDeps();
 
     await handleAgentFallback(
-      "ao-5215", "agent-orchestrator", "agent-exited", reactionConfig, session, true, "corr-123", deps,
+      "ao-5215",
+      "agent-orchestrator",
+      "agent-exited",
+      reactionConfig,
+      session,
+      true,
+      "corr-123",
+      deps,
     );
 
-    // Two-phase write: pending before kill, spawned after spawn
-    expect(updateSessionMetadataHelper).toHaveBeenCalledTimes(2);
+    // Single metadata write: pending before kill
+    // No write after kill to prevent ghost session recreation
+    expect(updateSessionMetadataHelper).toHaveBeenCalledTimes(1);
 
     // Phase 1 (pending) happens before kill
     const pendingCall = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(pendingCall[1]).toEqual(expect.objectContaining({ fallback_pending: "true" }));
-    const pendingOrder = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    const pendingOrder = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock
+      .invocationCallOrder[0];
     const killOrder = deps.sessionManager.kill.mock.invocationCallOrder[0];
     const spawnOrder = deps.sessionManager.spawn.mock.invocationCallOrder[0];
     expect(pendingOrder).toBeLessThan(killOrder);
     expect(killOrder).toBeLessThan(spawnOrder);
 
-    // Phase 2 (spawned) happens after spawn succeeds
-    const spawnedCall = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.calls[1];
-    expect(spawnedCall[1]).toEqual(expect.objectContaining({ fallback_spawned: "true", fallback_pending: "false" }));
-    const spawnedOrder = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.invocationCallOrder[1];
-    expect(spawnedOrder).toBeGreaterThan(spawnOrder);
-
-    // Full ordering: pending → kill → spawn → spawned
+    // Full ordering: pending → kill → spawn (no metadata write after spawn)
   });
 });
