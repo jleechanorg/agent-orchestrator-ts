@@ -222,7 +222,7 @@ describe("wholesome — structural source-code assertions", () => {
     it("PR title starts with [agento]", () => {
       const title = getPRTitle();
       if (!shouldEnforcePRTitlePrefix(title)) return;
-      expect(title).toMatch(/^(?:\[antig\]\s*)?\[agento\]/);
+      expect(title).toMatch(/^\[agento\]/);
     });
 
     it("PR title has correct format: [agento] <type>: <description>", () => {
