@@ -76,20 +76,39 @@ fi
 
 # Debug: show where pnpm install -g puts bins
 echo "  PNPM_HOME=$PNPM_HOME"
+echo "  pnpm bin -g: $(pnpm bin -g 2>/dev/null || echo '(empty)')"
+echo "  pnpm root -g: $(pnpm root -g 2>/dev/null || echo '(empty)')"
 echo "  PATH=$PATH"
 ls -la "$PNPM_HOME/" 2>/dev/null || echo "  (PNPM_HOME dir empty or missing)"
+# Also search for ao binary in pnpm global structure
+_PNPM_BIN_G="$(pnpm bin -g 2>/dev/null || true)"
+if [ -n "$_PNPM_BIN_G" ]; then
+  echo "  Contents of $(pnpm bin -g 2>/dev/null):"
+  ls -la "$_PNPM_BIN_G/" 2>/dev/null || echo "  (dir empty or missing)"
+fi
+# Recursive find for ao binary under PNPM_HOME
+_AO_FIND="$(find "$PNPM_HOME" -name 'ao' -type f -o -name 'ao' -type l 2>/dev/null | head -5 || true)"
+if [ -n "$_AO_FIND" ]; then
+  echo "  Found ao binary at: $_AO_FIND"
+fi
 
 # Step 4: Verify ao command is available
 start_step "Step 4: Verify ao command"
 if ! command -v ao &> /dev/null; then
     # Fallback: try to locate ao in common pnpm global bin locations
-    for candidate in "$PNPM_HOME/ao" "$HOME/.local/share/pnpm/ao" "/usr/local/bin/ao"; do
+    for candidate in "$PNPM_HOME/ao" "$_PNPM_BIN_G/ao" "$HOME/.local/share/pnpm/ao" "/usr/local/bin/ao"; do
         if [ -x "$candidate" ]; then
             echo "  Found ao at: $candidate"
             export PATH="$(dirname "$candidate"):$PATH"
             break
         fi
     done
+    # Also check if find found it
+    if ! command -v ao &> /dev/null && [ -n "$_AO_FIND" ]; then
+      _AO_DIR="$(dirname "$_AO_FIND" | head -1)"
+      echo "  Adding ao directory from find: $_AO_DIR"
+      export PATH="$_AO_DIR:$PATH"
+    fi
     if ! command -v ao &> /dev/null; then
         fail_step "Step 4: ao command not found (npm link failed?)"
     fi
