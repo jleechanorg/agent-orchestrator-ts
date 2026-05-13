@@ -2077,11 +2077,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           await notifyHuman(event, priority);
         }
 
-        // Always emit the dedicated worker.merge_conflict event when entering
-        // merge_conflicts — independent of reaction suppression. This gives
-        // notificationRouting configs a specific event to route (warning priority)
-        // instead of relying on the generic merge.conflicts transition.
-        if (newStatus === "merge_conflicts") {
+        // Emit the dedicated worker.merge_conflict event when entering
+        // merge_conflicts and no reaction already handled the notification.
+        // This gives notificationRouting configs a specific event to route
+        // (warning priority) instead of relying on the generic merge.conflicts
+        // transition, while avoiding duplicate notifications when a configured
+        // reaction (e.g. send-to-agent for merge-conflicts) already notified.
+        if (newStatus === "merge_conflicts" && !reactionHandledNotify) {
           const conflictEvent = createEvent("worker.merge_conflict", {
             sessionId: session.id,
             projectId: session.projectId,
