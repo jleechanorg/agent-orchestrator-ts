@@ -47,9 +47,11 @@ if [ -z "$CMD" ]; then
 fi
 
 # Detect PR creation commands
-IS_PR_CREATE=$(echo "$CMD" | python3 -c "
+IS_PR_CREATE=$(python3 - "$CMD" <<'PYEOF'
 import sys, re
-cmd = sys.stdin.read()
+cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+if not cmd:
+    cmd = sys.stdin.read() if not sys.stdin.isatty() else ""
 # gh pr create
 if re.search(r'\bgh\s+pr\s+create\b', cmd, re.IGNORECASE):
     print('YES')
@@ -68,6 +70,10 @@ if has_gh_api and has_pulls_collection:
     if re.search(r'(?:--method|-X)[=\s]+GET', cmd, re.IGNORECASE):
         print('NO')
         sys.exit(0)
+    # Implicit POST via --input (must check before whitelist early-exit to avoid bypass)
+    if re.search(r'--input\s', cmd, re.IGNORECASE):
+        print('YES')
+        sys.exit(0)
     # No explicit method: -f/--field switches gh api to POST by default.
     # Check if field flags look like read-only query params (not PR creation data).
     # This is a heuristic: gh api .../pulls -f state=open is practically a read operation
@@ -81,12 +87,9 @@ if has_gh_api and has_pulls_collection:
     if re.search(r'(?:\s|^)(?:-[fF]\s|--field\s|--raw-field\s)', cmd):
         print('YES')
         sys.exit(0)
-    # Implicit POST via --input
-    if re.search(r'--input\s', cmd, re.IGNORECASE):
-        print('YES')
-        sys.exit(0)
 print('NO')
-" 2>/dev/null) || IS_PR_CREATE="NO"
+PYEOF
+) || IS_PR_CREATE="NO"
 
 if [ "$IS_PR_CREATE" != "YES" ]; then
   exit 0
