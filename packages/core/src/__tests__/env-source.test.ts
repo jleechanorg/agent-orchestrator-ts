@@ -100,6 +100,10 @@ describe("isBlocked — blocklist contract", () => {
     expect(isBlocked("BASH_ENV")).toBe(true);
   });
 
+  it("blocks ENV (POSIX equivalent of BASH_ENV)", () => {
+    expect(isBlocked("ENV")).toBe(true);
+  });
+
   it("blocks PWD and OLDPWD (cwd pollution from sourced bashrc)", () => {
     expect(isBlocked("PWD")).toBe(true);
     expect(isBlocked("OLDPWD")).toBe(true);
@@ -406,12 +410,20 @@ describe("sourceEnvFile — /etc/environment direct parsing", () => {
       "export MINIMAX_API_KEY=sk-cp-export\nANTHROPIC_API_KEY=sk-ant-plain\n",
     );
     const result = sourceEnvFile("/etc/environment");
-    // Lines starting with "export " are valid KEY=VALUE (key = "export")
-    // The plain entry without "export" prefix is what we want.
+    // The `export ` prefix is stripped so the key becomes MINIMAX_API_KEY
+    expect(result).toHaveProperty("MINIMAX_API_KEY", "sk-cp-export");
     expect(result).toHaveProperty("ANTHROPIC_API_KEY", "sk-ant-plain");
-    // "export MINIMAX_API_KEY=..." parses key="export", not "MINIMAX_API_KEY"
-    // which is correct — /etc/environment does not use shell export syntax
-    expect(result).not.toHaveProperty("MINIMAX_API_KEY");
+  });
+
+  it("rejects bogus export-prefixed keys that remain blocked after stripping", () => {
+    // After stripping "export ", the key becomes a blocked var like PATH
+    mockReadFileSync.mockReturnValue(
+      "export PATH=/malicious\nexport MINIMAX_API_KEY=sk-cp-ok\n",
+    );
+    const result = sourceEnvFile("/etc/environment");
+    expect(result).not.toHaveProperty("PATH");
+    expect(result).not.toHaveProperty("export PATH");
+    expect(result).toHaveProperty("MINIMAX_API_KEY", "sk-cp-ok");
   });
 
   it("skips comment and blank lines from /etc/environment", () => {

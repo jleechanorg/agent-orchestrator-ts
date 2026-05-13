@@ -59,6 +59,7 @@ const BLOCKED_EXACT = new Set([
   "HISTFILE",
   "HISTSIZE",
   "BASH_ENV",
+  "ENV",         // POSIX equivalent of BASH_ENV
   "NODE_OPTIONS",
   "LD_PRELOAD",
   "DYLD_INSERT_LIBRARIES",
@@ -120,7 +121,11 @@ export function sourceEnvFile(
         if (!trimmed || trimmed.startsWith("#")) continue;
         const eqIndex = trimmed.indexOf("=");
         if (eqIndex === -1) continue;
-        const key = trimmed.slice(0, eqIndex);
+        // Strip optional `export ` prefix — some /etc/environment files include it
+        // despite being plain KEY=VALUE files. Without stripping, the key becomes
+        // `export MINIMAX_API_KEY` which passes the blocklist but pollutes process.env.
+        const rawKey = trimmed.slice(0, eqIndex);
+        const key = rawKey.startsWith("export ") ? rawKey.slice(7).trimStart() : rawKey;
         const value = trimmed.slice(eqIndex + 1);
         if (
           !isBlocked(key) &&
