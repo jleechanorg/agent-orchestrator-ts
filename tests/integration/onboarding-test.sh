@@ -61,6 +61,11 @@ if ! ./scripts/setup.sh; then
 fi
 end_step "Step 3: Setup completed"
 
+_ONBOARD_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=/dev/null
+source "$_ONBOARD_REPO_ROOT/scripts/lib/pnpm-global-path.sh"
+append_pnpm_global_paths
+
 # Step 4: Verify ao command is available
 start_step "Step 4: Verify ao command"
 if ! command -v ao &> /dev/null; then
