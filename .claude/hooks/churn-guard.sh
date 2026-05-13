@@ -78,7 +78,7 @@ if has_gh_api and has_pulls_collection:
     # Check if field flags look like read-only query params (not PR creation data).
     # This is a heuristic: gh api .../pulls -f state=open is practically a read operation
     # even though gh sends POST — GitHub API returns pull list regardless of method.
-    # PR creation requires fields like title=, body=, head=, base= which are NOT here.
+    # PR creation requires fields like title=, body= which are NOT in the read-only whitelist.
     f_flags = re.findall(r'(?:\s|^)(?:-[fF]|--field|--raw-field)\s+([A-Za-z_]\w*)=', cmd)
     if f_flags and all(re.match(r'^(state|per_page|page|sort|direction|order|since|until|q|sha|ref|base|head|filter|labels|milestone|assignee|creator|mentioned|type|visibility|affiliation|role)$', k, re.IGNORECASE) for k in f_flags):
         print('NO')
