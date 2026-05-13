@@ -31,8 +31,8 @@ echo "  Running pnpm install -g ${REPO_ROOT}/packages/cli ..."
 if (cd "$REPO_ROOT" && "$PNPM_BIN" install -g "$REPO_ROOT/packages/cli"); then
   :
 else
-  echo "  Retrying with sudo..."
-  sudo -H env PNPM_HOME="$PNPM_HOME" PATH="${REPO_ROOT}/node_modules/.bin:${PNPM_HOME}:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g "$REPO_ROOT/packages/cli"
+  echo "  Retrying with sudo from repo root..."
+  (cd "$REPO_ROOT" && sudo -H env PNPM_HOME="$PNPM_HOME" PATH="${REPO_ROOT}/node_modules/.bin:${PNPM_HOME}:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g "$REPO_ROOT/packages/cli")
 fi
 
 if ao --version &>/dev/null; then

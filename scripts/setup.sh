@@ -200,8 +200,10 @@ if ! command -v ao >/dev/null 2>&1; then
   # Diagnostic: where did pnpm install -g put the shim?
   echo "WARNING: 'ao' not on PATH after pnpm install -g. Diagnosing..."
   echo "  PNPM_HOME=$PNPM_HOME"
-  echo "  pnpm bin -g: $("$PNPM_BIN" bin -g 2>/dev/null || '(failed)')"
-  echo "  pnpm root -g: $("$PNPM_BIN" root -g 2>/dev/null || '(failed)')"
+  _pgbin="$("$PNPM_BIN" bin -g 2>/dev/null)" || _pgbin="(failed)"
+  _pgroot="$("$PNPM_BIN" root -g 2>/dev/null)" || _pgroot="(failed)"
+  echo "  pnpm bin -g: $_pgbin"
+  echo "  pnpm root -g: $_pgroot"
   # List ao shim locations
   for candidate in "$PNPM_HOME/ao" "$HOME/.local/share/pnpm/ao" "/usr/local/bin/ao"; do
     if [ -f "$candidate" ]; then
