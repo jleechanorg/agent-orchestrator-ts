@@ -1,0 +1,5 @@
+PR #549 jleechanorg/agent-orchestrator (branch feat/babysit-multi-pr-survey):
+
+Rebase onto origin/main (imports onboarding/setup fixes from main once merged). Ensure babysit SKILL jq counts failed checks using GitHub rollup conclusions case-insensitively (FAILURE vs failure). Resolve Bugbot threads. Refresh SHA-tied evidence. ao skeptic verify -n 549.
+
+Never target ComposioHQ upstream.

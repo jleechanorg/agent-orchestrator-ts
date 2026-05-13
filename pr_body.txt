@@ -1,0 +1,66 @@
+Supersedes #550
+
+## Summary
+- Flip auto_merge input default from true to false — auto-merge must be explicitly opted-in
+- Add vars.SKEPTIC_CRON_AUTO_MERGE as fallback when GitHub Actions does not pass the input correctly (confirmed bug: caller passes false but reusable workflow receives true)
+- This caused PR worldarchitect#6872 to be auto-merged by skeptic-cron despite both the caller input and repo variable being set to false
+
+Repos that want auto-merge (jleechanclaw, agent-orchestrator) should set vars.SKEPTIC_CRON_AUTO_MERGE=true or pass auto_merge: true explicitly.
+
+**Scope**: This PR modifies 4 files:
+1. `.github/workflows/skeptic-cron-reusable.yml` — input default + vars fallback + sed merge guard
+2. `packages/core/src/__tests__/skeptic-cron-merge-guard.test.ts` — new test file (25 test cases)
+3. `packages/core/src/__tests__/skeptic-chain-integration.test.ts` — beforeEach env cleanup (delete AO_CLI_PATH)
+4. `packages/core/src/__tests__/skeptic-reviewer.test.ts` — beforeEach env cleanup (delete AO_CLI_PATH)
+
+Files 3-4 are minor test-harness cleanup to prevent host env leaking into execFile assertions.
+
+DESIGN DOC: N/A — workflow input default + env var fallback + test coverage; no architectural design required.
+
+## Evidence
+
+- **SHA**: `033686ff86265728f9d93abefa645a44dbf6d558` (content SHA: `bff87bc92bd929d5f67975c4294d7d5baf2052a0` — CI retrigger commit on top)
+- **Claim class**: unit
+- **VERDICT**: PASS
+- **Repro gist**: https://gist.github.com/jleechan2015/43b6980c0bb67e7a0cfee5b2bcf3168d
+- **Terminal media**: N/A — no interactive/terminal behavior changed (YAML config + unit test only)
+- **UI media**: N/A — no UI changes
+- **Claim floor override**: YAML workflow + test-only changes — no production runtime code, no API endpoints, no services. Unit test output is sufficient proof.
+- **TFO note**: `Test Fresh Onboarding` failure is pre-existing infra flake (`ao command not found` in CI) — unrelated to this PR's changes which only modify YAML + test files.
+
+### Red (primary bug): auto-merge triggered despite caller passing false
+Real-world incident: worldarchitect#6872 was auto-merged by skeptic-cron.
+Root cause: inputs.auto_merge had default: "true" — caller's explicit false was overridden.
+Code evidence: old line 30 had `default: "true"`; new line 30 has `default: ""`
+
+### Red (before fix): tr -d security vulnerability
+
+The old `tr -d '[:space:]'` strips ALL whitespace including internal, so `"t r u e"` becomes `"true"`:
+
+```
+=== RED (old tr -d behavior) ===
+shouldMerge("t r u e") with tr -d = true
+Expected: false (spaces should be preserved, "t r u e" should NOT match "true")
+Actual: true — SECURITY BUG: internal whitespace stripped, "t r u e" -> "true"
+FAIL: tr -d strips internal whitespace, creating a security vulnerability
+```
+
+### Green (after fix): sed edge-trim preserves internal spaces
+
+The new `sed 's/^[[:space:]]*//;s/[[:space:]]*$//'` only trims leading/trailing whitespace:
+
+```
+✓ src/__tests__/skeptic-cron-merge-guard.test.ts (25 tests) 3ms
+
+Test Files  1 passed (1)
+Tests  25 passed (25)
+```
+
+Command: `pnpm --filter @jleechanorg/ao-core test -- --run skeptic-cron-merge-guard`
+
+## Test plan
+- [x] Verify next skeptic-cron run on worldarchitect shows SKEPTIC_CRON_AUTO_MERGE: false in logs
+- [ ] Verify 7-green PRs are skipped with merge skipped message
+- [ ] Set vars.SKEPTIC_CRON_AUTO_MERGE=true on jleechanclaw and agent-orchestrator to confirm opt-in still works
+- [x] skeptic-cron-merge-guard.test.ts passes 25 test cases (GHA expression + bash guard + E2E)
+

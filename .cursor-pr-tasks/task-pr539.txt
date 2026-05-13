@@ -1,0 +1,11 @@
+PR #539 jleechanorg/agent-orchestrator (branch fix/bd-g884-envsource-blocklist):
+
+1) git fetch origin && git checkout fix/bd-g884-envsource-blocklist && git pull --rebase origin main (use merge origin/main only if rebasing is impossible per repo policy). Resolve conflicts; push head branch.
+
+2) Run scoped tests after substantive edits (pnpm --filter @jleechanorg/ao-core test or broader pnpm test).
+
+3) After push: gh pr checks 539; fix red jobs from logs.
+
+4) If LLM keys available: ao skeptic verify -n 539 for VERDICT PASS tied to head SHA.
+
+Never target ComposioHQ upstream.
