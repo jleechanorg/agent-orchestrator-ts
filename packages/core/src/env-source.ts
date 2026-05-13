@@ -54,6 +54,8 @@ const BLOCKED_EXACT = new Set([
   "PS3",
   "PS4",
   "PROMPT_COMMAND",
+  "PWD",
+  "OLDPWD",
   "HISTFILE",
   "HISTSIZE",
   "BASH_ENV",

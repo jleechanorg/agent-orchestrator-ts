@@ -174,13 +174,23 @@ echo ""
 if command -v ao &> /dev/null; then
   echo "[ok] 'ao' command is available in PATH"
 else
-  NPM_BIN="$(npm bin -g 2>/dev/null || npm config get prefix)/bin"
+  # npm 10+ removed `npm bin -g`; `npm prefix -g` is the supported global root.
+  _npm_global_prefix="$(npm prefix -g 2>/dev/null || true)"
+  if [ -n "$_npm_global_prefix" ]; then
+    NPM_BIN="$_npm_global_prefix/bin"
+  else
+    NPM_BIN=""
+  fi
   echo "WARNING: 'ao' is not in your PATH."
   echo "  pnpm global bin dir: ${PNPM_HOME:-$HOME/.local/share/pnpm}"
   echo "  Add this to your shell profile (~/.zshrc or ~/.bashrc):"
   echo ""
   echo "    export PNPM_HOME=\"\${PNPM_HOME:-\$HOME/.local/share/pnpm}\""
-  echo "    export PATH=\"\$PNPM_HOME:$NPM_BIN:\$PATH\""
+  if [ -n "$NPM_BIN" ]; then
+    echo "    export PATH=\"\$PNPM_HOME:$NPM_BIN:\$PATH\""
+  else
+    echo "    export PATH=\"\$PNPM_HOME:\$PATH\""
+  fi
   echo ""
   echo "  Then restart your terminal or run: source ~/.zshrc"
 fi

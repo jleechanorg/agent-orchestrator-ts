@@ -100,8 +100,17 @@ describe("isBlocked — blocklist contract", () => {
     expect(isBlocked("BASH_ENV")).toBe(true);
   });
 
+  it("blocks PWD and OLDPWD (cwd pollution from sourced bashrc)", () => {
+    expect(isBlocked("PWD")).toBe(true);
+    expect(isBlocked("OLDPWD")).toBe(true);
+  });
+
   it("blocks BASH_FUNC_ prefix (shell function injection)", () => {
     expect(isBlocked("BASH_FUNC_foo%%")).toBe(true);
+  });
+
+  it("allows HOMEBREW_PREFIX (must not treat HOME as a prefix)", () => {
+    expect(isBlocked("HOMEBREW_PREFIX")).toBe(false);
   });
 
   it("blocks NODE_OPTIONS (Node injection)", () => {
