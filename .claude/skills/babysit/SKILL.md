@@ -19,12 +19,12 @@ Prevents the most common agent failure: spending an entire session on one PR whi
 ### Step 1 — Survey ALL open PRs
 
 ```bash
-gh pr list --state open --limit 100 --json number,title,mergeable,reviewDecision,statusCheckRollup,updatedAt --jq '.[] | "\(.number) | \(.title) | mergeable=\(.mergeable) | review=\(.reviewDecision) | ci=\((.statusCheckRollup // []) | map(.conclusion) | group_by(.) | map({(.[0] // "pending"): length}) | add) | failed=\((.statusCheckRollup // []) | map(select((.conclusion // "") | ascii_upcase as $c | ["FAILURE","TIMED_OUT","ERROR","CANCELLED","ACTION_REQUIRED","STALE","STARTUP_FAILURE"] | index($c) != null)) | length) | \(.updatedAt[:10])"'
+gh pr list --state open --limit 100 --json number,title,mergeable,reviewDecision,statusCheckRollup,updatedAt --jq '.[] | "\(.number) | \(.title) | mergeable=\(.mergeable) | review=\(.reviewDecision) | ci=\((.statusCheckRollup // []) | map(.conclusion) | group_by(.) | map({(.[0] // "pending"): length}) | add) | failed=\((.statusCheckRollup // []) | map(select((.conclusion // "") | ascii_upcase as $c | ["FAILURE","TIMED_OUT","ERROR","CANCELLED","ACTION_REQUIRED","STALE","STARTUP_FAILURE"] | index($c) != null and (.name // "" | test("Skeptic Gate"; "i") | not))) | length) | skeptic=\((.statusCheckRollup // []) | map(select((.name // "") | test("Skeptic Gate"; "i") and ((.conclusion // "") | ascii_upcase as $c | ["FAILURE","TIMED_OUT","ERROR","CANCELLED","ACTION_REQUIRED","STALE","STARTUP_FAILURE"] | index($c) != null))) | length) | \(.updatedAt[:10])"'
 ```
 
 > **Note:** `--limit 100` covers repos with up to 100 open PRs. If your repo has more, increase the limit or paginate with `--jq` cursor-based fetching.
 
-The `failed=N` count is used directly in Step 2 classification (needs-fix = failed > 0).
+The `failed=N` count excludes Skeptic Gate checks (they are self-referential and tracked separately as `skeptic=N`). Use `failed=N` for Step 2 classification (needs-fix = failed > 0), and `skeptic=N` for skeptic-specific triage.
 
 **Mandatory.** Do this BEFORE any single-PR work. No exceptions.
 
@@ -33,7 +33,7 @@ The `failed=N` count is used directly in Step 2 classification (needs-fix = fail
 | Category | Criteria | Action |
 |----------|----------|--------|
 | **merge-ready** | Mergeable + review APPROVED + CI green | Merge (or verify 7-green then merge) |
-| **needs-fix** | CI red, review CHANGES_REQUESTED, or skeptic FAIL | Spawn parallel AO worker per PR |
+| **needs-fix** | CI red (failed > 0), review CHANGES_REQUESTED, or skeptic FAIL | Spawn parallel AO worker per PR |
 | **blocked** | CONFLICTING, depends on another PR, or external blocker | Log blocker, skip for now |
 | **stale** | No activity >7 days | Close or ping owner |
 
