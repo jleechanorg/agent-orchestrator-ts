@@ -11,6 +11,30 @@ set -uo pipefail
 # Escape a string for use in an ERE (extended regular expression).
 escape_ere() { printf '%s' "$1" | sed 's/[][().*^$+?{}|\\]/\\&/g'; }
 
+# Resolve symlinks — matches setup-launchd.sh behavior so that a worker
+# launched via a symlinked binary (e.g. /Users/.../bin/ao -> pnpm shim)
+# is correctly recognized by the health job.
+resolve_path() {
+  python3 - "$1" <<'PY' 2>/dev/null || printf '%s\n' "$1"
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]))
+PY
+}
+
+# Check whether a process command line matches this install's AO binary,
+# accounting for symlinks and /private prefix on macOS.
+command_matches_ao_binary() {
+  local cmd="$1"
+  local ao_bin="$2"
+  local ao_real ao_alt ao_real_alt
+  ao_real="$(resolve_path "$ao_bin")"
+  ao_alt="${ao_bin#/private}"
+  ao_real_alt="${ao_real#/private}"
+  [[ "$cmd" == *"$ao_bin"* || "$cmd" == *"$ao_alt"* || "$cmd" == *"$ao_real"* || "$cmd" == *"$ao_real_alt"* ]]
+}
+
 # ── Config ──────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -101,7 +125,7 @@ for project in $PROJECTS; do
         own_worker=false
         for pid in $matching; do
             CMD=$(ps -p "$pid" -o args= 2>/dev/null) || continue
-            case "$CMD" in *"$AO_MATCH"*) own_worker=true; break ;; esac
+            if command_matches_ao_binary "$CMD" "$AO_MATCH"; then own_worker=true; break; fi
         done
         if [ "$own_worker" = "true" ]; then continue; fi
     else
@@ -124,7 +148,7 @@ for project in $PROJECTS; do
     for spid in $started_pids; do
         SCMD=$(ps -p "$spid" -o args= 2>/dev/null) || continue
         if [ -n "$AO_MATCH" ]; then
-            case "$SCMD" in *"$AO_MATCH"*) started_ok=true; break ;; esac
+            if command_matches_ao_binary "$SCMD" "$AO_MATCH"; then started_ok=true; break; fi
         else
             started_ok=true; break
         fi
@@ -145,7 +169,7 @@ for pid in $ALL_PIDS; do
     CMD=$(ps -p "$pid" -o args= 2>/dev/null) || continue
     # Avoid killing workers from another install — match this host's AO binary path when known.
     if [ -n "$AO_MATCH" ]; then
-        case "$CMD" in *"$AO_MATCH"*) ;; *) continue ;; esac
+        command_matches_ao_binary "$CMD" "$AO_MATCH" || continue
     fi
     MATCHED=false
     for project in $PROJECTS; do
