@@ -153,9 +153,13 @@ export async function handleAgentFallback(
     return { reactionType: reactionKey, success: false, action, escalated: false };
   }
 
-  // Mark the old session as fallback-superseded BEFORE killing it.
-  // If we write after kill, the active metadata file is already archived/deleted,
-  // and updateMetadata() recreates it from {} — producing a ghost session.
+  // ── Ghost session prevention ─────────────────────────────────────
+  // Metadata MUST be persisted BEFORE kill(). After kill(), the active
+  // metadata file is archived/deleted by sessionManager.kill(). Any
+  // updateMetadata() call AFTER kill would recreate it from {} with
+  // defaults (status="spawning"), resurrecting a ghost session.
+  // There is NO updateSessionMetadataHelper() call after spawn — the
+  // only metadata write is this one, before kill.
   session.metadata["fallback_spawned"] = "true";
   session.metadata["fallback_agent"] = nextAgent;
   try {

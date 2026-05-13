@@ -401,4 +401,25 @@ describe("handleAgentFallback", () => {
       expect.objectContaining({ agent: "gemini" }),
     );
   });
+
+  it("does NOT call updateSessionMetadataHelper after spawn — no ghost session recreation", async () => {
+    const { updateSessionMetadataHelper } = await import("../fork-utils.js");
+    (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mockClear();
+    const session = makeSession();
+    const deps = makeDeps();
+
+    await handleAgentFallback(
+      "ao-5215", "agent-orchestrator", "agent-exited", reactionConfig, session, true, "corr-123", deps,
+    );
+
+    // updateSessionMetadataHelper is called exactly once (before kill), zero times after spawn
+    expect(updateSessionMetadataHelper).toHaveBeenCalledTimes(1);
+    // The single call happened before kill, proving no post-spawn metadata recreation
+    const metaCallTime = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    const killCallTime = deps.sessionManager.kill.mock.invocationCallOrder[0];
+    const spawnCallTime = deps.sessionManager.spawn.mock.invocationCallOrder[0];
+    expect(metaCallTime).toBeLessThan(killCallTime);
+    expect(killCallTime).toBeLessThan(spawnCallTime);
+    // Ordering: metadata → kill → spawn (no metadata after spawn)
+  });
 });
