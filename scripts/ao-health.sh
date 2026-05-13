@@ -84,10 +84,31 @@ fi
 FAILURES=0
 STARTED=0
 
+# Resolve this install's AO binary path for liveness scoping — prevents
+# a stale worker from another AO install (different binary) masking the
+# fact that *this* install's worker is not running.
+AO_MATCH="${AO_CLI_PATH:-}"
+if [ -z "$AO_MATCH" ]; then
+    AO_MATCH="$(command -v ao 2>/dev/null || true)"
+fi
+
 for project in $PROJECTS; do
     escaped_project="$(escape_ere "$project")"
-    if pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" > /dev/null 2>&1; then
-        continue
+    # Scope liveness check to this install's binary — a worker from another
+    # install (different binary path) should NOT prevent starting our own.
+    if [ -n "$AO_MATCH" ]; then
+        matching=$(pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" 2>/dev/null || true)
+        own_worker=false
+        for pid in $matching; do
+            CMD=$(ps -p "$pid" -o args= 2>/dev/null) || continue
+            case "$CMD" in *"$AO_MATCH"*) own_worker=true; break ;; esac
+        done
+        if [ "$own_worker" = "true" ]; then continue; fi
+    else
+        # No binary path — fall back to unscoped pgrep (legacy behavior)
+        if pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" > /dev/null 2>&1; then
+            continue
+        fi
     fi
 
     log "START: $project worker missing, starting..."
@@ -96,7 +117,19 @@ for project in $PROJECTS; do
     STARTED=$((STARTED + 1))
     sleep 2
 
-    if pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" > /dev/null 2>&1; then
+    # Verify the started worker belongs to this install (same scoping as
+    # the liveness check above — prevents false OK from another install's worker).
+    started_ok=false
+    started_pids=$(pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" 2>/dev/null || true)
+    for spid in $started_pids; do
+        SCMD=$(ps -p "$spid" -o args= 2>/dev/null) || continue
+        if [ -n "$AO_MATCH" ]; then
+            case "$SCMD" in *"$AO_MATCH"*) started_ok=true; break ;; esac
+        else
+            started_ok=true; break
+        fi
+    done
+    if [ "$started_ok" = "true" ]; then
         log "OK: $project worker started"
     else
         log "FAIL: $project worker failed to start"
@@ -107,11 +140,6 @@ done
 # ── Kill orphans (lifecycle-worker PIDs not matching any project) ─────────────
 ALL_PIDS=$(pgrep -f "lifecycle-worker" 2>/dev/null) || true
 KILLED=0
-# Prefer plist-resolved CLI path (launchd); fall back to PATH `ao`.
-AO_MATCH="${AO_CLI_PATH:-}"
-if [ -z "$AO_MATCH" ]; then
-    AO_MATCH="$(command -v ao 2>/dev/null || true)"
-fi
 
 for pid in $ALL_PIDS; do
     CMD=$(ps -p "$pid" -o args= 2>/dev/null) || continue
