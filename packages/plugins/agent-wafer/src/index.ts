@@ -32,20 +32,15 @@ const waferOverrides: Partial<Agent> = {
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     const model = process.env.WAFER_MODEL?.trim() || "GLM-5.1";
     const { model: _model, ...rest } = launchConfig;
-    const baseUrl = process.env.WAFER_ANTHROPIC_BASE_URL?.trim() || DEFAULT_WAFER_ANTHROPIC_BASE_URL;
-    const apiKey = process.env.WAFER_API_KEY || "";
     const baseCmd = createAgentPlugin(waferConfig).getLaunchCommand({ ...rest, model });
-    // Inline env vars survive tmux shell startup overrides (.bashrc etc.)
-    return `ANTHROPIC_BASE_URL=${baseUrl} ANTHROPIC_API_KEY=${apiKey} ANTHROPIC_MODEL=${model} ${baseCmd}`;
+    return baseCmd;
   },
 
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
     const baseEnv = createAgentPlugin(waferConfig).getEnvironment(launchConfig);
     const apiKey = process.env.WAFER_API_KEY;
     if (apiKey) {
-      console.debug(
-        "[ao-plugin-agent-wafer] WAFER_API_KEY resolved",
-      );
+      console.debug("[ao-plugin-agent-wafer] WAFER_API_KEY resolved");
     } else {
       console.error(
         "[ao-plugin-agent-wafer] WAFER_API_KEY not found. Set WAFER_API_KEY in your environment or in a file listed under envSource in agent-orchestrator.yaml.",

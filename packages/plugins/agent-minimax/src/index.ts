@@ -31,22 +31,15 @@ const minimaxConfig: AgentPluginConfig = {
 const minimaxOverrides: Partial<Agent> = {
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     const { model: _model, ...rest } = launchConfig;
-    const baseUrl = process.env.MINIMAX_ANTHROPIC_BASE_URL?.trim() || DEFAULT_MINIMAX_ANTHROPIC_BASE_URL;
-    const apiKey = process.env.MINIMAX_API_KEY || "";
-    const model = process.env.MINIMAX_MODEL?.trim() || "";
     const baseCmd = createAgentPlugin(minimaxConfig).getLaunchCommand(rest);
-    // Inline env vars survive tmux shell startup overrides (.bashrc etc.)
-    const modelPrefix = model ? ` ANTHROPIC_MODEL=${model}` : "";
-    return `ANTHROPIC_BASE_URL=${baseUrl} ANTHROPIC_API_KEY=${apiKey}${modelPrefix} ${baseCmd}`;
+    return baseCmd;
   },
 
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
     const baseEnv = createAgentPlugin(minimaxConfig).getEnvironment(launchConfig);
     const apiKey = process.env.MINIMAX_API_KEY;
     if (apiKey) {
-      console.debug(
-        "[ao-plugin-agent-minimax] MINIMAX_API_KEY resolved",
-      );
+      console.debug("[ao-plugin-agent-minimax] MINIMAX_API_KEY resolved");
     } else {
       console.error(
         "[ao-plugin-agent-minimax] MINIMAX_API_KEY not found. Set MINIMAX_API_KEY in your environment or in a file listed under envSource in agent-orchestrator.yaml.",
