@@ -19,10 +19,12 @@ Prevents the most common agent failure: spending an entire session on one PR whi
 ### Step 1 — Survey ALL open PRs
 
 ```bash
-gh pr list --state open --limit 100 --json number,title,mergeable,reviewDecision,headRefOid,statusCheckRollup,updatedAt --jq '.[] | . as $pr | "\(.number) | \(.title) | mergeable=\(.mergeable) | review=\(.reviewDecision) | ci=\((.statusCheckRollup // []) | map(select(.headSha == $pr.headRefOid)) | map(.conclusion) | group_by(.) | map({(.[0] // "pending"): length}) | add) | failed=\((.statusCheckRollup // []) | map(select(.headSha == $pr.headRefOid)) | map(. as $check | select(($check.conclusion // "") | ascii_upcase as $c | ["FAILURE","TIMED_OUT","ERROR","CANCELLED","ACTION_REQUIRED","STALE","STARTUP_FAILURE"] | index($c) != null and (($check.name // "") | test("Skeptic Gate"; "i") | not))) | length) | skeptic=\((.statusCheckRollup // []) | map(select(.headSha == $pr.headRefOid)) | map(. as $check | select(($check.name // "") | test("Skeptic Gate"; "i") and (($check.conclusion // "") | ascii_upcase as $c | ["FAILURE","TIMED_OUT","ERROR","CANCELLED","ACTION_REQUIRED","STALE","STARTUP_FAILURE"] | index($c) != null))) | length) | pending=\((.statusCheckRollup // []) | map(select(.headSha == $pr.headRefOid)) | map(select((.conclusion // "") == "")) | length) | \(.updatedAt[:10])"'
+gh pr list --state open --limit 100 --json number,title,mergeable,reviewDecision,statusCheckRollup,headRefOid,updatedAt --jq '.[] | "\(.number) | \(.title) | mergeable=\(.mergeable) | review=\(.reviewDecision) | headRefOid=\(.headRefOid[:8]) | ci=\((.statusCheckRollup // []) | map(.conclusion) | group_by(.) | map({(.[0] // "pending"): length}) | add) | failed=\((.statusCheckRollup // []) | map(. as $check | select(($check.conclusion // "") | ascii_upcase as $c | ["FAILURE","TIMED_OUT","ERROR","CANCELLED","ACTION_REQUIRED","STALE","STARTUP_FAILURE"] | index($c) != null and (($check.name // "") | test("Skeptic Gate"; "i") | not))) | length) | skeptic=\((.statusCheckRollup // []) | map(. as $check | select(($check.name // "") | test("Skeptic Gate"; "i") and (($check.conclusion // "") | ascii_upcase as $c | ["FAILURE","TIMED_OUT","ERROR","CANCELLED","ACTION_REQUIRED","STALE","STARTUP_FAILURE"] | index($c) != null))) | length) | \(.updatedAt[:10])"'
 ```
 
 > **Note:** `--limit 100` covers repos with up to 100 open PRs. If your repo has more, increase the limit or paginate with `--jq` cursor-based fetching.
+
+**Important: Do NOT filter statusCheckRollup by headSha.** The statusCheckRollup entries from `gh pr list` do not contain a `headSha` field — they only expose `name`, `status`, `conclusion`, and `state`. Filtering by headSha produces empty results for PRs, misclassifying red/running PRs as green. Rely on statusCheckRollup entry conclusions directly for triage (no headSha filtering).
 
 The `failed=N` count excludes Skeptic Gate checks (they are self-referential and tracked separately as `skeptic=N`). Use `failed=N` for Step 2 classification (needs-fix = failed > 0), and `skeptic=N` for skeptic-specific triage.
 
@@ -32,7 +34,7 @@ The `failed=N` count excludes Skeptic Gate checks (they are self-referential and
 
 | Category | Criteria | Action |
 |----------|----------|--------|
-| **merge-ready** | All 7-green gates: CI green + mergeable + review APPROVED + Bugbot clean + inline threads resolved + evidence authentic + same-head Skeptic PASS + pending=0 | Run full 7-green verification then merge |
+| **merge-ready** | All 7-green gates: CI green + mergeable + review APPROVED + Bugbot clean + inline threads resolved + evidence authentic + same-head Skeptic PASS | Run full 7-green verification then merge |
 | **needs-fix** | CI red (failed > 0), review CHANGES_REQUESTED, or skeptic FAIL | Spawn parallel AO worker per PR |
 | **blocked** | CONFLICTING, depends on another PR, or external blocker | Log blocker, skip for now |
 | **stale** | No activity >7 days | Close or ping owner |
