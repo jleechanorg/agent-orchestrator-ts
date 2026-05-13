@@ -1897,6 +1897,27 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           executeReaction,
           agentDead: true, // killed-status absorbed block: agent is confirmed dead
         }, undefined);
+
+        // Dispatch agent-fallback for dead agents with open PRs (absorbed killed transition).
+        // Without this, a dead agent that still has an open PR stays in its prior state
+        // and the agent-fallback reaction (which only fires on the agent-exited transition)
+        // never triggers. Check for the "agent-fallback" reaction config explicitly.
+        if (agentDead) {
+          const fallbackKey = eventToReactionKey("session.killed");
+          const fallbackConfig = fallbackKey ? getReactionConfigForSession(session, fallbackKey) : null;
+          if (fallbackConfig && fallbackConfig.action === "agent-fallback") {
+            await executeReaction(
+              session.id,
+              session.projectId,
+              fallbackKey!,
+              fallbackConfig,
+              session,
+              correlationId,
+              false,
+              agentDead,
+            );
+          }
+        }
         return;
       }
 

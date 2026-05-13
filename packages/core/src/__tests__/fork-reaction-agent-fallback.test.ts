@@ -29,8 +29,16 @@ describe("resolveNextFallbackAgent", () => {
     expect(resolveNextFallbackAgent("Wafer", ["gemini", "minimax"], "wafer")).toBe("gemini");
   });
 
-  it("returns undefined when current agent is not in chain", () => {
-    expect(resolveNextFallbackAgent("unknown", ["gemini", "minimax"], "wafer")).toBeUndefined();
+  it("prepends current agent to chain when it differs from default (project-level override)", () => {
+    // When a project overrides the agent (e.g. project.agent=wafer but defaults.agent=codex),
+    // currentAgent is prepended to the canonical chain, so fallback goes codex→gemini→minimax.
+    expect(resolveNextFallbackAgent("wafer", ["gemini", "minimax"], "codex")).toBe("codex");
+  });
+
+  it("prepends unknown agent to chain as first position", () => {
+    // An unknown agent gets prepended to the chain —
+    // next fallback is the defaultAgent, then the configured fallbacks.
+    expect(resolveNextFallbackAgent("unknown", ["gemini", "minimax"], "wafer")).toBe("wafer");
   });
 });
 

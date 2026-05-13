@@ -46,8 +46,10 @@ export interface AgentFallbackDeps {
 
 /**
  * Resolve the next agent in the fallback chain.
- * The full chain is: [defaultAgent, ...fallbackAgents].
- * Returns undefined if the current agent is the last in the chain or not in the chain.
+ * The canonical chain is [defaultAgent, ...fallbackAgents].
+ * If currentAgent is not in the canonical chain (e.g. project-level override),
+ * it is prepended so the session can still fall back to defaultAgent.
+ * Returns undefined if the current agent is the last in the chain.
  */
 export function resolveNextFallbackAgent(
   currentAgent: string,
@@ -55,8 +57,14 @@ export function resolveNextFallbackAgent(
   defaultAgent: string,
 ): string | undefined {
   if (!fallbackAgents || fallbackAgents.length === 0) return undefined;
-  // Build the full chain: [defaultAgent, ...fallbackAgents]
-  const chain = [defaultAgent, ...fallbackAgents];
+  // Build the canonical chain: [defaultAgent, ...fallbackAgents]
+  const canonicalChain = [defaultAgent, ...fallbackAgents];
+  // Check if currentAgent is already in the chain (case-insensitive)
+  const currentInChain = canonicalChain.some(
+    (a) => a.toLowerCase() === currentAgent.toLowerCase(),
+  );
+  // If currentAgent is not in the chain, prepend it (project-level override scenario)
+  const chain = currentInChain ? canonicalChain : [currentAgent, ...canonicalChain];
   // Deduplicate while preserving order (case-insensitive)
   const seen = new Set<string>();
   const uniqueChain = chain.filter(agent => {
@@ -126,7 +134,7 @@ export async function handleAgentFallback(
       projectId,
       message: exhausted
         ? `Agent '${currentAgent}' exited but no fallback chain configured — add defaults.fallbackAgents to config`
-        : `Agent fallback chain exhausted after '${currentAgent}' (chain: [${[defaultAgent, ...fallbackAgents!].join(" > ")}])`,
+        : `Agent fallback chain exhausted after '${currentAgent}' (chain: [${[currentAgent, ...fallbackAgents!].join(" > ")}])`,
       data: { reactionKey, action, currentAgent, fallbackAgents },
     });
     await notifyHuman(event, "urgent");
