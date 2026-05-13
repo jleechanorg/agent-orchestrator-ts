@@ -15,8 +15,7 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import path from "node:path";
-import { join } from "node:path";
+import path, { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
