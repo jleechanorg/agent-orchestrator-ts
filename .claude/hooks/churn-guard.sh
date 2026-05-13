@@ -63,8 +63,8 @@ if has_gh_api and has_pulls_collection:
         print('YES')
         sys.exit(0)
     # If --method GET or -X GET is explicit, -f flags are query params, not POST body.
-    # Per gh api docs: "adding request parameters will automatically switch the request
-    # method to POST. To send the parameters as a GET query string instead, use --method GET."
+    # Per gh api docs: adding request parameters will automatically switch the request
+    # method to POST. To send the parameters as a GET query string instead, use --method GET.
     if re.search(r'(?:--method|-X)[=\s]+GET', cmd, re.IGNORECASE):
         print('NO')
         sys.exit(0)
