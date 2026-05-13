@@ -8,6 +8,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/ao-config-topology.sh
 source "$SCRIPT_DIR/lib/ao-config-topology.sh"
+# shellcheck source=./lib/pnpm-global-path.sh
+source "$SCRIPT_DIR/lib/pnpm-global-path.sh"
 
 echo "Agent Orchestrator Setup"
 echo ""
@@ -123,6 +125,12 @@ else
   fi
 fi
 
+# Pin pnpm via Corepack/packageManager — npm-global pnpm (often v10) mismatches workspace (pnpm@9 in package.json)
+if command -v corepack &> /dev/null; then
+  ( cd "$REPO_ROOT" && corepack enable >/dev/null 2>&1 && corepack install >/dev/null 2>&1 ) || true
+  hash -r 2>/dev/null || true
+fi
+
 # ─── Install, build, global CLI (pnpm install -g — not npm link; workspace deps
 # cannot be installed via npm install -g from this tree) ─────────────────────
 
@@ -139,55 +147,87 @@ echo "Building all packages..."
 pnpm build
 
 echo ""
-echo "Installing CLI globally (pnpm install -g . from packages/cli)..."
+echo "Refreshing workspace bin links after build..."
+pnpm install --prefer-offline
+
+echo ""
+echo "Installing CLI globally (pnpm install -g ${REPO_ROOT}/packages/cli)..."
+# Install from REPO_ROOT so pnpm resolves workspace:* deps. Put workspace toolchain first —
+# global npm-installed pnpm (e.g. in Docker tests) may be a different major than the repo pin.
+export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+export PATH="${REPO_ROOT}/node_modules/.bin:${PNPM_HOME}:${PATH}"
+hash -r 2>/dev/null || true
 PNPM_BIN="$(command -v pnpm || true)"
 if [ -z "$PNPM_BIN" ]; then
   echo "ERROR: pnpm not found. Enable corepack (corepack prepare pnpm --activate) or install pnpm."
   exit 1
 fi
-export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
-export PATH="$PNPM_HOME:$PATH"
-cd packages/cli
 if ! mkdir -p "$PNPM_HOME" 2>/dev/null; then
   echo "ERROR: cannot create PNPM_HOME: $PNPM_HOME"
   exit 1
 fi
-if "$PNPM_BIN" install -g .; then
+
+CLI_DIST="${REPO_ROOT}/packages/cli/dist/index.js"
+if [ -f "$CLI_DIST" ]; then
+  chmod +x "$CLI_DIST" || true
+fi
+
+"$PNPM_BIN" remove -g @jleechanorg/ao-cli 2>/dev/null || true
+
+if (cd "$REPO_ROOT" && "$PNPM_BIN" install -g "$REPO_ROOT/packages/cli"); then
   :
 elif [ "$INTERACTIVE" = true ]; then
   echo "  Permission denied. Retrying with sudo..."
-  if sudo -H env PNPM_HOME="$PNPM_HOME" PATH="$PNPM_HOME:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g .; then
+  if sudo -H env PNPM_HOME="$PNPM_HOME" PATH="${REPO_ROOT}/node_modules/.bin:${PNPM_HOME}:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g "$REPO_ROOT/packages/cli"; then
     :
   else
-    echo "ERROR: pnpm install -g failed. Run: cd packages/cli && sudo pnpm install -g ."
+    echo "ERROR: pnpm install -g failed. Run: sudo pnpm install -g \"${REPO_ROOT}/packages/cli\""
     exit 1
   fi
 else
-  echo "ERROR: Permission denied. Run manually: cd packages/cli && pnpm install -g ."
+  echo "ERROR: Permission denied. Run manually: pnpm install -g \"${REPO_ROOT}/packages/cli\""
   exit 1
 fi
-cd "$REPO_ROOT"
+
+export AO_PNPM_FOR_GLOBAL="$PNPM_BIN"
+append_pnpm_global_paths
+unset AO_PNPM_FOR_GLOBAL
+
+# Rehash PATH lookups after append_pnpm_global_paths may have added directories.
+hash -r 2>/dev/null || true
+
+if ! command -v ao >/dev/null 2>&1; then
+  # Diagnostic: where did pnpm install -g put the shim?
+  echo "WARNING: 'ao' not on PATH after pnpm install -g. Diagnosing..."
+  echo "  PNPM_HOME=$PNPM_HOME"
+  _pgbin="$("$PNPM_BIN" bin -g 2>/dev/null)" || _pgbin="(failed)"
+  _pgroot="$("$PNPM_BIN" root -g 2>/dev/null)" || _pgroot="(failed)"
+  echo "  pnpm bin -g: $_pgbin"
+  echo "  pnpm root -g: $_pgroot"
+  # List ao shim locations
+  for candidate in "$PNPM_HOME/ao" "$HOME/.local/share/pnpm/ao" "/usr/local/bin/ao"; do
+    if [ -f "$candidate" ]; then
+      echo "  Found ao shim at: $candidate"
+      candidate_dir="$(dirname "$candidate")"
+      export PATH="$candidate_dir:$PATH"
+      hash -r 2>/dev/null || true
+    fi
+  done
+fi
+
+if ! command -v ao >/dev/null 2>&1; then
+  echo "ERROR: pnpm install -g succeeded but 'ao' is not on PATH (PNPM_HOME=${PNPM_HOME:-})."
+  exit 1
+fi
 
 echo ""
 echo "Installing repo AO skill into user skill directories..."
 bash "$REPO_ROOT/scripts/install-repo-skills.sh"
 
 # ─── Verify ao is in PATH ────────────────────────────────────────────────────
-
+# (Already verified above — the early exit on line 179-182 guarantees ao is available here.)
 echo ""
-if command -v ao &> /dev/null; then
-  echo "[ok] 'ao' command is available in PATH"
-else
-  NPM_BIN="$(npm bin -g 2>/dev/null || npm config get prefix)/bin"
-  echo "WARNING: 'ao' is not in your PATH."
-  echo "  pnpm global bin dir: ${PNPM_HOME:-$HOME/.local/share/pnpm}"
-  echo "  Add this to your shell profile (~/.zshrc or ~/.bashrc):"
-  echo ""
-  echo "    export PNPM_HOME=\"\${PNPM_HOME:-\$HOME/.local/share/pnpm}\""
-  echo "    export PATH=\"\$PNPM_HOME:$NPM_BIN:\$PATH\""
-  echo ""
-  echo "  Then restart your terminal or run: source ~/.zshrc"
-fi
+echo "[ok] 'ao' command is available in PATH"
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 

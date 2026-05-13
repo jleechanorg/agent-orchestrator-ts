@@ -21,6 +21,9 @@ function buildScriptEnv(binDir: string, fakeRepo: string, tempRoot: string): Nod
   return {
     ...process.env,
     PATH: `${binDir}:${process.env.PATH || ""}`,
+    // Point PNPM_HOME to the fake binDir so the script's subshell PATH override
+    // still resolves the fake pnpm (not the system Corepack shim).
+    PNPM_HOME: binDir,
     AO_REPO_ROOT: fakeRepo,
     // Keep the script from reading or stopping the developer's real AO workers.
     AO_CONFIG_PATH: join(tempRoot, "missing-agent-orchestrator.yaml"),
@@ -34,6 +37,7 @@ describe("scripts/ao-update.sh", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-update-script-"));
     const fakeRepo = join(tempRoot, "repo");
     mkdirSync(join(fakeRepo, "packages", "cli"), { recursive: true });
+    const fakeCliPkgInstallPath = join(fakeRepo, "packages", "cli");
 
     const binDir = join(tempRoot, "bin");
     mkdirSync(binDir, { recursive: true });
@@ -80,7 +84,10 @@ esac\nexit 0`,
     expect(commands).toContain("pnpm install");
     expect(commands).toContain("pnpm --filter @jleechanorg/ao-core clean");
     expect(commands).toContain("pnpm --filter @jleechanorg/ao-cli build");
-    expect(commands).toContain("pnpm install -g .");
+    // pnpm install -g may be logged as "pnpm install -g <path>" (direct) or
+    // "node ...pnpm.cjs install -g <path>" (Corepack shim via fake node).
+    // Assert on the key substring: install -g with the correct target path.
+    expect(commands).toContain(`install -g ${fakeCliPkgInstallPath}`);
   });
 
   it("runs the built-in smoke commands in smoke-only mode", () => {

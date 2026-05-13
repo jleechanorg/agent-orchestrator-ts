@@ -189,18 +189,18 @@ check_launcher() {
     export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
     export PATH="$PNPM_HOME:${PATH:-}"
     mkdir -p "$PNPM_HOME" 2>/dev/null || true
-    if [ -n "$PNPM_BIN" ] && (cd "$REPO_ROOT/packages/cli" && "$PNPM_BIN" install -g . >/dev/null 2>&1) && command -v ao >/dev/null 2>&1; then
+    if [ -n "$PNPM_BIN" ] && (cd "$REPO_ROOT/packages/cli" && "$PNPM_BIN" install -g "$(pwd)" >/dev/null 2>&1) && command -v ao >/dev/null 2>&1; then
       fixed "ao launcher refreshed with pnpm install -g"
       return
     fi
     if [ -n "$PNPM_BIN" ] && [ -t 0 ]; then
       printf '  Permission denied. Retrying with sudo...\n'
-      if (cd "$REPO_ROOT/packages/cli" && sudo -H env PNPM_HOME="$PNPM_HOME" PATH="$PNPM_HOME:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g . >/dev/null 2>&1) && command -v ao >/dev/null 2>&1; then
+      if (cd "$REPO_ROOT/packages/cli" && sudo -H env PNPM_HOME="$PNPM_HOME" PATH="$PNPM_HOME:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g "$(pwd)" >/dev/null 2>&1) && command -v ao >/dev/null 2>&1; then
         fixed "ao launcher refreshed with sudo pnpm install -g"
         return
       fi
     fi
-    warn "ao launcher refresh failed. Fix: cd $REPO_ROOT/packages/cli && pnpm install -g . (maintainers) or npm install -g @jleechanorg/ao-cli (published package users)"
+    warn "ao launcher refresh failed. Fix: cd ${REPO_ROOT}/packages/cli && pnpm install -g . (maintainers) or npm install -g @jleechanorg/ao-cli (published package users)"
     return
   fi
 
