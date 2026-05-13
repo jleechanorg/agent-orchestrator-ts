@@ -62,15 +62,17 @@ if has_gh_api and has_pulls_collection:
     if re.search(r'(?:--method|-X)[=\s]+POST', cmd, re.IGNORECASE):
         print('YES')
         sys.exit(0)
-    # Implicit POST via field flags: -f, -F, --field, --raw-field
-    # BUT: gh api with -f key=value is GET (query params) unless it's the pulls collection
-    # and the flags look like form data (not query params like state=open, per_page=N).
-    # If --method GET or -X GET is explicit, -f is query params, not POST body.
+    # If --method GET or -X GET is explicit, -f flags are query params, not POST body.
+    # Per gh api docs: "adding request parameters will automatically switch the request
+    # method to POST. To send the parameters as a GET query string instead, use --method GET."
     if re.search(r'(?:--method|-X)[=\s]+GET', cmd, re.IGNORECASE):
         print('NO')
         sys.exit(0)
-    # Check if field flags look like query params (common GET patterns for gh api)
-    # Query param pattern: -f state=, --field per_page=, -f sort=, --field direction=
+    # No explicit method: -f/--field switches gh api to POST by default.
+    # Check if field flags look like read-only query params (not PR creation data).
+    # This is a heuristic: gh api .../pulls -f state=open is practically a read operation
+    # even though gh sends POST — GitHub API returns pull list regardless of method.
+    # PR creation requires fields like title=, body=, head=, base= which are NOT here.
     f_flags = re.findall(r'(?:\s|^)(?:-[fF]|--field|--raw-field)\s+([A-Za-z_]\w*)=', cmd)
     if f_flags and all(re.match(r'^(state|per_page|page|sort|direction|order|since|until|q|sha|ref|base|head|filter|labels|milestone|assignee|creator|mentioned|type|visibility|affiliation|role)$', k, re.IGNORECASE) for k in f_flags):
         print('NO')
