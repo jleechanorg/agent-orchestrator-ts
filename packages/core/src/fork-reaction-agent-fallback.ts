@@ -153,18 +153,26 @@ export async function handleAgentFallback(
     return { reactionType: reactionKey, success: false, action, escalated: false };
   }
 
-  // ── Ghost session prevention ─────────────────────────────────────
+  // ── Ghost session prevention + two-phase fallback flag ──────────
   // Metadata MUST be persisted BEFORE kill(). After kill(), the active
   // metadata file is archived/deleted by sessionManager.kill(). Any
   // updateMetadata() call AFTER kill would recreate it from {} with
   // defaults (status="spawning"), resurrecting a ghost session.
-  // There is NO updateSessionMetadataHelper() call after spawn — the
-  // only metadata write is this one, before kill.
-  session.metadata["fallback_spawned"] = "true";
+  //
+  // Phase 1 (before kill): Write fallback_pending + fallback_agent.
+  //   This prevents ghost sessions (metadata exists before kill) without
+  //   falsely claiming the fallback already spawned.
+  // Phase 2 (after successful spawn): Write fallback_spawned=true and
+  //   fallback_pending=false. This is safe because the new session is
+  //   already running — updating the OLD session metadata file won't
+  //   resurrect a ghost since kill() already archived it.
+  // On spawn failure: fallback_pending remains "true" (not "fallback_spawned"),
+  //   so future fallback checks do NOT skip — the PR is not stranded.
+  session.metadata["fallback_pending"] = "true";
   session.metadata["fallback_agent"] = nextAgent;
   try {
     updateSessionMetadataHelper(session, {
-      fallback_spawned: "true",
+      fallback_pending: "true",
       fallback_agent: nextAgent,
     }, config);
   } catch (metaErr) {
@@ -220,6 +228,24 @@ export async function handleAgentFallback(
       },
       level: "info",
     });
+
+    // Phase 2: Mark fallback as spawned (after spawn succeeds).
+    // Safe to call updateSessionMetadataHelper here because kill() already
+    // archived the old session file — writing to it cannot resurrect a ghost.
+    // This overwrites fallback_pending with fallback_spawned so the
+    // idempotency guard (line ~118) correctly skips on future checks.
+    session.metadata["fallback_spawned"] = "true";
+    session.metadata["fallback_pending"] = "false";
+    try {
+      updateSessionMetadataHelper(session, {
+        fallback_spawned: "true",
+        fallback_pending: "false",
+      }, config);
+    } catch (metaErr2) {
+      console.warn(
+        `[agent-fallback] post-spawn metadata persist failed: ${metaErr2 instanceof Error ? metaErr2.message : String(metaErr2)} — fallback is running, non-fatal`,
+      );
+    }
   } catch (spawnErr) {
     const errMsg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
     observer.recordOperation({

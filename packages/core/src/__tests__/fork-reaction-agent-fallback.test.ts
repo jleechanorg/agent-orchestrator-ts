@@ -142,11 +142,12 @@ describe("handleAgentFallback", () => {
     expect(deps.sessionManager.spawn).toHaveBeenCalledWith(
       expect.objectContaining({ agent: "gemini", projectId: "agent-orchestrator" }),
     );
+    // After successful spawn, fallback_spawned is set to "true" (Phase 2)
     expect(session.metadata["fallback_spawned"]).toBe("true");
     expect(session.metadata["fallback_agent"]).toBe("gemini");
   });
 
-  it("writes fallback metadata BEFORE kill (not after), preventing ghost session", async () => {
+  it("writes fallback_pending metadata BEFORE kill and fallback_spawned AFTER successful spawn (two-phase)", async () => {
     const { updateSessionMetadataHelper } = await import("../fork-utils.js");
     (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mockClear();
     const session = makeSession();
@@ -156,11 +157,20 @@ describe("handleAgentFallback", () => {
       "ao-5215", "agent-orchestrator", "agent-exited", reactionConfig, session, true, "corr-123", deps,
     );
 
-    // updateSessionMetadataHelper is called once (before kill), not after
-    expect(updateSessionMetadataHelper).toHaveBeenCalledTimes(1);
-    const metaOrder = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    // updateSessionMetadataHelper is called twice: Phase 1 (before kill), Phase 2 (after spawn)
+    expect(updateSessionMetadataHelper).toHaveBeenCalledTimes(2);
+    // Phase 1: fallback_pending before kill
+    const phase1Call = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(phase1Call[1]).toEqual({ fallback_pending: "true", fallback_agent: "gemini" });
+    const phase1Order = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
     const killOrder = deps.sessionManager.kill.mock.invocationCallOrder[0];
-    expect(metaOrder).toBeLessThan(killOrder);
+    expect(phase1Order).toBeLessThan(killOrder);
+    // Phase 2: fallback_spawned after spawn
+    const phase2Call = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.calls[1];
+    expect(phase2Call[1]).toEqual({ fallback_spawned: "true", fallback_pending: "false" });
+    const phase2Order = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.invocationCallOrder[1];
+    const spawnOrder = deps.sessionManager.spawn.mock.invocationCallOrder[0];
+    expect(spawnOrder).toBeLessThan(phase2Order);
   });
 
   it("returns no-op when agent is alive", async () => {
@@ -309,7 +319,7 @@ describe("handleAgentFallback", () => {
     );
   });
 
-  it("returns failure when sessionManager.spawn rejects (metadata already written)", async () => {
+  it("returns failure when sessionManager.spawn rejects (fallback_pending set, NOT fallback_spawned)", async () => {
     const session = makeSession();
     const deps = makeDeps();
     (deps.sessionManager.spawn as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("spawn failed"));
@@ -327,8 +337,10 @@ describe("handleAgentFallback", () => {
 
     expect(result.success).toBe(false);
     expect(result.escalated).toBe(false);
-    // Metadata is written before kill/spawn, so it is set even on spawn failure
-    expect(session.metadata["fallback_spawned"]).toBe("true");
+    // Phase 1 metadata is written before kill/spawn, so fallback_pending is set
+    // But fallback_spawned is NOT set because spawn failed (Phase 2 never ran)
+    expect(session.metadata["fallback_pending"]).toBe("true");
+    expect(session.metadata["fallback_spawned"]).toBeUndefined();
     expect(session.metadata["fallback_agent"]).toBe("gemini");
   });
 
@@ -402,7 +414,7 @@ describe("handleAgentFallback", () => {
     );
   });
 
-  it("does NOT call updateSessionMetadataHelper after spawn — no ghost session recreation", async () => {
+  it("Phase 2 metadata write after spawn does not resurrect ghost (kill already archived the session)", async () => {
     const { updateSessionMetadataHelper } = await import("../fork-utils.js");
     (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mockClear();
     const session = makeSession();
@@ -412,14 +424,60 @@ describe("handleAgentFallback", () => {
       "ao-5215", "agent-orchestrator", "agent-exited", reactionConfig, session, true, "corr-123", deps,
     );
 
-    // updateSessionMetadataHelper is called exactly once (before kill), zero times after spawn
+    // updateSessionMetadataHelper is called twice: Phase 1 before kill, Phase 2 after spawn
+    expect(updateSessionMetadataHelper).toHaveBeenCalledTimes(2);
+    // Phase 1 happened before kill
+    const phase1Order = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    const killOrder = deps.sessionManager.kill.mock.invocationCallOrder[0];
+    expect(phase1Order).toBeLessThan(killOrder);
+    // Phase 2 happened after spawn (safe because kill archived the session)
+    const spawnOrder = deps.sessionManager.spawn.mock.invocationCallOrder[0];
+    const phase2Order = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.invocationCallOrder[1];
+    expect(spawnOrder).toBeLessThan(phase2Order);
+  });
+
+  it("verifies two-phase metadata: fallback_pending before spawn, fallback_spawned only after success", async () => {
+    const { updateSessionMetadataHelper } = await import("../fork-utils.js");
+    (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mockClear();
+
+    // --- Success path: Phase 1 pending, Phase 2 spawned ---
+    const successSession = makeSession();
+    const successDeps = makeDeps();
+
+    await handleAgentFallback(
+      "ao-5215", "agent-orchestrator", "agent-exited", reactionConfig, successSession, true, "corr-123", successDeps,
+    );
+
+    // After full success: fallback_pending is "false", fallback_spawned is "true"
+    expect(successSession.metadata["fallback_spawned"]).toBe("true");
+    expect(successSession.metadata["fallback_pending"]).toBe("false");
+    expect(successSession.metadata["fallback_agent"]).toBe("gemini");
+
+    // Phase 1 wrote fallback_pending, Phase 2 wrote fallback_spawned
+    const phase1 = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(phase1[1]).toMatchObject({ fallback_pending: "true" });
+    expect(phase1[1]).not.toHaveProperty("fallback_spawned");
+    const phase2 = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.calls[1];
+    expect(phase2[1]).toMatchObject({ fallback_spawned: "true", fallback_pending: "false" });
+
+    // --- Failure path: Phase 1 pending only, no Phase 2 ---
+    (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mockClear();
+    const failSession = makeSession();
+    const failDeps = makeDeps();
+    (failDeps.sessionManager.spawn as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("boom"));
+
+    await handleAgentFallback(
+      "ao-5216", "agent-orchestrator", "agent-exited", reactionConfig, failSession, true, "corr-456", failDeps,
+    );
+
+    // On failure: fallback_pending is still "true", fallback_spawned is NOT set
+    expect(failSession.metadata["fallback_pending"]).toBe("true");
+    expect(failSession.metadata["fallback_spawned"]).toBeUndefined();
+    expect(failSession.metadata["fallback_agent"]).toBe("gemini");
+    // Only Phase 1 was called (no Phase 2 after failed spawn)
     expect(updateSessionMetadataHelper).toHaveBeenCalledTimes(1);
-    // The single call happened before kill, proving no post-spawn metadata recreation
-    const metaCallTime = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
-    const killCallTime = deps.sessionManager.kill.mock.invocationCallOrder[0];
-    const spawnCallTime = deps.sessionManager.spawn.mock.invocationCallOrder[0];
-    expect(metaCallTime).toBeLessThan(killCallTime);
-    expect(killCallTime).toBeLessThan(spawnCallTime);
-    // Ordering: metadata → kill → spawn (no metadata after spawn)
+    const failPhase1 = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(failPhase1[1]).toMatchObject({ fallback_pending: "true" });
+    expect(failPhase1[1]).not.toHaveProperty("fallback_spawned");
   });
 });
