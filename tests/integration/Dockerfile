@@ -1,5 +1,5 @@
 # Integration test environment - simulates fresh developer machine
-FROM node:22-bookworm
+FROM node:20-bookworm
 
 # Install dependencies that a typical developer would have
 RUN apt-get update && apt-get install -y \
@@ -10,8 +10,10 @@ RUN apt-get update && apt-get install -y \
     python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
-# Use Corepack so pnpm matches the repo packageManager pin (pnpm@9.15.9)
-RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
+# Use Corepack so `pnpm` matches the repo packageManager pin (pnpm@9.x in package.json).
+# `npm install -g pnpm` often installs pnpm v10+, which breaks `pnpm install -g .`
+# layout vs the workspace toolchain and hides the global `ao` shim during onboarding tests.
+RUN corepack enable
 
 # Install GitHub CLI (common for developers working with GitHub)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \

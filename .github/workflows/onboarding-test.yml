@@ -4,9 +4,9 @@ on:
   pull_request:
     paths:
       - 'packages/**'
-      - 'scripts/setup.sh'
+      - 'scripts/**'
       - 'tests/integration/**'
-      - 'github/workflows/onboarding-test.yml'
+      - '.github/workflows/onboarding-test.yml'
   push:
     branches: [main]
 
