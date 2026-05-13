@@ -32,7 +32,11 @@ const waferOverrides: Partial<Agent> = {
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     const model = process.env.WAFER_MODEL?.trim() || "GLM-5.1";
     const { model: _model, ...rest } = launchConfig;
-    return createAgentPlugin(waferConfig).getLaunchCommand({ ...rest, model });
+    const baseUrl = process.env.WAFER_ANTHROPIC_BASE_URL?.trim() || DEFAULT_WAFER_ANTHROPIC_BASE_URL;
+    const apiKey = process.env.WAFER_API_KEY || "";
+    const baseCmd = createAgentPlugin(waferConfig).getLaunchCommand({ ...rest, model });
+    // Inline env vars survive tmux shell startup overrides (.bashrc etc.)
+    return `ANTHROPIC_BASE_URL=${baseUrl} ANTHROPIC_API_KEY=${apiKey} ANTHROPIC_MODEL=${model} ${baseCmd}`;
   },
 
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
