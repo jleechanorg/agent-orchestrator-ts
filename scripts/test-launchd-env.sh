@@ -1,6 +1,6 @@
 #!/bin/bash
 # Verify lifecycle-workers have all required env vars in their environment.
-# Run after `bash scripts/setup-launchd.sh lifecycle` to confirm the plist
+# Run after `bash scripts/setup-launchd.sh health` to confirm the plist
 # installed correctly and the env vars propagated to running processes.
 #
 # Exit codes:

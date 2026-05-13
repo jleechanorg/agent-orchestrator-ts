@@ -12,7 +12,8 @@ set -uo pipefail
 escape_ere() { printf '%s' "$1" | sed 's/[][().*^$+?{}|\\]/\\&/g'; }
 
 # ── Config ──────────────────────────────────────────────────────────────────
-REPO_ROOT="${AO_REPO_ROOT:-$HOME/project_agento/agent-orchestrator}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${AO_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 LOCK_DIR="/tmp/ao-health.lock"
 LOG_FILE="${AO_LOG_DIR:-$HOME/.openclaw/logs}/ao-health.log"
 STALE_LOCK_SECS=600  # 10 minutes
@@ -42,13 +43,15 @@ source "$REPO_ROOT/scripts/lib/ao-config-topology.sh" 2>/dev/null || {
 # ── Discover projects ────────────────────────────────────────────────────────
 CONFIG_PATH=$(ao_find_config_path) || { log "FATAL: no config found"; exit 1; }
 
-PROJECTS=$(python3 - "$CONFIG_PATH" <<'PY' 2>/dev/null) || { log "FATAL: config parse failed"; exit 1; }
+PROJECTS=$(
+  python3 - "$CONFIG_PATH" <<'PY' 2>/dev/null
 import yaml, sys
 c = yaml.safe_load(open(sys.argv[1])) or {}
 ps = c.get('projects', {})
 if isinstance(ps, dict):
     print(' '.join(ps.keys()))
 PY
+) || { log "FATAL: config parse failed"; exit 1; }
 
 if [ -z "$PROJECTS" ]; then
     log "WARN: no projects found"; exit 0
@@ -60,12 +63,19 @@ log "START projects=$PROJECTS"
 MAIN_REPO="${AO_MAIN_REPO:-$REPO_ROOT}"
 BRANCH=$(git -C "$MAIN_REPO" branch --show-current 2>/dev/null) || true
 if [ "$BRANCH" != "main" ]; then
-    git -C "$MAIN_REPO" rebase --abort 2>/dev/null || true
-    git -C "$MAIN_REPO" merge --abort 2>/dev/null || true
+    log "WARN: MAIN_REPO=$MAIN_REPO not on main (was $BRANCH); forcing stable main"
+    if git -C "$MAIN_REPO" rebase --abort 2>/dev/null; then
+        log "WARN: aborted in-progress rebase in $MAIN_REPO"
+    fi
+    if git -C "$MAIN_REPO" merge --abort 2>/dev/null; then
+        log "WARN: aborted in-progress merge in $MAIN_REPO"
+    fi
     git -C "$MAIN_REPO" checkout main 2>/dev/null || {
         log "FATAL: cannot checkout main"; exit 1
     }
+    log "INFO: checked out main in $MAIN_REPO"
     git -C "$MAIN_REPO" pull --ff-only 2>/dev/null || true
+    log "INFO: git pull --ff-only completed in $MAIN_REPO"
 fi
 
 # ── Ensure lifecycle-worker for each project ─────────────────────────────────
@@ -95,9 +105,18 @@ done
 # ── Kill orphans (lifecycle-worker PIDs not matching any project) ─────────────
 ALL_PIDS=$(pgrep -f "lifecycle-worker" 2>/dev/null) || true
 KILLED=0
+# Prefer plist-resolved CLI path (launchd); fall back to PATH `ao`.
+AO_MATCH="${AO_CLI_PATH:-}"
+if [ -z "$AO_MATCH" ]; then
+    AO_MATCH="$(command -v ao 2>/dev/null || true)"
+fi
 
 for pid in $ALL_PIDS; do
     CMD=$(ps -p "$pid" -o args= 2>/dev/null) || continue
+    # Avoid killing workers from another install — match this host's AO binary path when known.
+    if [ -n "$AO_MATCH" ]; then
+        case "$CMD" in *"$AO_MATCH"*) ;; *) continue ;; esac
+    fi
     MATCHED=false
     for project in $PROJECTS; do
         escaped_project="$(escape_ere "$project")"
