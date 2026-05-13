@@ -32,7 +32,7 @@ The `failed=N` count excludes Skeptic Gate checks (they are self-referential and
 
 | Category | Criteria | Action |
 |----------|----------|--------|
-| **merge-ready** | Mergeable + review APPROVED + CI green | Merge (or verify 7-green then merge) |
+| **merge-ready** | All 7-green gates: CI green + mergeable + review APPROVED + Bugbot clean + inline threads resolved + evidence authentic + same-head Skeptic PASS | Run full 7-green verification then merge |
 | **needs-fix** | CI red (failed > 0), review CHANGES_REQUESTED, or skeptic FAIL | Spawn parallel AO worker per PR |
 | **blocked** | CONFLICTING, depends on another PR, or external blocker | Log blocker, skip for now |
 | **stale** | No activity >7 days | Close or ping owner |
