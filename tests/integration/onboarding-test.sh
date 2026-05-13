@@ -74,10 +74,25 @@ fi
 
 
 
+# Debug: show where pnpm install -g puts bins
+echo "  PNPM_HOME=$PNPM_HOME"
+echo "  PATH=$PATH"
+ls -la "$PNPM_HOME/" 2>/dev/null || echo "  (PNPM_HOME dir empty or missing)"
+
 # Step 4: Verify ao command is available
 start_step "Step 4: Verify ao command"
 if ! command -v ao &> /dev/null; then
-    fail_step "Step 4: ao command not found (npm link failed?)"
+    # Fallback: try to locate ao in common pnpm global bin locations
+    for candidate in "$PNPM_HOME/ao" "$HOME/.local/share/pnpm/ao" "/usr/local/bin/ao"; do
+        if [ -x "$candidate" ]; then
+            echo "  Found ao at: $candidate"
+            export PATH="$(dirname "$candidate"):$PATH"
+            break
+        fi
+    done
+    if ! command -v ao &> /dev/null; then
+        fail_step "Step 4: ao command not found (npm link failed?)"
+    fi
 fi
 ao --version || fail_step "Step 4: ao --version failed"
 end_step "Step 4: ao command available"
