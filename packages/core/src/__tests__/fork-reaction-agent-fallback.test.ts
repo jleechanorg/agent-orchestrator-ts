@@ -3,6 +3,11 @@ import { handleAgentFallback, resolveNextFallbackAgent, type AgentFallbackDeps }
 import type { Session, OrchestratorConfig, ReactionConfig, SessionManager } from "../types.js";
 import type { ProjectObserver } from "../observability.js";
 
+// Mock fork-utils so we can verify metadata write ordering without disk I/O
+vi.mock("../fork-utils.js", () => ({
+  updateSessionMetadataHelper: vi.fn(),
+}));
+
 // resolveNextFallbackAgent is exported for testability
 describe("resolveNextFallbackAgent", () => {
   it("returns next agent in chain when current agent has a fallback", () => {
@@ -139,6 +144,23 @@ describe("handleAgentFallback", () => {
     );
     expect(session.metadata["fallback_spawned"]).toBe("true");
     expect(session.metadata["fallback_agent"]).toBe("gemini");
+  });
+
+  it("writes fallback metadata BEFORE kill (not after), preventing ghost session", async () => {
+    const { updateSessionMetadataHelper } = await import("../fork-utils.js");
+    (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mockClear();
+    const session = makeSession();
+    const deps = makeDeps();
+
+    await handleAgentFallback(
+      "ao-5215", "agent-orchestrator", "agent-exited", reactionConfig, session, true, "corr-123", deps,
+    );
+
+    // updateSessionMetadataHelper is called once (before kill), not after
+    expect(updateSessionMetadataHelper).toHaveBeenCalledTimes(1);
+    const metaOrder = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    const killOrder = deps.sessionManager.kill.mock.invocationCallOrder[0];
+    expect(metaOrder).toBeLessThan(killOrder);
   });
 
   it("returns no-op when agent is alive", async () => {
@@ -287,7 +309,7 @@ describe("handleAgentFallback", () => {
     );
   });
 
-  it("returns failure when sessionManager.spawn rejects", async () => {
+  it("returns failure when sessionManager.spawn rejects (metadata already written)", async () => {
     const session = makeSession();
     const deps = makeDeps();
     (deps.sessionManager.spawn as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("spawn failed"));
@@ -305,8 +327,9 @@ describe("handleAgentFallback", () => {
 
     expect(result.success).toBe(false);
     expect(result.escalated).toBe(false);
-    expect(session.metadata["fallback_spawned"]).toBeUndefined();
-    expect(session.metadata["fallback_agent"]).toBeUndefined();
+    // Metadata is written before kill/spawn, so it is set even on spawn failure
+    expect(session.metadata["fallback_spawned"]).toBe("true");
+    expect(session.metadata["fallback_agent"]).toBe("gemini");
   });
 
   it("uses project.agent as currentAgent fallback when session metadata has no agent", async () => {

@@ -153,6 +153,22 @@ export async function handleAgentFallback(
     return { reactionType: reactionKey, success: false, action, escalated: false };
   }
 
+  // Mark the old session as fallback-superseded BEFORE killing it.
+  // If we write after kill, the active metadata file is already archived/deleted,
+  // and updateMetadata() recreates it from {} — producing a ghost session.
+  session.metadata["fallback_spawned"] = "true";
+  session.metadata["fallback_agent"] = nextAgent;
+  try {
+    updateSessionMetadataHelper(session, {
+      fallback_spawned: "true",
+      fallback_agent: nextAgent,
+    }, config);
+  } catch (metaErr) {
+    console.warn(
+      `[agent-fallback] metadata persist before kill failed: ${metaErr instanceof Error ? metaErr.message : String(metaErr)} — proceeding`,
+    );
+  }
+
   // Kill the superseded session to free its worktree/tmux before spawning.
   // Without this, the worktree plugin refuses to check out the same branch
   // in a new worktree while the old one still holds it.
@@ -221,20 +237,6 @@ export async function handleAgentFallback(
     });
     await notifyHuman(event, "warning");
     return { reactionType: reactionKey, success: false, action, escalated: false };
-  }
-
-  // Mark the old session as fallback-superseded
-  session.metadata["fallback_spawned"] = "true";
-  session.metadata["fallback_agent"] = nextAgent;
-  try {
-    updateSessionMetadataHelper(session, {
-      fallback_spawned: "true",
-      fallback_agent: nextAgent,
-    }, config);
-  } catch (metaErr) {
-    console.warn(
-      `[lifecycle-manager] agent-fallback metadata persist failed: ${metaErr instanceof Error ? metaErr.message : String(metaErr)} — proceeding`,
-    );
   }
 
   const event = createEvent("reaction.triggered", {
