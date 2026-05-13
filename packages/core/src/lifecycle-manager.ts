@@ -2063,10 +2063,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           });
         }
 
-        // For transitions not already notified by a reaction, notify humans.
-        // All priorities (including "info") are routed through notificationRouting
-        // so the config controls which notifiers receive each priority level.
-        if (!reactionHandledNotify) {
+        // Skip the generic notification for merge_conflicts — the dedicated
+        // worker.merge_conflict event below always handles that transition,
+        // preventing duplicate notifications.
+        if (!reactionHandledNotify && newStatus !== "merge_conflicts") {
           const priority = inferPriority(eventType);
           const event = createEvent(eventType, {
             sessionId: session.id,
@@ -2075,6 +2075,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             data: { oldStatus, newStatus },
           });
           await notifyHuman(event, priority);
+        }
+
+        // Emit the dedicated worker.merge_conflict event when entering
+        // merge_conflicts and no reaction already handled the notification.
+        // This gives notificationRouting configs a specific event to route
+        // (warning priority) instead of relying on the generic merge.conflicts
+        // transition, while avoiding duplicate notifications when a configured
+        // reaction (e.g. send-to-agent for merge-conflicts) already notified.
+        if (newStatus === "merge_conflicts" && !reactionHandledNotify) {
+          const conflictEvent = createEvent("worker.merge_conflict", {
+            sessionId: session.id,
+            projectId: session.projectId,
+            message: `Merge conflict detected for session ${session.id}`,
+            data: { oldStatus, newStatus },
+            priority: "warning",
+          });
+          await notifyHuman(conflictEvent, "warning");
         }
       }
 

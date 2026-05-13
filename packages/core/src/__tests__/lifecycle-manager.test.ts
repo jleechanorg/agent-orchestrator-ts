@@ -1487,6 +1487,175 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("merge_conflicts");
   });
 
+  it("emits worker.merge_conflict event on merge_conflicts transition (bd-y0xf)", async () => {
+    const mockNotifier: Notifier = {
+      name: "mock-notifier",
+      notify: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: false,
+        ciPassing: true,
+        approved: true,
+        noConflicts: false,
+        blockers: ["Merge conflict"],
+      }),
+    };
+
+    const registryWithNotifier: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+    };
+
+    config.notifiers = { desktop: { plugin: "desktop" } };
+    config.notificationRouting = {
+      urgent: ["desktop"],
+      action: ["desktop"],
+      warning: ["desktop"],
+      info: ["desktop"],
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithNotifier,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("merge_conflicts");
+    // worker.merge_conflict event must be emitted with warning priority
+    expect(mockNotifier.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "worker.merge_conflict",
+        priority: "warning",
+      }),
+    );
+    // Generic merge.conflicts notification must NOT be emitted (no duplicate)
+    const notificationCalls = vi.mocked(mockNotifier.notify).mock.calls;
+    const hasGenericMergeConflicts = notificationCalls.some(
+      (call) => (call[0] as { type: string }).type === "merge.conflicts",
+    );
+    expect(hasGenericMergeConflicts).toBe(false);
+  });
+
+  it("suppresses worker.merge_conflict when merge-conflicts reaction handles notification (bd-y0xf)", async () => {
+    const mockNotifier: Notifier = {
+      name: "mock-notifier",
+      notify: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: false,
+        ciPassing: true,
+        approved: true,
+        noConflicts: false,
+        blockers: ["Merge conflict"],
+      }),
+    };
+
+    const registryWithNotifier: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name?: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        if (slot === "notifier" && name === "desktop") return mockNotifier;
+        return null;
+      }),
+    };
+
+    config.notifiers = { desktop: { plugin: "desktop" } };
+    config.notificationRouting = {
+      urgent: ["desktop"],
+      action: ["desktop"],
+      warning: ["desktop"],
+      info: ["desktop"],
+    };
+    // Configure a reaction for merge-conflicts — reaction handles notification
+    config.reactions = {
+      "merge-conflicts": {
+        auto: true,
+        action: "send-to-agent" as const,
+        message: "Resolve merge conflict",
+        retries: 1,
+      },
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithNotifier,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("merge_conflicts");
+    // send-to-agent reaction should have been executed
+    expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "Resolve merge conflict");
+    // Neither worker.merge_conflict nor generic merge.conflicts should be emitted
+    // — the reaction already handled notification
+    const notificationCalls = vi.mocked(mockNotifier.notify).mock.calls;
+    const hasAnyConflictsNotification = notificationCalls.some(
+      (call) => {
+        const type = (call[0] as { type: string }).type;
+        return type === "worker.merge_conflict" || type === "merge.conflicts";
+      },
+    );
+    expect(hasAnyConflictsNotification).toBe(false);
+  });
+
   it("skips getMergeability when CI is pending and review approved (bd-wg5)", async () => {
     const mockSCM: SCM = {
       name: "mock-scm",

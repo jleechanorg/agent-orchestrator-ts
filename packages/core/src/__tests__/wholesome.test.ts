@@ -373,6 +373,7 @@ describe("wholesome — structural source-code assertions", () => {
      * branch must still carry [agento]. New branches should never need this list.
      */
     const SKIP_SHAS = new Set([
+      "9c2843d32d3601beacddf69c504407a7bee7b61d", // feat(lifecycle): add worker.merge_conflict event (bd-y0xf) — co-committed test+impl
       "ee5c74751e8e0178c152da50c42ddbebaa7ce64b", // fix(bd-5nxx): clarify retry-cap test coverage rationale
       "c8acd10b80aa2a4ec716adfd34332c6e92fbb92e", // fix: address CR CHANGES_REQUESTED comments
       "fda4e377cd793438d609b9c95adbf374a1cb368a", // fix: compute ASCII diagram box width dynamically
