@@ -15,6 +15,7 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import path from "node:path";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -138,7 +139,13 @@ describe.skipIf(!canRun)("agent-wafer (integration)", () => {
 
   it("fibonacci.py runs and outputs correct fibonacci numbers", async () => {
     expect(fileCreated).toBe(true);
-    const { stdout } = await execFileAsync(python3Bin!, ["-I", outputFile], {
+    // Validate output file is within expected directory (prevent path traversal)
+    const resolvedOutput = path.resolve(outputFile);
+    const resolvedDir = path.resolve(tmpDir);
+    if (!resolvedOutput.startsWith(resolvedDir + path.sep) && resolvedOutput !== resolvedDir) {
+      throw new Error(`Output file ${resolvedOutput} is outside expected dir ${resolvedDir}`);
+    }
+    const { stdout } = await execFileAsync(python3Bin!, ["-I", "--", resolvedOutput], {
       timeout: 10_000,
       env: { PATH: process.env.PATH ?? "" },
     });
