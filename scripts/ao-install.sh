@@ -185,11 +185,11 @@ fi
 echo "[6/7] Verifying lifecycle workers..."
 WORKER_COUNT=0
 
-if ! launchctl print "gui/$(id -u)/ai.agento.lifecycle-all" >/dev/null 2>&1; then
-  echo "  - lifecycle-all service not loaded"
+if ! launchctl print "gui/$(id -u)/ai.agento.health" >/dev/null 2>&1; then
+  echo "  - ai.agento.health service not loaded"
 else
   for pid in $PROJECTS; do
-    # The lifecycle-all plist manages all workers; check via pgrep for per-project liveness
+    # The unified health plist runs ao-health.sh which manages lifecycle-workers; check via pgrep
     escaped_pid=$(printf '%s' "$pid" | sed -e 's/[][().*^$+?{}|\\]/\\&/g')
     if pgrep -f "lifecycle-worker[[:space:]].*${escaped_pid}([[:space:]]|$)" >/dev/null 2>&1; then
       WORKER_COUNT=$((WORKER_COUNT + 1))

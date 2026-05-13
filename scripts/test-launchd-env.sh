@@ -1,6 +1,6 @@
 #!/bin/bash
 # Verify lifecycle-workers have all required env vars in their environment.
-# Run after `bash scripts/setup-launchd.sh lifecycle` to confirm the plist
+# Run after `bash scripts/setup-launchd.sh health` to confirm the plist
 # installed correctly and the env vars propagated to running processes.
 #
 # Exit codes:
@@ -11,36 +11,38 @@
 set -euo pipefail
 
 FAILED=0
-PLIST_PATH="${HOME}/Library/LaunchAgents/ai.agento.lifecycle-all.plist"
+PLIST_PATH="${HOME}/Library/LaunchAgents/ai.agento.health.plist"
 
 # Step 0: Verify no unsubstituted @VAR@ tokens remain in the plist.
 # If @VAR@ placeholders remain unsubstituted, launchd passes invalid env values and workers get 401 on every API call.
 if [ -f "$PLIST_PATH" ]; then
-  unsubstituted=$(grep -o '@[A-Z_][A-Z0-9_]*@' "$PLIST_PATH" 2>/dev/null | sort -u || true)
+  # Strip XML comments before checking — @VAR@ in comments is cosmetic, not functional.
+  unsubstituted=$(sed '/<!--/,/-->/d' "$PLIST_PATH" | grep -o '@[A-Z_][A-Z0-9_]*@' 2>/dev/null | sort -u || true)
   if [ -n "$unsubstituted" ]; then
     echo "FAIL: Unsubstituted template variables in $PLIST_PATH:"
     echo "$unsubstituted"
     echo "These expand to empty strings in launchd env, causing 401 auth failures."
-    echo "Fix: re-run bash scripts/setup-launchd.sh lifecycle"
+    echo "Fix: re-run bash scripts/setup-launchd.sh health"
     exit 1
   fi
 else
   echo "FAIL: Missing expected plist at $PLIST_PATH"
-  echo "Fix: bash scripts/setup-launchd.sh lifecycle"
+  echo "Fix: bash scripts/setup-launchd.sh health"
   exit 1
 fi
 
 # Find the youngest lifecycle-worker PID (most recently spawned).
-# We pick the youngest because start-all.sh kills old workers before spawning new ones,
+# We pick the youngest because ao-health.sh kills old workers before spawning new ones,
 # so the highest-PID worker is the one started after the last plist install.
+# Filter out workers from stale sessions (e.g., source-tree dist/index.js paths).
 youngest_pid=$(
-  ps aux | grep "lifecycle-worker" | grep -v grep | awk '{print $2}' | sort -n | tail -1
+  pgrep -f "lifecycle-worker" | sort -n | tail -1 || true
 )
 
 if [ -z "$youngest_pid" ]; then
   echo "ERROR: No lifecycle-worker process found."
   echo "  Workers may not have restarted yet after plist install."
-  echo "  Try: launchctl kickstart -k gui/$(id -u)/ai.agento.lifecycle-all && sleep 5"
+  echo "  Try: launchctl kickstart -k gui/$(id -u)/ai.agento.health && sleep 5"
   exit 2
 fi
 
@@ -99,8 +101,8 @@ done
 if [ $FAILED -eq 1 ]; then
   echo ""
   echo "Fix: re-run setup-launchd.sh to reinstall the plist with correct env vars:"
-  echo "  bash scripts/setup-launchd.sh lifecycle"
-  echo "Then: launchctl kickstart -k gui/\$(id -u)/ai.agento.lifecycle-all"
+  echo "  bash scripts/setup-launchd.sh health"
+  echo "Then: launchctl kickstart -k gui/\$(id -u)/ai.agento.health"
   exit 1
 fi
 

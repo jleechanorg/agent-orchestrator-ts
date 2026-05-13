@@ -61,6 +61,8 @@
     <string>@HOME@</string>
     <key>PATH</key>
     <string>@PATH@</string>
+    <key>SSL_CERT_FILE</key>
+    <string>/etc/ssl/cert.pem</string>
   </dict>
 
   <key>StandardOutPath</key>

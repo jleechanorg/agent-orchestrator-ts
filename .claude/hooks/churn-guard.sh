@@ -47,9 +47,11 @@ if [ -z "$CMD" ]; then
 fi
 
 # Detect PR creation commands
-IS_PR_CREATE=$(echo "$CMD" | python3 -c "
+IS_PR_CREATE=$(python3 - "$CMD" <<'PYEOF'
 import sys, re
-cmd = sys.stdin.read()
+cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+if not cmd:
+    cmd = sys.stdin.read() if not sys.stdin.isatty() else ""
 # gh pr create
 if re.search(r'\bgh\s+pr\s+create\b', cmd, re.IGNORECASE):
     print('YES')
@@ -62,16 +64,32 @@ if has_gh_api and has_pulls_collection:
     if re.search(r'(?:--method|-X)[=\s]+POST', cmd, re.IGNORECASE):
         print('YES')
         sys.exit(0)
-    # Implicit POST via field flags: -f, -F, --field, --raw-field (can appear anywhere)
-    if re.search(r'(?:\s|^)(?:-[fF]\s|--field\s|--raw-field\s)', cmd):
-        print('YES')
+    # If --method GET or -X GET is explicit, -f flags are query params, not POST body.
+    # Per gh api docs: adding request parameters will automatically switch the request
+    # method to POST. To send the parameters as a GET query string instead, use --method GET.
+    if re.search(r'(?:--method|-X)[=\s]+GET', cmd, re.IGNORECASE):
+        print('NO')
         sys.exit(0)
-    # Implicit POST via --input
+    # Implicit POST via --input (must check before whitelist early-exit to avoid bypass)
     if re.search(r'--input\s', cmd, re.IGNORECASE):
         print('YES')
         sys.exit(0)
+    # No explicit method: -f/--field switches gh api to POST by default.
+    # Check if field flags look like read-only query params (not PR creation data).
+    # This is a heuristic: gh api .../pulls -f state=open is practically a read operation
+    # even though gh sends POST — GitHub API returns pull list regardless of method.
+    # PR creation requires fields like title=, body= which are NOT in the read-only whitelist.
+    f_flags = re.findall(r'(?:\s|^)(?:-[fF]|--field|--raw-field)\s+([A-Za-z_]\w*)=', cmd)
+    if f_flags and all(re.match(r'^(state|per_page|page|sort|direction|order|since|until|q|sha|ref|base|head|filter|labels|milestone|assignee|creator|mentioned|type|visibility|affiliation|role)$', k, re.IGNORECASE) for k in f_flags):
+        print('NO')
+        sys.exit(0)
+    # Otherwise, -f/-F/--field/--raw-field on the pulls collection = POST (PR creation)
+    if re.search(r'(?:\s|^)(?:-[fF]\s|--field\s|--raw-field\s)', cmd):
+        print('YES')
+        sys.exit(0)
 print('NO')
-" 2>/dev/null) || IS_PR_CREATE="NO"
+PYEOF
+) || IS_PR_CREATE="NO"
 
 if [ "$IS_PR_CREATE" != "YES" ]; then
   exit 0

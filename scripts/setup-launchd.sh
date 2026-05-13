@@ -377,29 +377,134 @@ if [ "${AO_SETUP_LAUNCHD_SOURCE_ONLY:-0}" = "1" ]; then
   return 0 2>/dev/null || exit 0
 fi
 
+# ── Deprecated plist cleanup ─────────────────────────────────────────────────
+# Remove plists superseded by the unified ai.agento.health job.
+DEPRECATED_LABELS=(
+  "ai.agento.lifecycle-all"
+  "ai.agento.lw-watchdog"
+  "com.agentorchestrator.lw-watchdog"
+  "com.agentorchestrator.orch-watchdog"
+  "com.agentorchestrator.start-all"
+)
+
+cleanup_deprecated_plists() {
+  local label plist_basename plist_path
+  for label in "${DEPRECATED_LABELS[@]}"; do
+    plist_basename="$label.plist"
+    plist_path="$LAUNCH_AGENTS_DIR/$plist_basename"
+    if [ -f "$plist_path" ]; then
+      launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+      rm -f "$plist_path"
+      echo "Removed deprecated plist: $label"
+    fi
+  done
+  # Also clean up legacy per-project lifecycle plists (com.agentorchestrator.lifecycle-<project>.plist)
+  # These were created by older setup-launchd.sh versions before the unified health job.
+  for legacy_plist in "$LAUNCH_AGENTS_DIR"/com.agentorchestrator.lifecycle-*.plist; do
+    if [ -f "$legacy_plist" ]; then
+      legacy_label="$(basename "$legacy_plist" .plist)"
+      launchctl bootout "gui/$(id -u)/$legacy_label" >/dev/null 2>&1 || true
+      rm -f "$legacy_plist"
+      echo "Removed legacy per-project plist: $legacy_label"
+    fi
+  done
+}
+
+# ── Unified health job ───────────────────────────────────────────────────────
+install_health_plist() {
+  local template="$TEMPLATE_DIR/ai.agento.health.plist.template"
+  local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.health.plist"
+  local script="$REPO_ROOT/scripts/ao-health.sh"
+  local launcher="$REPO_ROOT/scripts/launchd-launcher.sh"
+  local log_file="$BASE_LOG_DIR/ao-health.log"
+  local label="ai.agento.health"
+
+  if [ ! -f "$template" ]; then
+    echo "ERROR: Missing template at $template"
+    return 1
+  fi
+
+  if [ ! -x "$launcher" ]; then
+    echo "ERROR: Missing or non-executable launcher: $launcher"
+    return 1
+  fi
+
+  if [ ! -x "$script" ]; then
+    echo "ERROR: Missing or non-executable script: $script"
+    return 1
+  fi
+
+  mkdir -p "$LAUNCH_AGENTS_DIR" "$BASE_LOG_DIR"
+
+  # Kill lifecycle-workers so they restart under the new job's management.
+  kill_stale_lifecycle_workers_for_config
+
+  # Remove deprecated plists that the unified job replaces.
+  cleanup_deprecated_plists
+
+  local tmp_plist
+  tmp_plist="$(mktemp)"
+  local path_value
+  path_value="$(escape_sed "$(path_for_launchd)")"
+  local claude_binary_path
+  claude_binary_path="${CLAUDE_BINARY:-${CLAUDE_BINARY_PATH:-$HOME/.local/bin/claude}}"
+
+  sed \
+    -e "s|@HOME@|$(escape_sed "$HOME")|g" \
+    -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
+    -e "s|@LAUNCHER_SCRIPT@|$(escape_sed "$launcher")|g" \
+    -e "s|@HEALTH_SCRIPT@|$(escape_sed "$script")|g" \
+    -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
+    -e "s|@PATH@|$path_value|g" \
+    -e "s|@CLAUDE_BINARY@|$(escape_sed "$claude_binary_path")|g" \
+    "$template" > "$tmp_plist"
+
+  plutil -lint "$tmp_plist" >/dev/null
+  install -m 600 "$tmp_plist" "$plist_path"
+  rm -f "$tmp_plist"
+
+  launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$(id -u)" "$plist_path"
+  launchctl enable "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+  launchctl kickstart -k "gui/$(id -u)/$label"
+
+  # Post-install verification: confirm env vars propagated from shell profile
+  if [ -x "$REPO_ROOT/scripts/test-launchd-env.sh" ]; then
+    echo "Verifying env var propagation..."
+    "$REPO_ROOT/scripts/test-launchd-env.sh" || echo "WARNING: env var check failed — workers may not authenticate"
+  fi
+
+  echo "Installed launchd: $plist_path"
+}
+
 case "$action_script" in
   all)
-    install_lifecycle_plist
+    install_health_plist
     install_novel_plist
-    install_watchdog_plist
+    ;;
+  health)
+    install_health_plist
     ;;
   lifecycle)
-    install_lifecycle_plist
-    install_watchdog_plist
+    echo "NOTE: 'lifecycle' mode is deprecated. Installing unified 'health' job instead."
+    install_health_plist
     ;;
   novel)
     install_novel_plist
     ;;
   watchdog)
-    install_watchdog_plist
+    echo "NOTE: 'watchdog' mode is deprecated. Installing unified 'health' job instead."
+    install_health_plist
     ;;
   *)
-    echo "ERROR: Unknown mode '$action_script'. Use all|lifecycle|novel|watchdog"
+    echo "ERROR: Unknown mode '$action_script'. Use all|health|novel"
+    echo "  health   — unified AO health check (replaces lifecycle + watchdog)"
+    echo "  novel    — daily novel aggregation"
+    echo "  all      — health + novel"
     exit 1
     ;;
 esac
 
 echo "Log: $BASE_LOG_DIR"
-echo "Check lifecycle status: launchctl print gui/$(id -u)/ai.agento.lifecycle-all"
+echo "Check health status: launchctl print gui/$(id -u)/ai.agento.health"
 echo "Check novel status: launchctl print gui/$(id -u)/ai.agento.novel-daily"
-echo "Check watchdog status: launchctl print gui/$(id -u)/ai.agento.lw-watchdog"

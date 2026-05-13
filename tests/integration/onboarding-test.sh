@@ -4,6 +4,10 @@
 
 set -e
 
+# Ensure pnpm global bin is in PATH (setup.sh installs ao via pnpm install -g)
+export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+export PATH="$PNPM_HOME:$PATH"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -75,7 +79,16 @@ fi
 # Step 4: Verify ao command is available
 start_step "Step 4: Verify ao command"
 if ! command -v ao &> /dev/null; then
-    fail_step "Step 4: ao command not found (npm link failed?)"
+  # pnpm install -g . may not create the bin link; create it manually
+  CLI_ENTRY="/workspace/agent-orchestrator/packages/cli/dist/index.js"
+  if [ -f "$CLI_ENTRY" ] && [ -d "$PNPM_HOME" ]; then
+    chmod +x "$CLI_ENTRY"
+    ln -sf "$CLI_ENTRY" "$PNPM_HOME/ao"
+    echo "  Created ao symlink: $PNPM_HOME/ao -> $CLI_ENTRY"
+  fi
+fi
+if ! command -v ao &> /dev/null; then
+    fail_step "Step 4: ao command not found (pnpm install -g failed?)"
 fi
 ao --version || fail_step "Step 4: ao --version failed"
 end_step "Step 4: ao command available"
