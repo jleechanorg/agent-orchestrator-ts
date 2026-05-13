@@ -1567,7 +1567,7 @@ describe("check (single session)", () => {
     expect(hasGenericMergeConflicts).toBe(false);
   });
 
-  it("suppresses worker.merge_conflict when merge-conflicts reaction handles notification (bd-y0xf)", async () => {
+  it("emits worker.merge_conflict even when send-to-agent merge-conflicts reaction runs (bd-y0xf)", async () => {
     const mockNotifier: Notifier = {
       name: "mock-notifier",
       notify: vi.fn().mockResolvedValue(undefined),
@@ -1612,7 +1612,8 @@ describe("check (single session)", () => {
       warning: ["desktop"],
       info: ["desktop"],
     };
-    // Configure a reaction for merge-conflicts — reaction handles notification
+    // Configure a reaction for merge-conflicts (send-to-agent routes a worker message,
+    // not a human notification — worker.merge_conflict must still fire)
     config.reactions = {
       "merge-conflicts": {
         auto: true,
@@ -1644,16 +1645,21 @@ describe("check (single session)", () => {
     expect(lm.getStates().get("app-1")).toBe("merge_conflicts");
     // send-to-agent reaction should have been executed
     expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "Resolve merge conflict");
-    // Neither worker.merge_conflict nor generic merge.conflicts should be emitted
-    // — the reaction already handled notification
-    const notificationCalls = vi.mocked(mockNotifier.notify).mock.calls;
-    const hasAnyConflictsNotification = notificationCalls.some(
-      (call) => {
-        const type = (call[0] as { type: string }).type;
-        return type === "worker.merge_conflict" || type === "merge.conflicts";
-      },
+    // worker.merge_conflict must still be emitted — send-to-agent routes a worker
+    // message, not a human notification, so notificationRouting consumers still need
+    // the dedicated warning event (default production path uses send-to-agent)
+    expect(mockNotifier.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "worker.merge_conflict",
+        priority: "warning",
+      }),
     );
-    expect(hasAnyConflictsNotification).toBe(false);
+    // Generic merge.conflicts notification must NOT be emitted (no duplicate)
+    const notificationCalls = vi.mocked(mockNotifier.notify).mock.calls;
+    const hasGenericMergeConflicts = notificationCalls.some(
+      (call) => (call[0] as { type: string }).type === "merge.conflicts",
+    );
+    expect(hasGenericMergeConflicts).toBe(false);
   });
 
   it("skips getMergeability when CI is pending and review approved (bd-wg5)", async () => {
