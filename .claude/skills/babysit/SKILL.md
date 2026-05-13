@@ -19,7 +19,7 @@ Prevents the most common agent failure: spending an entire session on one PR whi
 ### Step 1 — Survey ALL open PRs
 
 ```bash
-gh pr list --state open --json number,title,mergeable,reviewDecision,statusCheckRollup,updatedAt --jq '.[] | "\(.number) | \(.title) | mergeable=\(.mergeable) | review=\(.reviewDecision) | ci=\(.statusCheckRollup | map(.conclusion) | group_by(.) | map({(.[0] // "pending"): length}) | add) | failed=\(.statusCheckRollup | map(select(.conclusion == "failure")) | length) | \(.updatedAt[:10])"'
+gh pr list --state open --json number,title,mergeable,reviewDecision,statusCheckRollup,updatedAt --jq '.[] | "\(.number) | \(.title) | mergeable=\(.mergeable) | review=\(.reviewDecision) | ci=\(.statusCheckRollup | map(.conclusion) | group_by(.) | map({(.[0] // "pending"): length}) | add) | failed=\(.statusCheckRollup | map(select((.conclusion // "") | ascii_upcase as $c | ["FAILURE","TIMED_OUT","ERROR","CANCELLED","ACTION_REQUIRED","STALE","STARTUP_FAILURE"] | index($c) != null)) | length) | \(.updatedAt[:10])"'
 ```
 
 The `failed=N` count is used directly in Step 2 classification (needs-fix = failed > 0).
