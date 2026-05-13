@@ -61,10 +61,16 @@ if ! ./scripts/setup.sh; then
 fi
 end_step "Step 3: Setup completed"
 
-_ONBOARD_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=/dev/null
-source "$_ONBOARD_REPO_ROOT/scripts/lib/pnpm-global-path.sh"
-append_pnpm_global_paths
+# setup.sh runs in a subshell — exports (e.g. PNPM_HOME on PATH) do not persist.
+# pnpm links global CLIs under `pnpm bin -g` (not always identical to PNPM_HOME).
+export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+mkdir -p "$PNPM_HOME" 2>/dev/null || true
+_PNPMD_GLOBAL_BIN="$(pnpm bin -g 2>/dev/null || true)"
+if [ -n "$_PNPMD_GLOBAL_BIN" ]; then
+  export PATH="$_PNPMD_GLOBAL_BIN:$PNPM_HOME:$PATH"
+else
+  export PATH="$PNPM_HOME:$PATH"
+fi
 
 # Step 4: Verify ao command is available
 start_step "Step 4: Verify ao command"
