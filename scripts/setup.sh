@@ -215,18 +215,19 @@ if ! command -v ao >/dev/null 2>&1; then
   done
 fi
 
-if ! command -v ao >/dev/null 2>&1; then
-  echo "ERROR: pnpm install -g succeeded but 'ao' is not on PATH (PNPM_HOME=${PNPM_HOME:-})."
-  exit 1
-fi
-
 # pnpm install -g . may not create the bin link if dist/ didn't exist at
 # install time (the build runs after pnpm install but before this step).
-# Ensure the symlink exists as a fallback.
+# Ensure the symlink exists as a fallback BEFORE the fatal PATH check.
 CLI_DIST="$REPO_ROOT/packages/cli/dist/index.js"
 if [ -f "$CLI_DIST" ] && [ -d "$PNPM_HOME" ] && ! command -v ao &> /dev/null; then
   chmod +x "$CLI_DIST"
   ln -sf "$CLI_DIST" "$PNPM_HOME/ao"
+  hash -r 2>/dev/null || true
+fi
+
+if ! command -v ao >/dev/null 2>&1; then
+  echo "ERROR: pnpm install -g succeeded but 'ao' is not on PATH (PNPM_HOME=${PNPM_HOME:-})."
+  exit 1
 fi
 
 echo ""

@@ -398,6 +398,16 @@ cleanup_deprecated_plists() {
       echo "Removed deprecated plist: $label"
     fi
   done
+  # Also clean up legacy per-project lifecycle plists (com.agentorchestrator.lifecycle-<project>.plist)
+  # These were created by older setup-launchd.sh versions before the unified health job.
+  for legacy_plist in "$LAUNCH_AGENTS_DIR"/com.agentorchestrator.lifecycle-*.plist; do
+    if [ -f "$legacy_plist" ]; then
+      legacy_label="$(basename "$legacy_plist" .plist)"
+      launchctl bootout "gui/$(id -u)/$legacy_label" >/dev/null 2>&1 || true
+      rm -f "$legacy_plist"
+      echo "Removed legacy per-project plist: $legacy_label"
+    fi
+  done
 }
 
 # ── Unified health job ───────────────────────────────────────────────────────
