@@ -69,6 +69,7 @@ import { validateAndEmitExitProof } from "./session-exit-proof.js";
 import { isPRMerged } from "./fork-lifecycle-kki-override.js";
 import { handleRequestMerge, handleParallelRetry } from "./fork-reaction-handlers.js";
 import { handleRespawnForReview } from "./fork-reaction-rfr.js";
+import { handleAgentFallback } from "./fork-reaction-agent-fallback.js";
 import { maybeDispatchReviewBacklog } from "./review-backlog.js";
 import { resolveScmFailureThreshold } from "./scm-failure-threshold.js";
 import { getAllSessionPrefixes, isOrchestratorSessionForPrefix } from "./session-prefixes.js";
@@ -1417,6 +1418,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         });
       }
 
+      // Agent fallback: when agent dies with quota/rate-limit, respawn with next agent in chain
+      case "agent-fallback": {
+        if (!session) {
+          return {
+            reactionType: reactionKey,
+            success: false,
+            action: "agent-fallback",
+            escalated: false,
+          };
+        }
+        return handleAgentFallback(sessionId, projectId, reactionKey, reactionConfig, session, agentDead, reactionCorrelationId, {
+          sessionManager,
+          config,
+          notifyHuman,
+          createEvent,
+          observer,
+        });
+      }
+
       default: {
         // Log warning for unknown reaction action types
         console.warn(`Unknown reaction action type: ${action}`);
@@ -1993,6 +2013,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 reactionConfig,
                 session,
                 correlationId,
+                false, // isPeriodic: transition-driven, not a periodic nudge
                 agentDead,
               );
               transitionReaction = { key: reactionKey, result: reactionResult };

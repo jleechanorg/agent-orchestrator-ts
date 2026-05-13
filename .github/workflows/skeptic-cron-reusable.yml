@@ -24,10 +24,10 @@ on:
         required: false
         default: "3"
       auto_merge:
-        description: "Whether to auto-merge 7-green PRs. Omit to defer to vars.SKEPTIC_CRON_AUTO_MERGE (default: false)"
+        description: "Whether to auto-merge 7-green PRs"
         type: string
         required: false
-        default: ""
+        default: "true"
 
 jobs:
   skeptic_cron:
@@ -239,7 +239,7 @@ jobs:
           PR_JSON: ${{ steps.list_prs.outputs.pr_numbers }}
           STALE_HOURS: ${{ inputs.stale_hours }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'github-actions[bot]' }}
-          SKEPTIC_CRON_AUTO_MERGE: ${{ inputs.auto_merge != '' && inputs.auto_merge || vars.SKEPTIC_CRON_AUTO_MERGE || '' }}
+          SKEPTIC_CRON_AUTO_MERGE: ${{ inputs.auto_merge }}
           SKEPTIC_MERGE_DENYLIST: ${{ vars.SKEPTIC_MERGE_DENYLIST || '' }}
         run: |
           set -uo pipefail
@@ -583,16 +583,11 @@ jobs:
 
             if [ "$ALL_PASS" = "true" ]; then
               echo ""
-              # Normalize: trim whitespace, lowercase — only "true" or "1" enable merge
-              _AUTO_MERGE_NORM="$(echo "${SKEPTIC_CRON_AUTO_MERGE}" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-              SKIP_MERGE=true
-              if [ "$_AUTO_MERGE_NORM" = "true" ] || [ "$_AUTO_MERGE_NORM" = "1" ]; then
-                SKIP_MERGE=false
-              fi
-              if [ "$SKIP_MERGE" = "true" ]; then
-                echo "*** PR #${PR_NUM} is 7-green — merge skipped (SKEPTIC_CRON_AUTO_MERGE=${SKEPTIC_CRON_AUTO_MERGE:-<empty>}) ***"
-              fi
-              if [ -n "$SKEPTIC_MERGE_DENYLIST" ]; then
+              SKIP_MERGE=false
+              if [ "${SKEPTIC_CRON_AUTO_MERGE:-true}" = "false" ] || [ "${SKEPTIC_CRON_AUTO_MERGE:-true}" = "0" ]; then
+                SKIP_MERGE=true
+                echo "*** PR #${PR_NUM} is 7-green — merge skipped (SKEPTIC_CRON_AUTO_MERGE=false) ***"
+              elif [ -n "$SKEPTIC_MERGE_DENYLIST" ]; then
                 IFS=',' read -ra _deny <<< "$SKEPTIC_MERGE_DENYLIST"
                 for _d in "${_deny[@]}"; do
                   _d="$(echo "$_d" | tr -d '[:space:]')"

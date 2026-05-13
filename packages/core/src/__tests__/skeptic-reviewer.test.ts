@@ -81,9 +81,6 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 describe("runSkepticReview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // AO_CLI_PATH in the host env overrides the "ao" binary name;
-    // clear it so execFile calls use "ao" (matching test assertions).
-    delete process.env.AO_CLI_PATH;
     // Default: gh api returns a valid SHA-1 (40 hex chars), ao skeptic returns PASS
     execFileMock.mockResolvedValue({
       stdout: "VERDICT: PASS\nAll exit criteria met.",

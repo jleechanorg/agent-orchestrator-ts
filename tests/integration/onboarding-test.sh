@@ -72,6 +72,7 @@ else
   export PATH="$PNPM_HOME:$PATH"
 fi
 
+
 # Step 4: Verify ao command is available
 start_step "Step 4: Verify ao command"
 if ! command -v ao &> /dev/null; then

@@ -11,8 +11,6 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/ao-config-topology.sh
 source "$SCRIPT_DIR/lib/ao-config-topology.sh"
-# shellcheck source=./lib/pnpm-global-path.sh
-source "$SCRIPT_DIR/lib/pnpm-global-path.sh"
 # Gate managed-topology validation only when using auto-discovered config.
 # If AO_CONFIG_PATH is set explicitly, respect it without blocking on topology.
 CONFIG_FILE="${AO_CONFIG_PATH:-$(ao_staging_config_path)}"
@@ -63,35 +61,23 @@ cd "$REPO_ROOT"
 # is built and run separately via pnpm next dev.
 pnpm --filter @jleechanorg/ao-cli build 2>&1 | tail -1
 
-echo "Linking ao CLI globally (pnpm install -g ${REPO_ROOT}/packages/cli)..."
+echo "Linking ao CLI globally (pnpm install -g)..."
+cd "$REPO_ROOT/packages/cli"
 export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
-export PATH="${REPO_ROOT}/node_modules/.bin:${PNPM_HOME}:${PATH}"
-hash -r 2>/dev/null || true
-PNPM_EXT="$(command -v pnpm 2>/dev/null || true)"
-CLI_DIST_EXT="${REPO_ROOT}/packages/cli/dist/index.js"
-if [ -f "$CLI_DIST_EXT" ]; then
-  chmod +x "$CLI_DIST_EXT" || true
-fi
+export PATH="$PNPM_HOME:$PATH"
 if ! mkdir -p "$PNPM_HOME" 2>/dev/null; then
   echo "WARNING: Could not create PNPM_HOME ($PNPM_HOME)." >&2
-  echo "  Fix permissions or set PNPM_HOME, then: pnpm install -g \"${REPO_ROOT}/packages/cli\"" >&2
+  echo "  Fix permissions or set PNPM_HOME, then: cd packages/cli && pnpm install -g ." >&2
 else
-  if [ -n "$PNPM_EXT" ]; then
-    "$PNPM_EXT" remove -g @jleechanorg/ao-cli 2>/dev/null || true
-    if (cd "$REPO_ROOT" && "$PNPM_EXT" install -g "$REPO_ROOT/packages/cli" 2>/dev/null); then
-      echo "[ok] ao CLI installed globally via pnpm"
-    else
-      echo "WARNING: pnpm global install failed for packages/cli." >&2
-      echo "  Try: pnpm install -g \"${REPO_ROOT}/packages/cli\"" >&2
-    fi
+  if command -v pnpm >/dev/null 2>&1 && pnpm install -g . 2>/dev/null; then
+    echo "[ok] ao CLI installed globally via pnpm"
   else
-    echo "WARNING: pnpm not on PATH." >&2
+    echo "WARNING: pnpm install -g failed." >&2
+    echo "  Try: cd packages/cli && pnpm install -g ." >&2
   fi
 fi
+cd "$REPO_ROOT"
 
-export AO_PNPM_FOR_GLOBAL="${PNPM_EXT:-}"
-append_pnpm_global_paths
-unset AO_PNPM_FOR_GLOBAL
 AO_VERSION=$(ao --version 2>/dev/null || echo "unknown")
 echo "[ok] ao $AO_VERSION installed"
 
@@ -281,7 +267,6 @@ fi
 WEBHOOK_PID=$(lsof -ti :"$WEBHOOK_PORT" 2>/dev/null | head -1 || true)
 if [ -z "$WEBHOOK_PID" ]; then
   echo "[tail] Starting webhook server on port $WEBHOOK_PORT..."
-  mkdir -p "$HOME/.agent-orchestrator"
   cd "$REPO_ROOT/packages/web"
   # Start next dev server in background, tagged so it can be found
   pnpm next dev --port "$WEBHOOK_PORT" >> ~/.agent-orchestrator/webhook-server.log 2>&1 &

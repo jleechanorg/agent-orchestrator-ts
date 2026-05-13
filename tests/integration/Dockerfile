@@ -10,10 +10,8 @@ RUN apt-get update && apt-get install -y \
     python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
-# Use Corepack so `pnpm` matches the repo packageManager pin (pnpm@9.x in package.json).
-# `npm install -g pnpm` often installs pnpm v10+, which breaks `pnpm install -g .`
-# layout vs the workspace toolchain and hides the global `ao` shim during onboarding tests.
-RUN corepack enable
+# Install pnpm globally (typically installed by developer)
+RUN npm install -g pnpm
 
 # Install GitHub CLI (common for developers working with GitHub)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -37,8 +35,7 @@ RUN mkdir -p /home/testuser/.npm-global && \
     chown -R testuser:testuser /home/testuser/.npm-global
 USER testuser
 RUN npm config set prefix '/home/testuser/.npm-global'
-ENV PNPM_HOME="/home/testuser/.local/share/pnpm"
-ENV PATH="$PNPM_HOME:/home/testuser/.npm-global/bin:$PATH"
+ENV PATH="/home/testuser/.npm-global/bin:$PATH"
 
 WORKDIR /home/testuser
 

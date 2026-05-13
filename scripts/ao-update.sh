@@ -245,30 +245,24 @@ if [ "$SMOKE_ONLY" = false ]; then
   run_cmd pnpm --filter @jleechanorg/ao-cli build
   run_cmd pnpm --filter @jleechanorg/ao-web build
 
-  printf '\nRefreshing ao launcher (pnpm install -g %s)...\n' "$REPO_ROOT/packages/cli"
+  printf '\nRefreshing ao launcher (pnpm install -g)...\n'
   (
-    cd "$REPO_ROOT"
-    export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
-    export PATH="${REPO_ROOT}/node_modules/.bin:${PNPM_HOME}:${PATH}"
-    hash -r 2>/dev/null || true
+    cd "$REPO_ROOT/packages/cli"
     PNPM_BIN="$(command -v pnpm || true)"
     if [ -z "$PNPM_BIN" ]; then
       printf 'ERROR: pnpm not found; cannot refresh ao CLI globally.\n'
       exit 1
     fi
+    export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+    export PATH="$PNPM_HOME:$PATH"
     mkdir -p "$PNPM_HOME" 2>/dev/null || true
-    DIST_CLI="$REPO_ROOT/packages/cli/dist/index.js"
-    if [ -f "$DIST_CLI" ]; then
-      chmod +x "$DIST_CLI" || true
-    fi
-    "$PNPM_BIN" remove -g @jleechanorg/ao-cli 2>/dev/null || true
-    if "$PNPM_BIN" install -g "$REPO_ROOT/packages/cli"; then
+    if "$PNPM_BIN" install -g .; then
       :
     elif [ -t 0 ]; then
       printf '  Permission denied. Retrying with sudo...\n'
-      sudo -H env PNPM_HOME="$PNPM_HOME" PATH="${REPO_ROOT}/node_modules/.bin:${PNPM_HOME}:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g "$REPO_ROOT/packages/cli"
+      sudo -H env PNPM_HOME="$PNPM_HOME" PATH="$PNPM_HOME:$(dirname "$PNPM_BIN"):$PATH" "$PNPM_BIN" install -g .
     else
-      printf 'ERROR: Permission denied. Run manually: pnpm install -g %s\n' "$REPO_ROOT/packages/cli"
+      printf 'ERROR: Permission denied. Run manually: cd %s/packages/cli && pnpm install -g .\n' "$REPO_ROOT"
       exit 1
     fi
   )
