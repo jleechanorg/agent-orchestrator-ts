@@ -230,7 +230,7 @@ describe("wholesome — structural source-code assertions", () => {
       if (!shouldEnforcePRTitlePrefix(title)) return;
       // "[agento] " followed by conventional-commit type + optional scope + colon
       // Scope format: (scope-name) — supports issue refs like (skeptic-cron)
-      expect(title).toMatch(/^(?:\[antig\]\s*)?\[agento\] [a-z]+(\([^)]+\))?: /);
+      expect(title).toMatch(/^\[agento\] [a-z]+(\([^)]+\))?: /);
     });
   });
 
