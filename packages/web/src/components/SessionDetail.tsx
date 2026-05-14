@@ -232,7 +232,7 @@ export function SessionDetail({
               strokeWidth="2.5"
               viewBox="0 0 24 24"
             >
-              <path d="M15 18l-6-6 6-6" />
+<path d="M15 18l-6-6 6-6" />
             </svg>
             Orchestrator
           </a>
@@ -251,6 +251,7 @@ export function SessionDetail({
             >
               orchestrator
             </span>
+          )}
           )}
         </div>
 
@@ -394,7 +395,6 @@ export function SessionDetail({
             reloadCommand={isOpenCodeSession ? reloadCommand : undefined}
           />
         </div>
-      </div>
   );
 }
 

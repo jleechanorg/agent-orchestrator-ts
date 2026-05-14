@@ -239,12 +239,10 @@ export class TerminalManager {
    * If has subscribers but PTY crashed, re-attach.
    */
   open(id: string, projectId?: string, tmuxName?: string): string {
-    // Validate and resolve
     if (!validateSessionId(id)) {
       throw new Error(`Invalid session ID: ${id}`);
     }
 
-    // Use provided tmuxName, or reuse from existing terminal entry, or resolve
     const key = this.terminalKey(id, projectId);
     const existing = this.terminals.get(key);
     const tmuxSessionId =
@@ -281,13 +279,15 @@ export class TerminalManager {
     // here. The `=`-prefixed form is built below for attach-session.
 
     // Enable mouse mode
-    const mouseProc = spawn(this.TMUX, ["set-option", "-t", tmuxSessionId, "mouse", "on"]);
+    const exactTmuxTarget = `=${tmuxSessionId}`;
+
+    const mouseProc = spawn(this.TMUX, ["set-option", "-t", exactTmuxTarget, "mouse", "on"]);
     mouseProc.on("error", (err) => {
       console.error(`[MuxServer] Failed to set mouse mode for ${tmuxSessionId}:`, err.message);
     });
 
     // Hide the status bar
-    const statusProc = spawn(this.TMUX, ["set-option", "-t", tmuxSessionId, "status", "off"]);
+    const statusProc = spawn(this.TMUX, ["set-option", "-t", exactTmuxTarget, "status", "off"]);
     statusProc.on("error", (err) => {
       console.error(`[MuxServer] Failed to hide status bar for ${tmuxSessionId}:`, err.message);
     });
@@ -309,7 +309,7 @@ export class TerminalManager {
       throw new Error("node-pty not available");
     }
 
-    // Spawn PTY — use `=`-prefixed exact-match target so we never attach to
+// Spawn PTY — use `=`-prefixed exact-match target so we never attach to
     // a session whose name happens to be a prefix of the requested id.
     const exactTmuxTarget = `=${tmuxSessionId}`;
     const pty = ptySpawn(this.TMUX, ["attach-session", "-t", exactTmuxTarget], {

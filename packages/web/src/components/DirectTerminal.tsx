@@ -97,21 +97,15 @@ export function DirectTerminal({
   const [reloading, setReloading] = useState(false);
   const [reloadError, setReloadError] = useState<string | null>(null);
 
-const {
-    error,
-    followOutput,
-    scrollToLatest,
-    muxStatus,
-    terminalInstance,
-    fitAddon,
-  } = useXtermTerminal(terminalRef, sessionId, {
-    appearance,
-    variant,
-    fontSize,
-    autoFocus,
-    projectId,
-    tmuxName,
-  });
+const { error, followOutput, scrollToLatest, muxStatus, terminalInstance, fitAddon } =
+    useXtermTerminal(terminalRef, sessionId, {
+      appearance,
+      variant,
+      fontSize,
+      autoFocus,
+      projectId,
+      tmuxName,
+    });
 
   useFullscreenResize(fullscreen, sessionId, projectId, terminalInstance, fitAddon, terminalRef);
 
