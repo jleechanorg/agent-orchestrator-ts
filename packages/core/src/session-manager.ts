@@ -67,6 +67,14 @@ import {
   reserveSessionId,
 } from "./metadata.js";
 import {
+  buildLifecycleMetadataPatch,
+  clearTerminalMarkersForNonTerminalState,
+  cloneLifecycle,
+  createInitialCanonicalLifecycle,
+  deriveLegacyStatus,
+  parseCanonicalLifecycle,
+} from "./lifecycle-state.js";
+import {
   getSessionsDir,
   getWorktreesDir,
   getProjectBaseDir,
@@ -101,6 +109,7 @@ import { deriveDisplayName } from "./upstream-session-header.js";
 const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
 const OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS = 10_000;
+
 
 function errorIncludesSessionNotFound(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -513,6 +522,29 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       next[key] = value;
     }
     return next;
+  }
+
+  function buildUpdatedLifecycle(
+    sessionId: string,
+    raw: Record<string, string>,
+    updater: (lifecycle: ReturnType<typeof parseCanonicalLifecycle>) => void,
+  ) {
+    const lifecycle = cloneLifecycle(
+      parseCanonicalLifecycle(raw, {
+        sessionId,
+        status: validateStatus(raw["status"]),
+      }),
+    );
+    updater(lifecycle);
+    clearTerminalMarkersForNonTerminalState(lifecycle);
+    return lifecycle;
+  }
+
+  function lifecycleMetadataUpdates(
+    raw: Record<string, string>,
+    lifecycle: ReturnType<typeof parseCanonicalLifecycle>,
+  ): Partial<Record<string, string>> {
+    return buildLifecycleMetadataPatch(lifecycle);
   }
 
   function updateMetadataPreservingMtime(
