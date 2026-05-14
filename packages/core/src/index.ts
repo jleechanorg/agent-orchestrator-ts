@@ -146,6 +146,24 @@ export {
   parseWebhookBranchRef,
 } from "./scm-webhook-utils.js";
 export { asValidOpenCodeSessionId } from "./opencode-session-id.js";
+export {
+  OPENCODE_SESSION_LIST_CACHE_TTL_MS,
+  getOpenCodeTmpDir,
+  ensureOpenCodeTmpDir,
+  getOpenCodeChildEnv,
+  getCachedOpenCodeSessionList,
+  invalidateOpenCodeSessionListCache,
+  resetOpenCodeSessionListCache,
+} from "./opencode-shared.js";
+export type { OpenCodeSessionListEntry } from "./opencode-shared.js";
+export { getWorkspaceAgentsMdPath, writeWorkspaceOpenCodeAgentsMd } from "./opencode-agents-md.js";
+export { writeOpenCodeConfig } from "./opencode-config.js";
+export {
+  getOrchestratorSessionId,
+  normalizeOrchestratorSessionStrategy,
+} from "./orchestrator-session-strategy.js";
+export { resolveSpawnTarget } from "./spawn-target.js";
+export type { SpawnTarget } from "./spawn-target.js";
 
 // GitHub rate-limit detection & backoff (shared across gh-based plugins)
 export {
@@ -206,6 +224,67 @@ export {
   expandHome,
   validateAndStoreOrigin,
 } from "./paths.js";
+
+// Platform adapter — centralized cross-platform branching
+export {
+  isWindows,
+  isMac,
+  isLinux,
+  getDefaultRuntime,
+  getShell,
+  killProcessTree,
+  findPidByPort,
+  getEnvDefaults,
+} from "./platform.js";
+
+export { normalizeOriginUrl, relativeSubdir, deriveStorageKey } from "./storage-key.js";
+
+// Global config — Option C hybrid architecture (global registry + local behavior)
+export {
+  getGlobalConfigPath,
+  isCanonicalGlobalConfigPath,
+  loadGlobalConfig,
+  saveGlobalConfig,
+  createDefaultGlobalConfig,
+  loadLocalProjectConfig,
+  LocalProjectConfigSchema,
+  loadLocalProjectConfigDetailed,
+  getLocalProjectConfigPath,
+  repairWrappedLocalProjectConfig,
+  registerProjectInGlobalConfig,
+  generateExternalId,
+  buildEffectiveProjectConfig,
+  resolveProjectIdentity,
+  isOldConfigFormat,
+  migrateToGlobalConfig,
+  writeLocalProjectConfig,
+} from "./global-config.js";
+export type {
+  GlobalConfig,
+  GlobalProjectEntry,
+  LocalProjectConfig,
+  LocalProjectConfigLoadResult,
+  RegisterProjectOptions,
+  UpdateChannel,
+  InstallMethodOverride,
+} from "./global-config.js";
+export { UpdateChannelSchema, InstallMethodOverrideSchema } from "./global-config.js";
+
+// Channel-aware semver comparison shared by the CLI's update-check and the
+// dashboard's /api/version route.
+export { isVersionOutdated } from "./version-compare.js";
+
+// Cache-layer primitives for the update pipeline. Both the CLI and the
+// dashboard's /api/version route read the same cache file; centralising the
+// path + shape here prevents drift.
+export {
+  getUpdateCheckCachePath,
+  readUpdateCheckCacheRaw,
+  getInstalledAoVersion,
+} from "./update-cache.js";
+export type { UpdateCheckCacheRaw } from "./update-cache.js";
+
+export { loadEffectiveProjectConfig, iterateAllProjects } from "./project-resolver.js";
 
 // Config generator — auto-generate config from repo URL
 export {
@@ -294,6 +373,35 @@ export type { OutboxEntry, OutboxConfig } from "./slack-outbox.js";
 export {
   PatternSynthesizer,
 } from "./pattern-synthesizer.js";
+  registerWindowsPtyHost,
+  unregisterWindowsPtyHost,
+  getWindowsPtyHosts,
+  clearWindowsPtyHostRegistry,
+  type WindowsPtyHostEntry,
+} from "./windows-pty-registry.js";
+
+export {
+  registerDaemonChild,
+  unregisterDaemonChild,
+  getDaemonChildren,
+  clearDaemonChildrenRegistry,
+  markDaemonShutdownHandlerInstalled,
+  registerChildReaper,
+  spawnManagedDaemonChild,
+  sweepDaemonChildren,
+  classifyAoOrphanCommand,
+  detectAoOrphansFromPsOutput,
+  scanAoOrphans,
+  reapAoOrphans,
+  type DaemonChildEntry,
+  type DaemonChildSweepOptions,
+  type DaemonChildSweepResult,
+  type AoOrphanProcess,
+} from "./daemon-children.js";
+
+// Activity event logging — structured diagnostic event trail
+export { recordActivityEvent, droppedEventCount } from "./activity-events.js";
+export { isActivityEventsFtsEnabled, closeDb } from "./events-db.js";
 export type {
   SynthesizedPattern,
   PatternStore,

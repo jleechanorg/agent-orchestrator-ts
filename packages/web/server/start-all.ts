@@ -4,11 +4,17 @@
  * Replaces the dev-only `concurrently` setup.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import {
+  isWindows,
+  killProcessTree,
+  markDaemonShutdownHandlerInstalled,
+  spawnManagedDaemonChild,
+} from "@aoagents/ao-core";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -17,6 +23,7 @@ const __dirname = dirname(__filename);
 const pkgRoot = resolve(__dirname, "..");
 
 const children: ChildProcess[] = [];
+markDaemonShutdownHandlerInstalled();
 
 function log(label: string, msg: string): void {
   process.stdout.write(`[${label}] ${msg}\n`);
@@ -32,6 +39,41 @@ function spawnProcess(label: string, command: string, args: string[]): ChildProc
   child.stdout?.on("data", (data: Buffer) => {
     for (const line of data.toString().split("\n").filter(Boolean)) {
       log(label, line);
+  function launch(): ChildProcess {
+    const child = spawnManagedDaemonChild(`dashboard:${label}`, command, args, {
+      cwd: pkgRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: process.env,
+      detached: !isWindows(),
+    });
+
+    child.stdout?.on("data", (data: Buffer) => {
+      for (const line of data.toString().split("\n").filter(Boolean)) {
+        log(label, line);
+      }
+    });
+
+    child.stderr?.on("data", (data: Buffer) => {
+      for (const line of data.toString().split("\n").filter(Boolean)) {
+        log(label, line);
+      }
+    });
+
+    child.on("exit", (code) => {
+      log(label, `exited with code ${code}`);
+      if (!shuttingDown && opts?.restart && code !== 0 && restarts < maxRestarts) {
+        restarts++;
+        log(label, `restarting (attempt ${restarts}/${maxRestarts})`);
+        const replacement = launch();
+        // Replace in-place — slot was assigned on first push
+        children[slotIndex] = replacement;
+      }
+    });
+
+    // Only push on first launch; restarts replace the existing slot
+    if (slotIndex === -1) {
+      slotIndex = children.length;
+      children.push(child);
     }
   });
 
@@ -56,6 +98,12 @@ function spawnProcess(label: string, command: string, args: string[]): ChildProc
 function resolveNextBin(): string {
   const localBin = resolve(pkgRoot, "node_modules", ".bin", "next");
   if (existsSync(localBin)) return localBin;
+  // On Windows, .bin/next is a POSIX shell shim that spawn() cannot execute.
+  // Skip it and go straight to the JS entry point.
+  if (!isWindows()) {
+    const localBin = resolve(pkgRoot, "node_modules", ".bin", "next");
+    if (existsSync(localBin)) return localBin;
+  }
 
   // Hoisted node_modules — resolve the actual next CLI entry
   const require = createRequire(resolve(pkgRoot, "package.json"));
@@ -77,6 +125,18 @@ spawnProcess("terminal", "node", [resolve(__dirname, "terminal-websocket.js")]);
 
 // Start direct terminal WebSocket server
 spawnProcess("direct-terminal", "node", [resolve(__dirname, "direct-terminal-ws.js")]);
+if (isWindows() && nextBin !== "next") {
+  // On Windows, run the JS entry point via the current node binary.
+  // spawn() can't execute .js files directly on Windows.
+  spawnProcess("next", process.execPath, [nextBin, "start", "-p", port]);
+} else {
+  spawnProcess("next", nextBin, ["start", "-p", port]);
+}
+
+// Start direct terminal WebSocket server (auto-restart on crash)
+spawnProcess("direct-terminal", "node", [resolve(__dirname, "direct-terminal-ws.js")], {
+  restart: true,
+});
 
 // Graceful shutdown — send SIGTERM to children and wait for them to exit
 let shuttingDown = false;
