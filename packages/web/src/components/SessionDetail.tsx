@@ -252,7 +252,6 @@ export function SessionDetail({
               orchestrator
             </span>
           )}
-          )}
         </div>
 
       {/* Orchestrator status strip */}

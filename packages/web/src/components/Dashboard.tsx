@@ -595,7 +595,7 @@ function DashboardInner({
           <div
             className={`dashboard-shell dashboard-shell--desktop${sidebarCollapsed ? " dashboard-shell--sidebar-collapsed" : ""}`}
           >
-            <div
+<div
               className={`sidebar-wrapper${mobileMenuOpen ? " sidebar-wrapper--mobile-open" : ""}`}
             >
               <ProjectSidebar
