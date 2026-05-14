@@ -253,7 +253,6 @@ export function SessionDetail({
             </span>
           )}
         </div>
-      </nav>
 
       {/* Orchestrator status strip */}
       {isOrchestrator && orchestratorZones && (
@@ -366,12 +365,6 @@ export function SessionDetail({
                   </a>
                 )}
               </div>
-
-              <ClientTimestamps
-                status={session.status}
-                createdAt={session.createdAt}
-                lastActivityAt={session.lastActivityAt}
-              />
             </div>
           </div>
         </div>
@@ -392,6 +385,8 @@ export function SessionDetail({
           </div>
           <DirectTerminal
             sessionId={session.id}
+            projectId={session.projectId}
+            tmuxName={session.metadata?.tmuxName}
             startFullscreen={startFullscreen}
             variant={terminalVariant}
             height={terminalHeight}
@@ -400,7 +395,6 @@ export function SessionDetail({
           />
         </div>
       </div>
-    </div>
   );
 }
 

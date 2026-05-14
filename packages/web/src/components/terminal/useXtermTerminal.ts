@@ -397,9 +397,9 @@ export function useXtermTerminal(
         // re-anchors the viewport to the live tail.
         t.scrollToBottom();
       } else {
-        // Alternate buffer (tmux/vim): the user is in tmux copy-mode
-        // (entered by attachTouchScroll on swipe). Send 'q' to exit
-        // copy-mode and return to live tail.
+        // Alternate buffer (tmux/vim): xterm has no scrollback to scroll
+        // to. The user is in tmux copy-mode (entered by attachTouchScroll
+        // on swipe). Send 'q' to exit copy-mode and return to live tail.
         writeTerminal(sessionId, "q", projectId);
       }
     }

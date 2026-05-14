@@ -13,6 +13,9 @@ import type { FitAddon as FitAddonType } from "@xterm/addon-fit";
 
 interface DirectTerminalProps {
   sessionId: string;
+  projectId?: string;
+  /** Actual tmux session name. When provided, the terminal server uses it directly instead of resolving from sessionId. */
+  tmuxName?: string;
   startFullscreen?: boolean;
   /** Visual variant. "orchestrator" uses violet accent; "agent" (default) uses blue. */
   variant?: "agent" | "orchestrator";
@@ -69,6 +72,8 @@ export function buildDirectTerminalWsUrl({
  */
 export function DirectTerminal({
   sessionId,
+  projectId,
+  tmuxName,
   startFullscreen = false,
   variant = "agent",
   height = "max(440px, calc(100vh - 440px))",
@@ -92,7 +97,25 @@ export function DirectTerminal({
   const [reloading, setReloading] = useState(false);
   const [reloadError, setReloadError] = useState<string | null>(null);
 
-  // Update URL when fullscreen changes
+const {
+    error,
+    followOutput,
+    scrollToLatest,
+    muxStatus,
+    terminalInstance,
+    fitAddon,
+  } = useXtermTerminal(terminalRef, sessionId, {
+    appearance,
+    variant,
+    fontSize,
+    autoFocus,
+    projectId,
+    tmuxName,
+  });
+
+  useFullscreenResize(fullscreen, sessionId, projectId, terminalInstance, fitAddon, terminalRef);
+
+  // Sync fullscreen to URL query param
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
 

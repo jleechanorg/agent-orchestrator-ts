@@ -239,10 +239,12 @@ export class TerminalManager {
    * If has subscribers but PTY crashed, re-attach.
    */
   open(id: string, projectId?: string, tmuxName?: string): string {
+    // Validate and resolve
     if (!validateSessionId(id)) {
       throw new Error(`Invalid session ID: ${id}`);
     }
 
+    // Use provided tmuxName, or reuse from existing terminal entry, or resolve
     const key = this.terminalKey(id, projectId);
     const existing = this.terminals.get(key);
     const tmuxSessionId =
@@ -383,6 +385,7 @@ export class TerminalManager {
         );
         try {
           this.open(id, projectId, tmuxSessionId);
+          terminal.reattachAttempts = 0; // reset on successful attach
           return; // re-attached — don't notify exit
         } catch (err) {
           console.error(`[MuxServer] Failed to re-attach ${id}:`, err);
