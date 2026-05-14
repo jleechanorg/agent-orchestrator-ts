@@ -4,6 +4,9 @@
 # Usage: curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/ao-repo-setup.sh | bash
 set -euo pipefail
 
+OPENCLAW_PROD="${OPENCLAW_PROD:-}"
+AO_CONFIG="${AO_CONFIG:-}"
+
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
 AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
 AGENT_ORCHESTRATOR_BRANCH="${AGENT_ORCHESTRATOR_BRANCH:-main}"

@@ -7,6 +7,8 @@
 
 set -euo pipefail
 
+MODE="${MODE:-repo}"
+
 # Run a command, filter its output through grep/head, exit non-zero on command failure.
 # stdin is connected to /dev/null to prevent interactive prompts from causing silent hangs
 # (setup.sh enables interactive mode when stdin is a tty, issuing read prompts that write to
