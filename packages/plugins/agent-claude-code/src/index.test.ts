@@ -725,6 +725,28 @@ describe("getSessionInfo", () => {
       mockJsonlFiles('{"type":"user","message":{"content":"hi"}}', ["abc-def-123.jsonl"]);
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.agentSessionId).toBe("abc-def-123");
+      expect(result?.metadata?.claudeSessionUuid).toBe("abc-def-123");
+    });
+  });
+
+  describe("getRestoreCommand metadata", () => {
+    it("uses persisted Claude session UUID without scanning project files", async () => {
+      const agent = create();
+      const session = makeSession({
+        workspacePath: "/workspace/test-project",
+        metadata: { claudeSessionUuid: "persisted-uuid" },
+      });
+
+      const command = await agent.getRestoreCommand!(session, {
+        name: "test-project",
+        repo: "owner/repo",
+        path: "/workspace/test-project",
+        defaultBranch: "main",
+        sessionPrefix: "test",
+      });
+
+      expect(command).toBe("claude --resume 'persisted-uuid'");
+      expect(mockReaddir).not.toHaveBeenCalled();
     });
   });
 

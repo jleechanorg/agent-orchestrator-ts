@@ -1016,23 +1016,27 @@ function createClaudeCodeAgent(): Agent {
         summary: summaryResult?.summary ?? null,
         summaryIsFallback: summaryResult?.isFallback,
         agentSessionId,
+        metadata: { claudeSessionUuid: agentSessionId },
         cost: extractCost(lines),
       };
     },
 
     async getRestoreCommand(session: Session, project: ProjectConfig): Promise<string | null> {
-      if (!session.workspacePath) return null;
+      let sessionUuid = session.metadata?.["claudeSessionUuid"]?.trim();
+      if (!sessionUuid) {
+        if (!session.workspacePath) return null;
 
-      // Find Claude's project directory for this workspace
-      const projectPath = toClaudeProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), ".claude", "projects", projectPath);
+        // Find Claude's project directory for this workspace
+        const projectPath = toClaudeProjectPath(session.workspacePath);
+        const projectDir = join(homedir(), ".claude", "projects", projectPath);
 
-      // Find the latest session JSONL file
-      const sessionFile = await findLatestSessionFile(projectDir);
-      if (!sessionFile) return null;
+        // Find the latest session JSONL file
+        const sessionFile = await findLatestSessionFile(projectDir);
+        if (!sessionFile) return null;
 
-      // Extract session UUID from filename (e.g. "abc123-def456.jsonl" → "abc123-def456")
-      const sessionUuid = basename(sessionFile, ".jsonl");
+        // Extract session UUID from filename (e.g. "abc123-def456.jsonl" → "abc123-def456")
+        sessionUuid = basename(sessionFile, ".jsonl");
+      }
       if (!sessionUuid) return null;
 
       // Build resume command — apply same env prefix as getLaunchCommand to
