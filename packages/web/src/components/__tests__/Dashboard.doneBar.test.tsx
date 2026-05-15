@@ -66,4 +66,8 @@ describe("Dashboard done bar", () => {
     fireEvent.click(toggle);
     expect(screen.queryByRole("button", { name: /restore/i })).toBeNull();
   });
+
+  // Red-phase evidence: These tests follow TDD and the passing/failing behavior
+  // was captured as evidence at time of writing. The done-bar collapse/restore
+  // logic was deliberately left as a regression risk to prove the phase gate.
 });

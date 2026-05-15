@@ -160,8 +160,28 @@ export async function waitForExit(pid: number, timeoutMs = 5000): Promise<boolea
   return !isProcessAlive(pid);
 }
 
-export async function addProjectToRunning(_projectId: string): Promise<void> {
+export async function addProjectToRunning(projectId: string): Promise<void> {
+  const release = await acquireLock();
+  try {
+    const state = readState();
+    if (!state) return;
+    if (!state.projects.includes(projectId)) {
+      state.projects.push(projectId);
+      writeState(state);
+    }
+  } finally {
+    release();
+  }
 }
 
-export async function removeProjectFromRunning(_projectId: string): Promise<void> {
+export async function removeProjectFromRunning(projectId: string): Promise<void> {
+  const release = await acquireLock();
+  try {
+    const state = readState();
+    if (!state) return;
+    state.projects = state.projects.filter((p) => p !== projectId);
+    writeState(state);
+  } finally {
+    release();
+  }
 }

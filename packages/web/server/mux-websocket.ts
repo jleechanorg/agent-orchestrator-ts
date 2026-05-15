@@ -408,6 +408,9 @@ export class TerminalManager {
       // out from under a still-subscribed dashboard, attach-session exits ~40 ms
       // after spawn and the loop runs at ~80 spawns/sec, exhausting the system
       // PTY pool in seconds (issue #1639).
+      // NOTE: The reset only fires when terminal.pty === pty (same PTY instance),
+      // so it resets on successful attach, NOT on every attempt — see open()'s
+      // setTimeout at ~line 337.
       if (terminal.subscribers.size > 0 && terminal.reattachAttempts < MAX_REATTACH_ATTEMPTS) {
         terminal.reattachAttempts += 1;
         console.log(

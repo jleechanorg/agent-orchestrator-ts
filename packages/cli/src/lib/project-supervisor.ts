@@ -121,18 +121,19 @@ export async function startProjectSupervisor(
   let reconciling = false;
   let pending = false;
   let stopped = false;
-  let waiters: Array<() => void> = [];
+  let waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
 
   const run = async (options: { swallowErrors?: boolean } = {}): Promise<void> => {
     if (stopped) return;
     if (reconciling) {
       pending = true;
-      return new Promise<void>((resolve) => {
-        waiters.push(resolve);
+      return new Promise<void>((resolve, reject) => {
+        waiters.push({ resolve, reject });
       });
     }
 
     reconciling = true;
+    let err: unknown;
     try {
       do {
         pending = false;
@@ -140,6 +141,7 @@ export async function startProjectSupervisor(
           await reconcileProjectSupervisor({ intervalMs });
         } catch (error) {
           if (isMissingGlobalConfigError(error)) return;
+          err = error;
           if (!options.swallowErrors) throw error;
         }
       } while (pending && !stopped);
@@ -147,7 +149,10 @@ export async function startProjectSupervisor(
       reconciling = false;
       const pendingWaiters = waiters;
       waiters = [];
-      for (const resolve of pendingWaiters) resolve();
+      for (const w of pendingWaiters) {
+        if (err && !options.swallowErrors) w.reject(err);
+        else w.resolve();
+      }
     }
   };
 

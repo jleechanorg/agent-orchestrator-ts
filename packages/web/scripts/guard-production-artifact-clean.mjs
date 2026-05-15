@@ -85,7 +85,9 @@ const running = readRunningState();
 if (running) {
   const pids = pidsListeningOnPort(running.port);
   const matchingPid =
-    process.platform === "win32" ? pids[0] : pids.find((pid) => processCwd(pid) === webDir);
+    process.platform === "win32"
+      ? (running.pid && pids.includes(String(running.pid)) ? running.pid : pids[0])
+      : pids.find((pid) => processCwd(pid) === webDir);
 
   if (matchingPid) {
     const checkoutDetail =
