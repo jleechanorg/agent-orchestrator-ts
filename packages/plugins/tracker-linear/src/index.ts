@@ -141,7 +141,8 @@ function createComposioTransport(apiKey: string, entityId: string): GraphQLTrans
     if (!clientPromise) {
       clientPromise = (async () => {
         try {
-          const mod = await Function("return import('@composio/core')")() as { Composio: new (opts: { apiKey: string }) => { tools: ComposioTools } };
+          const specifier = "@composio/core";
+          const mod = await import(specifier) as { Composio: new (opts: { apiKey: string }) => { tools: ComposioTools } };
           const client = new mod.Composio({ apiKey });
           return client.tools;
         } catch (err: unknown) {

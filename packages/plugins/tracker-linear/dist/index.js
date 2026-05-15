@@ -91,7 +91,8 @@ function createComposioTransport(apiKey, entityId) {
         if (!clientPromise) {
             clientPromise = (async () => {
                 try {
-                    const mod = await Function("return import('@composio/core')")();
+                    const specifier = "@composio/core";
+                    const mod = await import(specifier);
                     const client = new mod.Composio({ apiKey });
                     return client.tools;
                 }

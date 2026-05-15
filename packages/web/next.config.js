@@ -10,6 +10,7 @@ const nextConfig = {
     // Optimize worker memory usage
     workers: true,
   },
+  serverExternalPackages: ["@composio/core"],
   // Fix lockfile warning by specifying the correct root
   outputFileTracingRoot: __dirname,
   transpilePackages: [
