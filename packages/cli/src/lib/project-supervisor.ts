@@ -147,10 +147,14 @@ export async function startProjectSupervisor(
       } while (pending && !stopped);
     } finally {
       reconciling = false;
+      // Only reject callers who passed swallowErrors=false.
+      // Callers who ran via interval timer (swallowErrors=true) get
+      // resolved even when err is set — their caller already handled the
+      // failure silently.
       const pendingWaiters = waiters;
       waiters = [];
       for (const w of pendingWaiters) {
-        if (err && !options.swallowErrors) w.reject(err);
+        if (err && options.swallowErrors === false) w.reject(err);
         else w.resolve();
       }
     }
