@@ -58,6 +58,7 @@ jobs:
     name: Diff Coverage (70% on changed code)
     needs: [pr-context, detect-changes]
     if: needs.detect-changes.outputs.core == 'true' || needs.detect-changes.outputs.cli == 'true'
+    timeout-minutes: 15
     runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
               || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
                   && 'ubuntu-latest'
@@ -104,7 +105,8 @@ jobs:
 
       - name: CLI tests with coverage
         if: needs.detect-changes.outputs.cli == 'true'
-        run: pnpm --filter @jleechanorg/ao-cli exec vitest run --coverage --coverage.reporter=lcov --coverage.include='src/lib/llm-eval.ts,src/lib/web-dir.ts' --coverage.exclude='**/__tests__/**' -- __tests__/lib/llm-eval.test.ts __tests__/lib/llm-eval.claude.test.ts __tests__/lib/llm-eval.gemini.test.ts __tests__/lib/web-dir.test.ts
+        working-directory: packages/cli
+        run: npx vitest run --coverage --coverage.reporter=lcov --coverage.include='src/lib/llm-eval.ts,src/lib/web-dir.ts' --coverage.exclude='**/__tests__/**' __tests__/lib/llm-eval.test.ts __tests__/lib/llm-eval.claude.test.ts __tests__/lib/llm-eval.gemini.test.ts __tests__/lib/web-dir.test.ts
 
       - name: Prepare and merge lcov reports
         run: |
