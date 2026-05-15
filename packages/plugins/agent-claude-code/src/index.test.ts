@@ -55,7 +55,14 @@ vi.mock("node:os", () => ({
   homedir: mockHomedir,
 }));
 
-import { create, manifest, default as defaultExport, resetPsCache, METADATA_UPDATER_SCRIPT } from "./index.js";
+import {
+  create,
+  manifest,
+  default as defaultExport,
+  resetPsCache,
+  toClaudeProjectPath,
+  METADATA_UPDATER_SCRIPT,
+} from "./index.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -135,6 +142,40 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetPsCache();
   mockHomedir.mockReturnValue("/mock/home");
+});
+
+describe("toClaudeProjectPath", () => {
+  it("encodes a plain unix path", () => {
+    expect(toClaudeProjectPath("/Users/dev/projects/foo")).toBe("-Users-dev-projects-foo");
+  });
+
+  it("collapses dot directories like .worktrees into a leading double dash", () => {
+    expect(toClaudeProjectPath("/Users/dev/.worktrees/ao/ao-3")).toBe(
+      "-Users-dev--worktrees-ao-ao-3",
+    );
+  });
+
+  it("normalizes underscores to dashes (issue #1611)", () => {
+    // AO project data dirs are named `<sanitized>_<hash>`. Claude Code converts
+    // underscores to dashes when computing its on-disk project slug; without
+    // matching that here the slug points to a non-existent directory and
+    // restore loses the conversation.
+    expect(
+      toClaudeProjectPath(
+        "/Users/dev/.agent-orchestrator/projects/graph-isomorphism_d185b44d56/worktrees/gi-orchestrator",
+      ),
+    ).toBe(
+      "-Users-dev--agent-orchestrator-projects-graph-isomorphism-d185b44d56-worktrees-gi-orchestrator",
+    );
+  });
+
+  it("strips Windows drive colons and folds backslashes", () => {
+    expect(toClaudeProjectPath("C:\\Users\\dev\\foo")).toBe("C-Users-dev-foo");
+  });
+
+  it("collapses any other non-alphanumeric character into a dash", () => {
+    expect(toClaudeProjectPath("/Users/dev/proj@v2/foo bar")).toBe("-Users-dev-proj-v2-foo-bar");
+  });
 });
 
 describe("plugin manifest & exports", () => {
@@ -610,6 +651,19 @@ describe("getSessionInfo", () => {
         "/mock/home/.claude/projects/-Users-dev--worktrees-ao-ao-3",
       );
     });
+
+    it("normalizes underscores to dashes (matches Claude Code on-disk slug, issue #1611)", async () => {
+      mockJsonlFiles('{"type":"user","message":{"content":"hello"}}');
+      await agent.getSessionInfo(
+        makeSession({
+          workspacePath:
+            "/Users/dev/.agent-orchestrator/projects/graph-isomorphism_d185b44d56/worktrees/gi-orchestrator",
+        }),
+      );
+      expect(mockReaddir).toHaveBeenCalledWith(
+        "/mock/home/.claude/projects/-Users-dev--agent-orchestrator-projects-graph-isomorphism-d185b44d56-worktrees-gi-orchestrator",
+      );
+    });
   });
 
   describe("summary extraction", () => {
@@ -671,6 +725,28 @@ describe("getSessionInfo", () => {
       mockJsonlFiles('{"type":"user","message":{"content":"hi"}}', ["abc-def-123.jsonl"]);
       const result = await agent.getSessionInfo(makeSession());
       expect(result?.agentSessionId).toBe("abc-def-123");
+      expect(result?.metadata?.claudeSessionUuid).toBe("abc-def-123");
+    });
+  });
+
+  describe("getRestoreCommand metadata", () => {
+    it("uses persisted Claude session UUID without scanning project files", async () => {
+      const agent = create();
+      const session = makeSession({
+        workspacePath: "/workspace/test-project",
+        agentInfo: { agentSessionId: "persisted-uuid", summary: null, metadata: { claudeSessionUuid: "persisted-uuid" } },
+      });
+
+      const command = await agent.getRestoreCommand!(session, {
+        name: "test-project",
+        repo: "owner/repo",
+        path: "/workspace/test-project",
+        defaultBranch: "main",
+        sessionPrefix: "test",
+      });
+
+      expect(command).toBe("env -u ANTHROPIC_BASE_URL claude --resume 'persisted-uuid' --strict-mcp-config '/mock/home/.claude/mcp-strict.json'");
+      expect(mockReaddir).not.toHaveBeenCalled();
     });
   });
 

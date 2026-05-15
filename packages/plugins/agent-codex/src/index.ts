@@ -969,21 +969,33 @@ function createCodexAgent(): Agent {
         summary: data.model ? `Codex session (${data.model})` : null,
         summaryIsFallback: true,
         agentSessionId,
+        metadata: data.threadId
+          ? {
+              codexThreadId: data.threadId,
+              ...(data.model ? { codexModel: data.model } : {}),
+            }
+          : undefined,
         cost,
       };
     },
 
     async getRestoreCommand(session: Session, project: ProjectConfig): Promise<string | null> {
-      if (!session.workspacePath) return null;
+      let threadId = session.agentInfo?.metadata?.["codexThreadId"]?.trim();
+      let model: string | null = session.agentInfo?.metadata?.["codexModel"]?.trim() || null;
+      if (!threadId) {
+        if (!session.workspacePath) return null;
 
-      // Find the Codex session file for this workspace
-      const sessionFile = await findCodexSessionFileCached(session.workspacePath);
-      if (!sessionFile) return null;
+        // Find the Codex session file for this workspace
+        const sessionFile = await findCodexSessionFileCached(session.workspacePath);
+        if (!sessionFile) return null;
 
-      // Stream the file line-by-line to avoid loading potentially huge
-      // rollout files (100 MB+) entirely into memory.
-      const data = await streamCodexSessionData(sessionFile);
-      if (!data?.threadId) return null;
+        // Stream the file line-by-line to avoid loading potentially huge
+        // rollout files (100 MB+) entirely into memory.
+        const data = await streamCodexSessionData(sessionFile);
+        if (!data?.threadId) return null;
+        threadId = data.threadId;
+        model = data.model;
+      }
 
       // Use Codex's native `resume` subcommand for proper conversation resume.
       // This restores the full thread state, not just a text prompt re-injection.
@@ -993,11 +1005,11 @@ function createCodexAgent(): Agent {
       appendNoUpdateCheckFlag(parts);
 
       appendApprovalFlags(parts, project.agentConfig?.permissions);
-      const effectiveModel = (project.agentConfig?.model ?? data.model) as string | undefined;
+      const effectiveModel = (project.agentConfig?.model ?? model) as string | undefined;
       appendModelFlags(parts, effectiveModel ?? undefined);
 
       // Positional threadId goes last, after all flags
-      parts.push(shellEscape(data.threadId));
+      parts.push(shellEscape(threadId));
 
       return parts.join(" ");
     },

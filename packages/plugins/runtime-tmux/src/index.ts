@@ -3,13 +3,14 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  PluginModule,
-  Runtime,
-  RuntimeCreateConfig,
-  RuntimeHandle,
-  RuntimeMetrics,
-  AttachInfo,
+import {
+  type PluginModule,
+  type Runtime,
+  type RuntimeCreateConfig,
+  type RuntimeHandle,
+  type RuntimeMetrics,
+  type AttachInfo,
+  shellEscape,
 } from "@jleechanorg/ao-core";
 import {
   AGENT_ALIVE_PATTERNS,
@@ -32,12 +33,6 @@ export const manifest = {
 /** Only allow safe characters in session IDs */
 const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]+$/;
 
-function assertValidSessionId(id: string): void {
-  if (!SAFE_SESSION_ID.test(id)) {
-    throw new Error(`Invalid session ID "${id}": must match ${SAFE_SESSION_ID}`);
-  }
-}
-
 /**
  * Detect if the agent is Gemini CLI by inspecting the launch command.
  * Gemini doesn't handle C-u clear or paste-buffer well — needs direct send-keys.
@@ -45,7 +40,38 @@ function assertValidSessionId(id: string): void {
 function isGeminiAgent(handle: RuntimeHandle): boolean {
   const launchCommand =
     typeof handle.data?.launchCommand === "string" ? handle.data.launchCommand : "";
-  return launchCommand.includes("gemini");
+  return launchCommand.toLowerCase().includes("gemini");
+}
+
+function assertValidSessionId(id: string): void {
+  if (!SAFE_SESSION_ID.test(id)) {
+    throw new Error(`Invalid session ID "${id}": must match ${SAFE_SESSION_ID}`);
+  }
+}
+
+/**
+ * Shell snippet appended after the agent launch command so the tmux pane
+ * (and therefore the tmux session) survives agent exit. Without this, the
+ * pane closes when the agent process exits, the only window goes away, and
+ * the whole tmux session dies — leaving the dashboard with a phantom
+ * "runtime lost" state and the user with no way to do anything in that
+ * workspace (issue #1756).
+ *
+ * `exec` replaces the wrapping sh/bash with the user's interactive shell,
+ * so the lifecycle manager still detects agent termination via
+ * `agent.isProcessRunning` and transitions the session correctly.
+ */
+const KEEP_ALIVE_SHELL = `exec "\${SHELL:-/bin/bash}" -i`;
+
+function withKeepAliveShell(command: string): string {
+  return `${command.replace(/\n+$/, "")}\n${KEEP_ALIVE_SHELL}`;
+}
+
+function writeLaunchScript(command: string): string {
+  const scriptPath = join(tmpdir(), `ao-launch-${randomUUID()}.sh`);
+  const content = `#!/usr/bin/env bash\nrm -- "$0" 2>/dev/null || true\n${withKeepAliveShell(command)}\n`;
+  writeFileSync(scriptPath, content, { encoding: "utf-8", mode: 0o700 });
+  return `bash ${shellEscape(scriptPath)}`;
 }
 
 /**
@@ -176,37 +202,34 @@ export function create(): Runtime {
         envArgs.push("-e", `${key}=${value}`);
       }
 
-      // Create tmux session in detached mode
-      await tmux("new-session", "-d", "-s", sessionName, "-c", config.workspacePath, ...envArgs);
+      // Start the launch command as the pane's initial command instead of
+      // typing into a live shell. A dashboard attach can trigger terminal
+      // device responses; if those race with tmux send-keys, they become
+      // literal shell input and corrupt the launch path. The keep-alive
+      // tail is appended in both code paths — see KEEP_ALIVE_SHELL.
+      const launchCmd = config.launchCommand;
+      const shellCommand =
+        launchCmd.length > 200
+          ? writeLaunchScript(launchCmd)
+          : withKeepAliveShell(launchCmd);
 
-      // Send the launch command — clean up the session if this fails.
-      // Use load-buffer + paste-buffer for long commands to avoid tmux/zsh
-      // truncation issues (commands >200 chars get mangled by send-keys).
+      await tmux(
+        "new-session",
+        "-d",
+        "-s",
+        sessionName,
+        "-c",
+        config.workspacePath,
+        ...envArgs,
+        shellCommand,
+      );
+
+      // Hide the tmux status bar — sessions are embedded in the web terminal,
+      // and the green bar at the bottom is visual noise (and racy with the
+      // web layer's own set-option call, which only fires on WebSocket connect).
+      // Kill the session if this fails so we don't leave an orphaned tmux process.
       try {
-        if (config.launchCommand.length > 200) {
-          const bufferName = `ao-launch-${randomUUID().slice(0, 8)}`;
-          const tmpPath = join(tmpdir(), `ao-launch-${randomUUID()}.txt`);
-          writeFileSync(tmpPath, config.launchCommand, { encoding: "utf-8", mode: 0o600 });
-          try {
-            await tmux("load-buffer", "-b", bufferName, tmpPath);
-            await tmux("paste-buffer", "-b", bufferName, "-t", sessionName, "-d");
-          } finally {
-            try {
-              unlinkSync(tmpPath);
-            } catch {
-              /* ignore cleanup errors */
-            }
-            try {
-              await tmux("delete-buffer", "-b", bufferName);
-            } catch {
-              /* Buffer may already be deleted by -d flag — that's fine */
-            }
-          }
-          await sleep(300);
-          await tmux("send-keys", "-t", sessionName, "Enter");
-        } else {
-          await tmux("send-keys", "-t", sessionName, config.launchCommand, "Enter");
-        }
+        await tmux("set-option", "-t", sessionName, "status", "off");
       } catch (err: unknown) {
         try {
           await tmux("kill-session", "-t", sessionName);
@@ -214,7 +237,7 @@ export function create(): Runtime {
           // Best-effort cleanup
         }
         const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(`Failed to send launch command to session "${sessionName}": ${msg}`, {
+        throw new Error(`Failed to configure session "${sessionName}": ${msg}`, {
           cause: err,
         });
       }

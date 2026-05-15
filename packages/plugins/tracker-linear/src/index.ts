@@ -18,8 +18,6 @@ import type {
   CreateIssueInput,
   ProjectConfig,
 } from "@jleechanorg/ao-core";
-import type { Composio } from "@composio/core";
-
 // ---------------------------------------------------------------------------
 // Transport abstraction
 // ---------------------------------------------------------------------------
@@ -126,7 +124,13 @@ function createDirectTransport(): GraphQLTransport {
 // Composio SDK transport
 // ---------------------------------------------------------------------------
 
-type ComposioTools = Composio["tools"];
+type ComposioTools = {
+  execute: (tool: string, params: { entityId: string; arguments: Record<string, string> }) => Promise<{
+    successful: boolean;
+    error?: string;
+    data?: unknown;
+  }>;
+};
 
 function createComposioTransport(apiKey: string, entityId: string): GraphQLTransport {
   // Lazy-load the Composio client — cached as a promise so the constructor
@@ -137,8 +141,9 @@ function createComposioTransport(apiKey: string, entityId: string): GraphQLTrans
     if (!clientPromise) {
       clientPromise = (async () => {
         try {
-          const { Composio } = await import("@composio/core");
-          const client = new Composio({ apiKey });
+          const specifier = "@composio/core";
+          const mod = await import(specifier) as { Composio: new (opts: { apiKey: string }) => { tools: ComposioTools } };
+          const client = new mod.Composio({ apiKey });
           return client.tools;
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);

@@ -200,9 +200,12 @@ status=working
 project=test-project
 EOF
 
-# Test that the session detail page loads (where terminal would be)
-if ! curl -sf http://localhost:9000/sessions/test-project-orchestrator > /dev/null; then
-    fail_step "Step 10: Orchestrator session page failed to load"
+# Test that the session detail page loads with session-specific content
+# (verify both HTTP 200 and that the page renders session-specific elements)
+response=$(curl -sf "http://localhost:9000/?project=test-project&session=test-project-orchestrator" 2>&1)
+http_code=$(curl -sf "http://localhost:9000/?project=test-project&session=test-project-orchestrator" -o /dev/null -w "%{http_code}" 2>&1)
+if [ "$http_code" != "200" ] || ! echo "$response" | grep -q "test-project-orchestrator"; then
+    fail_step "Step 10: Orchestrator session page failed to load or missing session-specific content"
 fi
 
 # Cleanup test session

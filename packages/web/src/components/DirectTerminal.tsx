@@ -13,6 +13,9 @@ import type { FitAddon as FitAddonType } from "@xterm/addon-fit";
 
 interface DirectTerminalProps {
   sessionId: string;
+  projectId?: string;
+  /** Actual tmux session name. When provided, the terminal server uses it directly instead of resolving from sessionId. */
+  tmuxName?: string;
   startFullscreen?: boolean;
   /** Visual variant. "orchestrator" uses violet accent; "agent" (default) uses blue. */
   variant?: "agent" | "orchestrator";
@@ -69,6 +72,8 @@ export function buildDirectTerminalWsUrl({
  */
 export function DirectTerminal({
   sessionId,
+  projectId: _projectId,
+  tmuxName: _tmuxName,
   startFullscreen = false,
   variant = "agent",
   height = "max(440px, calc(100vh - 440px))",

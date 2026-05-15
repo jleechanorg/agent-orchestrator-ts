@@ -1,4 +1,5 @@
 import { isOrchestratorSession } from "@jleechanorg/ao-core";
+import { matchesSessionPrefix } from "./session-utils";
 
 type ProjectWithPrefix = { sessionPrefix?: string };
 type SessionLike = { id: string; projectId: string; metadata?: Record<string, string> };
@@ -18,7 +19,9 @@ function matchesProject(
 ): boolean {
   if (session.projectId === projectId) return true;
   const project = projects[projectId];
-  if (project?.sessionPrefix && session.id.startsWith(project.sessionPrefix)) return true;
+  if (project?.sessionPrefix && matchesSessionPrefix(session.id, project.sessionPrefix)) {
+    return true;
+  }
   return projects[session.projectId]?.sessionPrefix === projectId;
 }
 
@@ -29,6 +32,14 @@ export function filterProjectSessions<T extends SessionLike>(
 ): T[] {
   if (!projectFilter || projectFilter === "all") return sessions;
   return sessions.filter((session) => matchesProject(session, projectFilter, projects));
+}
+
+/** Build a project-scoped href, falling back to ?project=all when no project is active. */
+export function getProjectScopedHref(
+  basePath: "/" | "/prs",
+  projectId: string | undefined,
+): string {
+  return projectId ? `${basePath}?project=${encodeURIComponent(projectId)}` : `${basePath}?project=all`;
 }
 
 export function filterWorkerSessions<T extends SessionLike>(

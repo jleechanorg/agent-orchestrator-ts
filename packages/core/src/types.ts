@@ -494,6 +494,8 @@ export interface AgentSessionInfo {
   agentSessionId: string | null;
   /** Estimated cost so far */
   cost?: CostEstimate;
+  /** Agent-specific metadata key-value pairs (e.g. codexThreadId, codexModel) */
+  metadata?: Record<string, string>;
 }
 
 export interface CostEstimate {
@@ -1900,6 +1902,8 @@ export interface SessionMetadata {
   requestedTask?: string;
   /** Full composed worker prompt artifact written at spawn time for audit/debugging. */
   composedPromptPath?: string;
+  displayName?: string;
+  displayNameUserSet?: boolean | "on" | "off";
 }
 
 // =============================================================================

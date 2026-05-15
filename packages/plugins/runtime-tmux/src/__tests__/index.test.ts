@@ -105,10 +105,19 @@ describe("runtime.create()", () => {
     expect(handle.runtimeName).toBe("tmux");
     expect(handle.data.workspacePath).toBe("/tmp/workspace");
 
-    // First call: new-session
+    // First call: new-session — launch command has the keep-alive shell tail
+    // appended so the tmux session survives agent exit (issue #1756).
     expect(mockExecFileCustom).toHaveBeenCalledWith(
       "tmux",
-      ["new-session", "-d", "-s", "test-session", "-c", "/tmp/workspace"],
+      [
+        "new-session",
+        "-d",
+        "-s",
+        "test-session",
+        "-c",
+        "/tmp/workspace",
+        'echo hello\nexec "${SHELL:-/bin/bash}" -i',
+      ],
       expectedTmuxOptions,
     );
   });
@@ -148,6 +157,7 @@ describe("runtime.create()", () => {
     expect(args).toContain("-e");
     expect(args).toContain("AO_SESSION=env-session");
     expect(args).toContain("FOO=bar");
+expect(args.at(-1)).toBe('bash\nexec "${SHELL:-/bin/bash}" -i');
   });
 
   it("sends launch command via send-keys", async () => {
@@ -163,15 +173,85 @@ describe("runtime.create()", () => {
       environment: {},
     });
 
-    // Second call: send-keys with the launch command
+// First call: new-session passes the launch command as the pane's initial
+    // command, with the keep-alive shell tail appended.
     expect(mockExecFileCustom).toHaveBeenCalledWith(
       "tmux",
-      ["send-keys", "-t", "launch-test", "claude --session abc", "Enter"],
+      [
+        "new-session",
+        "-d",
+        "-s",
+        "launch-test",
+        "-c",
+        "/tmp/ws",
+        'claude --session abc\nexec "${SHELL:-/bin/bash}" -i',
+      ],
       expectedTmuxOptions,
     );
   });
 
-  it("cleans up session if send-keys fails", async () => {
+it("appends an interactive shell tail so the tmux pane survives agent exit (regression for #1756)", async () => {
+    const runtime = create();
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "keep-alive",
+      workspacePath: "/tmp/ws",
+      launchCommand: "claude --session abc",
+      environment: {},
+    });
+
+    const finalArg = (mockExecFileCustom.mock.calls[0][1] as string[]).at(-1)!;
+    expect(finalArg).toContain("claude --session abc");
+    expect(finalArg).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i\s*$/);
+  });
+
+  it("keeps the keep-alive tail in the temp script for long launch commands", async () => {
+    const runtime = create();
+    const longCommand = "x".repeat(250);
+
+    // 1: new-session (with bash invocation as initial command), 2: set-option
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "launch-long",
+      workspacePath: "/tmp/ws",
+      launchCommand: longCommand,
+      environment: {},
+    });
+
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining("ao-launch-test-uuid-1234.sh"),
+      expect.stringContaining(longCommand),
+      { encoding: "utf-8", mode: 0o700 },
+    );
+
+    // The script body includes the interactive shell tail too — without it
+    // long-command sessions would still nuke tmux on agent exit (#1756).
+    const writeCall = (fs.writeFileSync as unknown as { mock: { calls: unknown[][] } }).mock
+      .calls[0];
+    expect(writeCall[1]).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);
+
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      1,
+      "tmux",
+      [
+        "new-session",
+        "-d",
+        "-s",
+        "launch-long",
+        "-c",
+        "/tmp/ws",
+        expect.stringContaining("bash "),
+      ],
+      expectedTmuxOptions,
+    );
+  });
+
+  it("surfaces tmux new-session failures", async () => {
     const runtime = create();
 
     // 1: new-session succeeds
@@ -188,7 +268,7 @@ describe("runtime.create()", () => {
         launchCommand: "bad-command",
         environment: {},
       }),
-    ).rejects.toThrow('Failed to send launch command to session "fail-session"');
+    ).rejects.toThrow('Failed to configure session "fail-session"');
 
     // Verify kill-session was called for cleanup
     expect(mockExecFileCustom).toHaveBeenCalledWith(
@@ -254,7 +334,15 @@ describe("runtime.create()", () => {
 
     // First call should not contain -e flags
     const firstCallArgs = mockExecFileCustom.mock.calls[0][1] as string[];
-    expect(firstCallArgs).toEqual(["new-session", "-d", "-s", "no-env", "-c", "/tmp/ws"]);
+expect(firstCallArgs).toEqual([
+      "new-session",
+      "-d",
+      "-s",
+      "no-env",
+      "-c",
+      "/tmp/ws",
+      'echo hi\nexec "${SHELL:-/bin/bash}" -i',
+    ]);
   });
 });
 

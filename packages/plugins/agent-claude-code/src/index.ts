@@ -254,21 +254,21 @@ export const manifest = {
  * Convert a workspace path to Claude's project directory path.
  * Claude stores sessions at ~/.claude/projects/{encoded-path}/
  *
- * Verified against Claude Code's actual encoding (as of v1.x):
- * the path has its leading / stripped, then all / and . are replaced with -.
- * e.g. /Users/dev/.worktrees/ao → Users-dev--worktrees-ao
+ * Verified against Claude Code's actual on-disk slugs: every non-alphanumeric
+ * character (other than `-`) is replaced with `-`. That includes `/`, `.`,
+ * and crucially `_` — AO's per-project data dirs are named like
+ * `<sanitized>_<hash>`, and without underscore folding the slug AO computes
+ * misses the directory Claude actually wrote (issue #1611).
  *
- * If Claude Code changes its encoding scheme this will silently break
- * introspection. The path can be validated at runtime by checking whether
- * the resulting directory exists.
+ * Windows drive letters keep their special handling: `C:\Users\...` → strip
+ * the colon, then encode → `C-Users-...`.
  *
  * Exported for testing purposes.
  */
 export function toClaudeProjectPath(workspacePath: string): string {
   // Handle Windows drive letters (C:\Users\... → C-Users-...)
-  const normalized = workspacePath.replace(/\\/g, "/");
-  // Claude Code replaces / and . with - (keeping the leading slash as a leading -)
-  return normalized.replace(/:/g, "").replace(/[/.]/g, "-");
+  const normalized = workspacePath.replace(/\\/g, "/").replace(/:/g, "");
+  return normalized.replace(/[^a-zA-Z0-9-]/g, "-");
 }
 
 /** Find the most recently modified .jsonl session file in a directory */
@@ -1016,23 +1016,27 @@ function createClaudeCodeAgent(): Agent {
         summary: summaryResult?.summary ?? null,
         summaryIsFallback: summaryResult?.isFallback,
         agentSessionId,
+        metadata: { claudeSessionUuid: agentSessionId },
         cost: extractCost(lines),
       };
     },
 
     async getRestoreCommand(session: Session, project: ProjectConfig): Promise<string | null> {
-      if (!session.workspacePath) return null;
+      let sessionUuid = session.agentInfo?.metadata?.["claudeSessionUuid"]?.trim();
+      if (!sessionUuid) {
+        if (!session.workspacePath) return null;
 
-      // Find Claude's project directory for this workspace
-      const projectPath = toClaudeProjectPath(session.workspacePath);
-      const projectDir = join(homedir(), ".claude", "projects", projectPath);
+        // Find Claude's project directory for this workspace
+        const projectPath = toClaudeProjectPath(session.workspacePath);
+        const projectDir = join(homedir(), ".claude", "projects", projectPath);
 
-      // Find the latest session JSONL file
-      const sessionFile = await findLatestSessionFile(projectDir);
-      if (!sessionFile) return null;
+        // Find the latest session JSONL file
+        const sessionFile = await findLatestSessionFile(projectDir);
+        if (!sessionFile) return null;
 
-      // Extract session UUID from filename (e.g. "abc123-def456.jsonl" → "abc123-def456")
-      const sessionUuid = basename(sessionFile, ".jsonl");
+        // Extract session UUID from filename (e.g. "abc123-def456.jsonl" → "abc123-def456")
+        sessionUuid = basename(sessionFile, ".jsonl");
+      }
       if (!sessionUuid) return null;
 
       // Build resume command — apply same env prefix as getLaunchCommand to
