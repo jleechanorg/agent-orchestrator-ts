@@ -96,6 +96,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
         # Disable husky — gitleaks not installed on runner
@@ -149,6 +150,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
       - run: echo "HUSKY=0" >> $GITHUB_ENV
