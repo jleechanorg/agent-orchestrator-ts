@@ -745,7 +745,7 @@ describe("getSessionInfo", () => {
         sessionPrefix: "test",
       });
 
-      expect(command).toBe("claude --resume 'persisted-uuid'");
+      expect(command).toBe("env -u ANTHROPIC_BASE_URL claude --resume 'persisted-uuid' --strict-mcp-config '/mock/home/.claude/mcp-strict.json'");
       expect(mockReaddir).not.toHaveBeenCalled();
     });
   });
