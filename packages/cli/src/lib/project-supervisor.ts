@@ -5,12 +5,15 @@ import {
   createProjectObserver,
   type OrchestratorConfig,
   type ProjectObserver,
+  type Session,
 } from "@jleechanorg/ao-core";
 import { getSessionManager } from "./create-session-manager.js";
 import {
   ensureLifecycleWorker,
+  listLifecycleWorkers,
   stopLifecycleWorker,
 } from "./lifecycle-service.js";
+import { addProjectToRunning, removeProjectFromRunning } from "./running-state.js";
 
 const DEFAULT_SUPERVISOR_INTERVAL_MS = 60_000;
 
@@ -29,7 +32,7 @@ function isMissingGlobalConfigError(error: unknown): boolean {
   return (
     error instanceof Error &&
     "code" in error &&
-    (error as Record<string, unknown>).code === "ENOENT"
+    (error as NodeJS.ErrnoException).code === "ENOENT"
   );
 }
 
@@ -57,7 +60,7 @@ async function projectHasNonTerminalSession(
   projectId: string,
 ): Promise<boolean> {
   const sm = await getSessionManager(config);
-  const sessions = await sm.list(projectId);
+  const sessions: Session[] = await sm.list(projectId);
   return sessions.some((session) => !isTerminalSession(session));
 }
 
@@ -67,15 +70,37 @@ export async function reconcileProjectSupervisor(
   const config = loadConfig();
   const observer = createProjectObserver(config, "project-supervisor");
   const configuredProjectIds = new Set(Object.keys(config.projects));
+  const activeProjectIds = new Set(listLifecycleWorkers());
+
+  for (const projectId of activeProjectIds) {
+    if (!configuredProjectIds.has(projectId)) {
+      try {
+        stopLifecycleWorker(config, projectId);
+        await removeProjectFromRunning(projectId);
+      } catch (error) {
+        reportProjectSupervisorError(
+          observer,
+          projectId,
+          "Failed to detach lifecycle worker for removed project",
+          error,
+        );
+      }
+    }
+  }
 
   for (const projectId of configuredProjectIds) {
     try {
       const hasNonTerminalSession = await projectHasNonTerminalSession(config, projectId);
+      const isAttached = listLifecycleWorkers().includes(projectId);
 
       if (hasNonTerminalSession) {
-        await ensureLifecycleWorker(config, projectId);
-      } else {
-        await stopLifecycleWorker(config, projectId);
+        if (!isAttached) {
+          await ensureLifecycleWorker(config, projectId);
+        }
+        await addProjectToRunning(projectId);
+      } else if (isAttached) {
+        stopLifecycleWorker(config, projectId);
+        await removeProjectFromRunning(projectId);
       }
     } catch (error) {
       reportProjectSupervisorError(
