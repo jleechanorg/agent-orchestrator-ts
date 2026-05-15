@@ -418,7 +418,6 @@ export class TerminalManager {
         );
         try {
           this.open(id, projectId, tmuxSessionId);
-          terminal.reattachAttempts = 0; // reset on successful attach
           return; // re-attached — don't notify exit
         } catch (err) {
           console.error(`[MuxServer] Failed to re-attach ${id}:`, err);

@@ -229,30 +229,7 @@ export function create(): Runtime {
       // web layer's own set-option call, which only fires on WebSocket connect).
       // Kill the session if this fails so we don't leave an orphaned tmux process.
       try {
-        if (config.launchCommand.length > 200) {
-          const bufferName = `ao-launch-${randomUUID().slice(0, 8)}`;
-          const tmpPath = join(tmpdir(), `ao-launch-${randomUUID()}.txt`);
-          writeFileSync(tmpPath, config.launchCommand, { encoding: "utf-8", mode: 0o600 });
-          try {
-            await tmux("load-buffer", "-b", bufferName, tmpPath);
-            await tmux("paste-buffer", "-b", bufferName, "-t", sessionName, "-d");
-          } finally {
-            try {
-              unlinkSync(tmpPath);
-            } catch {
-              /* ignore cleanup errors */
-            }
-            try {
-              await tmux("delete-buffer", "-b", bufferName);
-            } catch {
-              /* Buffer may already be deleted by -d flag — that's fine */
-            }
-          }
-          await sleep(300);
-          await tmux("send-keys", "-t", sessionName, "Enter");
-        } else {
-          await tmux("send-keys", "-t", sessionName, config.launchCommand, "Enter");
-        }
+        await tmux("set-option", "-t", sessionName, "status", "off");
       } catch (err: unknown) {
         try {
           await tmux("kill-session", "-t", sessionName);
@@ -260,7 +237,7 @@ export function create(): Runtime {
           // Best-effort cleanup
         }
         const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(`Failed to send launch command to session "${sessionName}": ${msg}`, {
+        throw new Error(`Failed to configure session "${sessionName}": ${msg}`, {
           cause: err,
         });
       }
