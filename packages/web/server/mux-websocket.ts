@@ -9,7 +9,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { homedir, userInfo } from "node:os";
 import { spawn } from "node:child_process";
-import { type Socket, connect as netConnect } from "node:net";
 import {
   findTmux,
   resolveTmuxSession,

@@ -16,6 +16,7 @@ import {
   isAgentAliveInPane,
   restartAgentCli,
 } from "./agent-liveness.js";
+import { shellEscape } from "@jleechanorg/ao-core";
 import { tmux } from "./tmux-utils.js";
 
 // Re-export fork-only liveness utilities so tests and external consumers
@@ -31,6 +32,16 @@ export const manifest = {
 
 /** Only allow safe characters in session IDs */
 const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * Detect if the agent is Gemini CLI by inspecting the launch command.
+ * Gemini doesn't handle C-u clear or paste-buffer well — needs direct send-keys.
+ */
+function isGeminiAgent(handle: RuntimeHandle): boolean {
+  const launchCommand =
+    typeof handle.data?.launchCommand === "string" ? handle.data.launchCommand : "";
+  return launchCommand.includes("gemini");
+}
 
 function assertValidSessionId(id: string): void {
   if (!SAFE_SESSION_ID.test(id)) {
@@ -61,7 +72,6 @@ function writeLaunchScript(command: string): string {
   const content = `#!/usr/bin/env bash\nrm -- "$0" 2>/dev/null || true\n${withKeepAliveShell(command)}\n`;
   writeFileSync(scriptPath, content, { encoding: "utf-8", mode: 0o700 });
   return `bash ${shellEscape(scriptPath)}`;
-}
 }
 
 /**
@@ -197,10 +207,11 @@ export function create(): Runtime {
       // device responses; if those race with tmux send-keys, they become
       // literal shell input and corrupt the launch path. The keep-alive
       // tail is appended in both code paths — see KEEP_ALIVE_SHELL.
+      const launchCmd = config.launchCommand;
       const shellCommand =
-        launchCommand.length > 200
-          ? writeLaunchScript(launchCommand)
-          : withKeepAliveShell(launchCommand);
+        launchCmd.length > 200
+          ? writeLaunchScript(launchCmd)
+          : withKeepAliveShell(launchCmd);
 
       await tmux(
         "new-session",

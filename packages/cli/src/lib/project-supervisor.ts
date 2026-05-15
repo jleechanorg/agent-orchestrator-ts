@@ -6,7 +6,7 @@ import {
   createProjectObserver,
   type OrchestratorConfig,
   type ProjectObserver,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import { getSessionManager } from "./create-session-manager.js";
 import {
   ensureLifecycleWorker,
