@@ -33,12 +33,13 @@ const minimaxOverrides: Partial<Agent> = {
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     const { model: _model, ...rest } = launchConfig;
     const baseUrl = process.env.MINIMAX_ANTHROPIC_BASE_URL?.trim() || DEFAULT_MINIMAX_ANTHROPIC_BASE_URL;
-    const apiKey = process.env.MINIMAX_API_KEY || "";
     const model = process.env.MINIMAX_MODEL?.trim() || "";
     const baseCmd = createAgentPlugin(minimaxConfig).getLaunchCommand(rest);
-    // Inline env vars survive tmux shell startup overrides (.bashrc etc.)
-    const modelPrefix = model ? ` ANTHROPIC_MODEL=${shellEscape(model)}` : "";
-    return `ANTHROPIC_BASE_URL=${shellEscape(baseUrl)} ANTHROPIC_API_KEY=${shellEscape(apiKey)}${modelPrefix} ${baseCmd}`;
+    // Only inline non-secret env vars (BASE_URL, MODEL).
+    // API keys are set via getEnvironment() → tmux set-environment,
+    // which does not expose them in the logged launchCommand.
+    const modelSuffix = model ? ` ANTHROPIC_MODEL=${shellEscape(model)}` : "";
+    return `ANTHROPIC_BASE_URL=${shellEscape(baseUrl)}${modelSuffix} ${baseCmd}`;
   },
 
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {

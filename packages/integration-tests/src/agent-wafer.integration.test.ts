@@ -139,8 +139,8 @@ describe.skipIf(!canRun)("agent-wafer (integration)", () => {
   it("fibonacci.py runs and outputs correct fibonacci numbers", async () => {
     expect(fileCreated).toBe(true);
     // Validate output file is within expected directory (prevent path traversal)
-    const resolvedOutput = path.resolve(outputFile);
-    const resolvedDir = path.resolve(tmpDir);
+    const resolvedOutput = await realpath(outputFile);
+    const resolvedDir = await realpath(tmpDir);
     if (!resolvedOutput.startsWith(resolvedDir + path.sep) && resolvedOutput !== resolvedDir) {
       throw new Error(`Output file ${resolvedOutput} is outside expected dir ${resolvedDir}`);
     }
