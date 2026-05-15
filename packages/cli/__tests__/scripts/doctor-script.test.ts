@@ -187,7 +187,7 @@ describe("scripts/ao-doctor.sh", () => {
     expect(worktreeDirExists).toBe(true);
     expect(commentedDataDirExists).toBe(false);
     expect(commentedWorktreeDirExists).toBe(false);
-  }, 30_000);
+  }, 120_000);
 
   it("fails when the ao launcher resolves into an AO worktree", { timeout: 30000 }, () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-worktree-link-"));

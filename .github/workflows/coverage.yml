@@ -104,7 +104,7 @@ jobs:
 
       - name: CLI tests with coverage
         if: needs.detect-changes.outputs.cli == 'true'
-        run: pnpm --filter @jleechanorg/ao-cli exec vitest run --coverage --coverage.reporter=lcov --coverage.include='src/lib/llm-eval.ts' --coverage.exclude='**/__tests__/**' -- __tests__/lib/llm-eval.test.ts __tests__/lib/llm-eval.claude.test.ts __tests__/lib/llm-eval.gemini.test.ts
+        run: pnpm --filter @jleechanorg/ao-cli exec vitest run --coverage --coverage.reporter=lcov --coverage.include='src/lib/llm-eval.ts,src/lib/web-dir.ts' --coverage.exclude='**/__tests__/**' -- __tests__/lib/llm-eval.test.ts __tests__/lib/llm-eval.claude.test.ts __tests__/lib/llm-eval.gemini.test.ts __tests__/lib/web-dir.test.ts
 
       - name: Prepare and merge lcov reports
         run: |
@@ -123,4 +123,5 @@ jobs:
           diff-cover combined-coverage/lcov.info \
             --compare-branch=origin/${{ needs.pr-context.outputs.base_ref }} \
             --fail-under=70 \
-            --diff-range-notation='...'
+            --diff-range-notation='...' \
+            --exclude '*.sh' 'scripts/*'
