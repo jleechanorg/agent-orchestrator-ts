@@ -115,12 +115,12 @@ export async function handleAgentFallback(
   const fallbackAgents = projectConfig?.fallbackAgents ?? config.defaults.fallbackAgents;
 
   // Check idempotency guard before escalation
-  if (session.metadata?.["fallback_spawned"] === "true") {
+  if (session.metadata?.["fallback_spawned"] === "true" || session.metadata?.["fallback_pending"] === "true") {
     return {
       reactionType: reactionKey,
       success: true,
       action,
-      message: `Session already fell back to '${session.metadata?.["fallback_agent"]}'`,
+      message: `Session fallback already in progress or completed (agent='${session.metadata?.["fallback_agent"]}')`,
       escalated: false,
     };
   }
@@ -153,18 +153,28 @@ export async function handleAgentFallback(
     return { reactionType: reactionKey, success: false, action, escalated: false };
   }
 
-  // ── Ghost session prevention ─────────────────────────────────────
+  // ── Ghost session prevention + two-phase fallback flag ──────────
   // Metadata MUST be persisted BEFORE kill(). After kill(), the active
   // metadata file is archived/deleted by sessionManager.kill(). Any
   // updateMetadata() call AFTER kill would recreate it from {} with
   // defaults (status="spawning"), resurrecting a ghost session.
-  // There is NO updateSessionMetadataHelper() call after spawn — the
-  // only metadata write is this one, before kill.
-  session.metadata["fallback_spawned"] = "true";
+  //
+  // Phase 1 (before kill): Write fallback_pending + fallback_agent.
+  //   This prevents ghost sessions (metadata exists before kill) and
+  //   blocks duplicate fallback spawns via the idempotency guard.
+  // Phase 2 (after successful spawn): Update session.metadata in memory
+  //   only. Do NOT call updateSessionMetadataHelper after kill() because
+  //   that would recreate the deleted metadata file (ghost session).
+  //   The archived metadata from Phase 1 still records fallback_pending=true
+  //   and fallback_agent — sufficient for audit trail.
+  // On spawn failure: fallback_pending remains "true" in both memory and
+  //   on disk (Phase 1 persisted it before kill), so the idempotency guard
+  //   blocks duplicate fallback attempts — the PR is not stranded.
+  session.metadata["fallback_pending"] = "true";
   session.metadata["fallback_agent"] = nextAgent;
   try {
     updateSessionMetadataHelper(session, {
-      fallback_spawned: "true",
+      fallback_pending: "true",
       fallback_agent: nextAgent,
     }, config);
   } catch (metaErr) {
@@ -220,6 +230,13 @@ export async function handleAgentFallback(
       },
       level: "info",
     });
+
+    // Phase 2: Mark fallback as spawned in memory only.
+    // Do NOT write to disk — kill() archived the session metadata file,
+    // and calling updateSessionMetadataHelper would recreate it from {}
+    // (ghost session). The archived Phase 1 metadata is the audit trail.
+    session.metadata["fallback_spawned"] = "true";
+    session.metadata["fallback_pending"] = "false";
   } catch (spawnErr) {
     const errMsg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
     observer.recordOperation({

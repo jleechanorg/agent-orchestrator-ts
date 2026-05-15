@@ -5,6 +5,7 @@ import {
   type PluginModule,
   type ProjectConfig,
   type Session,
+  shellEscape,
 } from "@jleechanorg/ao-core";
 import { execFileSync } from "node:child_process";
 
@@ -32,7 +33,12 @@ const waferOverrides: Partial<Agent> = {
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     const model = process.env.WAFER_MODEL?.trim() || "GLM-5.1";
     const { model: _model, ...rest } = launchConfig;
-    return createAgentPlugin(waferConfig).getLaunchCommand({ ...rest, model });
+    const baseUrl = process.env.WAFER_ANTHROPIC_BASE_URL?.trim() || DEFAULT_WAFER_ANTHROPIC_BASE_URL;
+    const baseCmd = createAgentPlugin(waferConfig).getLaunchCommand({ ...rest, model });
+    // Only inline non-secret env vars (BASE_URL, MODEL).
+    // API keys are set via getEnvironment() → tmux set-environment,
+    // which does not expose them in the logged launchCommand.
+    return `ANTHROPIC_BASE_URL=${shellEscape(baseUrl)} ANTHROPIC_MODEL=${shellEscape(model)} ${baseCmd}`;
   },
 
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
