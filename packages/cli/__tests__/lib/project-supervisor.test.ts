@@ -8,10 +8,9 @@ const mockRemoveProjectFromRunning = vi.fn();
 const mockSetHealth = vi.fn();
 const activeWorkers = new Set<string>();
 
-vi.mock("@aoagents/ao-core", () => ({
+vi.mock("@jleechanorg/ao-core", () => ({
   createCorrelationId: () => "correlation-id",
   createProjectObserver: () => ({ setHealth: (...args: unknown[]) => mockSetHealth(...args) }),
-  getGlobalConfigPath: () => "/tmp/global-config.yaml",
   loadConfig: (...args: unknown[]) => mockLoadConfig(...args),
   isTerminalSession: (session: {
     status: string;
@@ -50,7 +49,7 @@ vi.mock("../../src/lib/lifecycle-service.js", () => ({
     activeWorkers.add(projectId);
     return result;
   },
-  stopLifecycleWorker: (projectId: string) => {
+  stopLifecycleWorker: (_config: unknown, projectId: string) => {
     activeWorkers.delete(projectId);
   },
   listLifecycleWorkers: () => Array.from(activeWorkers),
@@ -69,7 +68,6 @@ import {
 
 function makeConfig(projectIds: string[]) {
   return {
-    configPath: "/tmp/global-config.yaml",
     projects: Object.fromEntries(projectIds.map((id) => [id, { name: id, path: `/tmp/${id}` }])),
   };
 }
@@ -104,9 +102,8 @@ describe("project-supervisor", () => {
     await reconcileProjectSupervisor();
 
     expect(mockEnsureLifecycleWorker).toHaveBeenCalledWith(
-      expect.objectContaining({ configPath: "/tmp/global-config.yaml" }),
+      expect.anything(),
       "app",
-      undefined,
     );
     expect(mockAddProjectToRunning).toHaveBeenCalledWith("app");
     expect(activeWorkers.has("app")).toBe(true);
@@ -188,7 +185,6 @@ describe("project-supervisor", () => {
     expect(mockEnsureLifecycleWorker).toHaveBeenCalledWith(
       expect.anything(),
       "healthy",
-      undefined,
     );
     expect(mockSetHealth).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -250,7 +246,6 @@ describe("project-supervisor", () => {
       new Error("ENOENT: no such file or directory, open '/tmp/global-config.yaml'"),
       {
         code: "ENOENT",
-        path: "/tmp/global-config.yaml",
       },
     );
     mockLoadConfig.mockImplementation(() => {
@@ -272,9 +267,8 @@ describe("project-supervisor", () => {
     const handle = await startProjectSupervisor(1_234);
 
     expect(mockEnsureLifecycleWorker).toHaveBeenCalledWith(
-      expect.objectContaining({ configPath: "/tmp/global-config.yaml" }),
+      expect.anything(),
       "app",
-      1_234,
     );
     handle.stop();
   });

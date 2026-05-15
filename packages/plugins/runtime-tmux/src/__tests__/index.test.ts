@@ -268,7 +268,7 @@ it("appends an interactive shell tail so the tmux pane survives agent exit (regr
         launchCommand: "bad-command",
         environment: {},
       }),
-    ).rejects.toThrow('Failed to send launch command to session "fail-session"');
+    ).rejects.toThrow('Failed to configure session "fail-session"');
 
     // Verify kill-session was called for cleanup
     expect(mockExecFileCustom).toHaveBeenCalledWith(
