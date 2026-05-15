@@ -78,7 +78,7 @@ Agent Orchestrator manages fleets of AI coding agents working in parallel on you
 ### Install
 
 ```bash
-npm install -g @composio/ao
+npm install -g @jleechanorg/ao-cli
 ```
 
 <details>
@@ -296,4 +296,3 @@ Contributions welcome. The plugin system makes it straightforward to add support
 ## License
 
 MIT
-

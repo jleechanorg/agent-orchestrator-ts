@@ -10,7 +10,10 @@ import { globSync } from "glob";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const rootPkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"));
-const version = rootPkg.version;
+const version = process.argv[2] || rootPkg.version;
+rootPkg.version = version;
+writeFileSync(join(root, "package.json"), JSON.stringify(rootPkg, null, 2) + "\n");
+console.log(`  bumped ${rootPkg.name} → ${version}`);
 
 const pkgFiles = [
   ...globSync("packages/*/package.json", { cwd: root, ignore: "packages/mobile/package.json" }),

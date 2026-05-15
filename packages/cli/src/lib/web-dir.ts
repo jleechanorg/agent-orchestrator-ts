@@ -181,7 +181,7 @@ export function findWebDir(): string {
     }
     throw new Error(
       "Could not find @jleechanorg/ao-web package.\n" +
-      "  If installed via npm:    npm install -g @composio/ao\n" +
+      "  If installed via npm:    npm install -g @jleechanorg/ao-cli\n" +
       "  If cloned from source:   pnpm install && pnpm build",
     );
   }

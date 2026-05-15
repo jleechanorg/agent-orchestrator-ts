@@ -21,11 +21,9 @@
     ["@semantic-release/release-notes-generator", {
       "preset": "conventionalcommits"
     }],
-    ["@semantic-release/npm", {
-      "npmPublish": false
-    }],
     ["@semantic-release/exec", {
-      "prepareCmd": "node scripts/bump-all-packages.js"
+      "prepareCmd": "node scripts/bump-all-packages.js ${nextRelease.version}",
+      "publishCmd": "pnpm -r publish --access public --no-git-checks"
     }],
     ["@semantic-release/git", {
       "assets": [

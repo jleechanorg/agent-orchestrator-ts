@@ -23,7 +23,7 @@ jobs:
       release_type: ${{ steps.detect.outputs.release_type }}
       next_version: ${{ steps.detect.outputs.next_version }}
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,7 +48,7 @@ jobs:
           if [ -z "$NEXT" ]; then
             if [ $EXIT -ne 0 ]; then
               # Check output text: benign no-op messages that produce exit 1 without being real errors
-              if echo "$OUTPUT" | grep -qiE 'not.published.from.current.branch|already.up.to.date|no.releases.found|nothing.to.release|skip.releasing'; then
+              if echo "$OUTPUT" | grep -qiE 'not.published.from.current.branch|already.up.to.date|no.releases.found|nothing.to.release|skip.releasing|EGITNOPERMISSION|local branch.*is behind'; then
                 echo "release_type=none" >> $GITHUB_OUTPUT
               else
                 echo "release_type=error" >> $GITHUB_OUTPUT
@@ -103,6 +103,7 @@ jobs:
       - run: npx semantic-release ${{ inputs.dry_run && '--dry-run' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
@@ -154,6 +155,7 @@ jobs:
       - run: npx semantic-release ${{ inputs.dry_run && '--dry-run' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
