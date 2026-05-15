@@ -22,7 +22,6 @@ import type {
   DashboardStats,
   DashboardOrchestratorLink,
 } from "./types.js";
-import { getAttentionLevel } from "./types.js";
 import { TTLCache, prCache, prCacheKey, type PREnrichmentData } from "./cache";
 import { matchesSessionPrefix } from "./session-utils.js";
 

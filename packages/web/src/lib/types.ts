@@ -50,6 +50,9 @@ export { TERMINAL_STATUSES, TERMINAL_ACTIVITIES, NON_RESTORABLE_STATUSES };
  */
 export type AttentionLevel = "merge" | "respond" | "review" | "pending" | "working" | "done";
 
+/** Dashboard attention zone mode: "simple" (4 zones) or "detailed" (5 zones). */
+export type DashboardAttentionZoneMode = "simple" | "detailed";
+
 /**
  * Flattened session for dashboard rendering.
  * Maps to core Session but uses string dates (JSON-serializable for SSR/client boundary)
@@ -170,6 +173,16 @@ export interface SSEActivityEvent {
  */
 export function isPRRateLimited(pr: DashboardPR): boolean {
   return pr.mergeability.blockers.includes("API rate limited or unavailable");
+}
+
+/**
+ * Returns true when a PR has stub/enriched-from-cache defaults rather than
+ * live SCM data (ciStatus="none", reviewDecision="none", blockers=["Data not loaded"]).
+ * Indicates the dashboard hasn't yet fetched live PR data from the SCM plugin.
+ */
+export function isPRUnenriched(pr: DashboardPR): boolean {
+  return pr.ciStatus === "none" && pr.reviewDecision === "none" &&
+    pr.mergeability.blockers.includes("Data not loaded");
 }
 
 /**

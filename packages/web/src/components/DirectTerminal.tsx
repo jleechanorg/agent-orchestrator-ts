@@ -72,8 +72,8 @@ export function buildDirectTerminalWsUrl({
  */
 export function DirectTerminal({
   sessionId,
-  projectId,
-  tmuxName,
+  projectId: _projectId,
+  tmuxName: _tmuxName,
   startFullscreen = false,
   variant = "agent",
   height = "max(440px, calc(100vh - 440px))",
@@ -97,19 +97,7 @@ export function DirectTerminal({
   const [reloading, setReloading] = useState(false);
   const [reloadError, setReloadError] = useState<string | null>(null);
 
-const { error, followOutput, scrollToLatest, muxStatus, terminalInstance, fitAddon } =
-    useXtermTerminal(terminalRef, sessionId, {
-      appearance,
-      variant,
-      fontSize,
-      autoFocus,
-      projectId,
-      tmuxName,
-    });
-
-  useFullscreenResize(fullscreen, sessionId, projectId, terminalInstance, fitAddon, terminalRef);
-
-  // Sync fullscreen to URL query param
+  // Update URL when fullscreen changes
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
 

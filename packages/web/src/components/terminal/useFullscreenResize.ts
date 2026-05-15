@@ -57,7 +57,7 @@ export function useFullscreenResize(
       fit.fit();
       terminal.refresh(0, terminal.rows - 1);
 
-      resizeTerminalMux(sessionId, terminal.cols, terminal.rows, projectId);
+      resizeTerminalMux(sessionId, terminal.cols, terminal.rows);
     };
 
     rafId = requestAnimationFrame(resizeTerminal);
@@ -100,7 +100,6 @@ export function useFullscreenResize(
   }, [
     fullscreen,
     sessionId,
-    projectId,
     resizeTerminalMux,
     containerRef,
     fitAddon,

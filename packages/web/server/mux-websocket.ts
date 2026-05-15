@@ -17,7 +17,6 @@ import {
   tmuxHasSession,
   validateSessionId,
 } from "./tmux-utils.js";
-import { getEnvDefaults, isWindows } from "@aoagents/ao-core";
 
 // These types mirror src/lib/mux-protocol.ts exactly.
 // tsconfig.server.json constrains rootDir to "server/", so we cannot import
@@ -284,7 +283,7 @@ export class TerminalManager {
 
     // tmux 3.4 only honours the `=` exact-match prefix on has-session and
     // attach-session; set-option silently ignores it, so we use the bare id
-    // here. The `=`-prefixed form is built below for attach-session.
+    // here. The `=`-prefixed form is built here and reused for attach-session.
 
     // Enable mouse mode
     const exactTmuxTarget = `=${tmuxSessionId}`;
@@ -317,9 +316,7 @@ export class TerminalManager {
       throw new Error("node-pty not available");
     }
 
-// Spawn PTY — use `=`-prefixed exact-match target so we never attach to
-    // a session whose name happens to be a prefix of the requested id.
-    const exactTmuxTarget = `=${tmuxSessionId}`;
+// Spawn PTY — reuse the exact-match target from above.
     const pty = ptySpawn(this.TMUX, ["attach-session", "-t", exactTmuxTarget], {
       name: "xterm-256color",
       cols: 80,
