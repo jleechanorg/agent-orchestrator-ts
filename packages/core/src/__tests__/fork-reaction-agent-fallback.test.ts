@@ -355,6 +355,8 @@ describe("handleAgentFallback", () => {
   });
 
   it("returns failure when sessionManager.spawn rejects (metadata already written)", async () => {
+    const { updateSessionMetadataHelper } = await import("../fork-utils.js");
+    (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mockClear();
     const session = makeSession();
     const deps = makeDeps();
     (deps.sessionManager.spawn as ReturnType<typeof vi.fn>).mockRejectedValue(
@@ -374,9 +376,13 @@ describe("handleAgentFallback", () => {
 
     expect(result.success).toBe(false);
     expect(result.escalated).toBe(false);
-    // On spawn failure: pending=true (pre-kill write) remains in metadata
-    expect(session.metadata["fallback_pending"]).toBe("true");
-    expect(session.metadata["fallback_agent"]).toBe("gemini");
+    // On spawn failure: fallback_pending is cleared so future retries are not blocked
+    expect(session.metadata["fallback_pending"]).toBeUndefined();
+    expect(session.metadata["fallback_agent"]).toBeUndefined();
+    // Two metadata writes: pending before kill, clear after spawn failure
+    expect(updateSessionMetadataHelper).toHaveBeenCalledTimes(2);
+    const clearCall = (updateSessionMetadataHelper as ReturnType<typeof vi.fn>).mock.calls[1];
+    expect(clearCall[1]).toEqual(expect.objectContaining({ fallback_pending: "false" }));
   });
 
   it("uses project.agent as currentAgent fallback when session metadata has no agent", async () => {
@@ -483,5 +489,42 @@ describe("handleAgentFallback", () => {
     expect(killOrder).toBeLessThan(spawnOrder);
 
     // Full ordering: pending → kill → spawn (no metadata write after spawn)
+  });
+
+  it("retries fallback after spawn failure clears pending flag", async () => {
+    const session = makeSession();
+    const deps = makeDeps();
+    (deps.sessionManager.spawn as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("spawn failed"),
+    );
+
+    const result1 = await handleAgentFallback(
+      "ao-5215",
+      "agent-orchestrator",
+      "agent-exited",
+      reactionConfig,
+      session,
+      true,
+      "corr-123",
+      deps,
+    );
+
+    expect(result1.success).toBe(false);
+    expect(session.metadata["fallback_pending"]).toBeUndefined();
+
+    // Second call should attempt spawn again (not blocked by stale pending)
+    const result2 = await handleAgentFallback(
+      "ao-5215",
+      "agent-orchestrator",
+      "agent-exited",
+      reactionConfig,
+      session,
+      true,
+      "corr-456",
+      deps,
+    );
+
+    expect(result2.success).toBe(true);
+    expect(deps.sessionManager.spawn).toHaveBeenCalledTimes(2);
   });
 });

@@ -243,6 +243,23 @@ export async function handleAgentFallback(
       level: "error",
     });
 
+    // Clear fallback_pending so future lifecycle passes can retry.
+    // Without this, a failed spawn permanently blocks fallback on the
+    // old session because the idempotency guard treats pending as done.
+    delete session.metadata["fallback_pending"];
+    delete session.metadata["fallback_agent"];
+    try {
+      updateSessionMetadataHelper(
+        session,
+        { fallback_pending: "false", fallback_agent: "" },
+        config,
+      );
+    } catch (clearErr) {
+      console.warn(
+        `[agent-fallback] metadata clear (pending→false) after spawn failure failed: ${clearErr instanceof Error ? clearErr.message : String(clearErr)} — proceeding`,
+      );
+    }
+
     const event = createEvent("reaction.triggered", {
       sessionId,
       projectId,
