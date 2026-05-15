@@ -734,7 +734,7 @@ describe("getSessionInfo", () => {
       const agent = create();
       const session = makeSession({
         workspacePath: "/workspace/test-project",
-        metadata: { claudeSessionUuid: "persisted-uuid" },
+        agentInfo: { agentSessionId: "persisted-uuid", summary: null, metadata: { claudeSessionUuid: "persisted-uuid" } },
       });
 
       const command = await agent.getRestoreCommand!(session, {

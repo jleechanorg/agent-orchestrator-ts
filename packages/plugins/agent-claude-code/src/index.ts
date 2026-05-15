@@ -1022,7 +1022,7 @@ function createClaudeCodeAgent(): Agent {
     },
 
     async getRestoreCommand(session: Session, project: ProjectConfig): Promise<string | null> {
-      let sessionUuid = session.metadata?.["claudeSessionUuid"]?.trim();
+      let sessionUuid = session.agentInfo?.metadata?.["claudeSessionUuid"]?.trim();
       if (!sessionUuid) {
         if (!session.workspacePath) return null;
 

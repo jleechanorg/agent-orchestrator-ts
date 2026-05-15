@@ -980,8 +980,8 @@ function createCodexAgent(): Agent {
     },
 
     async getRestoreCommand(session: Session, project: ProjectConfig): Promise<string | null> {
-      let threadId = session.metadata?.["codexThreadId"]?.trim();
-      let model: string | null = session.metadata?.["codexModel"]?.trim() || null;
+      let threadId = session.agentInfo?.metadata?.["codexThreadId"]?.trim();
+      let model: string | null = session.agentInfo?.metadata?.["codexModel"]?.trim() || null;
       if (!threadId) {
         if (!session.workspacePath) return null;
 
