@@ -412,9 +412,10 @@ export function PRStatus({ pr }: PRStatusProps) {
 
 interface PRTableRowProps {
   pr: DashboardPR;
+  muted?: boolean;
 }
 
-export function PRTableRow({ pr }: PRTableRowProps) {
+export function PRTableRow({ pr, muted: _muted }: PRTableRowProps) {
   const sizeLabel = getSizeLabel(pr.additions, pr.deletions);
   const rateLimited = isPRRateLimited(pr);
 

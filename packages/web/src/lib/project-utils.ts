@@ -1,5 +1,5 @@
 import { isOrchestratorSession } from "@jleechanorg/ao-core";
-import { matchesSessionPrefix } from "./session-utils.js";
+import { matchesSessionPrefix } from "./session-utils";
 
 type ProjectWithPrefix = { sessionPrefix?: string };
 type SessionLike = { id: string; projectId: string; metadata?: Record<string, string> };

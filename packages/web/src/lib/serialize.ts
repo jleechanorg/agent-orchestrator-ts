@@ -23,7 +23,7 @@ import type {
   DashboardOrchestratorLink,
 } from "./types.js";
 import { TTLCache, prCache, prCacheKey, type PREnrichmentData } from "./cache";
-import { matchesSessionPrefix } from "./session-utils.js";
+import { matchesSessionPrefix } from "./session-utils";
 
 /** Cache for issue titles (5 min TTL — issue titles rarely change) */
 const issueTitleCache = new TTLCache<string>(300_000);

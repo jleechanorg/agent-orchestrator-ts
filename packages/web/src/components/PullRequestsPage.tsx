@@ -7,11 +7,9 @@ import {
   type DashboardSession,
   type DashboardPR,
   type DashboardOrchestratorLink,
-  type DashboardAttentionZoneMode,
-  getAttentionLevel,
+  type GlobalPauseState,
 } from "@/lib/types";
 import { useSessionEvents } from "@/hooks/useSessionEvents";
-import { useMuxOptional } from "@/providers/MuxProvider";
 import { ProjectSidebar } from "./ProjectSidebar";
 import { ThemeToggle } from "./ThemeToggle";
 import { DynamicFavicon } from "./DynamicFavicon";
@@ -23,12 +21,11 @@ import { projectDashboardPath, projectSessionPath } from "@/lib/routes";
 
 interface PullRequestsPageProps {
   initialSessions: DashboardSession[];
+  initialGlobalPause?: GlobalPauseState | null;
   projectId?: string;
   projectName?: string;
   projects?: ProjectInfo[];
   orchestrators?: DashboardOrchestratorLink[];
-  /** Dashboard attention zone mode (defaults to "simple" — 4 zones). */
-  attentionZones?: DashboardAttentionZoneMode;
 }
 
 const EMPTY_ORCHESTRATORS: DashboardOrchestratorLink[] = [];
@@ -44,34 +41,20 @@ function getSectionLabel(filter: PRFilterValue): string {
 
 export function PullRequestsPage({
   initialSessions,
+  initialGlobalPause,
   projectId,
   projectName,
   projects = [],
   orchestrators,
-  attentionZones = "simple",
 }: PullRequestsPageProps) {
   const orchestratorLinks = orchestrators ?? EMPTY_ORCHESTRATORS;
-  const mux = useMuxOptional();
-  // Seed initial attention levels using the same mode used during refresh
-  // (read from `config.dashboard.attentionZones` upstream). This prevents
-  // the attentionLevels map from oscillating between detailed (seed/refresh)
-  // and simple (server snapshot) values.
-  const initialAttentionLevels = useMemo(() => {
-    const levels: Record<string, ReturnType<typeof getAttentionLevel>> = {};
-    for (const s of initialSessions) {
-      levels[s.id] = getAttentionLevel(s, attentionZones);
-    }
-    return levels;
-  }, [initialSessions, attentionZones]);
-  const { sessions, attentionLevels } = useSessionEvents({
+  const { sessions } = useSessionEvents(
     initialSessions,
-    project: projectId,
-    muxSessions: mux?.status === "connected" ? mux.sessions : undefined,
-    initialAttentionLevels,
-    attentionZones,
-  });
+    initialGlobalPause,
+    projectId,
+  );
   const searchParams = useSearchParams();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, _setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
   const showSidebar = projects.length > 1;
@@ -114,13 +97,7 @@ export function PullRequestsPage({
         <div className={`sidebar-wrapper${mobileMenuOpen ? " sidebar-wrapper--mobile-open" : ""}`}>
           <ProjectSidebar
             projects={projects}
-            sessions={sessions}
-            orchestrators={orchestratorLinks}
             activeProjectId={projectId}
-            activeSessionId={undefined}
-            collapsed={sidebarCollapsed}
-            onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
-            onMobileClose={() => setMobileMenuOpen(false)}
           />
         </div>
       ) : null}
@@ -128,7 +105,7 @@ export function PullRequestsPage({
         <div className="sidebar-mobile-backdrop" onClick={() => setMobileMenuOpen(false)} />
       )}
       <div className="dashboard-main flex-1 overflow-y-auto px-4 py-4 md:px-7 md:py-6">
-        <DynamicFavicon attentionLevels={attentionLevels} projectName={projectName ? `${projectName} PRs` : "Pull Requests"} />
+        <DynamicFavicon sessions={sessions} projectName={projectName ? `${projectName} PRs` : "Pull Requests"} />
         {isMobile ? (
           <section className="mobile-pr-page-header">
             <div className="mobile-pr-page-header__top">

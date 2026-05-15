@@ -1,6 +1,5 @@
 import {
   loadConfig,
-  getGlobalConfigPath,
   isTerminalSession,
   createCorrelationId,
   createProjectObserver,
@@ -10,10 +9,8 @@ import {
 import { getSessionManager } from "./create-session-manager.js";
 import {
   ensureLifecycleWorker,
-  listLifecycleWorkers,
   stopLifecycleWorker,
 } from "./lifecycle-service.js";
-import { addProjectToRunning, removeProjectFromRunning } from "./running-state.js";
 
 const DEFAULT_SUPERVISOR_INTERVAL_MS = 60_000;
 
@@ -32,9 +29,7 @@ function isMissingGlobalConfigError(error: unknown): boolean {
   return (
     error instanceof Error &&
     "code" in error &&
-    error.code === "ENOENT" &&
-    "path" in error &&
-    error.path === getGlobalConfigPath()
+    (error as Record<string, unknown>).code === "ENOENT"
   );
 }
 
@@ -67,42 +62,20 @@ async function projectHasNonTerminalSession(
 }
 
 export async function reconcileProjectSupervisor(
-  options: ReconcileProjectSupervisorOptions = {},
+  _options: ReconcileProjectSupervisorOptions = {},
 ): Promise<void> {
-  const config = loadConfig(getGlobalConfigPath());
+  const config = loadConfig();
   const observer = createProjectObserver(config, "project-supervisor");
   const configuredProjectIds = new Set(Object.keys(config.projects));
-  const activeProjectIds = new Set(listLifecycleWorkers());
-
-  for (const projectId of activeProjectIds) {
-    if (!configuredProjectIds.has(projectId)) {
-      try {
-        stopLifecycleWorker(projectId);
-        await removeProjectFromRunning(projectId);
-      } catch (error) {
-        reportProjectSupervisorError(
-          observer,
-          projectId,
-          "Failed to detach lifecycle worker for removed project",
-          error,
-        );
-      }
-    }
-  }
 
   for (const projectId of configuredProjectIds) {
     try {
       const hasNonTerminalSession = await projectHasNonTerminalSession(config, projectId);
-      const isAttached = listLifecycleWorkers().includes(projectId);
 
       if (hasNonTerminalSession) {
-        if (!isAttached) {
-          await ensureLifecycleWorker(config, projectId, options.intervalMs);
-        }
-        await addProjectToRunning(projectId);
-      } else if (isAttached) {
-        stopLifecycleWorker(projectId);
-        await removeProjectFromRunning(projectId);
+        await ensureLifecycleWorker(config, projectId);
+      } else {
+        await stopLifecycleWorker(config, projectId);
       }
     } catch (error) {
       reportProjectSupervisorError(
@@ -111,7 +84,6 @@ export async function reconcileProjectSupervisor(
         "Failed to reconcile lifecycle worker for project",
         error,
       );
-      // Best-effort per project: a broken project must not block others from reconciling.
     }
   }
 }
@@ -144,7 +116,6 @@ export async function startProjectSupervisor(
         } catch (error) {
           if (isMissingGlobalConfigError(error)) return;
           if (!options.swallowErrors) throw error;
-          // Best-effort background loop: transient config/state errors should not crash ao start.
         }
       } while (pending && !stopped);
     } finally {
