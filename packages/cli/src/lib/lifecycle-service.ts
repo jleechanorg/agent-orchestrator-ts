@@ -246,6 +246,26 @@ export function scanForRunningLifecycleWorker(projectId: string): number | null 
   }
 }
 
+export function listLifecycleWorkers(): string[] {
+  try {
+    const stdout = execFileSync("ps", ["-ww", "-o", "args="], {
+      timeout: 5_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).toString("utf-8");
+
+    const projectIds: string[] = [];
+    for (const line of stdout.split("\n")) {
+      const match = line.match(/\blifecycle-worker\s+(\S+)/);
+      if (match) {
+        projectIds.push(match[1]);
+      }
+    }
+    return projectIds;
+  } catch {
+    return [];
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

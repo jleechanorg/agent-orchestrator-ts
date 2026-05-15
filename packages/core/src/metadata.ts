@@ -102,6 +102,13 @@ export function readMetadata(dataDir: string, sessionId: SessionId): SessionMeta
     requestedTask: raw["requestedTask"],
     composedPromptPath: raw["composedPromptPath"],
     repoPath: raw["repoPath"],
+    displayName: raw["displayName"],
+    displayNameUserSet:
+      raw["displayNameUserSet"] === "true" || raw["displayNameUserSet"] === "on"
+        ? true
+        : raw["displayNameUserSet"] === "false" || raw["displayNameUserSet"] === "off"
+          ? false
+          : undefined,
   };
 }
 
@@ -158,6 +165,12 @@ export function writeMetadata(
   if (metadata.userPrompt) data["userPrompt"] = metadata.userPrompt;
   if (metadata.requestedTask) data["requestedTask"] = metadata.requestedTask;
   if (metadata.composedPromptPath) data["composedPromptPath"] = metadata.composedPromptPath;
+  if (metadata.displayName) data["displayName"] = metadata.displayName;
+  if (metadata.displayNameUserSet !== undefined) {
+    data["displayNameUserSet"] = typeof metadata.displayNameUserSet === "boolean"
+      ? String(metadata.displayNameUserSet)
+      : metadata.displayNameUserSet;
+  }
 
   atomicWriteFileSync(path, serializeMetadata(data));
 }

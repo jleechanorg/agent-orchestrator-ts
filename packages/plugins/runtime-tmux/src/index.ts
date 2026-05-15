@@ -3,20 +3,20 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  PluginModule,
-  Runtime,
-  RuntimeCreateConfig,
-  RuntimeHandle,
-  RuntimeMetrics,
-  AttachInfo,
+import {
+  type PluginModule,
+  type Runtime,
+  type RuntimeCreateConfig,
+  type RuntimeHandle,
+  type RuntimeMetrics,
+  type AttachInfo,
+  shellEscape,
 } from "@jleechanorg/ao-core";
 import {
   AGENT_ALIVE_PATTERNS,
   isAgentAliveInPane,
   restartAgentCli,
 } from "./agent-liveness.js";
-import { shellEscape } from "@jleechanorg/ao-core";
 import { tmux } from "./tmux-utils.js";
 
 // Re-export fork-only liveness utilities so tests and external consumers

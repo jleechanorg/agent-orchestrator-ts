@@ -168,8 +168,7 @@ export function useXtermTerminal(
         // In alternate buffer (tmux) there is no way to detect when the user
         // returned to the live tail, so the jump-to-latest button stays visible
         // until clicked.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cleanupTouchScroll = attachTouchScroll(terminal as any, (data) => {
+        const cleanupTouchScroll = attachTouchScroll(terminal as import("@/lib/terminal-touch-scroll").TerminalLike, (data) => {
           writeTerminal(sessionId, data);
         }, {
           onScrollAway: () => { followOutputRef.current = false; setFollowOutput(false); },

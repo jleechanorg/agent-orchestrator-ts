@@ -11,7 +11,7 @@
  */
 
 // Minimal interface matching the xterm Terminal members actually used here
-interface TerminalLike {
+export interface TerminalLike {
   element: HTMLElement | undefined;
   buffer: { active: { type: string } };
   options: { fontSize?: number };

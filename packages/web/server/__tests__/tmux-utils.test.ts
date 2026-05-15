@@ -5,11 +5,10 @@
  * verifying the logic handles all edge cases correctly.
  */
 
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   findTmux,
   resolveTmuxSession,
-  resolvePipePath,
   tmuxHasSession,
   validateSessionId,
   SESSION_ID_PATTERN,
@@ -897,7 +896,6 @@ describe("resolveTmuxSession", () => {
       expect(result).toBe("aabbccddeef0-ao-15");
       expect(probed.some((p) => p.includes("/.DS_Store/"))).toBe(false);
       expect(probed.some((p) => p.includes("/portfolio/"))).toBe(false);
-    });
     });
 
     it("returns first match when multiple hash-prefixed sessions exist for same ID", () => {

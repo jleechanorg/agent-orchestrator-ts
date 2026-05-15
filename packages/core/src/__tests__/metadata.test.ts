@@ -106,34 +106,28 @@ describe("writeMetadata + readMetadata", () => {
       displayNameUserSet: true,
     });
 
-    const content = readFileSync(join(dataDir, "app-7.json"), "utf-8");
-    const parsed = JSON.parse(content);
-    expect(parsed.displayNameUserSet).toBe(true);
+    const content = readFileSync(join(dataDir, "app-7"), "utf-8");
+    expect(content).toContain("displayNameUserSet=true");
 
     const meta = readMetadata(dataDir, "app-7");
     expect(meta?.displayNameUserSet).toBe(true);
   });
 
   it("accepts on/off and true/false for displayNameUserSet (matches prAutoDetect)", () => {
-    // Defensive: storage paths that flow through unflattenFromStringRecord
-    // already convert "on"/"off" → boolean before write, but readMetadata
-    // should still tolerate the legacy string forms for parity with prAutoDetect.
     for (const [stored, expected] of [
       ["on", true],
       ["off", false],
       ["true", true],
       ["false", false],
-      [true, true],
-      [false, false],
     ] as const) {
       writeFileSync(
-        join(dataDir, `flag-${String(stored)}.json`),
-        JSON.stringify({
-          worktree: "/tmp/w",
-          branch: "feat/test",
-          status: "working",
-          displayNameUserSet: stored,
-        }),
+        join(dataDir, `flag-${String(stored)}`),
+        [
+          "worktree=/tmp/w",
+          "branch=feat/test",
+          "status=working",
+          `displayNameUserSet=${String(stored)}`,
+        ].join("\n") + "\n",
         "utf-8",
       );
       const meta = readMetadata(dataDir, `flag-${String(stored)}` as never);
@@ -149,69 +143,8 @@ describe("writeMetadata + readMetadata", () => {
       displayName: "Auto-derived at spawn",
     });
 
-    const content = readFileSync(join(dataDir, "app-8.json"), "utf-8");
-    const parsed = JSON.parse(content);
-    expect(parsed.displayNameUserSet).toBeUndefined();
-
-    const meta = readMetadata(dataDir, "app-8");
-    expect(meta?.displayNameUserSet).toBeUndefined();
-  });
-
-  it("serializes and reads back displayNameUserSet flag", () => {
-    writeMetadata(dataDir, "app-7", {
-      worktree: "/tmp/w",
-      branch: "feat/test",
-      status: "working",
-      displayName: "PR 1466 review",
-      displayNameUserSet: true,
-    });
-
-    const content = readFileSync(join(dataDir, "app-7.json"), "utf-8");
-    const parsed = JSON.parse(content);
-    expect(parsed.displayNameUserSet).toBe(true);
-
-    const meta = readMetadata(dataDir, "app-7");
-    expect(meta?.displayNameUserSet).toBe(true);
-  });
-
-  it("accepts on/off and true/false for displayNameUserSet (matches prAutoDetect)", () => {
-    // Defensive: storage paths that flow through unflattenFromStringRecord
-    // already convert "on"/"off" → boolean before write, but readMetadata
-    // should still tolerate the legacy string forms for parity with prAutoDetect.
-    for (const [stored, expected] of [
-      ["on", true],
-      ["off", false],
-      ["true", true],
-      ["false", false],
-      [true, true],
-      [false, false],
-    ] as const) {
-      writeFileSync(
-        join(dataDir, `flag-${String(stored)}.json`),
-        JSON.stringify({
-          worktree: "/tmp/w",
-          branch: "feat/test",
-          status: "working",
-          displayNameUserSet: stored,
-        }),
-        "utf-8",
-      );
-      const meta = readMetadata(dataDir, `flag-${String(stored)}` as never);
-      expect(meta?.displayNameUserSet).toBe(expected);
-    }
-  });
-
-  it("omits displayNameUserSet when undefined and does not flag auto-derived sessions", () => {
-    writeMetadata(dataDir, "app-8", {
-      worktree: "/tmp/w",
-      branch: "feat/test",
-      status: "working",
-      displayName: "Auto-derived at spawn",
-    });
-
-    const content = readFileSync(join(dataDir, "app-8.json"), "utf-8");
-    const parsed = JSON.parse(content);
-    expect(parsed.displayNameUserSet).toBeUndefined();
+    const content = readFileSync(join(dataDir, "app-8"), "utf-8");
+    expect(content).not.toContain("displayNameUserSet=");
 
     const meta = readMetadata(dataDir, "app-8");
     expect(meta?.displayNameUserSet).toBeUndefined();

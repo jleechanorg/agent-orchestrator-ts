@@ -12,7 +12,6 @@ import { spawn } from "node:child_process";
 import {
   findTmux,
   resolveTmuxSession,
-  resolvePipePath,
   tmuxHasSession,
   validateSessionId,
 } from "./tmux-utils.js";
@@ -178,10 +177,8 @@ export class SessionBroadcaster {
 }
 
 // node-pty is an optionalDependency — load dynamically
-/* eslint-disable @typescript-eslint/consistent-type-imports -- node-pty is optional; static import would crash if missing */
 type IPty = import("node-pty").IPty;
 let ptySpawn: typeof import("node-pty").spawn | undefined;
-/* eslint-enable @typescript-eslint/consistent-type-imports */
 try {
   const nodePty = await import("node-pty");
   ptySpawn = nodePty.spawn;

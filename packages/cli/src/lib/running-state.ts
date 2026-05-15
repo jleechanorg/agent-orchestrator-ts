@@ -159,3 +159,9 @@ export async function waitForExit(pid: number, timeoutMs = 5000): Promise<boolea
   }
   return !isProcessAlive(pid);
 }
+
+export async function addProjectToRunning(_projectId: string): Promise<void> {
+}
+
+export async function removeProjectFromRunning(_projectId: string): Promise<void> {
+}
