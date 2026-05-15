@@ -10,6 +10,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/ao-config-topology.sh
 source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
+if [[ "$REPO_ROOT" == "$HOME/.worktrees/"* || "$REPO_ROOT" == */.worktrees/* ]] && [ "${AO_ALLOW_WORKTREE_LINK:-}" != "1" ]; then
+  echo "ERROR: Refusing to globally link ao from an AO worktree: $REPO_ROOT"
+  echo "  Install the tool with: npm install -g @jleechanorg/ao-cli"
+  echo "  Maintainers who intentionally want this worktree on PATH can rerun with AO_ALLOW_WORKTREE_LINK=1."
+  exit 1
+fi
+
 echo "Agent Orchestrator Setup"
 echo ""
 

@@ -60,7 +60,7 @@ Comprehensive guide to installing, configuring, and troubleshooting Agent Orches
 ### Install via npm (recommended)
 
 ```bash
-npm install -g @composio/ao
+npm install -g @jleechanorg/ao-cli
 
 # Verify
 ao --version
@@ -72,17 +72,17 @@ This installs the `ao` CLI globally along with all default plugins and the web d
 
 ```bash
 # Option 1: Use sudo
-sudo npm install -g @composio/ao
+sudo npm install -g @jleechanorg/ao-cli
 
 # Option 2: Use npx (no global install needed)
-npx @composio/ao start
+npx @jleechanorg/ao-cli start
 
 # Option 3: Fix npm permissions permanently (recommended)
 mkdir -p ~/.npm-global
 npm config set prefix '~/.npm-global'
 echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc
 source ~/.zshrc
-npm install -g @composio/ao
+npm install -g @jleechanorg/ao-cli
 ```
 
 ### Build from Source (for contributors)
@@ -303,7 +303,7 @@ projects:
 
 Skeptic Gate posts a PR comment marker; **lifecycle-manager** (AO worker) runs `ao skeptic verify` and posts `VERDICT`. GitHub Actions only triggers and polls — see `docs/superpowers/specs/2026-03-27-skeptic-gate-ao-dispatch-design.md`.
 
-**Option A — `ao` CLI (from this monorepo or `npm i -g @composio/ao`):**
+**Option A — `ao` CLI (from this monorepo or `npm i -g @jleechanorg/ao-cli`):**
 
 ```bash
 cd /path/to/consumer-repo
@@ -504,7 +504,7 @@ git switch main
 ao update
 ```
 
-`ao update` is intentionally conservative: it requires a clean working tree on `main`, fast-forwards from `origin/main`, reinstalls dependencies, clean-rebuilds the critical core/CLI/web packages, refreshes the launcher with `npm link`, and runs CLI smoke tests. Use `ao update --skip-smoke` to stop after rebuild, or `ao update --smoke-only` to rerun just the smoke checks.
+`ao update` is intentionally conservative: it requires a clean working tree on `main`, fast-forwards from `origin/main`, reinstalls dependencies, clean-rebuilds the critical core/CLI/web packages, refreshes the maintainer launcher with `npm link`, and runs CLI smoke tests. For a source-free install, use `npm install -g @jleechanorg/ao-cli`. Use `ao update --skip-smoke` to stop after rebuild, or `ao update --smoke-only` to rerun just the smoke checks.
 
 ### "No agent-orchestrator.yaml found"
 

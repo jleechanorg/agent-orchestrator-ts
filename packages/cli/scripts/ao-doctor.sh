@@ -166,10 +166,27 @@ check_pnpm() {
   pass "pnpm version ${version:-unknown} is available"
 }
 
+is_ao_worktree_path() {
+  local path="$1"
+  case "$path" in
+    "$DEFAULT_CONFIG_HOME/.worktrees"/*|"$HOME/.worktrees"/*|*/.worktrees/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 check_launcher() {
-  local ao_path
+  local ao_path ao_real
   ao_path="$(command -v ao 2>/dev/null || true)"
   if [ -n "$ao_path" ]; then
+    ao_real="$(realpath "$ao_path" 2>/dev/null || printf '%s' "$ao_path")"
+    if is_ao_worktree_path "$ao_path" || is_ao_worktree_path "$ao_real"; then
+      fail "ao launcher resolves inside an AO worktree: $ao_path -> $ao_real. Fix: npm install -g @jleechanorg/ao-cli, then restart lifecycle workers"
+      return
+    fi
     pass "ao launcher resolves to $ao_path"
     return
   fi
@@ -442,6 +459,45 @@ except Exception:
   fi
 }
 
+check_published_version() {
+  local ao_path
+  ao_path="$(command -v ao 2>/dev/null || true)"
+  if [ -z "$ao_path" ]; then
+    return
+  fi
+
+  local running_version
+  running_version="$(ao --version 2>/dev/null || true)"
+  if [ -z "$running_version" ]; then
+    return
+  fi
+
+  local published_version
+  published_version="$(npm view @jleechanorg/ao-cli version 2>/dev/null || true)"
+  if [ -z "$published_version" ]; then
+    warn "could not fetch published @jleechanorg/ao-cli version (npm registry unreachable or package not published). Fix: check npm auth and registry"
+    return
+  fi
+
+  if [ "$running_version" = "$published_version" ]; then
+    pass "running ao version ($running_version) matches published npm version"
+    return
+  fi
+
+  local r_major r_minor p_major p_minor
+  r_major="$(echo "$running_version" | cut -d. -f1)"
+  r_minor="$(echo "$running_version" | cut -d. -f2)"
+  p_major="$(echo "$published_version" | cut -d. -f1)"
+  p_minor="$(echo "$published_version" | cut -d. -f2)"
+
+  if [ "${r_major:-0}" -lt "${p_major:-0}" ] || { [ "${r_major:-0}" = "${p_major:-0}" ] && [ "${r_minor:-0}" -lt "${p_minor:-0}" ]; }; then
+    warn "running ao version ($running_version) is OLDER than published npm version ($published_version). Fix: npm install -g @jleechanorg/ao-cli (or run scripts/setup.sh from the main clone)"
+    return
+  fi
+
+  pass "running ao version ($running_version) is at or ahead of published npm version ($published_version)"
+}
+
 FIX_MODE=false
 
 # Guard: return early when sourced (e.g., for unit tests) - after functions are defined
@@ -488,6 +544,7 @@ check_managed_config_topology
 check_stale_temp_files
 check_install_layout
 check_runtime_sanity
+check_published_version
 check_lifecycle_workers
 
 printf '\nResults: %s PASS, %s WARN, %s FAIL, %s FIXED\n' "$PASS_COUNT" "$WARN_COUNT" "$FAIL_COUNT" "$FIX_COUNT"
