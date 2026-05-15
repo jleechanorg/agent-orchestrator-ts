@@ -201,7 +201,7 @@ project=test-project
 EOF
 
 # Test that the session detail page loads (where terminal would be)
-if ! curl -sf http://localhost:9000/sessions/test-project-orchestrator > /dev/null; then
+if ! curl -sf "http://localhost:9000/?project=test-project&session=test-project-orchestrator" > /dev/null; then
     fail_step "Step 10: Orchestrator session page failed to load"
 fi
 
