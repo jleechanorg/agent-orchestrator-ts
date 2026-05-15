@@ -290,7 +290,7 @@ describe("TerminalManager.open — tmux target args (regression for #1714)", () 
       (call) => Array.isArray(call[1]) && call[1].includes("mouse"),
     );
     expect(mouseCall).toBeDefined();
-    expect(mouseCall?.[1]).toEqual(["set-option", "-t", "=ao-177", "mouse", "on"]);
+    expect(mouseCall?.[1]).toEqual(["set-option", "-t", "ao-177", "mouse", "on"]);
   });
 
   it("invokes set-option status off with the bare session id (no = prefix)", () => {
@@ -301,7 +301,7 @@ describe("TerminalManager.open — tmux target args (regression for #1714)", () 
       (call) => Array.isArray(call[1]) && call[1].includes("status"),
     );
     expect(statusCall).toBeDefined();
-    expect(statusCall?.[1]).toEqual(["set-option", "-t", "=ao-177", "status", "off"]);
+    expect(statusCall?.[1]).toEqual(["set-option", "-t", "ao-177", "status", "off"]);
   });
 
   it("still uses the = exact-match prefix for attach-session", () => {

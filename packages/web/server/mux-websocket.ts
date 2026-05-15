@@ -284,13 +284,13 @@ export class TerminalManager {
     // Enable mouse mode
     const exactTmuxTarget = `=${tmuxSessionId}`;
 
-    const mouseProc = spawn(this.TMUX, ["set-option", "-t", exactTmuxTarget, "mouse", "on"]);
+    const mouseProc = spawn(this.TMUX, ["set-option", "-t", tmuxSessionId, "mouse", "on"]);
     mouseProc.on("error", (err) => {
       console.error(`[MuxServer] Failed to set mouse mode for ${tmuxSessionId}:`, err.message);
     });
 
     // Hide the status bar
-    const statusProc = spawn(this.TMUX, ["set-option", "-t", exactTmuxTarget, "status", "off"]);
+    const statusProc = spawn(this.TMUX, ["set-option", "-t", tmuxSessionId, "status", "off"]);
     statusProc.on("error", (err) => {
       console.error(`[MuxServer] Failed to hide status bar for ${tmuxSessionId}:`, err.message);
     });
