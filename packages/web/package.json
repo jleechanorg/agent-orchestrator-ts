@@ -2,6 +2,7 @@
   "name": "@jleechanorg/ao-web",
   "version": "0.1.0",
   "description": "Web dashboard for agent-orchestrator",
+  "private": true,
   "type": "module",
   "files": [
     ".next/server",

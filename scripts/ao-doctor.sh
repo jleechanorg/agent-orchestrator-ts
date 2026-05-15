@@ -516,13 +516,15 @@ check_published_version() {
     return
   fi
 
-  local r_major r_minor p_major p_minor
+  local r_major r_minor r_patch p_major p_minor p_patch
   r_major="$(echo "$running_version" | cut -d. -f1)"
   r_minor="$(echo "$running_version" | cut -d. -f2)"
+  r_patch="$(echo "$running_version" | cut -d. -f3)"
   p_major="$(echo "$published_version" | cut -d. -f1)"
   p_minor="$(echo "$published_version" | cut -d. -f2)"
+  p_patch="$(echo "$published_version" | cut -d. -f3)"
 
-  if [ "${r_major:-0}" -lt "${p_major:-0}" ] || { [ "${r_major:-0}" = "${p_major:-0}" ] && [ "${r_minor:-0}" -lt "${p_minor:-0}" ]; }; then
+  if [ "${r_major:-0}" -lt "${p_major:-0}" ] || { [ "${r_major:-0}" = "${p_major:-0}" ] && [ "${r_minor:-0}" -lt "${p_minor:-0}" ]; } || { [ "${r_major:-0}" = "${p_major:-0}" ] && [ "${r_minor:-0}" = "${p_minor:-0}" ] && [ "${r_patch:-0}" -lt "${p_patch:-0}" ]; }; then
     warn "running ao version ($running_version) is OLDER than published npm version ($published_version). Fix: npm install -g @jleechanorg/ao-cli (or run scripts/setup.sh from the main clone)"
     return
   fi

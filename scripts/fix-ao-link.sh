@@ -26,6 +26,10 @@ if [ -z "$PNPM_BIN" ]; then
 fi
 
 GLOBAL_MODULES="$("$PNPM_BIN" root -g 2>/dev/null || true)"
+if [ -z "$GLOBAL_MODULES" ] || [ ! -d "$GLOBAL_MODULES" ]; then
+  echo "ERROR: Could not determine global pnpm modules path (got: '$GLOBAL_MODULES')." >&2
+  exit 1
+fi
 if [ -e "$GLOBAL_MODULES/@jleechanorg/ao-cli" ]; then
   echo "  Removing stale global @jleechanorg/ao-cli link..."
   rm -rf "$GLOBAL_MODULES/@jleechanorg/ao-cli"
