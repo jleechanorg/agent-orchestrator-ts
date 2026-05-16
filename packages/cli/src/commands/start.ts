@@ -1150,11 +1150,8 @@ export function registerStart(program: Command): void {
                 config = loadConfig(config.configPath);
                 // Continue to startup below
               } else if (choice === "restart") {
-                try { process.kill(running.pid, "SIGTERM"); } catch { /* already dead */ }
-                if (!(await waitForExit(running.pid, 5000))) {
-                  console.log(chalk.yellow("  Process didn't exit cleanly, sending SIGKILL..."));
-                  try { process.kill(running.pid, "SIGKILL"); } catch { /* already dead */ }
-                }
+                await killProcessTree(running.pid, "SIGTERM");
+                await sweepDaemonChildren({ ownerPid: running.pid });
                 await unregister();
                 console.log(chalk.yellow("\n  Stopped existing instance. Restarting...\n"));
                 // Continue to startup below
