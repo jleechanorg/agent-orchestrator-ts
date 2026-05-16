@@ -55,7 +55,7 @@ import {
 } from "../lib/web-dir.js";
 import { cleanNextCache } from "../lib/dashboard-rebuild.js";
 import { preflight } from "../lib/preflight.js";
-import { register, unregister, isAlreadyRunning, getRunning, waitForExit, writeLastStop } from "../lib/running-state.js";
+import { register, unregister, isAlreadyRunning, getRunning, writeLastStop } from "../lib/running-state.js";
 import { killExistingDaemon } from "../lib/daemon.js";
 import { isHumanCaller, promptSelect } from "../lib/caller-context.js";
 import { detectEnvironment } from "../lib/detect-env.js";
