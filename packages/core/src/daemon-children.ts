@@ -361,15 +361,17 @@ export async function sweepDaemonChildren(
     failed: 0,
   };
 
-  for (const entry of entries) {
+  // Re-verify each PID is alive immediately before killing to guard against PID reuse.
+  const confirmedAlive = entries.filter((entry) => isProcessAlive(entry.pid));
+  for (const entry of confirmedAlive) {
     await killProcessTree(entry.pid, "SIGTERM").catch(() => {});
   }
 
-  const pids = entries.map((entry) => entry.pid);
+  const pids = confirmedAlive.map((entry) => entry.pid);
   const stillAliveAfterTerm = await waitForProcessesExit(pids, graceMs);
   result.terminated = pids.length - stillAliveAfterTerm.size;
 
-  for (const entry of entries.filter((entry) => stillAliveAfterTerm.has(entry.pid))) {
+  for (const entry of confirmedAlive.filter((entry) => stillAliveAfterTerm.has(entry.pid))) {
     await killProcessTree(entry.pid, "SIGKILL").catch(() => {});
   }
 
@@ -377,7 +379,7 @@ export async function sweepDaemonChildren(
   result.forceKilled = stillAliveAfterTerm.size - stillAliveAfterKill.size;
   result.failed = stillAliveAfterKill.size;
 
-  pruneSweptDaemonChildren(new Set(entries.map((entry) => entry.pid)));
+  pruneSweptDaemonChildren(new Set(confirmedAlive.map((entry) => entry.pid)));
   return result;
 }
 

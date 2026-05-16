@@ -941,7 +941,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
    * Enrich session with live runtime state (alive/exited) and activity detection.
    * Mutates the session object in place.
    */
-  const TERMINAL_SESSION_STATUSES = new Set(["killed", "done", "merged", "terminated", "cleanup"]);
+  // Use the shared TERMINAL_STATUSES (includes "errored") so errored sessions don't consume the cap.
+  const TERMINAL_SESSION_STATUSES = TERMINAL_STATUSES;
 
   async function enrichSessionWithRuntimeState(
     session: Session,
