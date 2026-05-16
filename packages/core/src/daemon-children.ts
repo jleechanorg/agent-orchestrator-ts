@@ -486,6 +486,7 @@ export async function scanAoOrphans(): Promise<AoOrphanProcess[]> {
     const { stdout } = await execFileAsync("ps", ["-axo", "pid,ppid,command"], {
       windowsHide: true,
       maxBuffer: 10 * 1024 * 1024,
+      encoding: "utf8",
     });
     return detectAoOrphansFromPsOutput(stdout);
   } catch {
