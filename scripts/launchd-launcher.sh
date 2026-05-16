@@ -19,6 +19,11 @@ fi
 TARGET="$1"
 shift
 
+# Snapshot plist-provided ANTHROPIC_BASE_URL before shell profile eval can overwrite it.
+# If .bashrc exports a stale localhost value (e.g. http://localhost:9000 from lean-proxy),
+# we restore the valid plist endpoint after eval instead of losing it.
+_plist_base_url="${ANTHROPIC_BASE_URL:-}"
+
 # Source shell profile in login+interactive mode to get all exports (API keys, nvm, etc.)
 # -l: login shell → sources .bash_profile if it exists, falling back to .bashrc
 # -i: interactive → bypasses .bashrc's "case $- in *i*) ;; *) return;; esac" guard
@@ -64,10 +69,18 @@ eval "$(echo "$_init_output" | grep -E 'declare -x [A-Za-z_][A-Za-z0-9_]*="[^"]+
   echo "WARNING: failed to parse shell exports, continuing with plist defaults" >&2
 }
 
-# Clear the dead lean-proxy URL from .bashrc (http://localhost:9000 or 9001) but preserve
-# any plist-provided production endpoint (https://...) so the plugin config is not clobbered.
-case "${ANTHROPIC_BASE_URL:-}" in
-  http://localhost:*) unset ANTHROPIC_BASE_URL ;;
-esac
+# Restore plist-provided ANTHROPIC_BASE_URL if shell profile overwrote it with stale localhost.
+# Covers: lean-proxy http://localhost:9000, any http://localhost:*, http://127.0.0.1:*
+_shell_base_url="${ANTHROPIC_BASE_URL:-}"
+if [[ "$_shell_base_url" == http://localhost* || "$_shell_base_url" == http://127.0.0.1* ]]; then
+  if [[ -n "$_plist_base_url" && "$_plist_base_url" != http://localhost* && "$_plist_base_url" != http://127.0.0.1* ]]; then
+    # Plist had a valid non-localhost endpoint; restore it over the stale shell value.
+    ANTHROPIC_BASE_URL="$_plist_base_url"
+    export ANTHROPIC_BASE_URL
+  else
+    # No valid plist endpoint; unset the stale localhost value so callers use the default.
+    unset ANTHROPIC_BASE_URL
+  fi
+fi
 
 exec "$TARGET" "$@"
