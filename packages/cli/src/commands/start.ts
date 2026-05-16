@@ -1152,7 +1152,7 @@ export function registerStart(program: Command): void {
               ? join(resolve(project.path.replace(/^~/, process.env["HOME"] || "")), "agent-orchestrator.yaml")
               : null;
             if (localConfigPath) {
-              const agents = await detectAvailableAgents(cwd());
+              const agents = await detectAvailableAgents();
               const agentOptions = agents.map((a) => ({ value: a.name, label: a.displayName ?? a.name }));
               const orchestratorAgent = await promptSelect(
                 "Select orchestrator agent:",
