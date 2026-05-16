@@ -120,15 +120,15 @@ describe("getLaunchCommand", () => {
   it("always includes --model with wafer.ai/GLM-5.1 default", () => {
     const agent = create();
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    expect(cmd).toContain("--model 'wafer.ai/GLM-5.1'");
+    expect(cmd).toContain("--model 'GLM-5.1'");
   });
 
   it("respects OPENW_MODEL env override", () => {
     process.env.OPENW_MODEL = "wafer.ai/Qwen3.5-397B-A17B";
     const agent = create();
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    expect(cmd).toContain("--model 'wafer.ai/Qwen3.5-397B-A17B'");
-    expect(cmd).not.toContain("--model 'wafer.ai/GLM-5.1'");
+    expect(cmd).toContain("--model 'Qwen3.5-397B-A17B'");
+    expect(cmd).not.toContain("--model 'GLM-5.1'");
   });
 
   it("rejects provider-only prefix with no model name", () => {
@@ -151,11 +151,11 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--agent 'sisyphus'");
   });
 
-  it("preserves provider prefix in model name", () => {
+  it("strips provider prefix from model name", () => {
     const agent = create();
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    expect(cmd).toContain("--model 'wafer.ai/GLM-5.1'");
-    expect(cmd).not.toContain("--model 'GLM-5.1'");
+    expect(cmd).toContain("--model 'GLM-5.1'");
+    expect(cmd).not.toContain("--model 'wafer.ai/GLM-5.1'");
   });
 
   it("uses existing session id when provided", () => {
@@ -173,7 +173,7 @@ describe("getLaunchCommand", () => {
         prompt: "continue",
       }),
     );
-    expect(cmd).toBe("opencode --session 'ses_abc123' --prompt 'continue' --model 'wafer.ai/GLM-5.1'");
+    expect(cmd).toBe("opencode --session 'ses_abc123' --prompt 'continue' --model 'GLM-5.1'");
   });
 });
 
