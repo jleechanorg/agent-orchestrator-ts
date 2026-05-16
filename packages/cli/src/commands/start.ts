@@ -1018,14 +1018,7 @@ export function registerStart(program: Command): void {
                 if (liveRunning && globalConfigPath && globalConfigPath === config.configPath) {
                   const sm = await getSessionManager(config);
                   const systemPrompt = generateOrchestratorPrompt({ config, projectId, project });
-                  await (
-                    sm as unknown as {
-                      ensureOrchestrator: (opts: {
-                        projectId: string;
-                        systemPrompt: string;
-                      }) => Promise<unknown>;
-                    }
-                  ).ensureOrchestrator({ projectId, systemPrompt });
+                  await sm.ensureOrchestrator?.({ projectId, systemPrompt });
                   console.log(chalk.green(`Orchestrator session ready`));
                   console.log(
                     chalk.dim(`Opening dashboard at http://localhost:${liveRunning.port}`),
@@ -1112,14 +1105,7 @@ export function registerStart(program: Command): void {
                 config = loadConfig(config.configPath);
                 const sm = await getSessionManager(config);
                 const systemPrompt = generateOrchestratorPrompt({ config, projectId, project });
-                await (
-                  sm as unknown as {
-                    ensureOrchestrator: (opts: {
-                      projectId: string;
-                      systemPrompt: string;
-                    }) => Promise<unknown>;
-                  }
-                ).ensureOrchestrator({ projectId, systemPrompt });
+                await sm.ensureOrchestrator?.({ projectId, systemPrompt });
                 console.log(chalk.green(`Orchestrator session ready`));
                 console.log(chalk.dim(`Opening dashboard at http://localhost:${running.port}`));
                 process.exit(0);

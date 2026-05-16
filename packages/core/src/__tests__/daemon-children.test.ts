@@ -138,7 +138,7 @@ describe("daemon child registry", () => {
     );
 
     child.kill("SIGTERM");
-    await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    await waitForChildExit(child);
 
     expect(getDaemonChildren()).not.toContainEqual(expect.objectContaining({ pid: child.pid }));
   });

@@ -102,6 +102,7 @@ describe("platform", () => {
       delete process.env["AO_SHELL"];
       process.env["ComSpec"] = "cmd.exe";
       process.env["PATH"] = "";
+      const origSystemRoot = process.env["SystemRoot"];
       process.env["SystemRoot"] = "/nonexistent";
       _resetShellCache();
       const shell = getShell();
@@ -111,6 +112,7 @@ describe("platform", () => {
       if (origAoShell !== undefined) process.env["AO_SHELL"] = origAoShell; else delete process.env["AO_SHELL"];
       if (origComSpec !== undefined) process.env["ComSpec"] = origComSpec; else delete process.env["ComSpec"];
       if (origPath !== undefined) process.env["PATH"] = origPath; else delete process.env["PATH"];
+      if (origSystemRoot !== undefined) process.env["SystemRoot"] = origSystemRoot; else delete process.env["SystemRoot"];
     });
   });
 
