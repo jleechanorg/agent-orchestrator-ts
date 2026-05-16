@@ -1,5 +1,5 @@
 {
-  "name": "@composio/ao",
+  "name": "@jleechanorg/ao",
   "version": "0.1.0",
   "description": "Orchestrate parallel AI coding agents \u2014 global CLI wrapper",
   "license": "MIT",

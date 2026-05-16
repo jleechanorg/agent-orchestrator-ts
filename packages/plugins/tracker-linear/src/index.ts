@@ -141,7 +141,7 @@ function createComposioTransport(apiKey: string, entityId: string): GraphQLTrans
     if (!clientPromise) {
       clientPromise = (async () => {
         try {
-          const specifier = "@composio/core";
+          const specifier = "@jleechanorg/core";
           const mod = await import(specifier) as { Composio: new (opts: { apiKey: string }) => { tools: ComposioTools } };
           const client = new mod.Composio({ apiKey });
           return client.tools;
@@ -153,8 +153,8 @@ function createComposioTransport(apiKey: string, entityId: string): GraphQLTrans
             msg.includes("ERR_MODULE_NOT_FOUND")
           ) {
             throw new Error(
-              "Composio SDK (@composio/core) is not installed. " +
-                "Install it with: pnpm add @composio/core",
+              "Composio SDK (@jleechanorg/core) is not installed. " +
+                "Install it with: pnpm add @jleechanorg/core",
               { cause: err },
             );
           }
