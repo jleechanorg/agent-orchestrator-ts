@@ -180,7 +180,7 @@ function createOpenWAgent(): Agent {
           `[ao-plugin-agent-openw] Invalid model "${model}": provider prefix with no model name`,
         );
       }
-      sharedOptions.push("--model", shellEscape(model));
+      sharedOptions.push("--model", shellEscape(stripped));
 
       let promptValue: string | undefined;
       if (config.prompt) {
