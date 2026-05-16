@@ -67,12 +67,14 @@
     "@jleechanorg/ao-plugin-workspace-clone": "workspace:*",
     "@jleechanorg/ao-plugin-workspace-worktree": "workspace:*",
     "@jleechanorg/ao-autonomous-harness": "workspace:*",
-    "@jleechanorg/ao-web": "workspace:*",
     "chalk": "^5.4.0",
     "commander": "^13.0.0",
     "minimatch": "^10.0.0",
     "ora": "^8.1.0",
     "yaml": "^2.8.3"
+  },
+  "optionalDependencies": {
+    "@jleechanorg/ao-web": "workspace:*"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.0.0",
