@@ -147,7 +147,8 @@ describe("daemon child registry", () => {
 describe("AO orphan detection", () => {
   it("detects PPID=1 AO dashboard, websocket, and lifecycle processes", () => {
     const output = [
-      "  90350      1 node next-server (v15.5.15)",
+      // next-server scoped to AO's ao-web package (not a generic Next.js app)
+      "  90350      1 node /opt/homebrew/lib/node_modules/@aoagents/ao-web/node_modules/.bin/next-server",
       "  90351      1 node /opt/homebrew/lib/node_modules/@aoagents/ao-web/dist-server/start-all.js",
       "  47457      1 node /opt/homebrew/lib/node_modules/@aoagents/ao-web@0.2.4/dist-server/start-all.js",
       "  47458      1 node @aoagents/ao-web@0.2.4 dist-server/start-all.js",
@@ -156,6 +157,8 @@ describe("AO orphan detection", () => {
       "   9914      1 node /opt/homebrew/bin/ao lifecycle-worker codex-startup-factory",
       "  22222   3333 node /opt/homebrew/bin/ao lifecycle-worker not-an-orphan",
       "  44444      1 node unrelated-server.js",
+      // unrelated next-server (no @aoagents/ao-web path) should NOT be detected
+      "  55555      1 node /usr/local/lib/next-server/server.js",
     ].join("\n");
 
     expect(detectAoOrphansFromPsOutput(output)).toEqual([

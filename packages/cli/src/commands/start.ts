@@ -574,7 +574,7 @@ async function addProjectToConfig(
   if (globalConfigPath && globalConfigPath === config.configPath) {
     const localConfigPath = join(resolvedPath, "agent-orchestrator.yaml");
     if (!existsSync(localConfigPath)) {
-      writeFileSync(localConfigPath, "agent: claude-code\n");
+      writeFileSync(localConfigPath, "# AO repo-local configuration override\n");
     }
     console.log(chalk.dim(`  registered in the global config`));
   }

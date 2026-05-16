@@ -362,7 +362,7 @@ export async function sweepDaemonChildren(
   };
 
   for (const entry of entries) {
-    await killProcessTree(entry.pid, "SIGTERM");
+    await killProcessTree(entry.pid, "SIGTERM").catch(() => {});
   }
 
   const pids = entries.map((entry) => entry.pid);
@@ -370,7 +370,7 @@ export async function sweepDaemonChildren(
   result.terminated = pids.length - stillAliveAfterTerm.size;
 
   for (const entry of entries.filter((entry) => stillAliveAfterTerm.has(entry.pid))) {
-    await killProcessTree(entry.pid, "SIGKILL");
+    await killProcessTree(entry.pid, "SIGKILL").catch(() => {});
   }
 
   const stillAliveAfterKill = await waitForProcessesExit([...stillAliveAfterTerm], 1_000);
@@ -422,7 +422,7 @@ export function classifyAoOrphanCommand(command: string): string | null {
   ) {
     return "lifecycle-worker";
   }
-  if (normalized.includes("next-server")) {
+  if (normalized.includes("next-server") && normalized.includes("@aoagents/ao-web")) {
     return "next-server";
   }
   return null;
@@ -506,7 +506,7 @@ export async function reapAoOrphans(
   };
 
   for (const orphan of orphans) {
-    await killProcessTree(orphan.pid, "SIGTERM");
+    await killProcessTree(orphan.pid, "SIGTERM").catch(() => {});
   }
 
   const pids = orphans.map((orphan) => orphan.pid);
@@ -514,7 +514,7 @@ export async function reapAoOrphans(
   result.terminated = pids.length - stillAliveAfterTerm.size;
 
   for (const orphan of orphans.filter((orphan) => stillAliveAfterTerm.has(orphan.pid))) {
-    await killProcessTree(orphan.pid, "SIGKILL");
+    await killProcessTree(orphan.pid, "SIGKILL").catch(() => {});
   }
 
   const stillAliveAfterKill = await waitForProcessesExit([...stillAliveAfterTerm], 1_000);

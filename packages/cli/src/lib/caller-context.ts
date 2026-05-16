@@ -28,14 +28,20 @@ export async function promptSelect(
   prompt: string,
   options: Array<{ value: string; label: string }>,
 ): Promise<string> {
+  if (options.length === 0) {
+    throw new Error("promptSelect requires at least one option");
+  }
   const { createInterface } = await import("node:readline/promises");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   console.log(prompt);
   options.forEach((opt, i) => {
     console.log(`  ${i + 1}. ${opt.label}`);
   });
-  const choice = await rl.question("  Choice: ");
-  rl.close();
-  const idx = parseInt(choice.trim()) - 1;
-  return options[idx]?.value ?? options[options.length - 1]!.value;
+  try {
+    const choice = await rl.question("  Choice: ");
+    const idx = parseInt(choice.trim()) - 1;
+    return options[idx]?.value ?? options[options.length - 1]!.value;
+  } finally {
+    rl.close();
+  }
 }
