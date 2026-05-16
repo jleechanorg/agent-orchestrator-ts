@@ -208,4 +208,6 @@ if [ -f "$LOG_FILE" ]; then
 fi
 
 log "DONE started=$STARTED killed=$KILLED failures=$FAILURES"
-exit "$FAILURES"
+# Always exit 0 so launchd's StartInterval fires every 5 min without throttling.
+# Non-zero exit activates KeepAlive (immediate respawn), causing crash-loop throttle.
+exit 0
