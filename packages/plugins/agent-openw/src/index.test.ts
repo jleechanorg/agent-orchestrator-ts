@@ -117,18 +117,20 @@ describe("getLaunchCommand", () => {
     delete process.env.OPENW_MODEL;
   });
 
-  it("always includes --model with wafer.ai/GLM-5.1 default", () => {
+  it("always includes stripped --model (GLM-5.1) with default env", () => {
     const agent = create();
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
+    // Provider prefix is stripped before passing to opencode binary
     expect(cmd).toContain("--model 'GLM-5.1'");
+    expect(cmd).not.toContain("--model 'wafer.ai/GLM-5.1'");
   });
 
-  it("respects OPENW_MODEL env override", () => {
+  it("respects OPENW_MODEL env override and strips prefix", () => {
     process.env.OPENW_MODEL = "wafer.ai/Qwen3.5-397B-A17B";
     const agent = create();
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
     expect(cmd).toContain("--model 'Qwen3.5-397B-A17B'");
-    expect(cmd).not.toContain("--model 'GLM-5.1'");
+    expect(cmd).not.toContain("--model 'wafer.ai/Qwen3.5-397B-A17B'");
   });
 
   it("rejects provider-only prefix with no model name", () => {
@@ -151,7 +153,7 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--agent 'sisyphus'");
   });
 
-  it("strips provider prefix from model name", () => {
+  it("strips provider prefix before passing to opencode binary", () => {
     const agent = create();
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
     expect(cmd).toContain("--model 'GLM-5.1'");
