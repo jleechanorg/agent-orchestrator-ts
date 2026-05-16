@@ -82,7 +82,11 @@ jobs:
         # For fork PRs, origin/ is the fork; explicitly fetch base branch as local ref.
         run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
       - name: Kill stray ao processes from previous CI runs
-        run: pkill -f "ao lifecycle-worker" || true; pkill -f "ao start" || true; sleep 1
+        run: |
+          pkill -f '\bao\b lifecycle-worker' || pkill -f 'ao lifecycle-worker' || true
+          pkill -f '\bao\b start' || pkill -f 'ao start' || true
+          timeout 5 bash -c 'until ! pgrep -f "ao lifecycle-worker" >/dev/null; do sleep 1; done' || echo "::warning::ao lifecycle-worker processes remain after 5s"
+          timeout 5 bash -c 'until ! pgrep -f "ao start" >/dev/null; do sleep 1; done' || echo "::warning::ao start processes remain after 5s"
       - run: pnpm test
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
