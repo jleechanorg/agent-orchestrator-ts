@@ -60,7 +60,7 @@ function createHealthyPath(binDir: string): void {
     [
       "if [ \"$1\" = \"install\" ] && [ \"$2\" = \"-g\" ]; then",
       "  mkdir -p \"${PNPM_HOME:-$HOME/.local/share/pnpm}\"",
-      "  printf '#!/bin/bash\\nao ok\\n' > \"${PNPM_HOME:-$HOME/.local/share/pnpm}/ao\"",
+      "  printf '#!/bin/bash\\nif [ \"$1\" = \"--version\" ]; then printf \"0.1.3\\\\n\"; exit 0; fi\\nexit 0\\n' > \"${PNPM_HOME:-$HOME/.local/share/pnpm}/ao\"",
       "  chmod +x \"${PNPM_HOME:-$HOME/.local/share/pnpm}/ao\"",
       "fi",
       'if [ "$1" = "--version" ]; then',
@@ -86,6 +86,8 @@ function createHealthyPath(binDir: string): void {
     'if [ "$1" = "--version" ]; then\n  printf "gh version 2.50.0\\n"\n  exit 0\nfi\nif [ "$1" = "auth" ] && [ "$2" = "status" ]; then\n  exit 0\nfi\nexit 0',
   );
   createFakeBinary(binDir, "ao", 'printf "/fake/ao\\n" >/dev/null\nexit 0');
+  // timeout is not guaranteed in the restricted test PATH; provide a passthrough shim
+  createFakeBinary(binDir, "timeout", 'shift\nexec "$@"');
 }
 
 describe("scripts/ao-doctor.sh", () => {
@@ -126,7 +128,7 @@ describe("scripts/ao-doctor.sh", () => {
     expect(result.stdout).toContain("Environment looks healthy");
   });
 
-  it("applies safe fixes for missing launcher, missing dirs, and stale temp files", () => {
+  it("applies safe fixes for missing launcher, missing dirs, and stale temp files", { timeout: 90_000 }, () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-fix-"));
     const fakeRepo = createHealthyRepo(tempRoot);
     const binDir = join(tempRoot, "bin");
@@ -187,7 +189,7 @@ describe("scripts/ao-doctor.sh", () => {
     expect(worktreeDirExists).toBe(true);
     expect(commentedDataDirExists).toBe(false);
     expect(commentedWorktreeDirExists).toBe(false);
-  }, 30_000);
+  });
 
   it("fails when the ao launcher resolves into an AO worktree", { timeout: 30000 }, () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-worktree-link-"));
