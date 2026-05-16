@@ -267,12 +267,21 @@ describe("detectActivity", () => {
     expect(agent.detectActivity("opencode is working\n")).toBe("active");
   });
 
-  it('returns waiting_input for "[y/n]" prompt', () => {
+  it('returns waiting_input for structural [y/n] widget', () => {
     expect(agent.detectActivity("Apply changes? [y/n]")).toBe("waiting_input");
   });
 
-  it('returns ready for "press enter to continue"', () => {
-    expect(agent.detectActivity("press enter to continue")).toBe("ready");
+  it('returns waiting_input for structural [yes/no] widget', () => {
+    expect(agent.detectActivity("Proceed? [yes/no]")).toBe("waiting_input");
+  });
+
+  it("returns idle when last line is bare OpenCode prompt", () => {
+    expect(agent.detectActivity("Some output\n>")).toBe("idle");
+    expect(agent.detectActivity("Some output\n> ")).toBe("idle");
+  });
+
+  it("returns active for non-prompt non-empty output", () => {
+    expect(agent.detectActivity("press enter to continue")).toBe("active");
   });
 });
 

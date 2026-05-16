@@ -140,21 +140,8 @@ process.stdin.on('data', c => input += c).on('end', () => {
   return script.replace(/\n/g, " ").replace(/\s+/g, " ");
 }
 
-const INTERACTIVE_PROMPT_PATTERNS: readonly RegExp[] = [
-  /\[[yY]\/[nN]\]/,
-  /\[[yY][eE][sS]\/[nN][oO]\]/,
-  /\bconfirm\??\b/i,
-  /^\s*[→\-•]\s*$/m,
-];
-
-const NEUTRAL_WAIT_PATTERNS: readonly RegExp[] = [
-  /press .* to (continue|submit|send|confirm|run)/i,
-  /\b(q|quit|exit|cancel)\b.*\bto\b/i,
-  /\bwaiting\b/i,
-  /\bready\b/i,
-  /proceed\??\b/i,
-  /\boptions?\b.*\bselect\b/i,
-];
+// Structural [y/N] / [yes/no] UI widgets emitted by OpenCode — deterministic, not semantic.
+const CONFIRMATION_WIDGET_RE = /\[[yY]\/[nN]\]|\[[yY][eE][sS]\/[nN][oO]\]/;
 
 export const manifest = {
   name: "openw",
@@ -273,16 +260,13 @@ function createOpenWAgent(): Agent {
     detectActivity(terminalOutput: string): ActivityState {
       if (!terminalOutput.trim()) return "idle";
 
-      for (const p of INTERACTIVE_PROMPT_PATTERNS) {
-        if (p.test(terminalOutput)) return "waiting_input";
-      }
-
       const lastLine = terminalOutput.trimEnd().split("\n").at(-1) ?? "";
-      if (/^\s*\?\s*$/.test(lastLine)) return "waiting_input";
 
-      for (const p of NEUTRAL_WAIT_PATTERNS) {
-        if (p.test(terminalOutput)) return "ready";
-      }
+      // Structural [y/N] / [yes/no] widgets — OpenCode renders these as literal UI chrome.
+      if (CONFIRMATION_WIDGET_RE.test(lastLine)) return "waiting_input";
+
+      // OpenCode idle prompt: last line is bare `>` or `> ` with no other content.
+      if (/^>\s*$/.test(lastLine)) return "idle";
 
       return "active";
     },
