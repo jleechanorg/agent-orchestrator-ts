@@ -15,7 +15,12 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, request } from "node:http";
-import { createCorrelationId } from "@jleechanorg/ao-core";
+import {
+  createCorrelationId,
+  isWindows,
+  killProcessTree,
+  spawnManagedDaemonChild,
+} from "@jleechanorg/ao-core";
 import { findTmux, resolveTmuxSession, validateSessionId } from "./tmux-utils.js";
 import { createObserverContext, inferProjectId } from "./terminal-observability.js";
 
@@ -200,7 +205,8 @@ function getOrSpawnTtyd(sessionId: string, tmuxSessionName: string): TtydInstanc
 
   // Use user-facing sessionId for base-path (matches URL the dashboard uses)
   // Use tmuxSessionName for tmux attach (may be hash-prefixed)
-  const proc = spawn(
+  const proc = spawnManagedDaemonChild(
+    `terminal:ttyd:${sessionId}`,
     "ttyd",
     [
       "--writable",
@@ -215,6 +221,7 @@ function getOrSpawnTtyd(sessionId: string, tmuxSessionName: string): TtydInstanc
     ],
     {
       stdio: ["ignore", "pipe", "pipe"],
+      detached: !isWindows(),
     },
   );
 
@@ -424,12 +431,24 @@ server.listen(PORT, () => {
 // Graceful shutdown — kill all ttyd instances
 function shutdown(signal: string) {
   console.log(`[Terminal] Received ${signal}, shutting down...`);
+  const killPromises: Promise<void>[] = [];
   for (const [, instance] of instances) {
-    instance.process.kill();
+    const pid = instance.process.pid;
+    if (pid) {
+      killPromises.push(
+        killProcessTree(pid, "SIGTERM").catch(() => {
+          instance.process.kill("SIGTERM");
+        }),
+      );
+    } else {
+      instance.process.kill("SIGTERM");
+    }
   }
-  server.close(() => {
-    console.log("[Terminal] Server closed");
-    process.exit(0);
+  void Promise.allSettled(killPromises).then(() => {
+    server.close(() => {
+      console.log("[Terminal] Server closed");
+      process.exit(0);
+    });
   });
   // Force exit after 5s if graceful shutdown hangs
   // Use unref() so this timer doesn't prevent process exit if server closes quickly

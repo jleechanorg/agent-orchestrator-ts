@@ -129,23 +129,32 @@ async function spawnSession(
       throw new Error("Prompt must be at most 4096 characters");
     }
 
-    if (queueConfig.enabled && activeSessions.length >= queueConfig.maxActiveSessions) {
-      const queued = enqueueSpawnRequest(config.configPath, projectId, {
-        issueId,
-        agent,
-        runtimeOverride: runtime,
-        prompt: sanitizedPrompt,
-        claimPr: claimOptions?.claimPr,
-        assignOnGithub: claimOptions?.assignOnGithub,
-      });
+    // Storm prevention: hard cap applies regardless of queue.enabled.
+    // When queue is enabled the cap routes to the queue; when disabled it rejects immediately.
+    if (activeSessions.length >= queueConfig.maxActiveSessions) {
+      if (queueConfig.enabled) {
+        const queued = enqueueSpawnRequest(config.configPath, projectId, {
+          issueId,
+          agent,
+          runtimeOverride: runtime,
+          prompt: sanitizedPrompt,
+          claimPr: claimOptions?.claimPr,
+          assignOnGithub: claimOptions?.assignOnGithub,
+        });
 
-      spinner.succeed(`Session request queued at position ${queued.position}`);
-      console.log(`  Reason:   ${chalk.dim(`${activeSessions.length} active sessions >= cap ${queueConfig.maxActiveSessions}`)}`);
-      console.log(`  Request:  ${chalk.dim(queued.requestId)}`);
-      if (claimOptions?.claimPr) console.log(`  PR:       ${chalk.dim(claimOptions.claimPr)}`);
-      console.log();
-      console.log(`REQUEST=${queued.requestId}`);
-      return queued.requestId;
+        spinner.succeed(`Session request queued at position ${queued.position}`);
+        console.log(`  Reason:   ${chalk.dim(`${activeSessions.length} active sessions >= cap ${queueConfig.maxActiveSessions}`)}`);
+        console.log(`  Request:  ${chalk.dim(queued.requestId)}`);
+        if (claimOptions?.claimPr) console.log(`  PR:       ${chalk.dim(claimOptions.claimPr)}`);
+        console.log();
+        console.log(`REQUEST=${queued.requestId}`);
+        return queued.requestId;
+      } else {
+        spinner.fail(
+          `Spawn rejected: ${activeSessions.length} active sessions >= cap (${queueConfig.maxActiveSessions}). Wait for sessions to complete.`,
+        );
+        process.exit(1);
+      }
     }
 
     spinner.text = "Spawning session via core";
@@ -334,17 +343,48 @@ export function registerSpawn(program: Command): void {
               console.log(chalk.bold(`Spawning ${leaves.length} sessions with lineage context...`));
               console.log();
 
+              const queueCfg = resolveSpawnQueueConfig(config.projects[projectId]);
+
               for (const leaf of leaves) {
                 const siblings = getSiblings(plan.tree, leaf.id);
+                const leafPrompt = leaf.description.replace(/[\r\n]/g, " ").trim();
+                if (leafPrompt.length > 4096) {
+                  console.error(chalk.red(`  ✗ ${leaf.description.slice(0, 40)} — prompt exceeds 4096 chars`));
+                  continue;
+                }
+                const leafSpawnConfig = {
+                  projectId,
+                  issueId,
+                  lineage: leaf.lineage,
+                  siblings,
+                  agent: opts.agent,
+                  runtimeOverride: opts.runtime,
+                  prompt: leafPrompt,
+                };
                 try {
-                  const session = await sm.spawn({
-                    projectId,
-                    issueId, // All work on the same parent issue for now
-                    lineage: leaf.lineage,
-                    siblings,
-                    agent: opts.agent,
-                    runtimeOverride: opts.runtime,
-                  });
+                  // Storm prevention: check cap before each decomposed spawn.
+                  const currentSessions = await sm.list(projectId);
+                  const currentActive = currentSessions.filter((s) => !TERMINAL_STATUSES.has(s.status));
+                  if (currentActive.length >= queueCfg.maxActiveSessions) {
+                    if (queueCfg.enabled) {
+                      const queued = enqueueSpawnRequest(config.configPath, projectId, leafSpawnConfig);
+                      console.log(
+                        chalk.yellow(
+                          `  ⏳ Queued ${leaf.description.slice(0, 40)}… — request ${queued.requestId}`,
+                        ),
+                      );
+                      continue;
+                    } else {
+                      console.error(
+                        chalk.red(
+                          `  ✗ Spawn rejected: ${currentActive.length} active sessions >= cap (${queueCfg.maxActiveSessions}). Remaining subtasks skipped.`,
+                        ),
+                      );
+                      break;
+                    }
+                  }
+
+                  const session = await sm.spawn(leafSpawnConfig);
                   console.log(`  ${chalk.green("✓")} ${session.id} — ${leaf.description}`);
                 } catch (err) {
                   console.error(
@@ -447,14 +487,25 @@ export function registerBatchSpawn(program: Command): void {
           (session) => !TERMINAL_STATUSES.has(session.status),
         );
         const queueConfig = resolveSpawnQueueConfig(config.projects[projectId]);
-        if (queueConfig.enabled && activeSessions.length >= queueConfig.maxActiveSessions) {
-          const queued = enqueueSpawnRequest(config.configPath, projectId, { issueId: issue });
-          console.log(
-            chalk.yellow(
-              `  Queue ${issue} — active sessions ${activeSessions.length}/${queueConfig.maxActiveSessions}, request ${queued.requestId}`,
-            ),
-          );
-          skipped.push({ issue, existing: queued.requestId });
+        // Storm prevention: hard cap applies regardless of queue.enabled.
+        if (activeSessions.length >= queueConfig.maxActiveSessions) {
+          if (queueConfig.enabled) {
+            const queued = enqueueSpawnRequest(config.configPath, projectId, { issueId: issue });
+            console.log(
+              chalk.yellow(
+                `  Queue ${issue} — active sessions ${activeSessions.length}/${queueConfig.maxActiveSessions}, request ${queued.requestId}`,
+              ),
+            );
+            spawnedIssues.add(issue.toLowerCase());
+            skipped.push({ issue, existing: queued.requestId });
+          } else {
+            console.error(
+              chalk.red(
+                `  ✗ Spawn rejected for ${issue}: ${activeSessions.length} active sessions >= cap (${queueConfig.maxActiveSessions}). Remaining issues skipped.`,
+              ),
+            );
+            break;
+          }
           continue;
         }
 

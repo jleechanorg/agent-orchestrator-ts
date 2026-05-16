@@ -483,3 +483,35 @@ export type {
   ContextUtilizationLevel,
   ContextMonitorState,
 } from "./harness-artifacts.js";
+
+// Platform adapter — centralized cross-platform branching (cherry-picked upstream #1849)
+export {
+  isWindows,
+  isMac,
+  isLinux,
+  getDefaultRuntime,
+  getShell,
+  killProcessTree,
+  findPidByPort,
+  getEnvDefaults,
+} from "./platform.js";
+
+// Daemon-children registry — orphan reaping on start/stop (cherry-picked upstream #1849)
+export {
+  registerDaemonChild,
+  unregisterDaemonChild,
+  getDaemonChildren,
+  clearDaemonChildrenRegistry,
+  markDaemonShutdownHandlerInstalled,
+  registerChildReaper,
+  spawnManagedDaemonChild,
+  sweepDaemonChildren,
+  classifyAoOrphanCommand,
+  detectAoOrphansFromPsOutput,
+  scanAoOrphans,
+  reapAoOrphans,
+  type DaemonChildEntry,
+  type DaemonChildSweepOptions,
+  type DaemonChildSweepResult,
+  type AoOrphanProcess,
+} from "./daemon-children.js";

@@ -174,6 +174,18 @@ export async function addProjectToRunning(projectId: string): Promise<void> {
   }
 }
 
+export interface LastStopRecord {
+  projectId: string;
+  sessionIds: string[];
+  stoppedAt: string;
+}
+
+export async function writeLastStop(record: Omit<LastStopRecord, "stoppedAt">): Promise<void> {
+  const entry: LastStopRecord = { ...record, stoppedAt: new Date().toISOString() };
+  ensureDir();
+  writeFileSync(join(STATE_DIR, "last-stop.json"), JSON.stringify(entry, null, 2), "utf-8");
+}
+
 export async function removeProjectFromRunning(projectId: string): Promise<void> {
   const release = await acquireLock();
   try {

@@ -24,9 +24,35 @@ const MAX_PENDING_REQUESTS = 100;
 
 const lastDrainTimeByProject = new Map<string, number>();
 
+/** Returns 1-minute load average, or null if unavailable. */
+async function getLoadAvg1m(): Promise<number | null> {
+  try {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+    if (process.platform === "darwin") {
+      const { stdout } = await execFileAsync("sysctl", ["-n", "vm.loadavg"], { encoding: "utf8" });
+      // format: "{ 1.23 4.56 7.89 }"
+      const m = stdout.match(/\{\s*([\d.]+)/);
+      const load = m?.[1] ? Number.parseFloat(m[1]) : Number.NaN;
+      return Number.isFinite(load) ? load : null;
+    } else {
+      const { readFile } = await import("node:fs/promises");
+      const content = await readFile("/proc/loadavg", "utf8");
+      const token = content.trim().split(/\s+/)[0];
+      const load = token ? Number.parseFloat(token) : Number.NaN;
+      return Number.isFinite(load) ? load : null;
+    }
+  } catch {
+    return null;
+  }
+}
+
 interface QueuedSpawnRequest {
   id: string;
   issueId?: string;
+  lineage?: string[];
+  siblings?: string[];
   agent?: string;
   runtimeOverride?: string;
   claimPr?: string;
@@ -47,6 +73,8 @@ export interface SpawnQueueConfigResolved {
 
 export interface EnqueueSpawnRequestInput {
   issueId?: string;
+  lineage?: string[];
+  siblings?: string[];
   agent?: string;
   runtimeOverride?: string;
   claimPr?: string;
@@ -137,6 +165,8 @@ export function enqueueSpawnRequest(
   state.pending.push({
     id: requestId,
     issueId: input.issueId,
+    lineage: input.lineage,
+    siblings: input.siblings,
     agent: input.agent,
     runtimeOverride: input.runtimeOverride,
     claimPr: input.claimPr,
@@ -182,6 +212,20 @@ export async function drainSpawnQueue(
     return 0;
   }
 
+  const load = await getLoadAvg1m();
+  if (load !== null && load > 20) {
+    observer.recordOperation({
+      metric: "lifecycle_poll",
+      operation: "lifecycle.spawn_queue.load_high",
+      outcome: "success",
+      correlationId,
+      projectId,
+      data: { load1m: load, threshold: 20 },
+      level: "warn",
+    });
+    return 0;
+  }
+
   const state = loadSpawnQueueState(configPath, projectId);
   const nextRequest = state.pending[0];
   if (!nextRequest) {
@@ -192,6 +236,8 @@ export async function drainSpawnQueue(
     const session = await sessionManager.spawn({
       projectId,
       issueId: nextRequest.issueId,
+      lineage: nextRequest.lineage,
+      siblings: nextRequest.siblings,
       agent: nextRequest.agent,
       runtimeOverride: nextRequest.runtimeOverride,
       prompt: nextRequest.prompt,
