@@ -547,6 +547,15 @@ describe("wholesome — structural source-code assertions", () => {
       "5ec2b7b1b0b10dc75e00ac34b21bd06cb68da9b5", // fix(cli): reap daemon children on start/stop (cherry-pick upstream #1849)
       "c1b42355a59176afd3bfa84b447d882082ecc8e5", // feat(cli): cap concurrent sessions in spawn-queue load gate
       "2f6ef8e63e5ca378146f0316dbdad4b20cada297", // feat(core): universal session cap at session-manager.spawn()
+      // PR #564 AO worker commits (bd-47gh, bd-y5xi, bd-qo50) — missing [agento] prefix
+      "6ed132e79ae7e47c8f6f996e31607313fb3f3c6a", // fix: stop command now correctly filters sessions by projectId instead of passing projectId to get()
+      "21374ee01d7cf01362452261ebcccd4765ca9879", // fix: use killExistingDaemon to prevent port race in restart/stop paths
+      "3788fcd1ee4a6519a4e6c546b00c72273d74b361", // fix: use killProcessTree and sweepDaemonChildren in restart path
+      "0e8afc2465a7c2e25ceb4e91c8022336b40dafce", // fix: remove undefined worktreeDir reference in start.test.ts
+      "0ef24047917511fa936a2565f0d7d374a9ff6061", // fix: use killExistingDaemon in ao stop to prevent orphaned processes
+      "1aba12ec17fb9992e44e38eb88b30a3bc9817405", // fix: remove stopDashboard call from targeted stop path
+      "bcb4becbe61d762db16c479ebaa5d6bda1c2124d", // fix: guard against NaN from invalid AO_MAX_CONCURRENT_SESSIONS env var
+      "fba13038dbb0f473a0ec7c16f8da83772247c480", // fix: resolve three high-severity bugs in spawn process and core exports
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
