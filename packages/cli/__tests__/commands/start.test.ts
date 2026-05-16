@@ -1043,7 +1043,9 @@ describe("start command — orchestrator session strategy display", () => {
 describe("stop command", () => {
   it("stops orchestrator session and dashboard", async () => {
     mockConfigRef.current = makeConfig({ "my-app": makeProject() });
-    mockSessionManager.get.mockResolvedValue({ id: "app-orchestrator", status: "running" });
+    mockSessionManager.list.mockResolvedValue([
+      { id: "app-orchestrator", projectId: "my-app", status: "running", activity: "active", metadata: {}, lastActivityAt: new Date(), runtimeHandle: null },
+    ]);
     mockSessionManager.kill.mockResolvedValue(undefined);
     mockExec.mockResolvedValue({ stdout: "12345", stderr: "" });
 
@@ -1065,7 +1067,7 @@ describe("stop command", () => {
 
   it("handles missing orchestrator session gracefully", async () => {
     mockConfigRef.current = makeConfig({ "my-app": makeProject() });
-    mockSessionManager.get.mockResolvedValue(null);
+    mockSessionManager.list.mockResolvedValue([]);
     mockExec.mockRejectedValue(new Error("no process"));
 
     await program.parseAsync(["node", "test", "stop"]);
@@ -1084,7 +1086,9 @@ describe("stop command", () => {
 
   it("defaults to NOT purge OpenCode session when stopping orchestrator", async () => {
     mockConfigRef.current = makeConfig({ "my-app": makeProject() });
-    mockSessionManager.get.mockResolvedValue({ id: "app-orchestrator", status: "running" });
+    mockSessionManager.list.mockResolvedValue([
+      { id: "app-orchestrator", projectId: "my-app", status: "running", activity: "active", metadata: {}, lastActivityAt: new Date(), runtimeHandle: null },
+    ]);
     mockSessionManager.kill.mockResolvedValue(undefined);
 
     await program.parseAsync(["node", "test", "stop"]);
@@ -1096,7 +1100,9 @@ describe("stop command", () => {
 
   it("passes purge flag when stopping orchestrator with --purge-session", async () => {
     mockConfigRef.current = makeConfig({ "my-app": makeProject() });
-    mockSessionManager.get.mockResolvedValue({ id: "app-orchestrator", status: "running" });
+    mockSessionManager.list.mockResolvedValue([
+      { id: "app-orchestrator", projectId: "my-app", status: "running", activity: "active", metadata: {}, lastActivityAt: new Date(), runtimeHandle: null },
+    ]);
     mockSessionManager.kill.mockResolvedValue(undefined);
 
     await program.parseAsync(["node", "test", "stop", "--purge-session"]);
@@ -1292,6 +1298,8 @@ describe("start command — main repo guard (bd-8gld)", () => {
     });
     mockSessionManager.list.mockResolvedValue([]);
     mockExec.mockRejectedValue(new Error("no process"));
+
+    mockWaitForExit.mockReturnValue(true);
 
     await program.parseAsync(["node", "test", "stop"]);
 
