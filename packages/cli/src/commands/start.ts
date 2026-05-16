@@ -12,7 +12,7 @@
 import { execFile, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, resolve, basename } from "node:path";
+import { dirname, resolve, basename, join } from "node:path";
 import { cwd } from "node:process";
 import { resolveProjectByCwd } from "../lib/resolve-project-cwd.js";
 import chalk from "chalk";
@@ -35,6 +35,8 @@ import {
   ConfigNotFoundError,
   isWindows,
   spawnManagedDaemonChild,
+  killProcessTree,
+  sweepDaemonChildren,
   type OrchestratorConfig,
   type ProjectConfig,
   type ParsedRepoUrl,
@@ -53,7 +55,7 @@ import {
 } from "../lib/web-dir.js";
 import { cleanNextCache } from "../lib/dashboard-rebuild.js";
 import { preflight } from "../lib/preflight.js";
-import { register, unregister, isAlreadyRunning, getRunning, waitForExit } from "../lib/running-state.js";
+import { register, unregister, isAlreadyRunning, getRunning, waitForExit, writeLastStop } from "../lib/running-state.js";
 import { isHumanCaller } from "../lib/caller-context.js";
 import { detectEnvironment } from "../lib/detect-env.js";
 import { detectDefaultBranch } from "../lib/git-utils.js";
@@ -416,7 +418,7 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
       runtime: "tmux",
       agent,
       workspace: "worktree",
-      notifiers: ["desktop"],
+      notifiers: [],
       modelByCli: {
         codex: { model: "gpt-5.4" },
       },
@@ -433,7 +435,7 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
     },
   };
 
-  const outputPath = prepareStagingConfigPath();
+  const outputPath = join(workingDir, "agent-orchestrator.yaml");
   if (existsSync(outputPath)) {
     console.log(chalk.yellow(`⚠ Config already exists: ${outputPath}`));
     console.log(chalk.dim("  Use 'ao start' to start with the existing config.\n"));
@@ -1140,14 +1142,11 @@ export function registerStop(program: Command): void {
           // Check running.json first
           const running = await getRunning();
 
-          if (opts.all) {
-            // --all: kill via running.json if available, then fallback to config
+          if (opts.all || !projectArg) {
+            // Full stop: kill parent process and all daemon children, then unregister
             if (running) {
-              try {
-                process.kill(running.pid, "SIGTERM");
-              } catch {
-                // Already dead
-              }
+              await killProcessTree(running.pid, "SIGTERM");
+              await sweepDaemonChildren({ ownerPid: running.pid });
               await unregister();
               console.log(
                 chalk.green(`\n✓ Stopped AO on port ${running.port}`),
@@ -1159,50 +1158,38 @@ export function registerStop(program: Command): void {
             return;
           }
 
+          // Targeted stop: kill only sessions for the named project; do NOT kill
+          // the parent daemon (it may still be serving other projects).
           const config = loadConfig();
-          const { projectId: _projectId, project } = resolveProject(config, projectArg);
-          const sessionId = `${project.sessionPrefix}-orchestrator`;
+          const { projectId, project } = resolveProject(config, projectArg);
           const port = config.port ?? 3000;
 
           console.log(chalk.bold(`\nStopping orchestrator for ${chalk.cyan(project.name)}\n`));
 
-          // Kill orchestrator session via SessionManager
           const sm = await getSessionManager(config);
-          const existing = await sm.get(sessionId);
+          const allSessions = await sm.list();
+          const projectSessions = allSessions.filter((s) => s.projectId === projectId);
+          const sessionIds = projectSessions.map((s) => s.id);
+          const purgeOpenCode = opts.purgeSession === true;
 
-
-          if (existing) {
-            const spinner = ora("Stopping orchestrator session").start();
-            const purgeOpenCode = opts.purgeSession === true;
-            await sm.kill(sessionId, { purgeOpenCode });
-            spinner.succeed("Orchestrator session stopped");
-          } else {
-            console.log(chalk.yellow(`Orchestrator session "${sessionId}" is not running`));
+          for (const session of projectSessions) {
+            const spinner = ora(`Stopping session ${session.id}`).start();
+            await sm.kill(session.id, { purgeOpenCode });
+            spinner.succeed(`Session ${session.id} stopped`);
           }
 
-          const lifecycleStopped = await stopLifecycleWorker(config, _projectId);
+          await writeLastStop({ projectId, sessionIds });
+
+          const lifecycleStopped = await stopLifecycleWorker(config, projectId);
           if (lifecycleStopped) {
             console.log(chalk.green("Lifecycle worker stopped"));
           } else {
             console.log(chalk.yellow("Lifecycle worker not running"));
           }
 
-          // Stop dashboard — kill parent PID from running.json, then also stop
-          // any dashboard child process via lsof (parent SIGTERM may not propagate)
-          if (running) {
-            try {
-              process.kill(running.pid, "SIGTERM");
-            } catch {
-              // Already dead
-            }
-            await unregister();
-          }
           await stopDashboard(running?.port ?? port);
 
-          console.log(chalk.bold.green("\n✓ Orchestrator stopped\n"));
-          console.log(
-            chalk.dim(`  Uptime: since ${running?.startedAt ?? "unknown"}`),
-          );
+          console.log(chalk.bold.green("\n✓ Project stopped\n"));
           console.log(
             chalk.dim(`  Projects: ${Object.keys(config.projects).join(", ")}\n`),
           );
