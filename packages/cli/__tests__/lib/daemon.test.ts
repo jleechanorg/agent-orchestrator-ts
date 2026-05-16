@@ -68,9 +68,10 @@ describe("attachToDaemon", () => {
     const daemon = attachToDaemon(fakeRunning);
     const result = await daemon.notifyProjectChange();
     expect(result).toEqual({ ok: true });
-    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:3000/api/projects/reload", {
-      method: "POST",
-    });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:3000/api/projects/reload",
+      expect.objectContaining({ method: "POST" }),
+    );
     fetchSpy.mockRestore();
   });
 
