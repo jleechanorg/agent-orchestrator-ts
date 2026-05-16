@@ -1251,8 +1251,9 @@ export function registerStop(program: Command): void {
             console.log(chalk.green(`\n✓ Stopped AO on port ${running.port}`));
             console.log(chalk.dim(`  Projects: ${running.projects.join(", ")}\n`));
           } else {
-            // running.json missing (crash/recovery) — sweep any orphaned daemon children
-            await sweepDaemonChildren({ ownerPid: process.pid }).catch(() => {});
+            // running.json missing (crash/recovery) — global sweep catches orphans from
+            // any prior daemon PID, not just the current CLI process.
+            await sweepDaemonChildren({}).catch(() => {});
             console.log(chalk.yellow("No running AO instance found in running.json."));
           }
           return;
