@@ -76,6 +76,8 @@ jobs:
         if: github.event_name == 'pull_request'
         # For fork PRs, origin/ is the fork; explicitly fetch base branch as local ref.
         run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+      - name: Kill stray ao processes from previous CI runs
+        run: pkill -f "ao lifecycle-worker" || true; pkill -f "ao start" || true; sleep 1
       - run: pnpm test
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
