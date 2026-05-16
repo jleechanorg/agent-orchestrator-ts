@@ -1187,8 +1187,6 @@ export function registerStop(program: Command): void {
             console.log(chalk.yellow("Lifecycle worker not running"));
           }
 
-          await stopDashboard(running?.port ?? port);
-
           console.log(chalk.bold.green("\n✓ Project stopped\n"));
           console.log(
             chalk.dim(`  Projects: ${Object.keys(config.projects).join(", ")}\n`),
