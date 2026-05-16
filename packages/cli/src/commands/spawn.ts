@@ -354,6 +354,9 @@ export function registerSpawn(program: Command): void {
                   if (currentActive.length >= queueCfg.maxActiveSessions) {
                     if (queueCfg.enabled) {
                       const queued = enqueueSpawnRequest(config.configPath, projectId, {
+                        issueId,
+                        lineage: leaf.lineage,
+                        siblings,
                         agent: opts.agent,
                         runtimeOverride: opts.runtime,
                         prompt: leaf.description,

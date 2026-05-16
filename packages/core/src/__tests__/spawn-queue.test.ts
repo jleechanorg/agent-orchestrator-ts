@@ -261,5 +261,32 @@ describe("spawn-queue", () => {
       expect(ops).toContain("lifecycle.spawn_queue.spawn_failed");
       expect(ops).not.toContain("lifecycle.spawn_queue.dropped");
     });
+
+    it("preserves issueId, lineage, and siblings through enqueue→drain (decompose context regression)", async () => {
+      // Regression: capped --decompose leaves must spawn with the same context as the direct path.
+      enqueueSpawnRequest(configPath, "proj-decompose", {
+        issueId: "parent-issue-42",
+        lineage: ["root-task", "subtask-A"],
+        siblings: ["subtask-B description", "subtask-C description"],
+        agent: "codex",
+        prompt: "implement subtask-A",
+      });
+
+      const spawnMock = vi.fn().mockResolvedValue(makeSession({ id: "decompose-session" }));
+      const deps = makeDeps({ spawn: spawnMock });
+      const result = await drainSpawnQueue(deps, makeParams({ projectId: "proj-decompose" }));
+
+      expect(result).toBe(1);
+      expect(spawnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: "proj-decompose",
+          issueId: "parent-issue-42",
+          lineage: ["root-task", "subtask-A"],
+          siblings: ["subtask-B description", "subtask-C description"],
+          agent: "codex",
+          prompt: "implement subtask-A",
+        }),
+      );
+    });
   });
 });

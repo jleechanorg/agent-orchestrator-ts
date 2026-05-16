@@ -51,6 +51,8 @@ async function getLoadAvg1m(): Promise<number | null> {
 interface QueuedSpawnRequest {
   id: string;
   issueId?: string;
+  lineage?: string[];
+  siblings?: string[];
   agent?: string;
   runtimeOverride?: string;
   claimPr?: string;
@@ -71,6 +73,8 @@ export interface SpawnQueueConfigResolved {
 
 export interface EnqueueSpawnRequestInput {
   issueId?: string;
+  lineage?: string[];
+  siblings?: string[];
   agent?: string;
   runtimeOverride?: string;
   claimPr?: string;
@@ -161,6 +165,8 @@ export function enqueueSpawnRequest(
   state.pending.push({
     id: requestId,
     issueId: input.issueId,
+    lineage: input.lineage,
+    siblings: input.siblings,
     agent: input.agent,
     runtimeOverride: input.runtimeOverride,
     claimPr: input.claimPr,
@@ -230,6 +236,8 @@ export async function drainSpawnQueue(
     const session = await sessionManager.spawn({
       projectId,
       issueId: nextRequest.issueId,
+      lineage: nextRequest.lineage,
+      siblings: nextRequest.siblings,
       agent: nextRequest.agent,
       runtimeOverride: nextRequest.runtimeOverride,
       prompt: nextRequest.prompt,
