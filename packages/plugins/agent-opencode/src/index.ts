@@ -70,80 +70,7 @@ function parseSessionList(raw: string): OpenCodeSessionListEntry[] {
   });
 }
 
-/**
- * Parse JSON stream lines from `opencode run --format json` output.
- * Each line is a JSON object. We look for objects containing a session_id field.
- * The step_start event typically contains the session_id.
- */
-function buildSessionIdCaptureScript(): string {
-  const script = `
-let buffer = '';
-let captured = null;
-process.stdin.on('data', chunk => {
-  buffer += chunk;
-  const lines = buffer.split('\\n');
-  buffer = lines.pop() || '';
-  for (const line of lines) {
-    if (captured) continue;
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const obj = JSON.parse(trimmed);
-      if (obj && typeof obj.session_id === 'string' && /^ses_[A-Za-z0-9_-]+$/.test(obj.session_id)) {
-        captured = obj.session_id;
-      }
-    } catch {}
-  }
-}).on('end', () => {
-  if (buffer.trim()) {
-    try {
-      const obj = JSON.parse(buffer.trim());
-      if (obj && typeof obj.session_id === 'string' && /^ses_[A-Za-z0-9_-]+$/.test(obj.session_id)) {
-        captured = obj.session_id;
-      }
-    } catch {}
-  }
-  if (captured) {
-    process.stdout.write(captured);
-    process.exit(0);
-  }
-  process.exit(1);
-});
-  `.trim();
-  return script.replace(/\n/g, " ").replace(/\s+/g, " ");
-}
 
-function buildSessionLookupScript(): string {
-  const script = `
-let input = '';
-process.stdin.on('data', c => input += c).on('end', () => {
-  const title = process.argv[1];
-  let rows;
-  try { rows = JSON.parse(input); } catch { process.exit(1); }
-  if (!Array.isArray(rows)) process.exit(1);
-  const isValidId = id => /^ses_[A-Za-z0-9_-]+$/.test(id);
-  const timestamp = value => {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string') {
-      const parsed = Date.parse(value);
-      return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
-    }
-    return Number.NEGATIVE_INFINITY;
-  };
-  const matches = rows
-    .filter(r => r && r.title === title && typeof r.id === 'string' && isValidId(r.id))
-    .sort((a, b) => {
-      const ta = timestamp(a.updated);
-      const tb = timestamp(b.updated);
-      if (ta === tb) return 0;
-      return tb - ta;
-    });
-  if (matches.length === 0) process.exit(1);
-  process.stdout.write(matches[0].id);
-});
-  `.trim();
-  return script.replace(/\n/g, " ").replace(/\s+/g, " ");
-}
 
 // =============================================================================
 // Terminal output patterns (hoisted to avoid repeated allocation)
@@ -190,41 +117,17 @@ function createOpenCodeAgent(): Agent {
     supportsSystemPromptFile: true,
 
     getLaunchCommand(config: AgentLaunchConfig): string {
-      const options: string[] = [];
-      const sharedOptions: string[] = [];
+      const parts: string[] = ["opencode"];
 
       const existingSessionId = asValidOpenCodeSessionId(
         (config.projectConfig.agentConfig as OpenCodeAgentConfig | undefined)?.opencodeSessionId,
       );
 
       if (existingSessionId) {
-        options.push("--session", shellEscape(existingSessionId));
-      }
-
-      // Select specific OpenCode subagent if configured
-      if (config.subagent) {
-        sharedOptions.push("--agent", shellEscape(config.subagent));
-      }
-
-      let promptValue: string | undefined;
-      if (config.prompt) {
-        if (config.systemPromptFile) {
-          promptValue = `"$(cat ${shellEscape(config.systemPromptFile)}; printf '\\n\\n'; printf %s ${shellEscape(config.prompt)})"`;
-        } else if (config.systemPrompt) {
-          promptValue = shellEscape(`${config.systemPrompt}\n\n${config.prompt}`);
-        } else {
-          promptValue = shellEscape(config.prompt);
-        }
-      } else if (config.systemPromptFile) {
-        promptValue = `"$(cat ${shellEscape(config.systemPromptFile)})"`;
-      } else if (config.systemPrompt) {
-        promptValue = shellEscape(config.systemPrompt);
+        parts.push("--session", shellEscape(existingSessionId));
       }
 
       if (config.model) {
-        // Strip provider prefix (wafer.ai/, z.ai/) — routing is handled by
-        // OPENAI_BASE_URL in getEnvironment(), not by the model name.
-        // Guard: reject provider-only prefixes that would produce an empty model string.
         const modelArg = isCustomProviderModel(config.model)
           ? stripProviderPrefix(config.model)
           : config.model;
@@ -233,39 +136,24 @@ function createOpenCodeAgent(): Agent {
             `[ao-plugin-agent-opencode] Invalid model "${config.model}": provider prefix with no model name`,
           );
         }
-        sharedOptions.push("--model", shellEscape(modelArg));
+        parts.push("--model", shellEscape(modelArg));
       }
 
-      if (!existingSessionId) {
-        const runOptions = [
-          "--format",
-          "json",
-          "--title",
-          shellEscape(`AO:${config.sessionId}`),
-          ...sharedOptions,
-        ];
-        const captureScript = buildSessionIdCaptureScript();
-        const fallbackScript = buildSessionLookupScript();
-        const runCommand = ["opencode", "run", ...runOptions, "--command", "true"].join(" ");
-        const resumeOptions = [...(promptValue ? ["--prompt", promptValue] : []), ...sharedOptions];
-        const resumeOptionsSuffix = resumeOptions.length > 0 ? ` ${resumeOptions.join(" ")}` : "";
-        const missingSessionError = shellEscape(
-          `failed to discover OpenCode session ID for AO:${config.sessionId}`,
-        );
-        return [
-          `SES_ID=$(${runCommand} | node -e ${shellEscape(captureScript)})`,
-          `if [ -z "$SES_ID" ]; then SES_ID=$(opencode session list --format json | node -e ${shellEscape(fallbackScript)} ${shellEscape(`AO:${config.sessionId}`)}); fi`,
-          `[ -n "$SES_ID" ] && exec opencode --session "$SES_ID"${resumeOptionsSuffix}; echo ${missingSessionError} >&2; exit 1`,
-        ].join("; ");
+      if (config.subagent) {
+        parts.push("--agent", shellEscape(config.subagent));
       }
 
-      if (promptValue) {
-        options.push("--prompt", promptValue);
+      if (config.systemPromptFile) {
+        parts.push("--append-system-prompt", `"$(cat ${shellEscape(config.systemPromptFile)})"`);
+      } else if (config.systemPrompt) {
+        parts.push("--append-system-prompt", shellEscape(config.systemPrompt));
       }
 
-      options.push(...sharedOptions);
+      if (config.prompt) {
+        parts.push("--prompt", shellEscape(config.prompt));
+      }
 
-      return ["opencode", ...options].join(" ");
+      return parts.join(" ");
     },
 
     getEnvironment(config: AgentLaunchConfig): Record<string, string> {
