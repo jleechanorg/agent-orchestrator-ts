@@ -52,6 +52,7 @@ async function postProjectsReload(port: number): Promise<NotifyResult> {
   try {
     const res = await fetch(`http://localhost:${port}/api/projects/reload`, {
       method: "POST",
+      signal: AbortSignal.timeout(5000),
     });
     if (res.ok) return { ok: true };
     return { ok: false, reason: `Dashboard reload returned ${res.status}` };

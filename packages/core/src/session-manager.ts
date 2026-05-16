@@ -1024,7 +1024,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const parsed = process.env.AO_MAX_CONCURRENT_SESSIONS
       ? parseInt(process.env.AO_MAX_CONCURRENT_SESSIONS, 10)
       : 20;
-    const MAX_CONCURRENT_SESSIONS = Number.isNaN(parsed) ? 20 : parsed;
+    const MAX_CONCURRENT_SESSIONS = Number.isNaN(parsed) || parsed < 1 ? 20 : parsed;
     const allProjectSessions = await list(spawnConfig.projectId);
     const activeSessions = allProjectSessions.filter(
       (s) => !TERMINAL_SESSION_STATUSES.has(s.status),

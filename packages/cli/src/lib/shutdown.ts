@@ -87,11 +87,20 @@ export function installShutdownHandlers(ctx: ShutdownContext): void {
         } catch {
           // Best-effort
         }
+      } catch {
+        // Best-effort — continue to sweep/unregister even if cleanup fails
+      }
 
+      // Always sweep and unregister regardless of earlier failures
+      try {
         await sweepDaemonChildren({ ownerPid: process.pid });
+      } catch {
+        // Best-effort
+      }
+      try {
         await unregister();
       } catch {
-        // Best-effort — always exit even if cleanup fails
+        // Best-effort
       }
       process.exit(exitCode);
     })();

@@ -128,7 +128,7 @@ describe("killExistingDaemon", () => {
     expect(mockUnregister).not.toHaveBeenCalled();
   });
 
-  it("treats killProcessTree errors as best-effort and still unregisters when process is gone", async () => {
+  it("propagates killProcessTree errors and skips unregister on rejection", async () => {
     // killProcessTree itself swallows errors internally, but defend against
     // a future regression by ensuring an unexpected throw does not crash
     // unregister() when the process has actually exited.

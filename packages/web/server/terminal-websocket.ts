@@ -431,19 +431,24 @@ server.listen(PORT, () => {
 // Graceful shutdown — kill all ttyd instances
 function shutdown(signal: string) {
   console.log(`[Terminal] Received ${signal}, shutting down...`);
+  const killPromises: Promise<void>[] = [];
   for (const [, instance] of instances) {
     const pid = instance.process.pid;
     if (pid) {
-      void killProcessTree(pid, "SIGTERM").catch(() => {
-        instance.process.kill("SIGTERM");
-      });
+      killPromises.push(
+        killProcessTree(pid, "SIGTERM").catch(() => {
+          instance.process.kill("SIGTERM");
+        }),
+      );
     } else {
       instance.process.kill("SIGTERM");
     }
   }
-  server.close(() => {
-    console.log("[Terminal] Server closed");
-    process.exit(0);
+  void Promise.allSettled(killPromises).then(() => {
+    server.close(() => {
+      console.log("[Terminal] Server closed");
+      process.exit(0);
+    });
   });
   // Force exit after 5s if graceful shutdown hangs
   // Use unref() so this timer doesn't prevent process exit if server closes quickly
