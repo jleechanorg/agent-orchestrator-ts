@@ -1721,14 +1721,10 @@ describe("start command — already-running detection", () => {
 
     // After restart the startup flow continues — it may succeed or fail
     // depending on infrastructure mocks, so we just verify the restart actions
-    try {
-      await program.parseAsync(["node", "test", "start", "--no-dashboard", "--no-orchestrator"]);
+    await program.parseAsync(["node", "test", "start", "--no-dashboard", "--no-orchestrator"]);
 
-      const output = vi.mocked(console.log).mock.calls.map((c) => c.join(" ")).join("\n");
-      expect(output).toContain("Startup complete");
-    } finally {
-      rmSync(worktreeDir, { recursive: true, force: true });
-    }
+    const output = vi.mocked(console.log).mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(output).toContain("Startup complete");
   });
 });
 
