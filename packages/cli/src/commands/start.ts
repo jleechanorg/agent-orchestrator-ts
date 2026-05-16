@@ -1285,10 +1285,16 @@ export function registerStop(program: Command): void {
           }
           await writeLastStop({ projectId, sessionIds });
         } else {
-          const session = await sm.get(projectId);
-          if (session) {
-            await sm.kill(session.id, { purgeOpenCode });
-            await writeLastStop({ projectId, sessionIds: [session.id] });
+          const allSessions = await sm.list();
+          const projectSessions = allSessions.filter(
+            (s: { projectId: string; id: string }) => s.projectId === projectId,
+          );
+          const sessionIds = projectSessions.map((s: { projectId: string; id: string }) => s.id);
+          if (projectSessions.length > 0) {
+            for (const session of projectSessions) {
+              await sm.kill(session.id, { purgeOpenCode });
+            }
+            await writeLastStop({ projectId, sessionIds });
             console.log(chalk.bold.green("Orchestrator stopped"));
           } else {
             await writeLastStop({ projectId, sessionIds: [] });
