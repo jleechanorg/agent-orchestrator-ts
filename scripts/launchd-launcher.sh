@@ -64,8 +64,10 @@ eval "$(echo "$_init_output" | grep -E 'declare -x [A-Za-z_][A-Za-z0-9_]*="[^"]+
   echo "WARNING: failed to parse shell exports, continuing with plist defaults" >&2
 }
 
-# Remove any dead lean-proxy override from .bashrc so workers use provider base URLs from
-# the plist / plugin config instead of a stale localhost proxy.
-unset ANTHROPIC_BASE_URL
+# Clear the dead lean-proxy URL from .bashrc (http://localhost:9000 or 9001) but preserve
+# any plist-provided production endpoint (https://...) so the plugin config is not clobbered.
+case "${ANTHROPIC_BASE_URL:-}" in
+  http://localhost:*) unset ANTHROPIC_BASE_URL ;;
+esac
 
 exec "$TARGET" "$@"
