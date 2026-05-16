@@ -35,8 +35,6 @@ import {
   ConfigNotFoundError,
   isWindows,
   spawnManagedDaemonChild,
-  killProcessTree,
-  sweepDaemonChildren,
   type OrchestratorConfig,
   type ProjectConfig,
   type ParsedRepoUrl,
@@ -57,7 +55,6 @@ import { cleanNextCache } from "../lib/dashboard-rebuild.js";
 import { preflight } from "../lib/preflight.js";
 import {
   register,
-  unregister,
   isAlreadyRunning,
   getRunning,
   writeLastStop,
