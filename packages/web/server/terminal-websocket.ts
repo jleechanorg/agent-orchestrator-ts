@@ -15,7 +15,12 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, request } from "node:http";
-import { createCorrelationId } from "@jleechanorg/ao-core";
+import {
+  createCorrelationId,
+  isWindows,
+  killProcessTree,
+  spawnManagedDaemonChild,
+} from "@jleechanorg/ao-core";
 import { findTmux, resolveTmuxSession, validateSessionId } from "./tmux-utils.js";
 import { createObserverContext, inferProjectId } from "./terminal-observability.js";
 
@@ -200,7 +205,8 @@ function getOrSpawnTtyd(sessionId: string, tmuxSessionName: string): TtydInstanc
 
   // Use user-facing sessionId for base-path (matches URL the dashboard uses)
   // Use tmuxSessionName for tmux attach (may be hash-prefixed)
-  const proc = spawn(
+  const proc = spawnManagedDaemonChild(
+    `terminal:ttyd:${sessionId}`,
     "ttyd",
     [
       "--writable",
@@ -215,6 +221,7 @@ function getOrSpawnTtyd(sessionId: string, tmuxSessionName: string): TtydInstanc
     ],
     {
       stdio: ["ignore", "pipe", "pipe"],
+      detached: !isWindows(),
     },
   );
 
@@ -425,7 +432,14 @@ server.listen(PORT, () => {
 function shutdown(signal: string) {
   console.log(`[Terminal] Received ${signal}, shutting down...`);
   for (const [, instance] of instances) {
-    instance.process.kill();
+    const pid = instance.process.pid;
+    if (pid) {
+      void killProcessTree(pid, "SIGTERM").catch(() => {
+        instance.process.kill("SIGTERM");
+      });
+    } else {
+      instance.process.kill("SIGTERM");
+    }
   }
   server.close(() => {
     console.log("[Terminal] Server closed");
