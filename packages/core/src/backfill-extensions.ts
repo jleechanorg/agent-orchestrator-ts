@@ -84,7 +84,7 @@ export async function backfillUncoveredPRs(
   const now = Date.now();
   if (now - lastBackfillTime < BACKFILL_INTERVAL_MS) return false;
 
-  const scmNullable = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+  const scmNullable = project.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
   if (!scmNullable) return false;
   const listOpenPRs = scmNullable.listOpenPRs?.bind(scmNullable);
   if (!listOpenPRs) return false;

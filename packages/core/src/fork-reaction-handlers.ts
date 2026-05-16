@@ -57,7 +57,7 @@ export async function handleRequestMerge(
     return { reactionType: reactionKey, success: false, action, escalated: false };
   }
 
-  const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+  const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
   if (!scm || !freshSession.pr) {
     const event = createEvent("reaction.triggered", {
       sessionId,

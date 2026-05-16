@@ -52,7 +52,7 @@ export async function buildReactionContext(
   const project = config.projects[projectId];
   if (!project || !session.pr) return "";
 
-  const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+  const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
   if (!scm) return "";
 
   try {

@@ -73,7 +73,7 @@ export async function validateAndEmitExitProof(
   const project = deps.config.projects[session.projectId];
   if (!project) return;
 
-  const scm = project.scm ? deps.registry.get<SCM>("scm", project.scm.plugin) : null;
+  const scm = project.scm ? deps.registry.get<SCM>("scm", project.scm.plugin!) : null;
   if (!scm) {
     const proof: SessionExitProof = {
       sessionId: session.id,

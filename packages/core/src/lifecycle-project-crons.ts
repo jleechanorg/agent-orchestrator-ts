@@ -163,7 +163,7 @@ export async function maybeWarnBackfillDisabledWithOpenPRs(args: {
     return;
   }
 
-  const scmPlugin = args.project.scm ? args.registry.get<SCM>("scm", args.project.scm.plugin) : null;
+  const scmPlugin = args.project.scm ? args.registry.get<SCM>("scm", args.project.scm.plugin!) : null;
   const listOpenPRs = scmPlugin?.listOpenPRs?.bind(scmPlugin);
   if (!listOpenPRs) return;
 

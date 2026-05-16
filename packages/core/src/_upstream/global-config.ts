@@ -4,11 +4,11 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
-import { atomicWriteFileSync } from "./atomic-write.js";
-import { detectScmPlatform } from "./config-generator.js";
+import { atomicWriteFileSync } from "../atomic-write.js";
+import { detectScmPlatform } from "../config-generator.js";
 import { withFileLockSync } from "./file-lock.js";
-import { ProjectResolveError } from "./types.js";
-import { generateSessionPrefix } from "./paths.js";
+import { ProjectResolveError } from "../types.js";
+import { generateSessionPrefix } from "../paths.js";
 import { normalizeOriginUrl } from "./storage-key.js";
 import { getDefaultRuntime } from "./platform.js";
 

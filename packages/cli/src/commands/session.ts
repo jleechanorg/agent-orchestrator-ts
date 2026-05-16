@@ -1,11 +1,35 @@
 import { spawn } from "node:child_process";
+import { connect as netConnect } from "node:net";
 import chalk from "chalk";
 import type { Command } from "commander";
-import { loadConfig, SessionNotRestorableError, WorkspaceMissingError } from "@jleechanorg/ao-core";
+import {
+  generateConfigHash,
+  isOrchestratorSession,
+  isTerminalSession,
+  isWindows,
+  loadConfig,
+  SessionNotRestorableError,
+  WorkspaceMissingError,
+} from "@jleechanorg/ao-core";
+import { DEFAULT_PORT } from "../lib/constants.js";
 import { git, getTmuxActivity, tmux } from "../lib/shell.js";
 import { formatAge } from "../lib/format.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
 import { isOrchestratorSessionName } from "../lib/session-utils.js";
+import { projectSessionUrl } from "../lib/routes.js";
+
+interface SessionListEntry {
+  id: string;
+  projectId: string;
+  projectName: string;
+  role: "worker" | "orchestrator";
+  branch: string | null;
+  status: string | null;
+  issueId: string | null;
+  pr: string | null;
+  workspacePath: string | null;
+  lastActivityAt: string | null;
+}
 
 export function registerSession(program: Command): void {
   const session = program
@@ -16,7 +40,18 @@ export function registerSession(program: Command): void {
     .command("ls")
     .description("List all sessions")
     .option("-p, --project <id>", "Filter by project ID")
-    .action(async (opts: { project?: string }) => {
+    .option("-a, --all", "Include orchestrator sessions")
+    .option(
+      "--include-terminated",
+      "Include terminated sessions (killed/done/merged/terminated/errored/cleanup)",
+    )
+    .option("--json", "Output as JSON")
+    .action(async (opts: {
+      project?: string;
+      all?: boolean;
+      includeTerminated?: boolean;
+      json?: boolean;
+    }) => {
       const config = loadConfig();
       if (opts.project && !config.projects[opts.project]) {
         console.error(chalk.red(`Unknown project: ${opts.project}`));
@@ -24,9 +59,21 @@ export function registerSession(program: Command): void {
       }
 
       const sm = await getSessionManager(config);
-      const sessions = await sm.list(opts.project);
+      const allSessions = await sm.list(opts.project);
 
-      // Group sessions by project
+      const withoutOrchestrators = opts.all
+        ? allSessions
+        : allSessions.filter(
+            (s) => !isOrchestratorSessionName(config, s.id, s.projectId),
+          );
+
+      const hiddenTerminatedCount = opts.includeTerminated
+        ? 0
+        : withoutOrchestrators.filter(isTerminalSession).length;
+      const sessions = opts.includeTerminated
+        ? withoutOrchestrators
+        : withoutOrchestrators.filter((s) => !isTerminalSession(s));
+
       const byProject = new Map<string, typeof sessions>();
       for (const s of sessions) {
         const list = byProject.get(s.projectId) ?? [];
@@ -34,78 +81,242 @@ export function registerSession(program: Command): void {
         byProject.set(s.projectId, list);
       }
 
-      // Iterate over all configured projects (not just ones with sessions)
       const projectIds = opts.project ? [opts.project] : Object.keys(config.projects);
+      const allSessionPrefixes = Object.entries(config.projects).map(
+        ([id, project]) => project.sessionPrefix ?? id,
+      );
+      const jsonOutput: SessionListEntry[] = [];
 
       for (const projectId of projectIds) {
         const project = config.projects[projectId];
         if (!project) continue;
-        console.log(chalk.bold(`\n${project.name || projectId}:`));
+        if (!opts.json) {
+          console.log(chalk.bold(`\n${project.name || projectId}:`));
+        }
 
         const projectSessions = (byProject.get(projectId) ?? []).sort((a, b) =>
           a.id.localeCompare(b.id),
         );
 
         if (projectSessions.length === 0) {
-          console.log(chalk.dim("  (no active sessions)"));
+          if (!opts.json) {
+            console.log(chalk.dim("  (no active sessions)"));
+          }
           continue;
         }
 
-        for (const s of projectSessions) {
-          // Get live branch from worktree if available
-          let branchStr = s.branch || "";
-          if (s.workspacePath) {
-            const liveBranch = await git(["branch", "--show-current"], s.workspacePath);
-            if (liveBranch) branchStr = liveBranch;
+        const branches = await Promise.all(
+          projectSessions.map(async (s) => {
+            if (s.workspacePath) {
+              return git(["branch", "--show-current"], s.workspacePath).catch(() => null);
+            }
+            return null;
+          }),
+        );
+
+        const activities = await Promise.all(
+          projectSessions.map((s) => {
+            if (isWindows()) {
+              return Promise.resolve(s.lastActivityAt ? s.lastActivityAt.getTime() : null);
+            }
+            const tmuxTarget = s.runtimeHandle?.id ?? s.id;
+            return getTmuxActivity(tmuxTarget).catch(() => null);
+          }),
+        );
+
+        for (let i = 0; i < projectSessions.length; i++) {
+          const s = projectSessions[i];
+          const liveBranch = branches[i];
+          const activityTs = activities[i];
+
+          const branchStr = (s.workspacePath && liveBranch) ? liveBranch : (s.branch || "");
+          const prUrl = s.metadata["pr"] ?? null;
+
+          if (opts.json) {
+            const role = isOrchestratorSession(
+              s,
+              project.sessionPrefix ?? projectId,
+              allSessionPrefixes,
+            )
+              ? "orchestrator"
+              : "worker";
+
+            jsonOutput.push({
+              id: s.id,
+              projectId,
+              projectName: project.name || projectId,
+              role,
+              branch: branchStr || null,
+              status: s.status,
+              issueId: s.issueId,
+              pr: prUrl,
+              workspacePath: s.workspacePath,
+              lastActivityAt: activityTs ? new Date(activityTs).toISOString() : null,
+            });
+
+            continue;
           }
 
-          // Get tmux activity age
-          const tmuxTarget = s.runtimeHandle?.id ?? s.id;
-          const activityTs = await getTmuxActivity(tmuxTarget);
           const age = activityTs ? formatAge(activityTs) : "-";
-
           const parts = [chalk.green(s.id), chalk.dim(`(${age})`)];
           if (branchStr) parts.push(chalk.cyan(branchStr));
           if (s.status) parts.push(chalk.dim(`[${s.status}]`));
-          const prUrl = s.metadata["pr"];
           if (prUrl) parts.push(chalk.blue(prUrl));
 
           console.log(`  ${parts.join("  ")}`);
         }
       }
+
+      if (opts.json) {
+        console.log(
+          JSON.stringify(
+            { data: jsonOutput, meta: { hiddenTerminatedCount } },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+
+      if (hiddenTerminatedCount > 0) {
+        console.log(
+          chalk.dim(
+            `  ${hiddenTerminatedCount} terminated session${hiddenTerminatedCount !== 1 ? "s" : ""} hidden. Use --include-terminated to show.`,
+          ),
+        );
+      }
+
       console.log();
     });
 
   session
     .command("attach")
-    .description("Attach to a session's tmux window")
+    .description("Attach to a session's terminal")
     .argument("<session>", "Session name to attach")
     .action(async (sessionName: string) => {
       const config = loadConfig();
       const sm = await getSessionManager(config);
       const sessionInfo = await sm.get(sessionName);
-      const tmuxTarget = sessionInfo?.runtimeHandle?.id ?? sessionName;
 
-      const exists = await tmux("has-session", "-t", tmuxTarget);
-      if (exists === null) {
-        console.error(chalk.red(`Session '${sessionName}' does not exist`));
-        process.exit(1);
-      }
+      if (isWindows()) {
+        const dataPipePath = sessionInfo?.runtimeHandle?.data?.["pipePath"];
+        const pipePath = typeof dataPipePath === "string" && dataPipePath
+          ? dataPipePath
+          : `\\\\.\\pipe\\ao-pty-${
+              sessionInfo?.runtimeHandle?.id ??
+              (config.configPath
+                ? `${generateConfigHash(config.configPath)}-${sessionName}`
+                : sessionName)
+            }`;
 
-      await new Promise<void>((resolve, reject) => {
-        const child = spawn("tmux", ["attach", "-t", tmuxTarget], { stdio: "inherit" });
-        child.once("error", (err) => reject(err));
-        child.once("exit", (code) => {
-          if (code === 0 || code === null) {
-            resolve();
-            return;
-          }
-          reject(new Error(`tmux attach exited with code ${code}`));
+        const sock = netConnect(pipePath);
+
+        let sendResize: (() => void) | null = null;
+        let stdinHandler: ((data: Buffer) => void) | null = null;
+
+        const cleanup = () => {
+          if (process.stdin.isTTY) process.stdin.setRawMode(false);
+          if (sendResize) process.stdout.removeListener("resize", sendResize);
+          if (stdinHandler) process.stdin.removeListener("data", stdinHandler);
+          sock.destroy();
+        };
+
+        sock.on("error", (err: Error) => {
+          cleanup();
+          console.error(chalk.red(`Cannot attach to ${sessionName}: ${err.message}`));
+          process.exit(1);
         });
-      }).catch((err) => {
-        console.error(chalk.red(`Failed to attach to session ${sessionName}: ${err}`));
-        process.exit(1);
-      });
+
+        sock.on("connect", () => {
+          if (process.stdin.isTTY) {
+            process.stdin.setRawMode(true);
+          }
+          process.stdin.resume();
+
+          let buf = Buffer.alloc(0);
+
+          sock.on("data", (chunk: Buffer) => {
+            buf = Buffer.concat([buf, chunk]);
+            while (buf.length >= 5) {
+              const msgType = buf.readUInt8(0);
+              const len = buf.readUInt32BE(1);
+              if (buf.length < 5 + len) break;
+              const payload = buf.subarray(5, 5 + len);
+              buf = buf.subarray(5 + len);
+
+              if (msgType === 0x01) {
+                process.stdout.write(payload);
+              }
+              if (msgType === 0x07) {
+                try {
+                  const status = JSON.parse(payload.toString()) as { alive: boolean; exitCode?: number };
+                  if (!status.alive) {
+                    cleanup();
+                    console.log(`\n[session exited with code ${status.exitCode ?? "unknown"}]`);
+                    process.exit(status.exitCode ?? 0);
+                  }
+                } catch { }
+              }
+            }
+          });
+
+          stdinHandler = (data: Buffer) => {
+            if (data.length === 1 && data[0] === 0x1c) {
+              console.log("\n[detached]");
+              cleanup();
+              process.exit(0);
+              return;
+            }
+            const header = Buffer.alloc(5);
+            header.writeUInt8(0x02, 0);
+            header.writeUInt32BE(data.length, 1);
+            sock.write(Buffer.concat([header, data]));
+          };
+          process.stdin.on("data", stdinHandler);
+
+          sendResize = () => {
+            const payload = Buffer.from(
+              JSON.stringify({ cols: process.stdout.columns, rows: process.stdout.rows }),
+            );
+            const header = Buffer.alloc(5);
+            header.writeUInt8(0x03, 0);
+            header.writeUInt32BE(payload.length, 1);
+            sock.write(Buffer.concat([header, payload]));
+          };
+          process.stdout.on("resize", sendResize);
+          sendResize();
+
+          sock.on("close", () => {
+            cleanup();
+            process.exit(0);
+          });
+        });
+
+        await new Promise(() => {});
+      } else {
+        const tmuxTarget = sessionInfo?.runtimeHandle?.id ?? sessionName;
+
+        const exists = await tmux("has-session", "-t", tmuxTarget);
+        if (exists === null) {
+          console.error(chalk.red(`Session '${sessionName}' does not exist`));
+          process.exit(1);
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn("tmux", ["attach", "-t", tmuxTarget], { stdio: "inherit" });
+          child.once("error", (err) => reject(err));
+          child.once("exit", (code) => {
+            if (code === 0 || code === null) {
+              resolve();
+              return;
+            }
+            reject(new Error(`tmux attach exited with code ${code}`));
+          });
+        }).catch((err) => {
+          console.error(chalk.red(`Failed to attach to session ${sessionName}: ${err}`));
+          process.exit(1);
+        });
+      }
     });
 
   session
@@ -163,8 +374,6 @@ export function registerSession(program: Command): void {
         });
 
       if (opts.dryRun) {
-        // Dry-run delegates to sm.cleanup() with dryRun flag so it uses the
-        // same live checks (PR state, runtime alive, tracker) as actual cleanup.
         const rawResult = await sm.cleanup(opts.project, { dryRun: true });
         const result = {
           ...rawResult,
@@ -292,6 +501,8 @@ export function registerSession(program: Command): void {
         if (restored.branch) {
           console.log(chalk.dim(`  Branch:   ${restored.branch}`));
         }
+        const port = config.port ?? DEFAULT_PORT;
+        console.log(chalk.dim(`  View:     ${projectSessionUrl(port, restored.projectId, sessionName)}`));
         const tmuxTarget = restored.runtimeHandle?.id ?? sessionName;
         console.log(chalk.dim(`  Attach:   tmux attach -t ${tmuxTarget}`));
       } catch (err) {

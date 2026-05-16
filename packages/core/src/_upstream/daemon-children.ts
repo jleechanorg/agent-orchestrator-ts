@@ -17,7 +17,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
-import { atomicWriteFileSync } from "./atomic-write.js";
+import { atomicWriteFileSync } from "../atomic-write.js";
 import { isWindows, killProcessTree } from "./platform.js";
 
 const execFileAsync = promisify(execFileCb);

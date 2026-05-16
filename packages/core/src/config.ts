@@ -11,7 +11,8 @@
  */
 
 import { readFileSync, existsSync, realpathSync } from "node:fs";
-import { resolve, basename, sep } from "node:path";
+import { createHash } from "node:crypto";
+import { resolve, join, dirname, basename, sep } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
@@ -25,13 +26,8 @@ import {
 import { deepMerge } from "./deep-merge.js";
 import { generateSessionPrefix, expandHome } from "./paths.js";
 
-/** Ensures envSource is bootstrapped exactly once per process lifetime. */
 let _envBootstrapDone = false;
 
-/**
- * Bootstrap env vars from configured shell init files — runs exactly once per process.
- * Prefer defaults.envSource if set (per-project override), fall back to global.
- */
 function bootstrapEnvSource(config: OrchestratorConfig): void {
   if (_envBootstrapDone) return;
   const effective = config.defaults?.envSource ?? config.envSource;
@@ -68,9 +64,86 @@ function inferScmPlugin(project: {
   return "github";
 }
 
+function classifyConfigShape(configPath: string): "wrapped" | "flat-or-nonobject" | "missing" {
+  if (!existsSync(configPath)) {
+    return "missing";
+  }
+
+  const raw = readFileSync(configPath, "utf-8");
+  const parsed = parseYaml(raw);
+  return parsed && typeof parsed === "object" && "projects" in (parsed as Record<string, unknown>)
+    ? "wrapped"
+    : "flat-or-nonobject";
+}
+
+function generateLegacyWrappedStorageKey(configPath: string, projectPath: string): string {
+  const resolvedConfigPath = realpathSync(configPath);
+  const configDir = dirname(resolvedConfigPath);
+  const hash = createHash("sha256").update(configDir).digest("hex").slice(0, 12);
+  return `${hash}-${basename(projectPath)}`;
+}
+
+function applyWrappedLocalStorageKeys(configPath: string, parsed: unknown): unknown {
+  if (!parsed || typeof parsed !== "object") return parsed;
+
+  const parsedObject = parsed as Record<string, unknown>;
+  if (
+    !("projects" in parsedObject) ||
+    !parsedObject["projects"] ||
+    typeof parsedObject["projects"] !== "object"
+  ) {
+    return parsed;
+  }
+
+  return {
+    ...parsedObject,
+    projects: Object.fromEntries(
+      Object.entries(parsedObject["projects"] as Record<string, unknown>).map(
+        ([projectId, value]) => {
+          if (!value || typeof value !== "object") {
+            return [projectId, value];
+          }
+
+          const project = value as Record<string, unknown>;
+          if (typeof project["storageKey"] === "string" || typeof project["path"] !== "string") {
+            return [projectId, value];
+          }
+
+          return [
+            projectId,
+            {
+              ...project,
+              storageKey: generateLegacyWrappedStorageKey(configPath, project["path"]),
+            },
+          ];
+        },
+      ),
+    ),
+  };
+}
+
 // =============================================================================
 // ZOD SCHEMAS
 // =============================================================================
+
+function validatePluginConfigFields(
+  value: { plugin?: string; package?: string; path?: string },
+  ctx: z.RefinementCtx,
+  configType: string,
+): void {
+  if (!value.plugin && !value.package && !value.path) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${configType} config requires either 'plugin' (for built-ins) or 'package'/'path' (for external plugins)`,
+    });
+  }
+  if (value.package && value.path) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${configType} config cannot have both 'package' and 'path' - use one or the other`,
+    });
+  }
+}
 
 const ReactionConfigSchema = z.object({
   auto: z.boolean().default(true),
@@ -85,7 +158,6 @@ const ReactionConfigSchema = z.object({
   includeSummary: z.boolean().optional(),
   mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
   autoMergeWaitSeconds: z.number().optional(),
-  // bd-uxs.3: Failure budget fields
   failureBudget: z
     .object({
       max: z.number().int().positive(),
@@ -94,7 +166,6 @@ const ReactionConfigSchema = z.object({
     .optional(),
   onBudgetExhausted: z.enum(["escalate", "disable", "route-to", "notify"]).optional(),
   routeToAgent: z.string().optional(),
-  // bd-uxs.4: Parallel retry fields
   parallelRetry: z
     .object({
       maxParallel: z.number().int().positive(),
@@ -102,7 +173,6 @@ const ReactionConfigSchema = z.object({
       killOnSuccess: z.boolean().optional(),
     })
     .optional(),
-  // bd-skp2: Skeptic review fields
   skepticModel: z.enum(["codex", "claude", "gemini"]).optional(),
   skepticPostComment: z.boolean().optional(),
   skepticExcludePaths: z.array(z.string()).optional(),
@@ -110,13 +180,18 @@ const ReactionConfigSchema = z.object({
 
 const TrackerConfigSchema = z
   .object({
-    plugin: z.string(),
+    plugin: z.string().optional(),
+    package: z.string().optional(),
+    path: z.string().optional(),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((value, ctx) => validatePluginConfigFields(value, ctx, "Tracker"));
 
 const SCMConfigSchema = z
   .object({
-    plugin: z.string(),
+    plugin: z.string().optional(),
+    package: z.string().optional(),
+    path: z.string().optional(),
     webhook: z
       .object({
         enabled: z.boolean().default(true),
@@ -129,13 +204,17 @@ const SCMConfigSchema = z
       })
       .optional(),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((value, ctx) => validatePluginConfigFields(value, ctx, "SCM"));
 
 const NotifierConfigSchema = z
   .object({
-    plugin: z.string(),
+    plugin: z.string().optional(),
+    package: z.string().optional(),
+    path: z.string().optional(),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((value, ctx) => validatePluginConfigFields(value, ctx, "Notifier"));
 
 const AgentPermissionSchema = z
   .enum(["permissionless", "default", "auto-edit", "suggest", "skip", "auto"])
@@ -169,7 +248,6 @@ const RoleAgentDefaultsSchema = z
   })
   .optional();
 
-/** Only `model` / `orchestratorModel` are read for CLI-keyed defaults; extra keys are rejected. */
 const CliModelDefaultsSchema = z
   .object({
     model: z.string().optional(),
@@ -198,7 +276,6 @@ const DecomposerConfigSchema = z
     requireApproval: true,
   });
 
-// bd-uxs.8: Merge gate config schema
 const MergeGateConfigSchema = z
   .object({
     enabled: z.boolean().default(true),
@@ -214,7 +291,6 @@ const MergeGateConfigSchema = z
   .default({})
   .optional();
 
-// bd-bsu: Task queue config schema
 const TaskQueueConfigSchema = z.object({
   enabled: z.boolean().default(false),
   maxConcurrent: z.number().int().min(1).max(20).default(4),
@@ -227,7 +303,6 @@ const SpawnQueueConfigSchema = z.object({
   maxActiveSessions: z.number().int().min(1).max(200).default(20),
 }).default({});
 
-// bd-jhv1: Manager evolve loop config schema
 const EvolveLoopConfigSchema = z.object({
   enabled: z.boolean().optional(),
   pollCadence: z.enum(["lightweight", "standard"]).default("lightweight"),
@@ -237,7 +312,6 @@ const EvolveLoopConfigSchema = z.object({
   zeroTouchWindow: z.enum(["24h", "30d"]).default("24h"),
 });
 
-// Technique config schema (autor research: all techniques converge, SR-prtype is safe default)
 const TechniqueConfigSchema = z.object({
   default: z.enum(["SR-prtype", "SR-fewshot", "SR", "ET", "PRM", "default"]).default("SR-prtype"),
   perType: z.record(z.enum(["state-bool", "data-norm", "ci-workflow", "typeddict-schema", "large-arch-refactor", "unknown"]), z.enum(["SR-prtype", "SR-fewshot", "SR", "ET", "PRM", "default"])).optional(),
@@ -247,13 +321,12 @@ const TechniqueConfigSchema = z.object({
   }).optional(),
 });
 
-/** bd-n047: Defaults schema — enabled defaults to true so omitting it is an implicit enable. */
 const AutoMergeDefaultsSchema = z.object({
   enabled: z.boolean().default(true),
   waitSeconds: z.number().int().nonnegative().optional(),
   mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
 });
-/** bd-n047: Override schema — enabled is optional (absent = inherit). Accepts legacy boolean too. */
+
 const AutoMergeOverrideSchema = z.union([
   z.boolean().transform((v): import("./types.js").AutoMergeConfig => ({ enabled: v })),
   z.object({
@@ -272,17 +345,17 @@ const ProjectConfigSchema = z.object({
     .string()
     .regex(/^[a-zA-Z0-9_-]+$/, "sessionPrefix must match [a-zA-Z0-9_-]+")
     .optional(),
+  resolveError: z.string().optional(),
   runtime: z.string().optional(),
   agent: z.string().optional(),
   defaultAgent: z.string().optional(),
   fallbackAgents: z.array(z.string()).optional(),
   workspace: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
   tracker: TrackerConfigSchema.optional(),
   scm: SCMConfigSchema.optional(),
   symlinks: z.array(z.string()).optional(),
   postCreate: z.array(z.string()).optional(),
-  // RoleAgentSpecificConfigSchema: empty project must not inject permissions: permissionless
-  // (which would override defaults.agentConfig.permissions).
   agentConfig: RoleAgentSpecificConfigSchema.default({}),
   modelByCli: z.record(CliModelDefaultsSchema).optional(),
   orchestrator: RoleAgentConfigSchema,
@@ -296,28 +369,14 @@ const ProjectConfigSchema = z.object({
     .optional(),
   opencodeIssueSessionStrategy: z.enum(["reuse", "delete", "ignore"]).optional(),
   decomposer: DecomposerConfigSchema.optional(),
-  // Central auto-merge switch: overrides approved-and-green reaction action.
-  // Inherits from global autoMerge when not set.
   autoMerge: AutoMergeOverrideSchema.optional(),
-  // Lifecycle-worker auto-spawns sessions for open PRs without an active worker.
   backfillAllPRs: z.boolean().optional(),
-  // bd-uxs.8: Merge gate configuration
   mergeGate: MergeGateConfigSchema.optional(),
-  // Override the global worktree base directory for this project.
   worktreeDir: z.string().optional(),
-  // bd-6jc: Kill session after this many consecutive SCM failures. Overrides global.
   scmFailureThreshold: z.number().int().min(1).max(100).optional(),
-
-  // Persistent spawn queue + active session cap.
   spawnQueue: SpawnQueueConfigSchema.optional(),
-
-  // bd-bsu: Config-driven bead task queue with maxConcurrent concurrency limit.
   taskQueue: TaskQueueConfigSchema,
-
-  // bd-jhv1: Manager evolve loop configuration
   evolveLoop: EvolveLoopConfigSchema.optional(),
-
-  // Technique selection for AO workers (autor research: all techniques converge, SR-prtype default)
   technique: TechniqueConfigSchema.optional(),
 });
 
@@ -331,12 +390,8 @@ const DefaultPluginsSchema = z.object({
   fallbackAgents: z.array(z.string()).optional(),
   orchestrator: RoleAgentDefaultsSchema,
   worker: RoleAgentDefaultsSchema,
-  // bd-n047: default auto-merge settings for all projects
   autoMerge: AutoMergeDefaultsSchema.optional(),
-  // Phase B: scmFailureThreshold — kills dead-agent sessions after N consecutive SCM failures
   scmFailureThreshold: z.number().int().min(1).max(100).optional(),
-  // bd-g884: shell init files to source for API keys; falls back to global envSource
-  // Security: restricted to shell dotfiles (same allowlist as top-level envSource).
   envSource: z
     .array(z.string())
     .optional()
@@ -357,16 +412,78 @@ const DefaultPluginsSchema = z.object({
     ),
 });
 
+const InstalledPluginConfigSchema = z
+  .object({
+    name: z.string(),
+    source: z.enum(["registry", "npm", "local"]),
+    package: z.string().optional(),
+    version: z.string().optional(),
+    path: z.string().optional(),
+    enabled: z.boolean().default(true),
+  })
+  .superRefine((value, ctx) => {
+    if (value.source === "local" && !value.path) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["path"],
+        message: "Local plugins require a path",
+      });
+    }
+
+    if ((value.source === "registry" || value.source === "npm") && !value.package) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["package"],
+        message: "Registry and npm plugins require a package name",
+      });
+    }
+  });
+
+const PowerConfigSchema = z
+  .object({
+    preventIdleSleep: z.boolean().default(process.platform === "darwin"),
+  })
+  .default({});
+
+const DashboardConfigSchema = z.object({
+  attentionZones: z.enum(["simple", "detailed"]).default("simple"),
+});
+
+const LifecycleConfigSchema = z
+  .object({
+    autoCleanupOnMerge: z.boolean().default(true),
+    mergeCleanupIdleGraceMs: z
+      .number()
+      .int()
+      .nonnegative()
+      .refine((v) => v === 0 || v >= 10_000, {
+        message:
+          "mergeCleanupIdleGraceMs is in milliseconds; values between 1 and 9999 are likely a units mistake (use 0 to disable the gate, or e.g. 10000 for 10s, 300000 for 5min)",
+      })
+      .default(300_000),
+  })
+  .default({});
+
 const OrchestratorConfigSchema = z.object({
+  $schema: z.string().optional(),
   port: z.number().default(3000),
   terminalPort: z.number().optional(),
   directTerminalPort: z.number().optional(),
   readyThresholdMs: z.number().nonnegative().default(300_000),
   startupGracePeriodMs: z.number().nonnegative().default(120_000),
-  // bd-6jc: Kill dead-agent sessions after this many consecutive SCM failures.
   scmFailureThreshold: z.number().int().min(1).max(100).default(3),
+  power: PowerConfigSchema,
+  lifecycle: LifecycleConfigSchema,
   defaults: DefaultPluginsSchema.default({}),
-  projects: z.record(ProjectConfigSchema),
+  projects: z.record(
+    z
+      .string()
+      .regex(
+        /^[a-zA-Z0-9_-]+$/,
+        "Project ID must match [a-zA-Z0-9_-]+ (no dots, slashes, or special characters)",
+      ),
+    ProjectConfigSchema,
+  ),
   notifiers: z.record(NotifierConfigSchema).default({}),
   notificationRouting: z.record(z.array(z.string())).default({
     urgent: ["composio"],
@@ -377,15 +494,9 @@ const OrchestratorConfigSchema = z.object({
   reactions: z.record(ReactionConfigSchema).default({}),
   _hasExplicitGlobalReaction: z.record(z.boolean()).optional(),
   plugins: z.record(z.record(z.unknown())).optional(),
-  // Central auto-merge switch: enables auto-merge for approved-and-green reaction
-  // across all projects unless overridden per-project.
+  dashboard: DashboardConfigSchema.optional(),
   autoMerge: AutoMergeOverrideSchema.optional(),
-  // Global worktree base directory; can be overridden per-project.
   worktreeDir: z.string().optional(),
-  // bd-g884: Source shell init files to pull API keys into process.env.
-  // Security: envSource is restricted to known shell init files or /etc/environment.
-  // This prevents a malicious repo-local config from sourcing arbitrary scripts
-  // even if those scripts happen to live under ~/ (e.g. ~/worktrees/repo/evil.sh).
   envSource: z
     .array(z.string())
     .default(["~/.bashrc"])
@@ -393,8 +504,6 @@ const OrchestratorConfigSchema = z.object({
       (entries) =>
         entries.every((e) => {
           if (e === "/etc/environment") return true;
-          // Only allow shell dotfiles: ~/.bashrc, ~/.zshrc, ~/.profile, etc.
-          // Reject paths like ~/scripts/env.sh, ~/worktrees/repo/evil.sh.
           return (
             e.startsWith("~/") &&
             /^~\/\.[a-zA-Z][a-zA-Z0-9_-]*$/.test(e)
@@ -411,22 +520,20 @@ const OrchestratorConfigSchema = z.object({
 // CONFIG LOADING
 // =============================================================================
 
-/**
- * Guardrail: reject envSource paths that escape the user's home directory.
- *
- * Config files can live in repo-local .claude/ dirs, so a malicious repo
- * could set `envSource: ["/tmp/evil.sh"]` to exec arbitrary scripts in the
- * AO daemon's PID. We restrict envSource to the user's shell dotfiles
- * (paths starting with ~/) or /etc/environment. Explicit absolute paths
- * (not starting with ~/) are rejected because they could point to files
- * outside the user's trusted home directory tree.
- */
+interface ExternalPluginEntryRef {
+  source: string;
+  location:
+    | { kind: "project"; projectId: string; configType: string }
+    | { kind: "notifier"; notifierId: string };
+  slot: "tracker" | "scm" | "notifier";
+  package?: string;
+  path?: string;
+  expectedPluginName?: string;
+}
+
 function assertTrustedEnvSource(entries: string[]): void {
   const homePrefix = `${homedir()}${sep}`;
   for (const entry of entries) {
-    // Only allow ~/...-relative paths or /etc/environment.
-    // Reject explicit absolute paths (e.g. /Users/jleechan/scripts/env.sh)
-    // to prevent a repo-local config from referencing files outside ~/.
     if (!entry.startsWith("~") && entry !== "/etc/environment") {
       throw new Error(
         `Untrusted envSource "${entry}": only "~" paths or /etc/environment are allowed.`,
@@ -444,7 +551,6 @@ function assertTrustedEnvSource(entries: string[]): void {
   }
 }
 
-/** Expand all path fields in the config */
 function expandPaths(config: OrchestratorConfig): OrchestratorConfig {
   for (const project of Object.values(config.projects)) {
     project.path = expandHome(project.path);
@@ -453,28 +559,157 @@ function expandPaths(config: OrchestratorConfig): OrchestratorConfig {
   return config;
 }
 
+function generateTempPluginName(pkg?: string, path?: string): string {
+  if (pkg) {
+    const slashParts = pkg.split("/");
+    const packageName = slashParts[slashParts.length - 1] ?? pkg;
+
+    const prefixMatch = packageName.match(
+      /^ao-plugin-(?:runtime|agent|workspace|tracker|scm|notifier|terminal)-(.+)$/,
+    );
+    if (prefixMatch?.[1]) {
+      return prefixMatch[1];
+    }
+
+    return packageName;
+  }
+
+  if (path) {
+    const segments = path.split("/").filter((s) => s && s !== "." && s !== "..");
+    return segments[segments.length - 1] ?? path;
+  }
+
+  return "unknown";
+}
+
+function processExternalPluginConfig(
+  pluginConfig: { plugin?: string; package?: string; path?: string },
+  source: string,
+  location: ExternalPluginEntryRef["location"],
+  slot: ExternalPluginEntryRef["slot"],
+): ExternalPluginEntryRef | null {
+  if (!pluginConfig.package && !pluginConfig.path) return null;
+
+  if (pluginConfig.path) {
+    pluginConfig.path = expandHome(pluginConfig.path);
+  }
+
+  const userSpecifiedPlugin = pluginConfig.plugin;
+
+  if (!pluginConfig.plugin) {
+    pluginConfig.plugin = generateTempPluginName(pluginConfig.package, pluginConfig.path);
+  }
+
+  return {
+    source,
+    location,
+    slot,
+    package: pluginConfig.package,
+    path: pluginConfig.path,
+    expectedPluginName: userSpecifiedPlugin,
+  };
+}
+
+export function collectExternalPluginConfigs(config: OrchestratorConfig): ExternalPluginEntryRef[] {
+  const entries: ExternalPluginEntryRef[] = [];
+
+  for (const [projectId, project] of Object.entries(config.projects)) {
+    if (project.tracker) {
+      const entry = processExternalPluginConfig(
+        project.tracker,
+        `projects.${projectId}.tracker`,
+        { kind: "project", projectId, configType: "tracker" },
+        "tracker",
+      );
+      if (entry) entries.push(entry);
+    }
+
+    if (project.scm) {
+      const entry = processExternalPluginConfig(
+        project.scm,
+        `projects.${projectId}.scm`,
+        { kind: "project", projectId, configType: "scm" },
+        "scm",
+      );
+      if (entry) entries.push(entry);
+    }
+  }
+
+  for (const [notifierId, notifierConfig] of Object.entries(config.notifiers ?? {})) {
+    if (notifierConfig) {
+      const entry = processExternalPluginConfig(
+        notifierConfig,
+        `notifiers.${notifierId}`,
+        { kind: "notifier", notifierId },
+        "notifier",
+      );
+      if (entry) entries.push(entry);
+    }
+  }
+
+  return entries;
+}
+
+type InstalledPluginConfig = z.infer<typeof InstalledPluginConfigSchema>;
+
+function mergeExternalPlugins(
+  existingPlugins: InstalledPluginConfig[],
+  externalEntries: ExternalPluginEntryRef[],
+): InstalledPluginConfig[] {
+  const plugins = [...existingPlugins];
+  const seen = new Set<string>();
+
+  for (const plugin of plugins) {
+    if (plugin.package) seen.add(`package:${plugin.package}`);
+    if (plugin.path) seen.add(`path:${plugin.path}`);
+  }
+
+  for (const entry of externalEntries) {
+    const key = entry.package ? `package:${entry.package}` : `path:${entry.path}`;
+    if (seen.has(key)) {
+      const existingPlugin = plugins.find(
+        (p) =>
+          (entry.package && p.package === entry.package) || (entry.path && p.path === entry.path),
+      );
+      if (existingPlugin && existingPlugin.enabled === false) {
+        existingPlugin.enabled = true;
+      }
+      continue;
+    }
+    seen.add(key);
+
+    const tempName = entry.expectedPluginName ?? generateTempPluginName(entry.package, entry.path);
+
+    plugins.push({
+      name: tempName,
+      source: entry.package ? "npm" : "local",
+      package: entry.package,
+      path: entry.path,
+      enabled: true,
+    });
+  }
+
+  return plugins;
+}
+
 /** Apply defaults to project configs */
 function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
   for (const [id, project] of Object.entries(config.projects)) {
-    // Derive name from project ID if not set
     if (!project.name) {
       project.name = id;
     }
 
-    // Derive session prefix from project path basename if not set
     if (!project.sessionPrefix) {
       const projectId = basename(project.path);
       project.sessionPrefix = generateSessionPrefix(projectId);
     }
 
-    const inferredPlugin = inferScmPlugin(project);
+    const inferredPlugin = inferScmPlugin({ repo: project.repo!, scm: project.scm as Record<string, unknown> | undefined, tracker: project.tracker as Record<string, unknown> | undefined });
 
-    // Infer SCM from repo if not set
-    if (!project.scm && project.repo.includes("/")) {
+    if (!project.scm && project.repo?.includes("/")) {
       project.scm = { plugin: inferredPlugin };
     }
 
-    // Infer tracker from repo if not set (default to github issues)
     if (!project.tracker) {
       project.tracker = { plugin: inferredPlugin };
     }
@@ -485,7 +720,6 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
 
 /** Validate project uniqueness and session prefix collisions */
 function validateProjectUniqueness(config: OrchestratorConfig): void {
-  // Check for duplicate project IDs (basenames)
   const projectIds = new Set<string>();
   const projectIdToPaths: Record<string, string[]> = {};
 
@@ -510,7 +744,6 @@ function validateProjectUniqueness(config: OrchestratorConfig): void {
     projectIds.add(projectId);
   }
 
-  // Check for duplicate session prefixes
   const prefixes = new Set<string>();
   const prefixToProject: Record<string, string> = {};
 
@@ -539,6 +772,9 @@ function validateProjectUniqueness(config: OrchestratorConfig): void {
     prefixToProject[prefix] = configKey;
   }
 }
+
+export const DEFAULT_BUGBOT_COMMENTS_MESSAGE =
+  "Automated review comments found on your PR. Fix the issues flagged by the bot.";
 
 /** Apply default reactions */
 function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
@@ -606,9 +842,6 @@ function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
       priority: "info",
       includeSummary: true,
     },
-    // bd-qqm: skeptic-advice — fired when skeptic agent posts a FAIL verdict on a PR.
-    // Lifecycle manager detects new skeptic comments and fires this reaction, which
-    // sends the structured skeptic advice to the worker agent via send-to-agent.
     "skeptic-advice": {
       auto: true,
       action: "send-to-agent",
@@ -618,7 +851,6 @@ function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
     },
   };
 
-  // Merge defaults with user-specified reactions (user wins)
   config.reactions = { ...defaults, ...config.reactions };
 
   return config;
@@ -635,7 +867,6 @@ function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
  * 5. Legacy home-directory aliases
  */
 export function findConfigFile(startDir?: string): string | null {
-  // 1. Check environment variable override
   if (process.env["AO_CONFIG_PATH"]) {
     const envPath = resolve(process.env["AO_CONFIG_PATH"]);
     if (existsSync(envPath)) {
@@ -643,15 +874,11 @@ export function findConfigFile(startDir?: string): string | null {
     }
   }
 
-  // 2. Prefer managed staging/prod config locations before searching for
-  // repo-local shadow configs. This keeps AO anchored to the user-level
-  // topology unless the caller explicitly opts into another path.
   const managedConfig = findManagedConfigFile();
   if (managedConfig) {
     return managedConfig;
   }
 
-  // 3. Search up directory tree from CWD (like git)
   const searchUpTree = (dir: string): string | null => {
     const configFiles = ["agent-orchestrator.yaml", "agent-orchestrator.yml"];
 
@@ -664,7 +891,6 @@ export function findConfigFile(startDir?: string): string | null {
 
     const parent = resolve(dir, "..");
     if (parent === dir) {
-      // Reached root
       return null;
     }
 
@@ -677,7 +903,6 @@ export function findConfigFile(startDir?: string): string | null {
     return foundInTree;
   }
 
-  // 4. Check explicit startDir if provided
   if (startDir) {
     const files = ["agent-orchestrator.yaml", "agent-orchestrator.yml"];
     for (const filename of files) {
@@ -688,7 +913,6 @@ export function findConfigFile(startDir?: string): string | null {
     }
   }
 
-  // 5. Check home directory locations (legacy aliases)
   for (const path of getLegacyConfigPaths()) {
     if (existsSync(path)) {
       return path;
@@ -702,15 +926,6 @@ export function findConfigFile(startDir?: string): string | null {
 // CONFIG OVERLAY (repo-local merge on top of managed config)
 // =============================================================================
 
-/**
- * Determine whether the primary config is a managed config, and if so,
- * find a repo-local config to overlay. Returns null when:
- * - the primary config is already repo-local (walk-up found it, no overlay needed)
- * - no repo-local config exists in the CWD tree
- * - the repo-local config is the same file as the primary (identity guard)
- *
- * Uses realpathSync to normalize macOS /var ↔ /private/var symlink aliases.
- */
 function findRepoLocalConfigOverlay(primaryPath: string): string | null {
   const managedPath = findManagedConfigFile();
   if (!managedPath) {
@@ -750,11 +965,6 @@ function findRepoLocalConfigOverlay(primaryPath: string): string | null {
   return repoLocal;
 }
 
-/**
- * Deep-merge a repo-local overlay on top of a managed config (parsed YAML objects).
- * For `projects`, merges per-project by project key.
- * For all other keys, deep-merge with overlay winning on conflict.
- */
 function mergeConfigOverlay(
   base: unknown,
   overlayPath: string,
@@ -772,7 +982,6 @@ function mergeConfigOverlay(
   const baseObj = base as Record<string, unknown>;
   const overlayObj = overlay as Record<string, unknown>;
 
-  // Per-project deep merge: overlay project fields win over base project fields
   if (
     typeof baseObj["projects"] === "object" &&
     baseObj["projects"] !== null &&
@@ -803,10 +1012,9 @@ function mergeConfigOverlay(
     baseObj["projects"] = mergedProjects;
   }
 
-  // Deep-merge remaining top-level keys (defaults, reactions, notifiers, etc.)
   for (const key of Object.keys(overlayObj)) {
     if (key === "projects") {
-      continue; // already handled above
+      continue;
     }
     const baseVal = baseObj[key];
     const overVal = overlayObj[key];
@@ -842,8 +1050,6 @@ export function findConfig(startDir?: string): string | null {
 
 /** Load and validate config from a YAML file */
 export function loadConfig(configPath?: string): OrchestratorConfig {
-  // Priority: 1. Explicit param, 2. Search (including AO_CONFIG_PATH env var)
-  // findConfigFile handles AO_CONFIG_PATH validation, so delegate to it
   const path = configPath ?? findConfigFile();
 
   if (!path) {
@@ -853,19 +1059,13 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
 
-  // Config overlay: when the primary config is a managed config (staging/prod),
-  // search for a repo-local config and deep-merge it on top. Repo-local wins
-  // for overlapping keys — this makes per-repo project overrides work even when
-  // a managed config shadows the walk-up search.
   const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
   const merged = overlayPath ? mergeConfigOverlay(parsed, overlayPath) : parsed;
 
   const config = validateConfig(merged);
 
-  // Set the config path in the config object for hash generation
   config.configPath = path;
 
-  // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
   bootstrapEnvSource(config);
 
   return config;
@@ -890,10 +1090,8 @@ export function loadConfigWithPath(configPath?: string): {
 
   const config = validateConfig(merged);
 
-  // Set the config path in the config object for hash generation
   config.configPath = path;
 
-  // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
   bootstrapEnvSource(config);
 
   return { config, path };
@@ -901,15 +1099,10 @@ export function loadConfigWithPath(configPath?: string): {
 
 /** Validate a raw config object */
 export function validateConfig(raw: unknown): OrchestratorConfig {
-  // Guard: JSON.parse(JSON.stringify()) throws on undefined, returns "null"→null on null.
-  // Both cases must go to the non-cloned branch.
   if (typeof raw !== "object" || raw === null) {
     raw = {};
   }
   const rawObj = raw as Record<string, unknown>;
-  // Track per-key whether user explicitly declared this reaction (vs relying on
-  // default empty reactions block). ReactionConfigSchema.partial() strips defaults,
-  // so we must detect explicit declaration from raw input.
   const hasExplicitGlobalReaction: Record<string, boolean> = {};
   if (typeof rawObj?.reactions === "object" && rawObj.reactions !== null) {
     for (const key of Object.keys(rawObj.reactions)) {
@@ -917,11 +1110,8 @@ export function validateConfig(raw: unknown): OrchestratorConfig {
     }
   }
 
-  // bd-jhv1: Kill switch — EVOLVE_LOOP_ENABLED=false disables evolveLoop globally.
-  // Uses explicit string comparison, NOT z.coerce.boolean() which misreads "false".
   const evolveLoopKillSwitch = process.env["EVOLVE_LOOP_ENABLED"] === "false";
 
-  // Pre-process: clone raw so we can mutate per-project evolveLoop.enabled.
   let working: Record<string, unknown>;
   if (evolveLoopKillSwitch) {
     working = JSON.parse(JSON.stringify(raw as object));
@@ -948,13 +1138,11 @@ export function validateConfig(raw: unknown): OrchestratorConfig {
   config = applyProjectDefaults(config);
   config = applyDefaultReactions(config);
 
-  // Validate project uniqueness and prefix collisions
   validateProjectUniqueness(config);
 
   return config;
 }
 
-/** Expand ~ in evolveLoop.knowledgeBaseDir using os.homedir() */
 function applyEvolveLoopPaths(config: OrchestratorConfig): OrchestratorConfig {
   for (const project of Object.values(config.projects)) {
     if (project.evolveLoop?.knowledgeBaseDir) {

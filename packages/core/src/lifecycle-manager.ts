@@ -45,6 +45,9 @@ import {
   type EventPriority,
   type PRState,
   type ProjectConfig as _ProjectConfig,
+  type CanonicalSessionLifecycle,
+  type ActivityState,
+  ACTIVITY_STATE,
 } from "./types.js";
 import { listMetadata, readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
@@ -101,6 +104,40 @@ import { runSkepticReviewReaction } from "./fork-skeptic-extension.js";
 import { runClaimVerification } from "./fork-claim-verification.js";
 import { detectAndTriggerSkepticComment } from "./fork-skeptic-comment-trigger.js";
 import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
+import { recordActivityEvent } from "./activity-events.js";
+import {
+  buildLifecycleMetadataPatch,
+  cloneLifecycle,
+  deriveLegacyStatus,
+  parseCanonicalLifecycle,
+  createInitialCanonicalLifecycle,
+  clearTerminalMarkersForNonTerminalState,
+} from "./lifecycle-state.js";
+import { applyDecisionToLifecycle as commitLifecycleDecisionInPlace, buildTransitionMetadataPatch, type TransitionSource, type TransitionResult } from "./lifecycle-transition.js";
+import {
+  classifyActivitySignal,
+  createActivitySignal,
+  formatActivitySignalEvidence,
+  hasPositiveIdleEvidence,
+  isWeakActivityEvidence,
+} from "./activity-signal.js";
+import { isAgentReportFresh, mapAgentReportToLifecycle, readAgentReport } from "./agent-report.js";
+import {
+  auditAgentReports,
+  getReactionKeyForTrigger,
+  REPORT_WATCHER_METADATA_KEYS,
+} from "./report-watcher.js";
+import {
+  DETECTING_MAX_ATTEMPTS,
+  createDetectingDecision,
+  isDetectingTimedOut,
+  parseAttemptCount,
+  resolvePREnrichmentDecision,
+  resolvePRLiveDecision,
+  resolveProbeDecision,
+  type LifecycleDecision,
+} from "./lifecycle-status-decisions.js";
+import { resolveNotifierTarget } from "./notifier-resolution.js";
 
 /**
  * verify6Green — explicit 6-green pre-merge verification (bd-mjtn)
@@ -299,6 +336,123 @@ function transitionLogLevel(status: SessionStatus): "info" | "warn" | "error" {
   return "info";
 }
 
+interface DeterminedStatus {
+  status: SessionStatus;
+  evidence: string;
+  detectingAttempts: number;
+  detectingStartedAt?: string;
+  detectingEvidenceHash?: string;
+  skipMetadataWrite?: boolean;
+  agentDead?: boolean;
+}
+
+const PERSISTENT_REACTION_KEYS = new Set(["ci-failed"]);
+const CI_PASSING_STABLE_THRESHOLD = 2;
+
+type TransitionReaction = {
+  key: string;
+  result: ReactionResult | null;
+  messageEnriched?: boolean;
+  escalated?: boolean;
+};
+
+interface EventPRContext {
+  url: string;
+  title: string | null;
+  number: number;
+  branch: string;
+}
+
+interface EventContext {
+  pr: EventPRContext | null;
+  issueId: string | null;
+  issueTitle: string | null;
+  summary: string | null;
+  branch: string | null;
+}
+
+interface ReactionSessionContext {
+  id: SessionId;
+  projectId: string;
+  pr: Session["pr"];
+  issueId: string | null;
+  branch: string | null;
+  metadata: Record<string, string>;
+  agentInfo: Session["agentInfo"];
+}
+
+function buildEventContext(
+  session: Session | ReactionSessionContext,
+  prEnrichmentCache: Map<string, import("./types.js").PREnrichmentData>,
+): EventContext {
+  let pr: EventPRContext | null = null;
+  if (session.pr) {
+    const prKey = `${session.pr.owner}/${session.pr.repo}#${session.pr.number}`;
+    const cached = prEnrichmentCache.get(prKey);
+    pr = {
+      url: session.pr.url,
+      title: cached?.title ?? null,
+      number: session.pr.number,
+      branch: session.pr.branch,
+    };
+  }
+  return {
+    pr,
+    issueId: session.issueId,
+    issueTitle: session.metadata["issueTitle"] ?? null,
+    summary: session.agentInfo?.summary ?? null,
+    branch: session.branch,
+  };
+}
+
+function splitEvidenceSignals(evidence: string): string[] {
+  return evidence.split(/\s+/).map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+function primaryLifecycleReason(lifecycle: CanonicalSessionLifecycle): string {
+  if (lifecycle.session.state === "detecting") return lifecycle.session.reason;
+  if (lifecycle.pr.reason !== "not_created" && lifecycle.pr.reason !== "in_progress") return lifecycle.pr.reason;
+  if (lifecycle.runtime.reason !== "process_running") return lifecycle.runtime.reason;
+  return lifecycle.session.reason;
+}
+
+function buildTransitionObservabilityData(
+  previous: CanonicalSessionLifecycle,
+  next: CanonicalSessionLifecycle,
+  oldStatus: SessionStatus,
+  newStatus: SessionStatus,
+  evidence: string,
+  detectingAttempts: number,
+  statusTransition: boolean,
+  reaction?: TransitionReaction,
+): Record<string, unknown> {
+  return {
+    oldStatus,
+    newStatus,
+    statusTransition,
+    previousSessionState: previous.session.state,
+    newSessionState: next.session.state,
+    previousSessionReason: previous.session.reason,
+    newSessionReason: next.session.reason,
+    previousPRState: previous.pr.state,
+    newPRState: next.pr.state,
+    previousPRReason: previous.pr.reason,
+    newPRReason: next.pr.reason,
+    previousRuntimeState: previous.runtime.state,
+    newRuntimeState: next.runtime.state,
+    previousRuntimeReason: previous.runtime.reason,
+    newRuntimeReason: next.runtime.reason,
+    primaryReason: primaryLifecycleReason(next),
+    evidence,
+    signalsConsulted: splitEvidenceSignals(evidence),
+    detectingAttempts,
+    recoveryAction: reaction?.result?.action ?? null,
+    reactionKey: reaction?.key ?? null,
+    reactionSuccess: reaction?.result?.success ?? null,
+    escalated: reaction?.escalated ?? null,
+  };
+}
+
 export interface LifecycleManagerDeps {
   config: OrchestratorConfig;
   registry: PluginRegistry;
@@ -366,7 +520,7 @@ export async function triggerSkepticReactionImpl(
   }
 
   if (handled && session.pr) {
-    const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
     if (scm?.getPRHeadSha) {
       try {
         const sha = await scm.getPRHeadSha(session.pr);
@@ -524,6 +678,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   }
 
   const states = new Map<SessionId, SessionStatus>();
+  const activityStateCache = new Map<string, ActivityState>();
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
   const mergeRetryTimestamps = new Map<string, number>(); // "merge-retry-{sessionId}" → last attempt epoch
   const stuckRetryTimestamps = new Map<string, number>(); // "stuck-retry-{sessionId}" → last attempt epoch
@@ -556,24 +711,64 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     return idleMs > stuckThresholdMs;
   }
 
-  /** Determine current status for a session by polling plugins. */
-  async function determineStatus(session: Session): Promise<{ status: SessionStatus; agentDead: boolean }> {
-    // bd-85r: Startup grace period — skip all liveness/activity probes for
-    // sessions created within the grace window. Agent CLIs need time to
-    // initialize; polling before they're ready sees "exited"/"idle" and kills
-    // the session. During the grace period, we trust the session is starting up.
+  async function determineStatus(session: Session): Promise<DeterminedStatus> {
+    const currentDetectingAttempts = parseAttemptCount(session.metadata["detectingAttempts"]);
+    const currentDetectingStartedAt = session.metadata["detectingStartedAt"] || undefined;
+    const currentDetectingEvidenceHash = session.metadata["detectingEvidenceHash"] || undefined;
+
+    const lifecycle = cloneLifecycle(session.lifecycle);
+    const nowIso = new Date().toISOString();
+
+    const commit = (
+      decision: LifecycleDecision = {
+        status: deriveLegacyStatus(lifecycle),
+        evidence: "lifecycle_commit",
+        detecting: { attempts: currentDetectingAttempts },
+      },
+    ): DeterminedStatus => {
+      commitLifecycleDecisionInPlace(lifecycle, decision, nowIso);
+      session.lifecycle = lifecycle;
+      session.status = decision.status;
+      return {
+        status: decision.status,
+        evidence: decision.evidence,
+        detectingAttempts: decision.detecting.attempts,
+        detectingStartedAt: decision.detecting.startedAt,
+        detectingEvidenceHash: decision.detecting.evidenceHash,
+        agentDead: decision.status === "killed" || decision.status === "terminated" || decision.status === "errored" || decision.status === "cleanup",
+      };
+    };
+
     const sessionAgeMs = Date.now() - session.createdAt.getTime();
     if (session.status === "spawning" && sessionAgeMs < (config.startupGracePeriodMs ?? 120_000)) {
-      return { status: "spawning", agentDead: false };
+      return commit({
+        status: SESSION_STATUS.SPAWNING,
+        evidence: "startup_grace_period",
+        detecting: { attempts: 0 },
+      });
     }
 
-    // If workspace was deleted (e.g., worktree cleaned up), session is dead
     if (session.workspacePath && !existsSync(session.workspacePath)) {
-      return { status: "killed", agentDead: true };
+      return commit({
+        status: SESSION_STATUS.KILLED,
+        evidence: "workspace_deleted",
+        detecting: { attempts: 0 },
+        sessionState: "terminated",
+        sessionReason: "runtime_lost",
+      });
     }
 
     const project = config.projects[session.projectId];
-    if (!project) return { status: session.status, agentDead: false };
+    if (!project) {
+      return {
+        status: session.status,
+        evidence: "project_missing",
+        detectingAttempts: currentDetectingAttempts,
+        detectingStartedAt: currentDetectingStartedAt,
+        detectingEvidenceHash: currentDetectingEvidenceHash,
+        agentDead: false,
+      };
+    }
 
     const agentName = resolveAgentSelection({
       role: resolveSessionRole(session.id, session.metadata, project.sessionPrefix, allSessionPrefixes),
@@ -582,54 +777,62 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       persistedAgent: session.metadata["agent"],
     }).agentName;
     const agent = registry.get<Agent>("agent", agentName);
-    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
 
     const runtime = session.runtimeHandle
       ? registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime)
       : null;
 
-    // Track activity state across steps so stuck detection can run after PR checks
     let detectedIdleTimestamp: Date | null = null;
-
-    // Track whether agent is dead so we can return "killed" AFTER PR checks
-    // (bd-ara auto-merge fix: agent exit must not mask a mergeable PR)
     let agentDead = false;
+    let idleWasBlocked = false;
 
-    // bd-6jc: Consecutive SCM failure counter. Prevents worktree destruction on
-    // transient SCM failures (network blip, rate limit). Count is persisted in
-    // session metadata so it survives across poll cycles. Resets to 0 on any
-    // successful SCM call; only kills after scmFailureThreshold consecutive failures.
-    // Resolution order: project override → defaults block → top-level fallback → 3.
+    const canProbeRuntimeIdentity = session.status !== SESSION_STATUS.SPAWNING;
+
     const SCM_FAILURE_THRESHOLD = resolveScmFailureThreshold(project, config);
-    const SCM_FAILURE_COUNT_MAX = 1_000_000; // bd-ara.2: cap overflow from legacy values
+    const SCM_FAILURE_COUNT_MAX = 1_000_000;
     const rawCount = session.metadata["scmFailureCount"];
     let scmFailureCount =
       typeof rawCount === "string" ? parseInt(rawCount, 10) : Number(rawCount);
     if (Number.isNaN(scmFailureCount)) scmFailureCount = 0;
-    // Clamp persisted overflow values from prior lifecycle-manager versions
-    // that accumulated without resetting on success. Only affects pathological/
-    // corrupt values exceeding 1,000,000 — normal historical counts (e.g. 1524)
-    // are unaffected.
     if (scmFailureCount > SCM_FAILURE_COUNT_MAX) scmFailureCount = SCM_FAILURE_COUNT_MAX;
-    // bd-6jc: tracks whether an SCM error was caught; used in finally to decide
-    // whether to reset the counter (only reset on genuine SCM success).
     let scmErrorOccurred = false;
 
-    // 1. Check if runtime is alive — but skip probes for sessions still
-    // within the startup grace period. A false negative from isAlive during
-    // agent CLI init would kill the session before it ever gets a chance to
-    // write its first activity marker.
-    if (
-      session.runtimeHandle &&
-      runtime &&
-      (session.status !== "spawning" || sessionAgeMs >= (config.startupGracePeriodMs ?? 120_000))
-    ) {
-      const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
-      if (!alive) {
-        // Don't return "killed" yet — if the session has a PR (or might have
-        // one discoverable via branch-based auto-detect in step 3), check PR
-        // state first so auto-merge can fire for green PRs with exited agents.
-        if (!scm) return { status: "killed", agentDead: true };
+    let runtimeProbe: { state: "alive" | "dead" | "unknown"; failed: boolean } = { state: "unknown", failed: false };
+    let activitySignal = createActivitySignal("unavailable");
+    let activityEvidence = formatActivitySignalEvidence(activitySignal);
+
+    // 1. Check if runtime is alive
+    if (session.runtimeHandle && runtime && canProbeRuntimeIdentity) {
+      let alive: boolean | null = null;
+      try {
+        alive = await runtime.isAlive(session.runtimeHandle);
+        lifecycle.runtime.lastObservedAt = nowIso;
+        runtimeProbe = { state: alive ? "alive" : "dead", failed: false };
+        if (alive) {
+          lifecycle.runtime.state = "alive";
+          lifecycle.runtime.reason = "process_running";
+        } else {
+          lifecycle.runtime.state = "missing";
+          lifecycle.runtime.reason = session.runtimeHandle.runtimeName === "tmux" ? "tmux_missing" : "process_missing";
+        }
+      } catch {
+        lifecycle.runtime.state = "probe_failed";
+        lifecycle.runtime.reason = "probe_error";
+        lifecycle.runtime.lastObservedAt = nowIso;
+        runtimeProbe = { state: "unknown", failed: true };
+      }
+
+      if (alive === false) {
+        if (!scm) {
+          return commit({
+            status: SESSION_STATUS.KILLED,
+            evidence: "runtime_dead_no_scm",
+            detecting: { attempts: 0 },
+            sessionState: "terminated",
+            sessionReason: "runtime_lost",
+          });
+        }
         agentDead = true;
       }
 
@@ -638,65 +841,127 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    // 2. Check agent activity — prefer JSONL-based detection (runtime-agnostic)
+    // 2. Check agent activity
     if (!agentDead && agent && session.runtimeHandle) {
       try {
-        // Try JSONL-based activity detection first (reads agent's session files directly)
-        const activityState = await agent.getActivityState(session, config.readyThresholdMs);
-        if (activityState) {
-          if (activityState.state === "waiting_input") return { status: "needs_input", agentDead: false };
-          if (activityState.state === "exited") {
-            // Don't return "killed" yet — defer to step 3 (branch-based PR
-            // auto-detect) and step 4 (PR state checks) before giving up.
-            if (!scm) return { status: "killed", agentDead: true };
-            agentDead = true;
-          }
+        if (agent.getActivityState && session.workspacePath && canProbeRuntimeIdentity) {
+          const activityDetection = await agent.getActivityState(session, config.readyThresholdMs);
+          if (activityDetection) {
+            activitySignal = classifyActivitySignal(activityDetection, "native");
+            activityEvidence = formatActivitySignalEvidence(activitySignal);
 
-          if (
-            !agentDead &&
-            (activityState.state === "idle" || activityState.state === "blocked") &&
-            activityState.timestamp
-          ) {
-            detectedIdleTimestamp = activityState.timestamp;
-          }
+            if (activityDetection.state === "waiting_input") {
+              return commit({
+                status: SESSION_STATUS.NEEDS_INPUT,
+                evidence: activityEvidence,
+                detecting: { attempts: 0 },
+                sessionState: "needs_input",
+                sessionReason: "awaiting_user_input",
+              });
+            }
+            if (activityDetection.state === "exited") {
+              if (!scm) {
+                return commit({
+                  status: SESSION_STATUS.KILLED,
+                  evidence: activityEvidence,
+                  detecting: { attempts: 0 },
+                  sessionState: "terminated",
+                  sessionReason: "agent_process_exited",
+                });
+              }
+              agentDead = true;
+            }
 
-          // active/ready/idle (below threshold)/blocked (below threshold) —
-          // proceed to PR checks below
-        } else {
-          // getActivityState returned null — fall back to terminal output parsing
-          const runtime = registry.get<Runtime>(
-            "runtime",
-            project.runtime ?? config.defaults.runtime,
-          );
-          const terminalOutput = runtime ? await runtime.getOutput(session.runtimeHandle, 10) : "";
+            if (!agentDead && (activityDetection.state === "idle" || activityDetection.state === "blocked")) {
+              if (activityDetection.state === "blocked") idleWasBlocked = true;
+              if (activityDetection.timestamp) {
+                detectedIdleTimestamp = activityDetection.timestamp;
+              }
+            }
+          } else {
+            const terminalOutput = runtime ? await runtime.getOutput(session.runtimeHandle, 10) : "";
+            if (terminalOutput) {
+              const activity = agent.detectActivity(terminalOutput);
+              activitySignal = createActivitySignal("valid", { activity, source: "terminal" });
+              activityEvidence = formatActivitySignalEvidence(activitySignal);
+
+              if (activity === "waiting_input") {
+                return commit({
+                  status: SESSION_STATUS.NEEDS_INPUT,
+                  evidence: activityEvidence,
+                  detecting: { attempts: 0 },
+                  sessionState: "needs_input",
+                  sessionReason: "awaiting_user_input",
+                });
+              }
+
+              const processProbeResult = agent.isProcessRunning
+                ? await agent.isProcessRunning(session.runtimeHandle)
+                : true;
+              if (!processProbeResult) {
+                if (!scm) {
+                  return commit({
+                    status: SESSION_STATUS.KILLED,
+                    evidence: activityEvidence,
+                    detecting: { attempts: 0 },
+                    sessionState: "terminated",
+                    sessionReason: "agent_process_exited",
+                  });
+                }
+                agentDead = true;
+              }
+            }
+          }
+        } else if (agent.detectActivity && session.runtimeHandle) {
+          const runtimeInstance = registry.get<Runtime>("runtime", project.runtime ?? config.defaults.runtime);
+          const terminalOutput = runtimeInstance ? await runtimeInstance.getOutput(session.runtimeHandle, 10) : "";
           if (terminalOutput) {
             const activity = agent.detectActivity(terminalOutput);
-            if (activity === "waiting_input") return { status: "needs_input", agentDead: false };
+            activitySignal = createActivitySignal("valid", { activity, source: "terminal" });
+            activityEvidence = formatActivitySignalEvidence(activitySignal);
 
-            const processAlive = await agent.isProcessRunning(session.runtimeHandle);
-            if (!processAlive) {
-              if (!scm) return { status: "killed", agentDead: true };
+            if (activity === "waiting_input") {
+              return commit({
+                status: SESSION_STATUS.NEEDS_INPUT,
+                evidence: activityEvidence,
+                detecting: { attempts: 0 },
+                sessionState: "needs_input",
+                sessionReason: "awaiting_user_input",
+              });
+            }
+
+            const processProbeResult = agent.isProcessRunning
+              ? await agent.isProcessRunning(session.runtimeHandle)
+              : true;
+            if (!processProbeResult) {
+              if (!scm) {
+                return commit({
+                  status: SESSION_STATUS.KILLED,
+                  evidence: activityEvidence,
+                  detecting: { attempts: 0 },
+                  sessionState: "terminated",
+                  sessionReason: "agent_process_exited",
+                });
+              }
               agentDead = true;
             }
           }
         }
       } catch {
-        // On probe failure, preserve current stuck/needs_input state rather
-        // than letting the fallback at the bottom coerce them to "working"
-        if (
-          session.status === SESSION_STATUS.STUCK ||
-          session.status === SESSION_STATUS.NEEDS_INPUT
-        ) {
-          return { status: session.status, agentDead: false };
+        if (session.status === SESSION_STATUS.STUCK || session.status === SESSION_STATUS.NEEDS_INPUT) {
+          return {
+            status: session.status,
+            evidence: "probe_failure_preserve",
+            detectingAttempts: currentDetectingAttempts,
+            detectingStartedAt: currentDetectingStartedAt,
+            detectingEvidenceHash: currentDetectingEvidenceHash,
+            agentDead: false,
+          };
         }
       }
     }
 
-    // 3. Auto-detect PR by branch if metadata.pr is missing.
-    //    This is critical for agents without auto-hook systems (Codex, Aider,
-    //    OpenCode) that can't reliably write pr=<url> to metadata on their own.
-    //    Skip orchestrator sessions — they sit on the base branch (e.g. master)
-    //    and should never own a PR.
+    // 3. Auto-detect PR by branch
     if (
       !session.pr &&
       scm &&
@@ -709,32 +974,27 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const detectedPR = await scm.detectPR(session, project);
         if (detectedPR) {
           session.pr = detectedPR;
-          // Persist PR URL so subsequent polls don't need to re-query.
-          // Don't write status here — step 4 below will determine the
-          // correct status (merged, ci_failed, etc.) on this same cycle.
           const sessionsDir = getSessionsDir(config.configPath, project.path);
           updateMetadata(sessionsDir, session.id, { pr: detectedPR.url });
         }
       } catch {
-        // bd-6jc: detectPR threw — this SCM failure counts toward the consecutive-
-        // failure threshold just like step 4 SCM failures. Increment and persist so
-        // repeated detectPR blips accumulate across polls (e.g. network glitch).
         scmErrorOccurred = true;
         scmFailureCount++;
         session.metadata["scmFailureCount"] = String(scmFailureCount);
         const sessionsDir = getSessionsDir(config.configPath, project.path);
         updateMetadata(sessionsDir, session.id, { scmFailureCount: String(scmFailureCount) });
         if (agentDead && scmFailureCount >= SCM_FAILURE_THRESHOLD) {
-          // Threshold reached — same killConfirmed pattern as step 4 catch.
           session.metadata["killConfirmed"] = "true";
           updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
-          return { status: "killed", agentDead: true };
+          return commit({
+            status: SESSION_STATUS.KILLED,
+            evidence: "scm_failure_threshold",
+            detecting: { attempts: 0 },
+            sessionState: "terminated",
+            sessionReason: "runtime_lost",
+          });
         }
       } finally {
-        // bd-6jc: detectPR succeeded — reset counter so a transient detectPR error
-        // doesn't indefinitely block the no-PR kill path. scmErrorOccurred is scoped
-        // to step-3's try/catch/finally (step-4 has its own), so a true value here
-        // means step-3's catch ran and the counter should NOT be reset.
         if (!scmErrorOccurred && scmFailureCount !== 0) {
           scmFailureCount = 0;
           session.metadata["scmFailureCount"] = "0";
@@ -747,16 +1007,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 4. Check PR state if PR exists
     if (session.pr && scm) {
       try {
-        // bd-att: Use batch query when available (~1 gh call instead of ~6).
-        // If batch fails, fall back to individual calls rather than silently
-        // preserving stale status.
         let usedBatch = false;
         if (scm.getBatchPRStatus) {
           try {
             const batch = await scm.getBatchPRStatus(session.pr);
             usedBatch = true;
-            // bd-s4t.2: persist PR state so the session-reaper can detect zombies
-            // without SCM access. Only update if state has changed.
             const prevPrState = session.pr?.state;
             if (batch.state !== prevPrState) {
               persistPrState({ session, state: batch.state, projectPath: project.path });
@@ -770,31 +1025,97 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
                 reason: "merged-transition",
               });
-              return { status: "merged", agentDead };
+              return commit({
+                status: SESSION_STATUS.MERGED,
+                evidence: "pr_merged",
+                detecting: { attempts: 0 },
+                prState: "merged",
+                prReason: "merged",
+                sessionState: "idle",
+                sessionReason: "merged_waiting_decision",
+              });
             }
-            if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
-            if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
-            if (batch.reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
+            if (batch.state === PR_STATE.CLOSED) {
+              return commit({
+                status: SESSION_STATUS.KILLED,
+                evidence: "pr_closed",
+                detecting: { attempts: 0 },
+                prState: "closed",
+                prReason: "closed_unmerged",
+              });
+            }
+            if (batch.ciStatus === CI_STATUS.FAILING) {
+              return commit({
+                status: SESSION_STATUS.CI_FAILED,
+                evidence: "ci_failing",
+                detecting: { attempts: 0 },
+                prState: "open",
+                prReason: "ci_failing",
+                sessionState: "working",
+                sessionReason: "fixing_ci",
+              });
+            }
+            if (batch.reviewDecision === "changes_requested") {
+              return commit({
+                status: SESSION_STATUS.CHANGES_REQUESTED,
+                evidence: "review_changes_requested",
+                detecting: { attempts: 0 },
+                prState: "open",
+                prReason: "changes_requested",
+                sessionState: "working",
+                sessionReason: "resolving_review_comments",
+              });
+            }
             if (batch.reviewDecision === "approved" || batch.reviewDecision === "none") {
-              if (batch.mergeReadiness.mergeable) return { status: "mergeable", agentDead };
-              if (!batch.mergeReadiness.noConflicts) return { status: "merge_conflicts", agentDead };
-              if (batch.reviewDecision === "approved") return { status: "approved", agentDead };
+              if (batch.mergeReadiness.mergeable) {
+                return commit({
+                  status: SESSION_STATUS.MERGEABLE,
+                  evidence: "merge_ready",
+                  detecting: { attempts: 0 },
+                  prState: "open",
+                  prReason: "merge_ready",
+                  sessionState: "idle",
+                  sessionReason: "awaiting_external_review",
+                });
+              }
+              if (!batch.mergeReadiness.noConflicts) {
+                return commit({
+                  status: SESSION_STATUS.MERGE_CONFLICTS,
+                  evidence: "merge_conflicts",
+                  detecting: { attempts: 0 },
+                  prState: "open",
+                  prReason: "in_progress",
+                });
+              }
+              if (batch.reviewDecision === "approved") {
+                return commit({
+                  status: SESSION_STATUS.APPROVED,
+                  evidence: "review_approved",
+                  detecting: { attempts: 0 },
+                  prState: "open",
+                  prReason: "approved",
+                  sessionState: "idle",
+                  sessionReason: "awaiting_external_review",
+                });
+              }
             }
-            if (batch.reviewDecision === "pending") return { status: "review_pending", agentDead };
-            // bd-fisn: batch.reviewDecision is null when CR was DISMISSED (no outstanding request).
-            // Fall through to individual calls below, which have the bd-fisn null→CR-reviews fix.
+            if (batch.reviewDecision === "pending") {
+              return commit({
+                status: SESSION_STATUS.REVIEW_PENDING,
+                evidence: "review_pending",
+                detecting: { attempts: 0 },
+                prState: "open",
+                prReason: "review_pending",
+                sessionState: "idle",
+                sessionReason: "awaiting_external_review",
+              });
+            }
           } catch (err) {
-            // bd-att: If batch failed due to a GitHub API rate limit (or network error),
-            // DO NOT fall back. Rethrow so determineStatus exits immediately.
-            // Failing back would cause an immediate 4-5x thundering herd of individual queries!
             if (isGhRateLimitError(err)) throw err;
-            // Otherwise, batch failed (e.g. unsupported) — fall through to individual calls
           }
         }
         if (!usedBatch) {
-          // Fallback: individual calls (no batch support or batch failed)
           const prState = await scm.getPRState(session.pr);
-          // bd-s4t.2: persist PR state so the session-reaper can detect zombies
           const prevPrState = session.pr?.state;
           if (prState !== prevPrState) {
             persistPrState({ session, state: prState, projectPath: project.path });
@@ -808,46 +1129,125 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
               reason: "merged-transition",
             });
-            return { status: "merged", agentDead };
+            return commit({
+              status: SESSION_STATUS.MERGED,
+              evidence: "pr_merged",
+              detecting: { attempts: 0 },
+              prState: "merged",
+              prReason: "merged",
+              sessionState: "idle",
+              sessionReason: "merged_waiting_decision",
+            });
           }
-          if (prState === PR_STATE.CLOSED) return { status: "killed", agentDead };
+          if (prState === PR_STATE.CLOSED) {
+            return commit({
+              status: SESSION_STATUS.KILLED,
+              evidence: "pr_closed",
+              detecting: { attempts: 0 },
+              prState: "closed",
+              prReason: "closed_unmerged",
+            });
+          }
 
           const ciStatus = await scm.getCISummary(session.pr);
-          if (ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
+          if (ciStatus === CI_STATUS.FAILING) {
+            return commit({
+              status: SESSION_STATUS.CI_FAILED,
+              evidence: "ci_failing",
+              detecting: { attempts: 0 },
+              prState: "open",
+              prReason: "ci_failing",
+              sessionState: "working",
+              sessionReason: "fixing_ci",
+            });
+          }
 
-          // Check reviews
           const reviewDecision = await scm.getReviewDecision(session.pr);
-          // bd-n039 fix: Persist reviewDecision on session so the verdict gate (below in
-          // checkSession) can read it without calling getReviewDecision again. Calling SCM
-          // twice in the same poll causes the verdict gate to see a different decision than
-          // determineStatus did (e.g. when the mock alternates return values).
           session.metadata["_reviewDecision"] = reviewDecision;
-          if (reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
+          if (reviewDecision === "changes_requested") {
+            return commit({
+              status: SESSION_STATUS.CHANGES_REQUESTED,
+              evidence: "review_changes_requested",
+              detecting: { attempts: 0 },
+              prState: "open",
+              prReason: "changes_requested",
+              sessionState: "working",
+              sessionReason: "resolving_review_comments",
+            });
+          }
           if (reviewDecision === "approved" || reviewDecision === "none") {
-            // bd-wg5: Skip getMergeability when CI is pending
             if (ciStatus === CI_STATUS.PENDING) {
-              if (reviewDecision === "approved") return { status: "approved", agentDead };
-              return { status: "pr_open", agentDead };
+              if (reviewDecision === "approved") {
+                return commit({
+                  status: SESSION_STATUS.APPROVED,
+                  evidence: "review_approved_ci_pending",
+                  detecting: { attempts: 0 },
+                  prState: "open",
+                  prReason: "approved",
+                  sessionState: "idle",
+                  sessionReason: "awaiting_external_review",
+                });
+              }
+              return commit({
+                status: SESSION_STATUS.PR_OPEN,
+                evidence: "ci_pending",
+                detecting: { attempts: 0 },
+                prState: "open",
+                prReason: "in_progress",
+                sessionState: "idle",
+                sessionReason: "pr_created",
+              });
             }
             const mergeReady = await scm.getMergeability(session.pr);
-            if (mergeReady.mergeable) return { status: "mergeable", agentDead };
-            if (!mergeReady.noConflicts) return { status: "merge_conflicts", agentDead };
-            if (reviewDecision === "approved") return { status: "approved", agentDead };
+            if (mergeReady.mergeable) {
+              return commit({
+                status: SESSION_STATUS.MERGEABLE,
+                evidence: "merge_ready",
+                detecting: { attempts: 0 },
+                prState: "open",
+                prReason: "merge_ready",
+                sessionState: "idle",
+                sessionReason: "awaiting_external_review",
+              });
+            }
+            if (!mergeReady.noConflicts) {
+              return commit({
+                status: SESSION_STATUS.MERGE_CONFLICTS,
+                evidence: "merge_conflicts",
+                detecting: { attempts: 0 },
+                prState: "open",
+                prReason: "in_progress",
+              });
+            }
+            if (reviewDecision === "approved") {
+              return commit({
+                status: SESSION_STATUS.APPROVED,
+                evidence: "review_approved",
+                detecting: { attempts: 0 },
+                prState: "open",
+                prReason: "approved",
+                sessionState: "idle",
+                sessionReason: "awaiting_external_review",
+              });
+            }
           }
-          if (reviewDecision === "pending") return { status: "review_pending", agentDead };
-          // bd-fisn: reviewDecision is null when CR has been DISMISSED (no outstanding review
-          // request). This does NOT mean "no review" — it means "review was dismissed".
-          // Check CR's reviews directly: if CR approved the current head SHA, treat as approved
-          // so approved-and-green fires. SCM normalizes state to lowercase ("APPROVED"→"approved").
-          // Restrict to current head commit via getPRHeadSha to avoid stale approvals.
+          if (reviewDecision === "pending") {
+            return commit({
+              status: SESSION_STATUS.REVIEW_PENDING,
+              evidence: "review_pending",
+              detecting: { attempts: 0 },
+              prState: "open",
+              prReason: "review_pending",
+              sessionState: "idle",
+              sessionReason: "awaiting_external_review",
+            });
+          }
           if (reviewDecision === null && scm) {
             try {
               const rawReviews = await scm.getReviews(session.pr);
               const reviews: Array<{ author?: string; state?: string; commit_id?: string }> = rawReviews;
               const crReviews = reviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
-              // bd-rfr: SCM normalizes state to lowercase; use toLowerCase() for safety.
               let crApproved = crReviews.some((r) => (r.state ?? "").toLowerCase() === "approved");
-              // Restrict to current head SHA if SCM supports it and at least one CR approval exists.
               if (crApproved && scm.getPRHeadSha) {
                 const headSha = await scm.getPRHeadSha(session.pr);
                 crApproved = crReviews.some(
@@ -855,39 +1255,87 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 );
               }
               if (crApproved) {
-                if (ciStatus === CI_STATUS.PENDING) return { status: "approved", agentDead };
+                if (ciStatus === CI_STATUS.PENDING) {
+                  return commit({
+                    status: SESSION_STATUS.APPROVED,
+                    evidence: "cr_approved_ci_pending",
+                    detecting: { attempts: 0 },
+                    prState: "open",
+                    prReason: "approved",
+                    sessionState: "idle",
+                    sessionReason: "awaiting_external_review",
+                  });
+                }
                 const mergeReady = await scm.getMergeability(session.pr);
-                if (mergeReady.mergeable) return { status: "mergeable", agentDead };
-                if (!mergeReady.noConflicts) return { status: "merge_conflicts", agentDead };
-                return { status: "approved", agentDead };
+                if (mergeReady.mergeable) {
+                  return commit({
+                    status: SESSION_STATUS.MERGEABLE,
+                    evidence: "cr_approved_merge_ready",
+                    detecting: { attempts: 0 },
+                    prState: "open",
+                    prReason: "merge_ready",
+                    sessionState: "idle",
+                    sessionReason: "awaiting_external_review",
+                  });
+                }
+                if (!mergeReady.noConflicts) {
+                  return commit({
+                    status: SESSION_STATUS.MERGE_CONFLICTS,
+                    evidence: "cr_approved_merge_conflicts",
+                    detecting: { attempts: 0 },
+                    prState: "open",
+                    prReason: "in_progress",
+                  });
+                }
+                return commit({
+                  status: SESSION_STATUS.APPROVED,
+                  evidence: "cr_approved",
+                  detecting: { attempts: 0 },
+                  prState: "open",
+                  prReason: "approved",
+                  sessionState: "idle",
+                  sessionReason: "awaiting_external_review",
+                });
               }
             } catch {
-              // Fail open: if we can't fetch CR reviews, fall through to pr_open
+              // Fail open
             }
           }
         }
 
-        // 4b. Post-PR stuck detection: agent has a PR open but is idle beyond
-        // threshold. This catches the case where step 2's stuck check was
-        // bypassed (getActivityState returned null) or the idle timestamp
-        // wasn't available during step 2 but the session has been at pr_open
-        // for a long time. Without this, sessions get stuck at "pr_open" forever.
+        // 4b. Post-PR stuck detection
         if (detectedIdleTimestamp && isIdleBeyondThreshold(session, detectedIdleTimestamp)) {
-          return { status: "stuck", agentDead: false };
+          return commit({
+            status: SESSION_STATUS.STUCK,
+            evidence: `idle_beyond_threshold ${activityEvidence}`,
+            detecting: { attempts: 0 },
+            prState: lifecycle.pr.state,
+            prReason: lifecycle.pr.reason,
+            sessionState: "stuck",
+            sessionReason: idleWasBlocked ? "error_in_process" : "probe_failure",
+          });
         }
 
-        // Agent is dead but PR isn't in a merge-ready state.
-        // bd-6jc: If SCM succeeded (scmFailureCount=0 from try block), return
-        // "pr_open" immediately — SCM confirmed the PR won't auto-merge so there's
-        // no reason to defer. The consecutive-failure threshold only applies when
-        // SCM throws; the catch block below handles that case.
-        if (agentDead) return { status: "pr_open", agentDead: true };
+        if (agentDead) {
+          return commit({
+            status: SESSION_STATUS.PR_OPEN,
+            evidence: "agent_dead_pr_open",
+            detecting: { attempts: 0 },
+            prState: "open",
+            prReason: "in_progress",
+          });
+        }
 
-        return { status: "pr_open", agentDead: false };
+        return commit({
+          status: SESSION_STATUS.PR_OPEN,
+          evidence: activityEvidence || "pr_open",
+          detecting: { attempts: 0 },
+          prState: "open",
+          prReason: "in_progress",
+          sessionState: "idle",
+          sessionReason: "pr_created",
+        });
       } catch {
-        // bd-6jc: SCM threw — increment consecutive failure counter, persist, and
-        // check threshold.  The finally only resets the counter on SCM success
-        // (when scmErrorOccurred stays false); on catch, the counter accumulates.
         scmErrorOccurred = true;
         scmFailureCount++;
         session.metadata["scmFailureCount"] = String(scmFailureCount);
@@ -895,54 +1343,85 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         updateMetadata(sessionsDir, session.id, { scmFailureCount: String(scmFailureCount) });
 
         if (agentDead && scmFailureCount >= SCM_FAILURE_THRESHOLD) {
-          // Threshold reached — mark killConfirmed so checkSession's bd-kki skips
-          // its secondary SCM absorption re-check (which could throw on a session
-          // whose PR state is stale).  Update both in-memory and on-disk so the
-          // guard activates within the same poll cycle.
           session.metadata["killConfirmed"] = "true";
           updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
-          return { status: "killed", agentDead: true };
+          return commit({
+            status: SESSION_STATUS.KILLED,
+            evidence: "scm_failure_threshold",
+            detecting: { attempts: 0 },
+            sessionState: "terminated",
+            sessionReason: "runtime_lost",
+          });
         }
       } finally {
-        // bd-6jc: SCM succeeded (scmErrorOccurred=false) — reset counter if non-zero.
-        // On catch (scmErrorOccurred=true): do NOT reset — counter should accumulate.
         if (!scmErrorOccurred && scmFailureCount !== 0) {
-          session.metadata["scmFailureCount"] = "0"; // bd-6jc: sync in-memory so next poll reads 0
+          session.metadata["scmFailureCount"] = "0";
           const sessionsDir = getSessionsDir(config.configPath, project.path);
           updateMetadata(sessionsDir, session.id, { scmFailureCount: "0" });
         }
       }
     }
 
-    // bd-ara + bd-6jc: If agent is dead and there is no PR or SCM, kill immediately —
-    // there is nothing to wait for. The scmFailureCount guard was removed: counter
-    // accumulation from detectPR errors is now reset by step-3's finally on any
-    // successful detectPR call, so stale non-zero counts no longer block this path.
-    if (agentDead && !(session.pr && scm)) return { status: "killed", agentDead: true };
-
-    // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
-    // still check stuck threshold. This handles agents that finish without creating a PR.
-    if (!agentDead && detectedIdleTimestamp && isIdleBeyondThreshold(session, detectedIdleTimestamp)) {
-      return { status: "stuck", agentDead: false };
+    // 5. Post-all stuck detection
+    if (agentDead && !(session.pr && scm)) {
+      return commit({
+        status: SESSION_STATUS.KILLED,
+        evidence: "agent_dead_no_pr",
+        detecting: { attempts: 0 },
+        sessionState: "terminated",
+        sessionReason: "runtime_lost",
+      });
     }
 
-    // bd-6jc fallback: if agentDead is true but no earlier return fired (e.g. SCM
-    // threw below the failure threshold and neither guard fired), preserve the dead-agent
-    // signal. Without this, the defaults below return agentDead=false, which causes
-    // the caller to treat a dead session as alive and send spurious reactions.
-    if (agentDead) return { status: "killed", agentDead: true };
+    if (!agentDead && detectedIdleTimestamp && isIdleBeyondThreshold(session, detectedIdleTimestamp)) {
+      return commit({
+        status: SESSION_STATUS.STUCK,
+        evidence: `idle_beyond_threshold ${activityEvidence}`,
+        detecting: { attempts: 0 },
+        sessionState: "stuck",
+        sessionReason: idleWasBlocked ? "error_in_process" : "probe_failure",
+      });
+    }
 
-    // 6. Default: if agent is active, it's working
+    if (agentDead) {
+      return commit({
+        status: SESSION_STATUS.KILLED,
+        evidence: "agent_dead_fallback",
+        detecting: { attempts: 0 },
+        sessionState: "terminated",
+        sessionReason: "runtime_lost",
+      });
+    }
+
+    // 6. Default
     if (
       session.status === "spawning" ||
       session.status === SESSION_STATUS.STUCK ||
       session.status === SESSION_STATUS.NEEDS_INPUT
     ) {
-      return { status: "working", agentDead: false };
+      return commit({
+        status: SESSION_STATUS.WORKING,
+        evidence: "default_escalation",
+        detecting: { attempts: 0 },
+        sessionState: "working",
+        sessionReason: "task_in_progress",
+      });
     }
-    return { status: session.status, agentDead: false };
+
+    return {
+      status: session.status,
+      evidence: "unchanged",
+      detectingAttempts: currentDetectingAttempts,
+      detectingStartedAt: currentDetectingStartedAt,
+      detectingEvidenceHash: currentDetectingEvidenceHash,
+      agentDead: false,
+    };
   }
 
+  /**
+   * Shared skeptic-reaction helper — delegates to the module-level implementation.
+   * Kept as a thin closure so existing call sites do not change.
+   */
   /**
    * Shared skeptic-reaction helper — delegates to the module-level implementation.
    * Kept as a thin closure so existing call sites do not change.
@@ -1029,7 +1508,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // If SHA changed (new commit), send even if message content is the same.
         let currentSha: string | undefined;
         const project = config.projects[session.projectId];
-        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
         if (scm?.getPRHeadSha && session.pr) {
           try {
             currentSha = await scm.getPRHeadSha(session.pr);
@@ -1161,7 +1640,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (session) {
               try {
                 const project = config.projects[session.projectId];
-                const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+                const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
                 if (scm?.getPRHeadSha && session.pr) {
                   const sha = await scm.getPRHeadSha(session.pr);
                   setLastSentHeadSha(projectId, sessionId, reactionKey, sha);
@@ -1248,7 +1727,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
 
         // Get SCM plugin
-        const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
         if (!scm || !freshSession.pr) {
           // No SCM or no PR - just notify
           const event = createEvent("reaction.triggered", {
@@ -1770,8 +2249,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       return;
     }
 
-    const { status: determinedStatus, agentDead } = await determineStatus(session);
-    let newStatus: SessionStatus = determinedStatus;
+    const assessment = await determineStatus(session);
+    let newStatus: SessionStatus = assessment.status;
+    const agentDead = assessment.agentDead ?? false;
     let transitionReaction: { key: string; result: ReactionResult | null } | undefined;
 
     // bd-kki: check if PR is merged before recording "killed" status.
@@ -1841,7 +2321,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         !session.metadata["killConfirmed"]
       ) {
         const project = config.projects[session.projectId];
-        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
         if (scm) {
           try {
             const prState = await scm.getPRState(session.pr);
@@ -1880,7 +2360,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // session made progress. (bd-stuck-probe)
         resetIdleCycles(session.id);
         states.set(session.id, effectiveStatus);
-        updateSessionMetadata(session, { status: effectiveStatus });
+        const detectingMetadataUpdates: Record<string, string> = {};
+        if (assessment.detectingAttempts > 0) {
+          detectingMetadataUpdates["detectingAttempts"] = String(assessment.detectingAttempts);
+        } else {
+          detectingMetadataUpdates["detectingAttempts"] = "";
+        }
+        if (assessment.detectingStartedAt) {
+          detectingMetadataUpdates["detectingStartedAt"] = assessment.detectingStartedAt;
+        } else {
+          detectingMetadataUpdates["detectingStartedAt"] = "";
+        }
+        if (assessment.detectingEvidenceHash) {
+          detectingMetadataUpdates["detectingEvidenceHash"] = assessment.detectingEvidenceHash;
+        } else {
+          detectingMetadataUpdates["detectingEvidenceHash"] = "";
+        }
+        const lifecycleMetadata = buildLifecycleMetadataPatch(session.lifecycle);
+        updateSessionMetadata(session, { status: effectiveStatus, ...lifecycleMetadata, ...detectingMetadataUpdates });
       } else {
         // Preserve oldStatus so the next poll can re-evaluate the SCM check.
         // Bugbot bd-25aa4f11: storing newStatus ("killed") caused the next poll
@@ -1997,7 +2494,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   // In normal poll-cycle operation, cachedDecision is always set by determineStatus.
                   const verdictProject = config.projects[session.projectId];
                   const verdictScm = verdictProject?.scm
-                    ? registry.get<SCM>("scm", verdictProject.scm.plugin)
+                    ? registry.get<SCM>("scm", verdictProject.scm.plugin!)
                     : null;
                   if (verdictScm) {
                     const rawReviews = await verdictScm.getReviews(session.pr);
@@ -2187,7 +2684,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             // on catch: leaving lastSkepticSha empty means the catchup block treats it
             // as "no prior SHA" and re-dispatches next cycle — which is correct behavior
             // (we want retry, not dedup, when SHA lookup fails after skeptic ran).
-            const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+            const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
             if (scm?.getPRHeadSha) {
               try {
                 const sha = await scm.getPRHeadSha(session.pr);
@@ -2224,7 +2721,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Uses dedup (SHA-based) via the standard executeReaction path so retries are capped.
       if (session.pr) {
         const project = config.projects[session.projectId];
-        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+        const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
         if (scm?.getSkepticComments) {
           const reactionKey = "skeptic-advice";
           const reactionConfig = getReactionConfigForSession(session, reactionKey);

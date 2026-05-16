@@ -4,6 +4,7 @@ import { registerStatus } from "./commands/status.js";
 import { registerSpawn, registerBatchSpawn } from "./commands/spawn.js";
 import { registerSession } from "./commands/session.js";
 import { registerSend } from "./commands/send.js";
+import { registerAcknowledge, registerReport } from "./commands/report.js";
 import { registerReviewCheck } from "./commands/review-check.js";
 import { registerDashboard } from "./commands/dashboard.js";
 import { registerOpen } from "./commands/open.js";
@@ -12,9 +13,17 @@ import { registerLifecycleWorker } from "./commands/lifecycle-worker.js";
 import { registerVerify } from "./commands/verify.js";
 import { registerDoctor } from "./commands/doctor.js";
 import { registerUpdate } from "./commands/update.js";
+import { registerSetup } from "./commands/setup.js";
+import { registerPlugin } from "./commands/plugin.js";
+import { registerProjectCommand } from "./commands/project.js";
+import { registerMigrateStorage } from "./commands/migrate-storage.js";
+import { registerCompletion } from "./commands/completion.js";
+import { registerEvents } from "./commands/events.js";
+import { registerConfig } from "./commands/config.js";
 import { registerSkeptic } from "./commands/skeptic.js";
 import { registerSkepticInstall } from "./commands/skeptic/install.js";
 import { getConfigInstruction } from "./lib/config-instruction.js";
+import { getCliVersion } from "./options/version.js";
 import { registerAutonomousHarness } from "@jleechanorg/ao-autonomous-harness";
 
 export function buildProgram(): Command {
@@ -41,7 +50,7 @@ export function buildProgram(): Command {
         "  Installed by: bash scripts/setup.sh",
       ].join("\n"),
     )
-    .version("0.1.0");
+    .version(getCliVersion());
 
   registerInit(program);
   registerStart(program);
@@ -51,6 +60,8 @@ export function buildProgram(): Command {
   registerBatchSpawn(program);
   registerSession(program);
   registerSend(program);
+  registerAcknowledge(program);
+  registerReport(program);
   registerReviewCheck(program);
   registerDashboard(program);
   registerOpen(program);
@@ -58,12 +69,17 @@ export function buildProgram(): Command {
   registerVerify(program);
   registerDoctor(program);
   registerUpdate(program);
+  registerSetup(program);
+  registerPlugin(program);
+  registerProjectCommand(program);
+  registerMigrateStorage(program);
+  registerCompletion(program);
+  registerEvents(program);
+  registerConfig(program);
   const skepticCmd = registerSkeptic(program);
   registerSkepticInstall(skepticCmd);
-  // Commander v12 vs v13 has incompatible opts<T>() return type variance.
-  // The runtime behavior is identical — use the same interface the function declares.
   type CmdProgram = Parameters<typeof registerAutonomousHarness>[0];
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument,@typescript-eslint/no-explicit-any -- intentionally bridging commander type variance
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument,@typescript-eslint/no-explicit-any
   registerAutonomousHarness(program as CmdProgram);
 
   program

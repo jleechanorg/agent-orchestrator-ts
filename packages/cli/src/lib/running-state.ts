@@ -160,6 +160,66 @@ export async function waitForExit(pid: number, timeoutMs = 5000): Promise<boolea
   return !isProcessAlive(pid);
 }
 
+const LAST_STOP_FILE = join(STATE_DIR, "last-stop.json");
+
+export interface LastStopState {
+  stoppedAt: string;
+  projectId: string;
+  sessionIds: string[];
+  otherProjects?: Array<{ projectId: string; sessionIds: string[] }>;
+}
+
+export async function writeLastStop(state: LastStopState): Promise<void> {
+  ensureDir();
+  writeFileSync(LAST_STOP_FILE, JSON.stringify(state, null, 2), "utf-8");
+}
+
+export async function readLastStop(): Promise<LastStopState | null> {
+  try {
+    const raw = readFileSync(LAST_STOP_FILE, "utf-8");
+    const state = JSON.parse(raw) as LastStopState;
+    if (!state || typeof state.stoppedAt !== "string") return null;
+    return state;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearLastStop(): Promise<void> {
+  try { unlinkSync(LAST_STOP_FILE); } catch { /* file may not exist */ }
+}
+
+const STARTUP_LOCK_FILE = join(STATE_DIR, "startup.lock");
+
+export async function acquireStartupLock(): Promise<() => void> {
+  ensureDir();
+  const start = Date.now();
+  const timeoutMs = 10_000;
+  let attempt = 0;
+  while (true) {
+    try {
+      const fd = openSync(STARTUP_LOCK_FILE, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
+      closeSync(fd);
+      return () => {
+        try { unlinkSync(STARTUP_LOCK_FILE); } catch { /* best effort */ }
+      };
+    } catch {
+      if (Date.now() - start > timeoutMs) {
+        try { unlinkSync(STARTUP_LOCK_FILE); } catch { /* ignore */ }
+        const fd2 = openSync(STARTUP_LOCK_FILE, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
+        closeSync(fd2);
+        return () => {
+          try { unlinkSync(STARTUP_LOCK_FILE); } catch { /* best effort */ }
+        };
+      }
+      const baseMs = Math.min(50 + attempt * 20, 200);
+      const jitter = Math.floor(Math.random() * 40) - 20;
+      await sleep(baseMs + jitter);
+      attempt++;
+    }
+  }
+}
+
 export async function addProjectToRunning(projectId: string): Promise<void> {
   const release = await acquireLock();
   try {

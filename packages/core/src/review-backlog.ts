@@ -76,7 +76,7 @@ export async function maybeDispatchReviewBacklog(
   const project = config.projects[session.projectId];
   if (!project || !session.pr) return;
 
-  const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+  const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
   if (!scm) return;
 
   const humanReactionKey = "changes-requested";

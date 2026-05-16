@@ -31,7 +31,7 @@ export async function isPRMerged(
   if (!session.pr) return false;
   const project = config.projects[session.projectId];
   if (!project?.scm) return false;
-  const scm = registry.get<SCM>("scm", project.scm.plugin);
+  const scm = registry.get<SCM>("scm", project.scm.plugin!);
   if (!scm) return false;
   const prState = await scm.getPRState(session.pr);
   return prState === PR_STATE.MERGED;

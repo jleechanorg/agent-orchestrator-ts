@@ -1,6 +1,8 @@
-import { VALID_PR_STATES, type PRState, type RuntimeHandle, type Session, type SessionId, type SessionStatus } from "../types.js";
+import { VALID_PR_STATES, type PRState, type RuntimeHandle, type Session, type SessionId, type SessionStatus, type ActivitySignal, type CanonicalSessionLifecycle } from "../types.js";
 import { parsePrFromUrl } from "./pr.js";
 import { safeJsonParse, validateStatus } from "./validation.js";
+import { parseCanonicalLifecycle } from "../lifecycle-state.js";
+import { createActivitySignal } from "../activity-signal.js";
 
 interface SessionFromMetadataOptions {
   projectId?: string;
@@ -10,6 +12,7 @@ interface SessionFromMetadataOptions {
   createdAt?: Date;
   lastActivityAt?: Date;
   restoredAt?: Date;
+  sessionPrefix?: string;
 }
 
 export function sessionFromMetadata(
@@ -17,12 +20,23 @@ export function sessionFromMetadata(
   meta: Record<string, string>,
   options: SessionFromMetadataOptions = {},
 ): Session {
+  const status = options.status ?? validateStatus(meta["status"]);
+  const lifecycle: CanonicalSessionLifecycle = parseCanonicalLifecycle(meta, {
+    sessionId,
+    status,
+    sessionKind: meta["role"] === "orchestrator" || sessionId.endsWith("-orchestrator")
+      ? "orchestrator"
+      : "worker",
+  });
+  const activitySignal: ActivitySignal = createActivitySignal("unavailable");
   return {
     id: sessionId,
     tmuxName: meta["tmuxName"] ?? undefined,
     projectId: meta["project"] ?? options.projectId ?? "",
-    status: options.status ?? validateStatus(meta["status"]),
+    status,
     activity: options.activity ?? null,
+    activitySignal,
+    lifecycle,
     branch: meta["branch"] || null,
     issueId: meta["issue"] || null,
     pr: meta["pr"]

@@ -162,6 +162,7 @@ export {
   readObservabilitySummary,
 } from "./observability.js";
 export type {
+  ObservabilityLevel,
   ObservabilityMetricName,
   ObservabilityHealthStatus,
   ObservabilitySummary,
@@ -186,6 +187,19 @@ export type {
   FeedbackToolInput,
   PersistedFeedbackReport,
 } from "./feedback-tools.js";
+
+// Agent workspace hooks — shared PATH-wrapper setup for non-Claude agents
+export {
+  setupPathWrapperWorkspace,
+  buildAgentPath,
+  PREFERRED_GH_PATH,
+} from "./agent-workspace-hooks.js";
+
+// Atomic file write — POSIX-safe rename-based write
+export { atomicWriteFileSync } from "./atomic-write.js";
+
+// Session from metadata — reconstruct Session object from flat metadata
+export { sessionFromMetadata } from "./utils/session-from-metadata.js";
 
 // Path utilities — hash-based directory structure
 export {
@@ -483,3 +497,56 @@ export type {
   ContextUtilizationLevel,
   ContextMonitorState,
 } from "./harness-artifacts.js";
+
+export {
+  resolveSpawnTarget,
+  type SpawnTarget,
+} from "./_upstream/spawn-target.js";
+
+export {
+  isWindows,
+  isMac,
+  isLinux,
+  getDefaultRuntime,
+  killProcessTree,
+  findPidByPort,
+  getEnvDefaults,
+} from "./_upstream/platform.js";
+
+export {
+  isCanonicalGlobalConfigPath,
+  getGlobalConfigPath,
+  loadGlobalConfig,
+  saveGlobalConfig,
+  registerProjectInGlobalConfig,
+  loadLocalProjectConfig,
+  loadLocalProjectConfigDetailed,
+  writeLocalProjectConfig,
+  getLocalProjectConfigPath,
+  type GlobalConfig,
+  type GlobalProjectEntry,
+  type LocalProjectConfig,
+  type LocalProjectConfigLoadResult,
+  type RegisterProjectOptions,
+  type UpdateChannel,
+  type InstallMethodOverride,
+} from "./_upstream/global-config.js";
+
+export {
+  spawnManagedDaemonChild,
+  sweepDaemonChildren,
+  scanAoOrphans,
+  reapAoOrphans,
+  registerDaemonChild,
+  unregisterDaemonChild,
+  registerChildReaper,
+  markDaemonShutdownHandlerInstalled,
+  type DaemonChildEntry,
+  type DaemonChildSweepResult,
+  type AoOrphanProcess,
+  type DaemonChildSweepOptions,
+} from "./_upstream/daemon-children.js";
+
+export function getOrchestratorSessionId(project: { sessionPrefix: string }): string {
+  return `${project.sessionPrefix}-orchestrator`;
+}

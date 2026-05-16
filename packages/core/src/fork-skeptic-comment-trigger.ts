@@ -25,7 +25,7 @@ export async function detectAndTriggerSkepticComment(
   if (!session.pr) return;
   const project = config.projects?.[session.projectId];
   if (!project) return;
-  const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+  const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
   if (!scm?.listPRComments) return;
 
   try {

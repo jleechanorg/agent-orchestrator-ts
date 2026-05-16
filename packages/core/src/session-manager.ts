@@ -38,6 +38,8 @@ import {
   type SessionSpawnConfig,
   type OrchestratorSpawnConfig,
   type CleanupResult,
+  type KillResult,
+  type KillOptions,
   type ClaimPROptions,
   type ClaimPRResult,
   type OrchestratorConfig,
@@ -819,9 +821,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       project.workspace ?? config.defaults.workspace,
     );
     const tracker = project.tracker
-      ? registry.get<Tracker>("tracker", project.tracker.plugin)
+      ? registry.get<Tracker>("tracker", project.tracker.plugin!)
       : null;
-    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
 
     return { runtime, agent, workspace, tracker, scm };
   }
@@ -1299,12 +1301,29 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw err;
     }
 
-    // Write metadata and run post-launch setup — clean up on failure
+    const initialLifecycle: import("./types.js").CanonicalSessionLifecycle = {
+      version: 2,
+      session: {
+        kind: "worker",
+        state: "not_started",
+        reason: "spawn_requested",
+        startedAt: null,
+        completedAt: null,
+        terminatedAt: null,
+        lastTransitionAt: new Date().toISOString(),
+      },
+      pr: { state: "none", reason: "not_created", number: null, url: null, lastObservedAt: null },
+      runtime: { state: "unknown", reason: "spawn_incomplete", lastObservedAt: null, handle, tmuxName: tmuxName ?? null },
+    };
+    const initialActivitySignal: import("./types.js").ActivitySignal = { state: "unavailable", activity: null, source: "none" };
+
     const session: Session = {
       id: sessionId,
       projectId: spawnConfig.projectId,
       status: "spawning",
       activity: "active",
+      activitySignal: initialActivitySignal,
+      lifecycle: initialLifecycle,
       branch,
       issueId: promptIssueId ?? null,
       pr: null,
@@ -1621,12 +1640,29 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       },
     });
 
-    // Write metadata and run post-launch setup
+    const initialLifecycle: import("./types.js").CanonicalSessionLifecycle = {
+      version: 2,
+      session: {
+        kind: "orchestrator",
+        state: "working",
+        reason: "task_in_progress",
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        terminatedAt: null,
+        lastTransitionAt: new Date().toISOString(),
+      },
+      pr: { state: "none", reason: "not_created", number: null, url: null, lastObservedAt: null },
+      runtime: { state: "unknown", reason: "spawn_incomplete", lastObservedAt: null, handle, tmuxName: tmuxName ?? null },
+    };
+    const initialActivitySignal: import("./types.js").ActivitySignal = { state: "unavailable", activity: null, source: "none" };
+
     const session: Session = {
       id: sessionId,
       projectId: orchestratorConfig.projectId,
       status: "working",
       activity: "active",
+      activitySignal: initialActivitySignal,
+      lifecycle: initialLifecycle,
       branch: project.defaultBranch,
       issueId: null,
       pr: null,
@@ -2055,7 +2091,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
   }
 
-  async function kill(sessionId: SessionId, options?: { purgeOpenCode?: boolean }): Promise<void> {
+  async function kill(sessionId: SessionId, options?: KillOptions): Promise<KillResult> {
     const { raw, sessionsDir, project, projectId } = requireSessionRecord(sessionId);
 
     const cleanupAgent = resolveSelectionForSession(project, sessionId, raw).agentName;
@@ -2127,6 +2163,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     if (didPurgeOpenCodeSession) {
       markArchivedOpenCodeCleanup(sessionsDir, sessionId);
     }
+    return { cleaned: runtimeDestroyed, alreadyTerminated: !runtimeDestroyed };
   }
 
   async function cleanup(
@@ -3092,5 +3129,33 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return restoredSession;
   }
 
-  return { spawn, spawnOrchestrator, restore, list, get, kill, cleanup, send, claimPR, remap, pruneStaleWorktrees };
+  async function ensureOrchestrator(config: OrchestratorSpawnConfig): Promise<Session> {
+    const { projectId } = config;
+    const existing = await list(projectId);
+    const orchestratorSession = existing.find((s) => isOrchestratorSession(s));
+    if (orchestratorSession) return orchestratorSession;
+    return spawnOrchestrator(config);
+  }
+
+  let listCache: Map<string, { ts: number; sessions: Session[] }> | null = null;
+  const LIST_CACHE_TTL_MS = 5_000;
+
+  async function listCached(projectId?: string): Promise<Session[]> {
+    const key = projectId ?? "";
+    const now = Date.now();
+    if (listCache && listCache.has(key)) {
+      const entry = listCache.get(key)!;
+      if (now - entry.ts < LIST_CACHE_TTL_MS) return entry.sessions;
+    }
+    const sessions = await list(projectId);
+    if (!listCache) listCache = new Map();
+    listCache.set(key, { ts: now, sessions });
+    return sessions;
+  }
+
+  function invalidateCache(): void {
+    listCache = null;
+  }
+
+  return { spawn, spawnOrchestrator, ensureOrchestrator, restore, list, listCached, invalidateCache, get, kill, cleanup, send, claimPR, remap, pruneStaleWorktrees };
 }

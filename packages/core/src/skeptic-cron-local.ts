@@ -106,11 +106,19 @@ function createSyntheticSession(
   projectId: string,
   workspacePath: string | null,
 ): Session {
+  const nowIso = new Date().toISOString();
   return {
     id: `skeptic-cron-pr-${pr.number}`,
     projectId,
     status: "working",
     activity: null,
+    activitySignal: { state: "unavailable", activity: null, source: "none" },
+    lifecycle: {
+      version: 2,
+      session: { kind: "worker", state: "working", reason: "task_in_progress", startedAt: nowIso, completedAt: null, terminatedAt: null, lastTransitionAt: nowIso },
+      pr: { state: "open", reason: "in_progress", number: pr.number, url: pr.url, lastObservedAt: nowIso },
+      runtime: { state: "unknown", reason: "spawn_incomplete", lastObservedAt: null, handle: null, tmuxName: null },
+    },
     branch: pr.branch ?? null,
     issueId: null,
     pr,
@@ -150,7 +158,7 @@ export async function runLocalSkepticCron(
 
     const { registry, observer } = deps;
 
-    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin!) : null;
     if (!scm?.listOpenPRs) return 0;
 
     let openPRs: PRInfo[];

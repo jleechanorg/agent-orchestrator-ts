@@ -1,3 +1,5 @@
+import type { ObservabilityLevel } from "./observability.js";
+
 /**
  * Agent Orchestrator — Core Type Definitions
  *
@@ -22,10 +24,102 @@
 /** Unique session identifier, e.g. "my-app-1", "backend-12" */
 export type SessionId = string;
 
+export type SessionKind = "worker" | "orchestrator";
+
+export type CanonicalSessionState =
+  | "not_started"
+  | "working"
+  | "idle"
+  | "needs_input"
+  | "stuck"
+  | "detecting"
+  | "done"
+  | "terminated";
+
+export type CanonicalSessionReason =
+  | "spawn_requested"
+  | "agent_acknowledged"
+  | "task_in_progress"
+  | "pr_created"
+  | "pr_closed_waiting_decision"
+  | "fixing_ci"
+  | "resolving_review_comments"
+  | "awaiting_user_input"
+  | "awaiting_external_review"
+  | "research_complete"
+  | "merged_waiting_decision"
+  | "manually_killed"
+  | "pr_merged"
+  | "auto_cleanup"
+  | "runtime_lost"
+  | "agent_process_exited"
+  | "probe_failure"
+  | "error_in_process";
+
+export type CanonicalPRState = "none" | "open" | "merged" | "closed";
+
+export type CanonicalPRReason =
+  | "not_created"
+  | "in_progress"
+  | "ci_failing"
+  | "review_pending"
+  | "changes_requested"
+  | "approved"
+  | "merge_ready"
+  | "merged"
+  | "closed_unmerged"
+  | "cleared_on_restore";
+
+export type CanonicalRuntimeState = "unknown" | "alive" | "exited" | "missing" | "probe_failed";
+
+export type CanonicalRuntimeReason =
+  | "spawn_incomplete"
+  | "process_running"
+  | "process_missing"
+  | "tmux_missing"
+  | "manual_kill_requested"
+  | "pr_merged_cleanup"
+  | "auto_cleanup"
+  | "probe_error";
+
+export interface SessionStateRecord {
+  kind: SessionKind;
+  state: CanonicalSessionState;
+  reason: CanonicalSessionReason;
+  startedAt: string | null;
+  completedAt: string | null;
+  terminatedAt: string | null;
+  lastTransitionAt: string;
+}
+
+export interface PRStateRecord {
+  state: CanonicalPRState;
+  reason: CanonicalPRReason;
+  number: number | null;
+  url: string | null;
+  lastObservedAt: string | null;
+}
+
+export interface RuntimeStateRecord {
+  state: CanonicalRuntimeState;
+  reason: CanonicalRuntimeReason;
+  lastObservedAt: string | null;
+  handle: RuntimeHandle | null;
+  tmuxName: string | null;
+}
+
+export interface CanonicalSessionLifecycle {
+  version: 2;
+  session: SessionStateRecord;
+  pr: PRStateRecord;
+  runtime: RuntimeStateRecord;
+}
+
 /** Session lifecycle states */
 export type SessionStatus =
   | "spawning"
   | "working"
+  | "detecting"
   | "pr_open"
   | "ci_failed"
   | "review_pending"
@@ -53,12 +147,12 @@ export type SessionStatus =
  * SR-prtype (84.45, n=16) is the safe default — no per-type routing is statistically justified.
  */
 export type TechniqueType =
-  | "SR-prtype"    // Self-Refine with PR-type classification (best: 84.45, n=16)
-  | "SR-fewshot"   // Self-Refine with single exemplar
-  | "SR"           // Self-Refine (baseline: 81.23, n=15)
-  | "ET"           // Extended Thinking (79.38, n=15)
-  | "PRM"          // Process Reward Model (80.15, n=28)
-  | "default";     // Alias for SR-prtype
+  | "SR-prtype"
+  | "SR-fewshot"
+  | "SR"
+  | "ET"
+  | "PRM"
+  | "default";
 
 /** PR-type taxonomy for technique routing (ZFC: delegated to model API) */
 export type PrType =
@@ -69,39 +163,33 @@ export type PrType =
   | "large-arch-refactor"
   | "unknown";
 
-/**
- * Per-project technique configuration.
- * All techniques converge within rubric noise — use defaults unless per-type overrides are proven.
- */
 export interface TechniqueConfig {
-  /** Default technique for this project (default: SR-prtype) */
   default: TechniqueType;
-  /** Reserved for future routing wiring; currently validated but not consumed at runtime. */
   perType?: Partial<Record<PrType, TechniqueType>>;
-  /** Reserved for future routing wiring; currently validated but not consumed at runtime. */
   thresholds?: {
-    /** Minimum score delta before switching (default: 2.0) */
     minScoreDiff?: number;
-    /** Number of matched PR evaluations before enabling override (default: 10) */
     confidenceN?: number;
   };
 }
 
-/** Result of ZFC-compliant PR-type classification */
 export interface PrTypeClassification {
   type: PrType;
   confidence: "high" | "medium" | "low";
   reasoning?: string;
 }
 
+// =============================================================================
+// ACTIVITY DETECTION
+// =============================================================================
+
 /** Activity state as detected by the agent plugin */
 export type ActivityState =
-  | "active" // agent is processing (thinking, writing code)
-  | "ready" // agent finished its turn, alive and waiting for input
-  | "idle" // agent has been inactive for a while (stale)
-  | "waiting_input" // agent is asking a question / permission prompt
-  | "blocked" // agent hit an error or is stuck
-  | "exited"; // agent process is no longer running
+  | "active"
+  | "ready"
+  | "idle"
+  | "waiting_input"
+  | "blocked"
+  | "exited";
 
 /** Activity state constants */
 export const ACTIVITY_STATE = {
@@ -113,32 +201,43 @@ export const ACTIVITY_STATE = {
   EXITED: "exited" as const,
 } satisfies Record<string, ActivityState>;
 
+export type ActivitySignalState = "valid" | "stale" | "null" | "unavailable" | "probe_failure";
+
+export type ActivitySignalSource = "native" | "terminal" | "runtime" | "none";
+
+export interface ActivitySignal {
+  state: ActivitySignalState;
+  activity: ActivityState | null;
+  timestamp?: Date;
+  source: ActivitySignalSource;
+  detail?: string;
+}
+
 /** Result of activity detection, carrying both the state and an optional timestamp. */
 export interface ActivityDetection {
   state: ActivityState;
-  /** When activity was last observed (e.g., agent log file mtime) */
   timestamp?: Date;
 }
 
-/** JSONL activity log entry written by agents without native logging. */
+/** A single entry in the AO activity JSONL log, written by agent plugins. */
 export interface ActivityLogEntry {
-  /** ISO 8601 timestamp */
   ts: string;
-  /** Activity state derived from terminal output or agent-native data */
   state: ActivityState;
-  /** What triggered this state classification */
   source: "terminal" | "native";
-  /** Raw terminal snippet that caused waiting_input/blocked (for debugging) */
   trigger?: string;
 }
 
 /** Default threshold (ms) before a "ready" session becomes "idle". */
-export const DEFAULT_READY_THRESHOLD_MS = 300_000; // 5 minutes
+export const DEFAULT_READY_THRESHOLD_MS = 300_000;
+
+/** Default window (ms) for "active" state — activity newer than this is "active", older is "ready". */
+export const DEFAULT_ACTIVE_WINDOW_MS = 30_000;
 
 /** Session status constants */
 export const SESSION_STATUS = {
   SPAWNING: "spawning" as const,
   WORKING: "working" as const,
+  DETECTING: "detecting" as const,
   PR_OPEN: "pr_open" as const,
   CI_FAILED: "ci_failed" as const,
   REVIEW_PENDING: "review_pending" as const,
@@ -177,7 +276,17 @@ export const NON_RESTORABLE_STATUSES: ReadonlySet<SessionStatus> = new Set(["mer
 export function isTerminalSession(session: {
   status: SessionStatus;
   activity: ActivityState | null;
+  lifecycle?: CanonicalSessionLifecycle;
 }): boolean {
+  if (session.lifecycle) {
+    return (
+      session.lifecycle.session.state === "done" ||
+      session.lifecycle.session.state === "terminated" ||
+      session.lifecycle.pr.state === "merged" ||
+      session.lifecycle.runtime.state === "missing" ||
+      session.lifecycle.runtime.state === "exited"
+    );
+  }
   return (
     TERMINAL_STATUSES.has(session.status) ||
     (session.activity !== null && TERMINAL_ACTIVITIES.has(session.activity))
@@ -188,63 +297,79 @@ export function isTerminalSession(session: {
 export function isRestorable(session: {
   status: SessionStatus;
   activity: ActivityState | null;
+  lifecycle?: CanonicalSessionLifecycle;
 }): boolean {
   return isTerminalSession(session) && !NON_RESTORABLE_STATUSES.has(session.status);
 }
 
 /** A running agent session */
 export interface Session {
-  /** Unique session ID, e.g. "my-app-3" */
   id: SessionId;
 
-  /** Globally unique tmux session name (includes namespace hash, e.g. "a3b4c5d6-my-app-3") */
   tmuxName?: string;
 
-  /** Which project this session belongs to */
   projectId: string;
 
-  /** Current lifecycle status */
   status: SessionStatus;
 
-  /** Activity state from agent plugin (null = not yet determined) */
   activity: ActivityState | null;
 
-  /** Git branch name */
+  activitySignal: ActivitySignal;
+
+  lifecycle: CanonicalSessionLifecycle;
+
   branch: string | null;
 
-  /** Issue identifier (if working on an issue) */
   issueId: string | null;
 
-  /** PR info (once PR is created) */
   pr: PRInfo | null;
 
-  /** Workspace path on disk */
   workspacePath: string | null;
 
-  /** Runtime handle for communicating with the session */
   runtimeHandle: RuntimeHandle | null;
 
-  /** Agent session info (summary, cost, etc.) */
   agentInfo: AgentSessionInfo | null;
 
-  /** When the session was created */
   createdAt: Date;
 
-  /** Last activity timestamp */
   lastActivityAt: Date;
 
-  /** When this session was last restored (undefined if never restored) */
   restoredAt?: Date;
 
-  /** Metadata key-value pairs */
   metadata: Record<string, string>;
 }
 
-export function isOrchestratorSession(session: {
-  id: SessionId;
-  metadata?: Record<string, string>;
-}): boolean {
-  return session.metadata?.["role"] === "orchestrator" || session.id.endsWith("-orchestrator");
+export function isOrchestratorSession(
+  session: { id: SessionId; metadata?: Record<string, string> },
+  sessionPrefix?: string,
+  allSessionPrefixes?: string[],
+): boolean {
+  if (session.metadata?.["role"] === "orchestrator") {
+    return true;
+  }
+  if (!sessionPrefix) {
+    return session.id.endsWith("-orchestrator");
+  }
+  const escaped = sessionPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (session.id === `${sessionPrefix}-orchestrator`) {
+    return true;
+  }
+  if (!new RegExp(`^${escaped}-orchestrator-\\d+$`).test(session.id)) {
+    return false;
+  }
+  if (allSessionPrefixes) {
+    for (const prefix of allSessionPrefixes) {
+      if (prefix === sessionPrefix) continue;
+      if (
+        new RegExp(
+          `^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-\\d+$`,
+        ).test(session.id)
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 /** Config for creating a new session */
@@ -253,20 +378,11 @@ export interface SessionSpawnConfig {
   issueId?: string;
   branch?: string;
   prompt?: string;
-  /** Override the agent plugin for this session (e.g. "codex", "claude-code") */
   agent?: string;
-  /** Override the OpenCode subagent for this session (e.g. "sisyphus", "oracle") */
   subagent?: string;
-  /** Decomposition context — ancestor task chain (passed to prompt builder) */
   lineage?: string[];
-  /** Decomposition context — sibling task descriptions (passed to prompt builder) */
   siblings?: string[];
-  /** Override the runtime plugin for this session (e.g. "antigravity", "tmux"). Falls back to project config → global default. */
   runtimeOverride?: string;
-  /**
-   * When true, the PR/Git/TDD boilerplate is excluded from the worker prompt.
-   * Use for planning-only or artifact-only workers that should not push code or open PRs.
-   */
   skipPrBoilerplate?: boolean;
 }
 
@@ -274,52 +390,35 @@ export interface SessionSpawnConfig {
 export interface OrchestratorSpawnConfig {
   projectId: string;
   systemPrompt?: string;
+  agent?: string;
 }
 
 // =============================================================================
 // RUNTIME — Plugin Slot 1
 // =============================================================================
 
-/**
- * Runtime determines WHERE and HOW agent sessions execute.
- * tmux, docker, kubernetes, child processes, SSH, cloud sandboxes, etc.
- */
 export interface Runtime {
   readonly name: string;
 
-  /** Create a new session environment and return a handle */
   create(config: RuntimeCreateConfig): Promise<RuntimeHandle>;
 
-  /** Destroy a session environment */
   destroy(handle: RuntimeHandle): Promise<void>;
 
-  /** Send a text message/prompt to the running agent */
   sendMessage(handle: RuntimeHandle, message: string): Promise<void>;
 
-  /**
-   * Send a special key (Enter, Tab, Ctrl+C, etc.) without clearing the input buffer.
-   * Used to confirm queued messages that are pending submission.
-   */
   sendKeys?(handle: RuntimeHandle, key: string): Promise<void>;
 
-  /** Capture recent output from the session */
   getOutput(handle: RuntimeHandle, lines?: number): Promise<string>;
 
-  /** Check if the session environment is still alive */
   isAlive(handle: RuntimeHandle): Promise<boolean>;
 
-  /** Get resource metrics (uptime, memory, etc.) */
   getMetrics?(handle: RuntimeHandle): Promise<RuntimeMetrics>;
 
-  /** Get info needed to attach a human to this session (for Terminal plugin) */
   getAttachInfo?(handle: RuntimeHandle): Promise<AttachInfo>;
 
-  /**
-   * Get the launch command needed to restart this agent session.
-   * Called by ao send / lifecycle when the agent is detected as dead/idle
-   * and needs to be restarted before delivering a message. (bd-tln)
-   */
   getRestartCommand?(handle: RuntimeHandle): Promise<string>;
+
+  preflight?(context: PreflightContext): Promise<void>;
 }
 
 export interface RuntimeCreateConfig {
@@ -327,24 +426,12 @@ export interface RuntimeCreateConfig {
   workspacePath: string;
   launchCommand: string;
   environment: Record<string, string>;
-  /**
-   * Optional lifecycle callback invoked by the runtime when it detects the
-   * managed session has gone idle (e.g. a conversation completed or is
-   * waiting for capacity). Runtimes that do not support idle detection may
-   * ignore this field.
-   *
-   * @param sessionId - The id of the session that went idle.
-   */
   onIdle?: (sessionId: SessionId) => void;
 }
 
-/** Opaque handle returned by runtime.create() */
 export interface RuntimeHandle {
-  /** Runtime-specific identifier (tmux session name, container ID, pod name, etc.) */
   id: string;
-  /** Which runtime created this handle */
   runtimeName: string;
-  /** Runtime-specific data */
   data: Record<string, unknown>;
 }
 
@@ -355,11 +442,8 @@ export interface RuntimeMetrics {
 }
 
 export interface AttachInfo {
-  /** How to connect: tmux attach, docker exec, SSH, web URL, etc. */
   type: "tmux" | "docker" | "ssh" | "web" | "process";
-  /** For tmux: session name. For docker: container ID. For web: URL. */
   target: string;
-  /** Optional: command to run to attach */
   command?: string;
 }
 
@@ -367,135 +451,74 @@ export interface AttachInfo {
 // AGENT — Plugin Slot 2
 // =============================================================================
 
-/**
- * Agent adapter for a specific AI coding tool.
- * Knows how to launch, detect activity, and extract session info.
- */
+export const PROCESS_PROBE_INDETERMINATE = "indeterminate" as const;
+
+export type ProcessProbeResult = boolean | typeof PROCESS_PROBE_INDETERMINATE;
+
+export function isProcessProbeIndeterminate(
+  result: ProcessProbeResult,
+): result is typeof PROCESS_PROBE_INDETERMINATE {
+  return result === PROCESS_PROBE_INDETERMINATE;
+}
+
 export interface Agent {
   readonly name: string;
 
-  /** Process name to look for (e.g. "claude", "codex", "aider") */
   readonly processName: string;
 
-  /**
-   * How the initial prompt should be delivered to the agent.
-   * - "inline" (default): prompt is included in the launch command (e.g. -p flag)
-   * - "post-launch": prompt is sent via runtime.sendMessage() after the agent starts,
-   *   keeping the agent in interactive mode. Use this for agents where inlining
-   *   the prompt causes one-shot/exit behavior (e.g. Claude Code's -p flag).
-   */
   readonly promptDelivery?: "inline" | "post-launch";
 
-  /**
-   * True when the agent launch command actually consumes AgentLaunchConfig.systemPromptFile.
-   * Agents without this capability must receive the full composed worker prompt via `prompt`.
-   */
   readonly supportsSystemPromptFile?: boolean;
 
-  /** Get the shell command to launch this agent */
   getLaunchCommand(config: AgentLaunchConfig): string;
 
-  /** Get environment variables for the agent process */
   getEnvironment(config: AgentLaunchConfig): Record<string, string>;
 
-  /**
-   * Detect what the agent is currently doing from terminal output.
-   * @deprecated Use getActivityState() instead - this uses hacky terminal parsing.
-   */
   detectActivity(terminalOutput: string): ActivityState;
 
-  /**
-   * Get current activity state using agent-native mechanism (JSONL, SQLite, etc.).
-   * This is the preferred method for activity detection.
-   * @param readyThresholdMs - ms before "ready" becomes "idle" (default: DEFAULT_READY_THRESHOLD_MS)
-   */
   getActivityState(session: Session, readyThresholdMs?: number): Promise<ActivityDetection | null>;
 
-  /** Check if agent process is running (given runtime handle) */
-  isProcessRunning(handle: RuntimeHandle): Promise<boolean>;
+  isProcessRunning(handle: RuntimeHandle): Promise<ProcessProbeResult>;
 
-  /** Extract information from agent's internal data (summary, cost, session ID) */
   getSessionInfo(session: Session): Promise<AgentSessionInfo | null>;
 
-  /**
-   * Optional: get a launch command that resumes a previous session.
-   * Returns null if no previous session is found (caller falls back to getLaunchCommand).
-   */
   getRestoreCommand?(session: Session, project: ProjectConfig): Promise<string | null>;
 
-  /** Optional: run setup after agent is launched (e.g. configure MCP servers) */
+  preLaunchSetup?(workspacePath: string): Promise<void>;
+
   postLaunchSetup?(session: Session): Promise<void>;
 
-  /**
-   * Optional: Set up agent-specific hooks/config in the workspace for automatic metadata updates.
-   * Called once per workspace during ao init/start and when creating new worktrees.
-   *
-   * Each agent plugin implements this for their own config format:
-   * - Claude Code: writes .claude/settings.json with PostToolUse hook
-   * - Codex: whatever config mechanism Codex uses
-   * - Aider: .aider.conf.yml or similar
-   * - OpenCode: its own config
-   *
-   * CRITICAL: The dashboard depends on metadata being auto-updated when agents
-   * run git/gh commands. Without this, PRs created by agents never show up.
-   */
   setupWorkspaceHooks?(workspacePath: string, config: WorkspaceHooksConfig): Promise<void>;
+
+  recordActivity?(session: Session, terminalOutput: string): Promise<void>;
+
+  preflight?(context: PreflightContext): Promise<void>;
 }
 
 export interface AgentLaunchConfig {
   sessionId: SessionId;
   projectConfig: ProjectConfig;
+  workspacePath?: string;
   issueId?: string;
   prompt?: string;
   permissions?: AgentPermissionInput;
   model?: string;
-  /**
-   * System prompt to pass to the agent for orchestrator context.
-   * - Claude Code: --append-system-prompt
-   * - Codex: --system-prompt or AGENTS.md
-   * - Aider: --system-prompt flag
-   * - OpenCode: equivalent mechanism
-   *
-   * For short prompts only. For long prompts, use systemPromptFile instead
-   * to avoid shell/tmux truncation issues.
-   */
   systemPrompt?: string;
-  /**
-   * Path to a file containing the system prompt.
-   * Preferred over systemPrompt for long prompts (e.g. orchestrator prompts)
-   * because inlining 2000+ char prompts in shell commands causes truncation.
-   *
-   * When set, takes precedence over systemPrompt.
-   * - Claude Code: --append-system-prompt "$(cat /path/to/file)"
-   * - Codex/Aider: similar shell substitution
-   */
   systemPromptFile?: string;
-  /**
-   * Specialized OpenCode subagent to use (e.g., sisyphus, oracle, librarian).
-   * Requires oh-my-opencode to be installed.
-   * Use --subagent flag to select the subagent.
-   */
   subagent?: string;
 }
 
 export interface WorkspaceHooksConfig {
-  /** Data directory where session metadata files are stored */
   dataDir: string;
-  /** Optional session ID (may not be known at ao init time) */
   sessionId?: string;
 }
 
 export interface AgentSessionInfo {
-  /** Agent's auto-generated summary of what it's working on */
   summary: string | null;
-  /** True when summary is a fallback (e.g. truncated first user message), not a real agent summary */
   summaryIsFallback?: boolean;
-  /** Agent's internal session ID (for resume) */
   agentSessionId: string | null;
-  /** Estimated cost so far */
-  cost?: CostEstimate;
-  /** Agent-specific metadata key-value pairs (e.g. codexThreadId, codexModel) */
   metadata?: Record<string, string>;
+  cost?: CostEstimate;
 }
 
 export interface CostEstimate {
@@ -508,29 +531,24 @@ export interface CostEstimate {
 // WORKSPACE — Plugin Slot 3
 // =============================================================================
 
-/**
- * Workspace manages code isolation — how each session gets its own copy of the repo.
- */
 export interface Workspace {
   readonly name: string;
 
-  /** Create an isolated workspace for a session */
   create(config: WorkspaceCreateConfig): Promise<WorkspaceInfo>;
 
-  /** Destroy a workspace. repoPath is optional and lets destroy() skip repo-discovery. */
   destroy(workspacePath: string, repoPath?: string): Promise<void>;
 
-  /** List existing workspaces for a project */
   list(projectId: string): Promise<WorkspaceInfo[]>;
 
-  /** Optional: run hooks after workspace creation (symlinks, installs, etc.) */
+  findManagedWorkspace?(config: WorkspaceCreateConfig): Promise<WorkspaceInfo | null>;
+
   postCreate?(info: WorkspaceInfo, project: ProjectConfig): Promise<void>;
 
-  /** Optional: check if a workspace exists and is a valid git repo */
   exists?(workspacePath: string): Promise<boolean>;
 
-  /** Optional: restore a workspace (e.g. recreate a worktree for an existing branch) */
   restore?(config: WorkspaceCreateConfig, workspacePath: string): Promise<WorkspaceInfo>;
+
+  preflight?(context: PreflightContext): Promise<void>;
 }
 
 export interface WorkspaceCreateConfig {
@@ -538,6 +556,7 @@ export interface WorkspaceCreateConfig {
   project: ProjectConfig;
   sessionId: SessionId;
   branch: string;
+  worktreeDir?: string;
 }
 
 export interface WorkspaceInfo {
@@ -545,7 +564,6 @@ export interface WorkspaceInfo {
   branch: string;
   sessionId: SessionId;
   projectId: string;
-  /** Owning repo path — populated by workspace-worktree so destroy() can use it directly. */
   repoPath?: string;
 }
 
@@ -553,38 +571,28 @@ export interface WorkspaceInfo {
 // TRACKER — Plugin Slot 4
 // =============================================================================
 
-/**
- * Issue/task tracker integration — GitHub Issues, Linear, Jira, etc.
- */
 export interface Tracker {
   readonly name: string;
 
-  /** Fetch issue details */
   getIssue(identifier: string, project: ProjectConfig): Promise<Issue>;
 
-  /** Check if issue is completed/closed */
   isCompleted(identifier: string, project: ProjectConfig): Promise<boolean>;
 
-  /** Generate a URL for the issue */
   issueUrl(identifier: string, project: ProjectConfig): string;
 
-  /** Extract a human-readable label from an issue URL (e.g., "INT-1327", "#42") */
   issueLabel?(url: string, project: ProjectConfig): string;
 
-  /** Generate a git branch name for the issue */
   branchName(identifier: string, project: ProjectConfig): string;
 
-  /** Generate a prompt for the agent to work on this issue */
   generatePrompt(identifier: string, project: ProjectConfig): Promise<string>;
 
-  /** Optional: list issues with filters */
   listIssues?(filters: IssueFilters, project: ProjectConfig): Promise<Issue[]>;
 
-  /** Optional: update issue state */
   updateIssue?(identifier: string, update: IssueUpdate, project: ProjectConfig): Promise<void>;
 
-  /** Optional: create a new issue */
   createIssue?(input: CreateIssueInput, project: ProjectConfig): Promise<Issue>;
+
+  preflight?(context: PreflightContext): Promise<void>;
 }
 
 export interface Issue {
@@ -596,6 +604,7 @@ export interface Issue {
   labels: string[];
   assignee?: string;
   priority?: number;
+  branchName?: string;
 }
 
 export interface IssueFilters {
@@ -625,10 +634,6 @@ export interface CreateIssueInput {
 // SCM — Plugin Slot 5
 // =============================================================================
 
-/**
- * Source code management platform — PR lifecycle, CI checks, code reviews.
- * This is the richest plugin interface, covering the full PR pipeline.
- */
 export interface SCM {
   readonly name: string;
 
@@ -642,27 +647,18 @@ export interface SCM {
     project: ProjectConfig,
   ): Promise<SCMWebhookEvent | null>;
 
-  // --- PR Lifecycle ---
-
-  /** List all open PRs for a project. Used by backfillAllPRs. */
   listOpenPRs?(project: ProjectConfig): Promise<PRInfo[]>;
 
-  /** Detect if a session has an open PR (by branch name) */
   detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null>;
 
-  /** Resolve a PR reference (number or URL) into canonical PR metadata. */
   resolvePR?(reference: string, project: ProjectConfig): Promise<PRInfo>;
 
-  /** Assign a PR to the currently authenticated user, if supported. */
   assignPRToCurrentUser?(pr: PRInfo): Promise<void>;
 
-  /** Check out the PR branch into a workspace. Returns true if branch changed. */
   checkoutPR?(pr: PRInfo, workspacePath: string): Promise<boolean>;
 
-  /** Get current PR state */
   getPRState(pr: PRInfo): Promise<PRState>;
 
-  /** Get PR summary with stats (state, title, additions, deletions). Optional. */
   getPRSummary?(pr: PRInfo): Promise<{
     state: PRState;
     title: string;
@@ -670,99 +666,64 @@ export interface SCM {
     deletions: number;
   }>;
 
-  /** Merge a PR. When autoWaitSeconds > 0, uses GitHub's native auto-merge (--auto flag). */
   mergePR(pr: PRInfo, method?: MergeMethod, autoWaitSeconds?: number): Promise<void>;
 
-  /** Close a PR without merging */
   closePR(pr: PRInfo): Promise<void>;
 
-  // --- CI Tracking ---
-
-  /** Get individual CI check statuses */
   getCIChecks(pr: PRInfo): Promise<CICheck[]>;
 
-  /** Get overall CI summary */
+  getCIFailureSummary?(pr: PRInfo, failedChecks?: CICheck[]): Promise<CIFailureSummary | null>;
+
   getCISummary(pr: PRInfo): Promise<CIStatus>;
 
-  // --- Review Tracking ---
-
-  /** Get all reviews on a PR */
   getReviews(pr: PRInfo): Promise<Review[]>;
 
-  /** Get the overall review decision */
   getReviewDecision(pr: PRInfo): Promise<ReviewDecision>;
 
-  /** bd-sm7: Combined PR state + review decision in a single API call.
-   *  Optional — lifecycle-manager falls back to separate calls if not implemented. */
   getPRStateAndReview?(pr: PRInfo): Promise<{ state: PRState; reviewDecision: ReviewDecision }>;
 
-  /** Get pending (unresolved) review comments */
   getPendingComments(pr: PRInfo): Promise<ReviewComment[]>;
 
-  /** Get automated review comments (bots, linters, security scanners) */
+  getReviewThreads?(pr: PRInfo): Promise<ReviewThreadsResult>;
+
   getAutomatedComments(pr: PRInfo): Promise<AutomatedComment[]>;
 
-  // --- Skeptic integration (bd-qqm: skeptic-advice reaction) ---
-
-  /** Fetch issue comments authored by the skeptic agent.
-   *  Used by the skeptic-advice reaction to detect new FAIL verdicts and
-   *  extract structured guidance for workers. */
   getSkepticComments?(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>>;
-  /** Fetch all PR issue comments without author filtering. Used by /skeptic comment trigger. */
+
   listPRComments?(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>>;
 
-  // --- Review Actions (bd-yjo: atomic re-review transaction) ---
-
-  /** Resolve a review comment thread. No-op if not supported. */
   resolveComment?(pr: PRInfo, commentId: string): Promise<void>;
 
-  /** Request a review from a specific GitHub user. No-op if not supported. */
   requestReview?(pr: PRInfo, reviewerLogin: string): Promise<void>;
 
-  // --- Merge Readiness ---
-
-  /** Get the head commit SHA of a PR. Used for send-to-agent dedup. */
   getPRHeadSha?(pr: PRInfo): Promise<string>;
 
-  /** Check if PR is ready to merge */
   getMergeability(pr: PRInfo): Promise<MergeReadiness>;
 
-  // --- Batch PR Status (bd-att) ---
-
-  /** bd-att: Fetch all PR status fields in a single API call.
-   *  Optional — lifecycle-manager falls back to individual calls if not implemented.
-   *  Replaces getPRState + getCISummary + getReviewDecision + getMergeability. */
   getBatchPRStatus?(pr: PRInfo): Promise<BatchPRStatus>;
 
-  // --- Skeptic Agent — 7th merge gate (bd-qw6) ---
+  enrichSessionsPRBatch?(prs: PRInfo[], observer?: BatchObserver, repos?: string[]): Promise<Map<string, PREnrichmentData>>;
 
-  /**
-   * Get the skeptic agent's VERDICT from PR issue comments.
-   * Returns "PASS" if a skeptic bot posted "VERDICT: PASS",
-   * "FAIL" if "VERDICT: FAIL" was found,
-   * or "SKIPPED" if no skeptic verdict comment exists.
-   *
-   * The skeptic bot author is configured via plugins[scm-github].skepticBotAuthor.
-   * Optional — when not implemented, skeptic check passes as SKIPPED.
-   */
   getSkepticVerdict?(pr: PRInfo): Promise<"PASS" | "FAIL" | "SKIPPED">;
 
-  // --- Session Exit Reconciliation (bd-uxs.6) ---
-
-  /**
-   * Validate commits for session exit reconciliation.
-   * Returns proof of work: local commits, remote commits, and push status.
-   */
   validateCommits?(
     session: Session,
     project: ProjectConfig,
   ): Promise<{
-    /** Commits that exist locally but may not be on remote */
     localCommits: string[];
-    /** Commits that are on remote beyond the base branch */
     remoteCommits: string[];
-    /** Whether all local work is on remote */
     pushed: boolean;
+  }>;
+
+  preflight?(context: PreflightContext): Promise<void>;
+}
+
+export interface CIFailureSummary {
+  failedJobs: Array<{
+    name: string;
+    failedStep?: string;
+    runUrl: string;
+    logTail?: string;
   }>;
 }
 
@@ -777,22 +738,18 @@ export interface PRInfo {
   branch: string;
   baseBranch: string;
   isDraft: boolean;
-  /** GitHub PR state — persisted from metadata prState field (bd-s4t) */
   state?: PRState;
-  /** PR author login — used by merge-gate to filter PR-author comments from blocking counts */
   author?: string;
 }
 
 export type PRState = "open" | "merged" | "closed";
 
-/** PR state constants */
 export const PR_STATE = {
   OPEN: "open" as const,
   MERGED: "merged" as const,
   CLOSED: "closed" as const,
 } satisfies Record<string, PRState>;
 
-/** Validates that a raw string is a known PR state. */
 export const VALID_PR_STATES = new Set<PRState>(["open", "merged", "closed"]);
 
 export type MergeMethod = "merge" | "squash" | "rebase";
@@ -846,7 +803,6 @@ export interface CICheck {
 
 export type CIStatus = "pending" | "passing" | "failing" | "none";
 
-/** CI status constants */
 export const CI_STATUS = {
   PENDING: "pending" as const,
   PASSING: "passing" as const,
@@ -867,6 +823,7 @@ export type ReviewDecision = "approved" | "changes_requested" | "pending" | "non
 
 export interface ReviewComment {
   id: string;
+  threadId?: string;
   author: string;
   body: string;
   path?: string;
@@ -874,6 +831,19 @@ export interface ReviewComment {
   isResolved: boolean;
   createdAt: Date;
   url: string;
+  isBot?: boolean;
+}
+
+export interface ReviewSummary {
+  author: string;
+  state: string;
+  body: string;
+  submittedAt: Date;
+}
+
+export interface ReviewThreadsResult {
+  threads: ReviewComment[];
+  reviews: ReviewSummary[];
 }
 
 export interface AutomatedComment {
@@ -897,7 +867,6 @@ export interface MergeReadiness {
   blockers: string[];
 }
 
-/** bd-att: All PR status fields from a single batch API call. */
 export interface BatchPRStatus {
   state: PRState;
   ciStatus: CIStatus;
@@ -905,26 +874,50 @@ export interface BatchPRStatus {
   mergeReadiness: MergeReadiness;
 }
 
+export interface PREnrichmentData {
+  state: PRState;
+  ciStatus: CIStatus;
+  reviewDecision: ReviewDecision;
+  mergeable: boolean;
+  title?: string;
+  additions?: number;
+  deletions?: number;
+  isDraft?: boolean;
+  hasConflicts?: boolean;
+  isBehind?: boolean;
+  blockers?: string[];
+  ciChecks?: CICheck[];
+}
+
+export interface BatchObserver {
+  recordSuccess(data: {
+    batchIndex: number;
+    totalBatches: number;
+    prCount: number;
+    durationMs: number;
+  }): void;
+  recordFailure(data: {
+    batchIndex: number;
+    totalBatches: number;
+    prCount: number;
+    error: string;
+    durationMs: number;
+  }): void;
+  log(level: ObservabilityLevel, message: string): void;
+  reportPRListUnchangedRepos?(repos: Set<string>): void;
+}
+
 // =============================================================================
 // NOTIFIER — Plugin Slot 6 (PRIMARY INTERFACE)
 // =============================================================================
 
-/**
- * Notifier is the PRIMARY interface between the orchestrator and the human.
- * The human walks away after spawning agents. Notifications bring them back.
- *
- * Push, not pull. The human never polls.
- */
 export interface Notifier {
   readonly name: string;
 
-  /** Push a notification to the human */
   notify(event: OrchestratorEvent): Promise<void>;
 
-  /** Push a notification with actionable buttons/links */
   notifyWithActions?(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void>;
 
-  /** Post a message to a channel (for team-visible notifiers like Slack) */
   post?(message: string, context?: NotifyContext): Promise<string | null>;
 }
 
@@ -945,28 +938,11 @@ export interface NotifyContext {
 // POLLER — Plugin Slot 8 (bd-uxs.2)
 // =============================================================================
 
-/**
- * Poller scans for work to do and spawns sessions.
- * This is the "outer initiation loop" - the AO is missing this capability.
- *
- * Use cases:
- * - Scan open PRs without agents and spawn fix sessions
- * - Monitor issue trackers for new tasks
- * - Poll external queues for work
- */
 export interface Poller {
   readonly name: string;
 
-  /**
-   * Poll for work items.
-   * Returns a list of work items that need attention.
-   */
   poll(projectId: string): Promise<PollerWorkItem[]>;
 
-  /**
-   * Spawn a session for a work item.
-   * Returns the session ID or null if spawning failed.
-   */
   spawnSession(
     workItem: PollerWorkItem,
     projectId: string,
@@ -974,24 +950,12 @@ export interface Poller {
   ): Promise<Session | null>;
 }
 
-/** A work item discovered by a poller */
 export interface PollerWorkItem {
-  /** Unique identifier for this work item */
   id: string;
-
-  /** Type of work (e.g., "open-pr", "new-issue") */
   type: string;
-
-  /** Human-readable title */
   title: string;
-
-  /** URL to the work item */
   url: string;
-
-  /** Priority (lower = higher priority) */
   priority?: number;
-
-  /** Additional metadata */
   metadata?: Record<string, unknown>;
 }
 
@@ -999,20 +963,13 @@ export interface PollerWorkItem {
 // TERMINAL — Plugin Slot 7
 // =============================================================================
 
-/**
- * Terminal manages how humans view/interact with running sessions.
- * Opens IDE tabs, browser windows, or terminal sessions.
- */
 export interface Terminal {
   readonly name: string;
 
-  /** Open a session for human interaction */
   openSession(session: Session): Promise<void>;
 
-  /** Open all sessions for a project */
   openAll(sessions: Session[]): Promise<void>;
 
-  /** Check if a session is already open in a tab/window */
   isSessionOpen?(session: Session): Promise<boolean>;
 }
 
@@ -1020,12 +977,10 @@ export interface Terminal {
 // EVENTS
 // =============================================================================
 
-/** Priority levels for events — determines notification routing */
 export type EventPriority = "urgent" | "action" | "warning" | "info";
 
-/** All orchestrator event types */
 export type EventType =
-  // Session lifecycle
+  | "session.spawn_started"
   | "session.spawned"
   | "session.working"
   | "session.exited"
@@ -1034,44 +989,33 @@ export type EventType =
   | "session.stuck"
   | "session.needs_input"
   | "session.errored"
-  // PR lifecycle
   | "pr.created"
   | "pr.updated"
   | "pr.merged"
   | "pr.closed"
-  // CI
   | "ci.passing"
   | "ci.failing"
   | "ci.fix_sent"
   | "ci.fix_failed"
-  // Reviews
   | "review.pending"
   | "review.approved"
   | "review.changes_requested"
   | "review.comments_sent"
   | "review.comments_unresolved"
-  // Automated reviews
   | "automated_review.found"
   | "automated_review.fix_sent"
-  // Merge
   | "merge.ready"
   | "merge.conflicts"
   | "merge.completed"
   | "merge.approval_requested"
-  // Reactions
   | "reaction.triggered"
   | "reaction.escalated"
-  // Session exit reconciliation (bd-uxs.6)
   | "session.exit_validated"
   | "session.exit_failed"
-  // Worker completion signal (bd-skp2)
   | "worker.signals_completion"
-  // Worker merge conflict (warning priority)
   | "worker.merge_conflict"
-  // Summary
   | "summary.all_complete";
 
-/** An event emitted by the orchestrator */
 export interface OrchestratorEvent {
   id: string;
   type: EventType;
@@ -1083,7 +1027,6 @@ export interface OrchestratorEvent {
   data: Record<string, unknown>;
 }
 
-/** In-process pub/sub bus for orchestrator events. */
 export interface EventBus {
   emit(event: OrchestratorEvent): void;
   on(event: EventType | "*", handler: (event: OrchestratorEvent) => void): void;
@@ -1091,7 +1034,6 @@ export interface EventBus {
   getHistory(filter?: EventFilter): OrchestratorEvent[];
 }
 
-/** Filter criteria for querying event history. */
 export interface EventFilter {
   sessionId?: SessionId;
   projectId?: string;
@@ -1105,84 +1047,43 @@ export interface EventFilter {
 // REACTIONS
 // =============================================================================
 
-/** A configured automatic reaction to an event */
 export interface ReactionConfig {
-  /** Whether this reaction is enabled */
   auto: boolean;
 
-  /** What to do: send message to agent, notify human, auto-merge, request-merge, parallel-retry, skeptic-review, respawn-for-review, claim-verification, agent-fallback */
   action: "send-to-agent" | "notify" | "auto-merge" | "request-merge" | "parallel-retry" | "skeptic-review" | "respawn-for-review" | "claim-verification" | "agent-fallback";
 
-  /** Message to send (for send-to-agent) */
   message?: string;
 
-  /** Priority for notifications */
   priority?: EventPriority;
 
-  /** How many times to retry send-to-agent before escalating */
   retries?: number;
 
-  /** Escalate to human notification after this many failures or this duration */
   escalateAfter?: number | string;
 
-  /** Threshold duration for time-based triggers (e.g. "10m" for stuck detection) */
   threshold?: string;
 
-  /** Whether to include a summary in the notification */
   includeSummary?: boolean;
 
-  /** Merge method for auto-merge/reaction-merge reaction (merge, squash, or rebase) */
   mergeMethod?: "merge" | "squash" | "rebase";
 
-  /**
-   * Numeric flag for GitHub's native auto-merge behavior.
-   * When > 0: the lifecycle-manager calls `gh pr merge --auto` (or the GraphQL
-   * enablePullRequestAutoMerge mutation on rate limit), which activates GitHub's
-   * native auto-merge — GitHub itself waits for all required status checks to pass
-   * before completing the merge. This eliminates the race where the PR transitions
-   * to mergeable while CI is still completing (bd-5gl).
-   * When 0 or omitted: merge immediately (no wait for CI).
-   * The magnitude of the value is ignored; only whether it is > 0 matters.
-   */
   autoMergeWaitSeconds?: number;
 
-  // bd-uxs.3: Escalation router - failure budgets
-
-  /** Failure budget: max failures before routing changes */
   failureBudget?: {
-    /** Max failures before budget is exhausted */
     max: number;
-    /** Window for budget reset (e.g., "1h", "24h") */
     window?: string;
   };
 
-  /** What to do when failure budget is exhausted */
   onBudgetExhausted?: "escalate" | "disable" | "route-to" | "notify";
-  /** Agent/route to send to when budget exhausted (for route-to action) */
   routeToAgent?: string;
 
-  // bd-uxs.4: Parallel retry action
-
-  /** Parallel retry: spawn multiple sessions, first-green-wins */
   parallelRetry?: {
-    /** Max parallel sessions to spawn */
     maxParallel: number;
-    /** Strategies to try in parallel (each gets its own session) */
     strategies: string[];
-    /** Kill losing sessions when one succeeds */
     killOnSuccess?: boolean;
   };
 
-  // bd-skp2: Skeptic review configuration
-  /** Skeptic review: alternate model to use for skeptic evaluation (e.g. "claude" or "gemini") */
   skepticModel?: string;
-  /** Skeptic review: post verdict as PR comment (default: true) */
   skepticPostComment?: boolean;
-  /**
-   * Skeptic review: glob patterns for paths to exclude from skeptic
-   * evaluation. If ALL changed files match at least one pattern, the verdict
-   * is SKIPPED rather than running the LLM evaluation.
-   */
   skepticExcludePaths?: string[];
 }
 
@@ -1192,26 +1093,18 @@ export interface ReactionResult {
   action: string;
   message?: string;
   escalated: boolean;
-  /** Merge gate blockers when auto-merge fails (bd-harness) */
   blockers?: string[];
 }
 
-/** Proof payload for session exit reconciliation (bd-uxs.6) */
 export interface SessionExitProof {
   sessionId: SessionId;
   projectId: string;
   exitStatus: SessionStatus;
-  /** Whether commits were successfully pushed to remote */
   commitsPushed: boolean;
-  /** Local commits that exist but may not be pushed */
   localCommits: string[];
-  /** Remote commits that are ahead of base branch */
   remoteCommits: string[];
-  /** PR URL if a PR was created */
   prUrl?: string;
-  /** Whether the PR is merged (if applicable) */
   prMerged?: boolean;
-  /** Timestamp of exit validation */
   validatedAt: string;
 }
 
@@ -1219,111 +1112,109 @@ export interface SessionExitProof {
 // CONFIGURATION
 // =============================================================================
 
-/** Top-level orchestrator configuration (from agent-orchestrator.yaml) */
-export interface OrchestratorConfig {
-  /**
-   * Path to the config file (set automatically during load).
-   * Used for hash-based directory structure.
-   * All paths are auto-derived from this location.
-   */
-  configPath: string;
-
-  /**
-   * Global auto-merge switch. When `enabled: true`, the `approved-and-green`
-   * reaction automatically merges PRs (equivalent to setting `action: auto-merge`).
-   * Individual projects can override this via their own `autoMerge` field.
-   * Default: `enabled` is false (preserves existing behavior — notify human).
-   */
-  autoMerge?: AutoMergeConfig;
-
-  /**
-   * Internal: per-reaction flag tracking whether the global config explicitly
-   * declared this reaction key in its `reactions` block. Set during
-   * config validation to detect explicit declarations vs. defaults.
-   * @internal
-   */
-  _hasExplicitGlobalReaction?: Record<string, boolean>;
-
-  /** Web dashboard port (defaults to 3000) */
-  port?: number;
-
-  /** Terminal WebSocket server port (defaults to 3001) */
-  terminalPort?: number;
-
-  /** Direct terminal WebSocket server port (defaults to 3003) */
-  directTerminalPort?: number;
-
-  /** Milliseconds before a "ready" session becomes "idle" (default: 300000 = 5 min) */
-  readyThresholdMs: number;
-
-  /**
-   * Milliseconds after session creation during which the lifecycle-worker
-   * skips liveness/activity probes. Prevents killing sessions before the
-   * agent CLI has fully initialized. (default: 120000 = 2 min)
-   */
-  startupGracePeriodMs?: number;
-
-  /**
-   * Kill dead-agent sessions after this many consecutive SCM failures.
-   * Prevents worktree destruction on transient SCM errors.
-   * Used as the legacy top-level fallback after project/defaults overrides.
-   * (default: 3)
-   */
-  scmFailureThreshold?: number;
-
-  /** Default plugin selections */
-  defaults: DefaultPlugins;
-
-  /** Project configurations */
-  projects: Record<string, ProjectConfig>;
-
-  /** Notification channel configs */
-  notifiers: Record<string, NotifierConfig>;
-
-  /** Notification routing by priority */
-  notificationRouting: Record<EventPriority, string[]>;
-
-  /** Default reaction configs */
-  reactions: Record<string, ReactionConfig>;
-
-  /** Poller configs (bd-uxs.2) */
-  pollers?: Record<string, PollerConfig>;
-
-  /** Outcome recording config (bd-uxs.5) */
-  outcomes?: OutcomeConfig;
-
-  /** Plugin-specific configs (e.g., scm-github.extraBotAuthors) */
-  plugins?: Record<string, Record<string, unknown>>;
-
-  /**
-   * Global worktree base directory. Can be overridden per-project via
-   * projects[].worktreeDir. The lifecycle-worker's orphan sweep uses this.
-   */
-  worktreeDir?: string;
-
-  /**
-   * Shell init files to source before spawning sessions. Each entry is sourced
-   * in order, allowing the daemon to inherit env vars (API keys, PATH extensions,
-   * etc.) from the user's shell profile. Only vars matching known API-key
-   * prefixes are merged into process.env to avoid PATH/PS1 pollution.
-   * Default: ["~/.bashrc"].
-   */
-  envSource?: string[];
+export interface PowerConfig {
+  preventIdleSleep: boolean;
 }
 
-/** Centralized auto-merge configuration (bd-n047) */
-export interface AutoMergeConfig {
-  /**
-   * Controls whether auto-merge reactions can fire.
-   * - In defaults.autoMerge: the default setting applied to all projects unless overridden.
-   *   Defaults to true when absent.
-   * - In projects[].autoMerge: overrides the global default for this specific project.
-   *   Absent/optional means "inherit from defaults".
-   */
+export interface LifecycleConfig {
+  autoCleanupOnMerge: boolean;
+  mergeCleanupIdleGraceMs: number;
+}
+
+export type DashboardAttentionZoneMode = "simple" | "detailed";
+
+export interface DashboardConfig {
+  attentionZones?: DashboardAttentionZoneMode;
+}
+
+export interface DegradedProjectEntry {
+  projectId: string;
+  path: string;
+  resolveError: string;
+}
+
+export interface LoadedConfig extends OrchestratorConfig {
+  degradedProjects: Record<string, DegradedProjectEntry>;
+}
+
+export type ExternalPluginLocation =
+  | { kind: "project"; projectId: string; configType: "tracker" | "scm" }
+  | { kind: "notifier"; notifierId: string };
+
+export interface ExternalPluginEntryRef {
+  source: string;
+  location: ExternalPluginLocation;
+  slot: "tracker" | "scm" | "notifier";
+  package?: string;
+  path?: string;
+  expectedPluginName?: string;
+}
+
+export type InstalledPluginSource = "registry" | "npm" | "local";
+
+export interface InstalledPluginConfig {
+  name: string;
+  source: InstalledPluginSource;
+  package?: string;
+  version?: string;
+  path?: string;
   enabled?: boolean;
-  /** Default wait time (seconds) for GitHub's native auto-merge. Overridden by reaction-level autoMergeWaitSeconds. */
+}
+
+/** Top-level orchestrator configuration (from agent-orchestrator.yaml) */
+export interface OrchestratorConfig {
+  "$schema"?: string;
+
+  configPath: string;
+
+  autoMerge?: AutoMergeConfig;
+
+  _hasExplicitGlobalReaction?: Record<string, boolean>;
+
+  _externalPluginEntries?: ExternalPluginEntryRef[];
+
+  port?: number;
+
+  terminalPort?: number;
+
+  directTerminalPort?: number;
+
+  readyThresholdMs: number;
+
+  power?: PowerConfig;
+
+  lifecycle?: LifecycleConfig;
+
+  startupGracePeriodMs?: number;
+
+  scmFailureThreshold?: number;
+
+  defaults: DefaultPlugins;
+
+  plugins?: InstalledPluginConfig[];
+
+  projects: Record<string, ProjectConfig>;
+
+  dashboard?: DashboardConfig;
+
+  notifiers: Record<string, NotifierConfig>;
+
+  notificationRouting: Record<EventPriority, string[]>;
+
+  reactions: Record<string, ReactionConfig>;
+
+  pollers?: Record<string, PollerConfig>;
+
+  outcomes?: OutcomeConfig;
+
+  envSource?: string[];
+
+  worktreeDir?: string;
+}
+
+export interface AutoMergeConfig {
+  enabled?: boolean;
   waitSeconds?: number;
-  /** Default merge method. Overridden by reaction-level mergeMethod. */
   mergeMethod?: MergeMethod;
 }
 
@@ -1332,22 +1223,13 @@ export interface DefaultPlugins {
   agent: string;
   workspace: string;
   notifiers: string[];
-  /** Merged before role/project overrides (permissions, model, etc.). */
   agentConfig?: AgentSpecificConfig;
   modelByCli?: Record<string, CliModelDefaults>;
   fallbackAgents?: string[];
   orchestrator?: RoleAgentConfig;
   worker?: RoleAgentConfig;
-  /** Default auto-merge settings for all projects (bd-n047) */
   autoMerge?: AutoMergeConfig;
-  /**
-   * Default threshold for consecutive SCM failures before killing a dead-agent session.
-   * Applied to all projects unless overridden per-project.
-   * Preferred over the legacy top-level fallback.
-   * (default: 3 — only kills after 3 consecutive SCM failures)
-   */
   scmFailureThreshold?: number;
-  /** bd-g884: Shell init files to source for API keys; falls back to global envSource. */
   envSource?: string[];
 }
 
@@ -1356,145 +1238,96 @@ export interface RoleAgentConfig {
   agentConfig?: AgentSpecificConfig;
 }
 
-/** Configuration for a poller (bd-uxs.2) */
 export interface PollerConfig {
-  /** Poller type (e.g., "github-pr", "linear-issue") */
   type: string;
-
-  /** Whether this poller is enabled */
   enabled?: boolean;
-
-  /** Poll interval (e.g., "1m", "5m", "1h") */
   interval?: string;
-
-  /** Respawn cap: max sessions per work item per time window */
   respawnCap?: {
     max: number;
-    window: string; // e.g., "12h"
+    window: string;
   };
-
-  /** Agent to use for spawned sessions */
   agent?: string;
-
-  /** Prompt template for spawned sessions */
   promptTemplate?: string;
-
-  /** Additional poller-specific config */
   [key: string]: unknown;
 }
 
-/** Configuration for outcome recording (bd-uxs.5) */
 export interface OutcomeConfig {
-  /** Whether outcome recording is enabled */
   enabled?: boolean;
-
-  /** Storage location for outcomes (file path or external DB) */
   storage?: string;
-
-  /** Patterns to synthesize from outcomes */
   patternSynthesis?: {
-    /** Minimum outcomes before synthesizing patterns */
     minSamples: number;
-    /** Confidence threshold for patterns */
     confidenceThreshold: number;
   };
 }
 
-/** An recorded outcome from a session */
 export interface RecordedOutcome {
   sessionId: SessionId;
   projectId: string;
-  /** What triggered the session (e.g., "ci-failed", "pr-created") */
   trigger: string;
-  /** What action was taken */
   action: string;
-  /** Strategy used (e.g., "retry-with-fix", "escalate-to-human") */
   strategy?: string;
-  /** Error class for granular grouping (e.g., "lint-error", "test-failure", "build-error") */
   errorClass?: string;
-  /** Whether the action succeeded */
   success: boolean;
-  /** Duration in ms */
   durationMs?: number;
-  /** Error message if failed */
   error?: string;
-  /** PR number if applicable */
   prNumber?: number;
-  /** Timestamp */
   recordedAt: string;
 }
 
 export interface ProjectConfig {
-  /** Display name */
   name: string;
 
-  /** GitHub repo in "owner/repo" format */
-  repo: string;
+  repo?: string;
 
-  /** Local path to the repo */
   path: string;
 
-  /** Path to the agent-orchestrator.yaml config file (used for tmux name hash) */
   configPath?: string;
 
-  /** Default branch (main, master, next, develop, etc.) */
+  resolveError?: string;
+
   defaultBranch: string;
 
-  /** Session name prefix (e.g. "app" → "app-1", "app-2") */
   sessionPrefix: string;
 
-  /** Override default runtime */
+  enabled?: boolean;
+
   runtime?: string;
 
-  /** Override default agent */
   agent?: string;
 
-  /** Per-project default agent override (takes precedence over project.agent for fallback chain head) */
   defaultAgent?: string;
 
-  /** Per-project fallback chain (overrides defaults.fallbackAgents) */
   fallbackAgents?: string[];
 
-  /** Override default workspace */
   workspace?: string;
 
-  /** Issue tracker configuration */
+  env?: Record<string, string>;
+
   tracker?: TrackerConfig;
 
-  /** SCM configuration (usually inferred from repo) */
   scm?: SCMConfig;
 
-  /** Files/dirs to symlink into workspaces */
   symlinks?: string[];
 
-  /** Commands to run after workspace creation */
   postCreate?: string[];
 
-  /** Agent-specific configuration */
   agentConfig?: AgentSpecificConfig;
-  /** CLI-keyed model defaults, e.g. modelByCli.codex.model */
   modelByCli?: Record<string, CliModelDefaults>;
 
   orchestrator?: RoleAgentConfig;
 
   worker?: RoleAgentConfig;
 
-  /** Per-project reaction overrides */
   reactions?: Record<string, Partial<ReactionConfig>>;
 
-  /** Per-project poller overrides (bd-uxs.2) */
   pollers?: Record<string, PollerConfig>;
 
-  /** Per-project outcome recording (bd-uxs.5) */
   outcomes?: OutcomeConfig;
 
-  /** Inline rules/instructions passed to every agent prompt */
   agentRules?: string;
 
-  /** Path to a file containing agent rules (relative to project path) */
   agentRulesFile?: string;
 
-  /** Rules for the orchestrator agent (stored, reserved for future use) */
   orchestratorRules?: string;
 
   orchestratorSessionStrategy?:
@@ -1507,242 +1340,79 @@ export interface ProjectConfig {
 
   opencodeIssueSessionStrategy?: "reuse" | "delete" | "ignore";
 
-  /** Task decomposition configuration */
   decomposer?: {
-    /** Enable auto-decomposition for backlog issues (default: false) */
     enabled: boolean;
-    /** Max recursion depth (default: 3) */
     maxDepth: number;
-    /** Model to use for decomposition (default: claude-sonnet-4-20250514) */
     model: string;
-    /** Require human approval before executing decomposed plans (default: true) */
     requireApproval: boolean;
   };
 
-  // =============================================================================
-  // MERGE GATE — bd-uxs.8
-  // =============================================================================
-
-  /**
-   * Per-project auto-merge override. When `enabled: true`, overrides the global
-   * `defaults.autoMerge` setting for this project.
-   * When omitted, inherits from `defaults.autoMerge`.
-   */
   autoMerge?: AutoMergeConfig;
 
-  /**
-   * Controls whether the lifecycle-worker periodically lists open PRs and
-   * spawns sessions for any PR that has no active session. This closes the
-   * gap where workers die (or finish early) and nobody restarts them, so
-   * CI-green PRs blocked on CHANGES_REQUESTED do not leak from the queue.
-   *
-   * **Default: enabled** (opt-out). Set to `false` explicitly to disable
-   * for projects that manage dispatch by hand. Any value other than
-   * `false` — including `undefined` or `true` — is treated as
-   * enabled. Projects with open PRs and `backfillAllPRs === false` will
-   * emit a warn-level `lifecycle.backfill.disabled_with_open_prs`
-   * observation so operators can spot the misconfiguration.
-   */
   backfillAllPRs?: boolean;
 
-  /**
-   * Configurable merge-gate: custom conditions for auto-merge beyond approved+CI-green.
-   * Enables projects to define custom auto-merge conditions.
-   */
   mergeGate?: MergeGateConfig;
 
-  /**
-   * Override the global worktree base directory for this project.
-   * The lifecycle-worker's orphan sweep uses this to locate worktrees.
-   */
   worktreeDir?: string;
 
-  /**
-   * Persistent spawn queue and active-session cap for this project.
-   * When enabled, AO queues new spawn requests instead of spawning past the cap.
-   */
   spawnQueue?: SpawnQueueConfig;
 
-  /**
-   * Per-project override for the consecutive SCM failure threshold.
-   * Only kills the session after this many consecutive SCM failures when the agent is dead.
-   * Overrides defaults.scmFailureThreshold and the legacy top-level fallback.
-   */
   scmFailureThreshold?: number;
 
-  // =============================================================================
-  // TASK QUEUE — bd-bsu
-  // =============================================================================
-
-  /** Config-driven bead task queue with maxConcurrent concurrency limit. */
   taskQueue?: TaskQueueConfig;
 
-  // =============================================================================
-  // MANAGER EVOLVE LOOP — bd-jhv1
-  // =============================================================================
-
-  /**
-   * Manager evolve loop configuration.
-   * When enabled, injects 6-phase evolve loop instructions into the orchestrator prompt.
-   */
   evolveLoop?: EvolveLoopConfig;
 
-  // =============================================================================
-  // TECHNIQUE SELECTION — AO library
-  // =============================================================================
-
-  /**
-   * Per-project technique configuration for AO workers.
-   * All techniques converge within rubric noise — SR-prtype is the safe default.
-   * Per-type routing requires statistically significant matched-PR evidence.
-   */
   technique?: TechniqueConfig;
 }
 
-/** Merge gate configuration (bd-uxs.8) */
 export interface MergeGateConfig {
-  /** Enable merge gate checks */
   enabled: boolean;
-
-  /** Required labels that must be present on the PR */
   requiredLabels?: string[];
-
-  /** Labels that must NOT be present on the PR */
   blockedLabels?: string[];
-
-  /** Required checks that must pass (beyond CI green) */
   requiredChecks?: string[];
-
-  /** Minimum number of approved reviews */
   minApprovals?: number;
-
-  /** File patterns that must have no changes (e.g., ["*.sql", "schema/"]) */
   unchangedFiles?: string[];
-
-  /** File patterns that must have changes (e.g., ["tests/", "*.test.ts"]) */
   requiredFiles?: string[];
-
-  /** Custom webhook URL to call before merge */
   preMergeWebhook?: string;
-
-  /** Timeout for webhook response (default: 30s) */
   webhookTimeout?: number;
-
-  // =============================================================================
-  // SKEPTIC AGENT — 7th merge gate (bd-qw6)
-  // =============================================================================
-
-  /**
-   * Require skeptic agent VERDICT before merge.
-   * When false (default): skeptic check is skipped (warn mode for initial deployment).
-   * When true: merge is blocked unless skeptic posts VERDICT: PASS or VERDICT: SKIPPED.
-   */
   skepticRequired?: boolean;
-
-  /**
-   * Projects exempt from skeptic requirement (for bootstrapping the skeptic itself).
-   * Skeptic's own PRs can self-approve without a verdict from a separate skeptic instance.
-   */
   skepticBypassProjects?: string[];
 }
 
-// =============================================================================
-// MANAGER EVOLVE LOOP — bd-jhv1
-// =============================================================================
-
-/**
- * Manager evolve loop configuration.
- * When `enabled: true`, orchestrator-prompt.ts injects 6-phase evolve loop
- * instructions into the manager agent's prompt (OBSERVE → MEASURE → DIAGNOSE →
- * PLAN → FIX → RECORD).
- *
- * The loop is disabled by default (opt-in per project).
- * A global kill switch is available via the EVOLVE_LOOP_ENABLED=false env var.
- */
 export interface EvolveLoopConfig {
-  /**
-   * Enable the manager evolve loop for this project.
-   * Default: undefined (false) — must be explicitly enabled.
-   * Can also be disabled globally via EVOLVE_LOOP_ENABLED=false env var.
-   */
   enabled?: boolean;
-
-  /**
-   * How often the full MEASURE→DIAGNOSE→PLAN→FIX cycle runs.
-   * - "lightweight": OBSERVE runs every poll cycle; full cycle runs every poll cycle.
-   * - "standard": full cycle runs every ~10 min; lightweight OBSERVE runs every poll.
-   * Default: "lightweight"
-   */
   pollCadence?: "lightweight" | "standard";
-
-  /**
-   * Allow-list of fix scopes the manager may dispatch autonomously.
-   * The manager may NOT dispatch anything outside this list.
-   * Examples: "config-edit", "claw-dispatch", "bead-create", "antig-dispatch".
-   * Default: [] (no autonomous fixes; manager is read-only if allow-list is empty).
-   */
   autonomousFixScopes?: string[];
-
-  /**
-   * Explicit deny-list in addition to the implicit global deny-list.
-   * The implicit deny-list always applies regardless of this field:
-   *   gh pr merge, gh pr close, git reset --hard, git clean -fd,
-   *   git worktree remove, rm -rf
-   * Default: []
-   */
   blockedScopes?: string[];
-
-  /**
-   * Directory containing per-project JSONL knowledge base files.
-   * If the path starts with ~, it is expanded to the user's home directory.
-   * Default: "~/.ao-evolve-knowledge"
-   */
   knowledgeBaseDir?: string;
-
-  /**
-   * Time window for zero-touch rate calculation in the MEASURE phase.
-   * - "24h": rolling 24-hour window (used for anomaly detection)
-   * - "30d": rolling 30-day window (used for baseline reporting)
-   * Default: "24h"
-   */
   zeroTouchWindow?: "24h" | "30d";
 }
 
-/** Task queue configuration for config-driven bead processing (bd-bsu) */
 export interface TaskQueueConfig {
-  /** Enable the task queue drainer */
   enabled: boolean;
-
-  /** Max simultaneous queue-spawned sessions (default: 4) */
   maxConcurrent: number;
-
-  /** Ordered list of bead IDs to process */
   beads: string[];
-
-  /** Optional template for the task description sent to each session */
   taskTemplate?: string;
 }
 
-/** Persistent spawn queue configuration for bounded AO worker admission. */
 export interface SpawnQueueConfig {
-  /** Enable queueing instead of immediate spawn failure when at capacity. */
   enabled: boolean;
-
-  /** Max active sessions allowed before new spawn requests are queued. */
   maxActiveSessions: number;
 }
 
 export interface TrackerConfig {
-  plugin: string;
-  /** Plugin-specific config (e.g. teamId for Linear) */
+  plugin?: string;
+  package?: string;
+  path?: string;
   [key: string]: unknown;
 }
 
 export interface SCMConfig {
-  plugin: string;
+  plugin?: string;
+  package?: string;
+  path?: string;
   webhook?: SCMWebhookConfig;
-  /** bd-4nz: Skip automated comment polling (getAutomatedComments) in review backlog.
-   *  Saves 1+ REST calls per session per cycle for repos without Bugbot/Copilot. */
   skipAutomatedCommentPolling?: boolean;
   [key: string]: unknown;
 }
@@ -1758,11 +1428,12 @@ export interface SCMWebhookConfig {
 }
 
 export interface NotifierConfig {
-  plugin: string;
+  plugin?: string;
+  package?: string;
+  path?: string;
   [key: string]: unknown;
 }
 
-/** CLI-keyed model defaults only (`modelByCli`); not a full agentConfig. */
 export interface CliModelDefaults {
   model?: string;
   orchestratorModel?: string;
@@ -1779,27 +1450,12 @@ export interface OpenCodeAgentConfig extends AgentSpecificConfig {
   opencodeSessionId?: string;
 }
 
-/**
- * Canonical cross-agent permission policy mode.
- *
- * Semantics:
- * - permissionless: run without interactive permission prompts (most permissive mode).
- * - default: use the agent's normal/default permission model.
- * - auto-edit: automatically approve edit actions where the agent supports granular approval policies.
- * - suggest: conservative mode that asks for approval on higher-risk/untrusted actions where supported.
- *
- * Note: Not every agent exposes all granular policies; plugins map these modes to
- * their closest supported behavior.
- */
 export type AgentPermissionMode = "permissionless" | "default" | "auto-edit" | "suggest";
 
-/** Backward-compatible legacy aliases accepted in config parsing. */
 export type LegacyAgentPermissionMode = "skip" | "auto";
 
-/** Raw permission input (supports legacy aliases). */
 export type AgentPermissionInput = AgentPermissionMode | LegacyAgentPermissionMode;
 
-/** Normalize legacy aliases to canonical permission modes. */
 export function normalizeAgentPermissionMode(
   mode: string | undefined,
 ): AgentPermissionMode | undefined {
@@ -1820,7 +1476,6 @@ export function normalizeAgentPermissionMode(
 // PLUGIN SYSTEM
 // =============================================================================
 
-/** Plugin slot types */
 export type PluginSlot =
   | "runtime"
   | "agent"
@@ -1831,76 +1486,68 @@ export type PluginSlot =
   | "terminal"
   | "poller";
 
-/** Plugin manifest — what every plugin exports */
 export interface PluginManifest {
-  /** Plugin name (e.g. "tmux", "claude-code", "github") */
   name: string;
-
-  /** Which slot this plugin fills */
   slot: PluginSlot;
-
-  /** Human-readable description */
   description: string;
-
-  /** Version */
   version: string;
-
-  /** Human-readable display name (e.g. "Claude Code") */
   displayName?: string;
 }
 
-/** What a plugin module must export */
 export interface PluginModule<T = unknown> {
   manifest: PluginManifest;
   create(config?: Record<string, unknown>): T;
-
-  /** Optional: detect whether this plugin's runtime/binary is available on the system. */
   detect?(): boolean;
 }
 
+export interface PreflightContext {
+  project: ProjectConfig;
+  intent: {
+    role: "worker" | "orchestrator";
+    willClaimExistingPR: boolean;
+  };
+}
+
 // =============================================================================
-// SESSION METADATA (flat file format)
+// SESSION METADATA
 // =============================================================================
 
-/**
- * Session metadata stored as flat key=value files.
- * Matches the existing bash script format for backwards compatibility.
- *
- * Note: In the new architecture, session files are named with user-facing names
- * (e.g., "int-1") and contain a tmuxName field for the globally unique tmux name
- * (e.g., "a3b4c5d6e7f8-int-1").
- */
 export interface SessionMetadata {
   worktree: string;
   branch: string;
   status: string;
-  tmuxName?: string; // Globally unique tmux session name (includes hash)
+  lifecycle?: CanonicalSessionLifecycle;
+  tmuxName?: string;
   issue?: string;
+  issueTitle?: string;
   pr?: string;
-  prAutoDetect?: "on" | "off";
-  /** GitHub PR state (bd-s4t) */
+  prAutoDetect?: boolean | "on" | "off";
   prState?: PRState;
   summary?: string;
   project?: string;
-  agent?: string; // Agent plugin name (e.g. "codex", "claude-code") — persisted for lifecycle
-  action?: string; // What action is being taken (e.g. "fix-lint", "fix-test", "fix-build")
+  agent?: string;
+  action?: string;
   createdAt?: string;
-  runtimeHandle?: string;
+  runtimeHandle?: RuntimeHandle | string;
   restoredAt?: string;
-  role?: string; // "orchestrator" for orchestrator sessions
+  role?: string;
+  dashboard?: {
+    port?: number;
+    terminalWsPort?: number;
+    directTerminalWsPort?: number;
+  };
   dashboardPort?: number;
   terminalWsPort?: number;
   directTerminalWsPort?: number;
   opencodeSessionId?: string;
-  /** Owning repo path — populated by workspace-worktree so destroy() can use it directly. */
+  claudeSessionUuid?: string;
+  codexThreadId?: string;
+  codexModel?: string;
+  restoreFallbackReason?: string;
   repoPath?: string;
-  /** Pinned summary string for context compaction reference (bd-cx04) */
   pinnedSummary?: string;
-  /** User-supplied prompt injected into session context (bd-cx04) */
   userPrompt?: string;
-  /** Original ad-hoc task text used to spawn the worker, if not backed by a tracker issue. */
   requestedTask?: string;
-  /** Full composed worker prompt artifact written at spawn time for audit/debugging. */
   composedPromptPath?: string;
   displayName?: string;
   displayNameUserSet?: boolean | "on" | "off";
@@ -1910,14 +1557,27 @@ export interface SessionMetadata {
 // SERVICE INTERFACES (core, not pluggable)
 // =============================================================================
 
+export type LifecycleKillReason = "manually_killed" | "pr_merged" | "auto_cleanup";
+
+export interface KillResult {
+  cleaned: boolean;
+  alreadyTerminated: boolean;
+}
+
+export interface KillOptions {
+  purgeOpenCode?: boolean;
+  reason?: LifecycleKillReason;
+}
+
 /** Session manager — CRUD for sessions */
 export interface SessionManager {
   spawn(config: SessionSpawnConfig): Promise<Session>;
   spawnOrchestrator(config: OrchestratorSpawnConfig): Promise<Session>;
+  ensureOrchestrator(config: OrchestratorSpawnConfig): Promise<Session>;
   restore(sessionId: SessionId): Promise<Session>;
   list(projectId?: string): Promise<Session[]>;
   get(sessionId: SessionId): Promise<Session | null>;
-  kill(sessionId: SessionId, options?: { purgeOpenCode?: boolean }): Promise<void>;
+  kill(sessionId: SessionId, options?: KillOptions): Promise<KillResult>;
   cleanup(
     projectId?: string,
     options?: { dryRun?: boolean; purgeOpenCode?: boolean },
@@ -1928,16 +1588,15 @@ export interface SessionManager {
 
 /** OpenCode-specific session manager with remap capability */
 export interface OpenCodeSessionManager extends SessionManager {
-  /** Remap session to OpenCode session ID, returns the mapped OpenCode session ID */
   remap(sessionId: SessionId, force?: boolean): Promise<string>;
-  /** Prune worktrees whose tmux sessions are no longer alive. Exposed for testing and manual use. */
   pruneStaleWorktrees(): Promise<void>;
+  listCached(projectId?: string): Promise<Session[]>;
+  invalidateCache(): void;
 }
 
 export interface ClaimPROptions {
   assignOnGithub?: boolean;
   takeover?: boolean;
-  /** When omitted, defaults to true and sends an initial task message after claiming the PR. */
   sendInitialMessage?: boolean;
 }
 
@@ -1951,7 +1610,6 @@ export interface ClaimPRResult {
   takenOverFrom: SessionId[];
 }
 
-/** Type guard to check if a SessionManager supports OpenCode-specific remap operation */
 export function isOpenCodeSessionManager(sm: SessionManager): sm is OpenCodeSessionManager {
   return typeof (sm as OpenCodeSessionManager).remap === "function";
 }
@@ -1964,39 +1622,22 @@ export interface CleanupResult {
 
 /** Lifecycle manager — state machine + reaction engine */
 export interface LifecycleManager {
-  /** Start the lifecycle polling loop */
   start(intervalMs?: number): void;
-
-  /** Stop the lifecycle polling loop */
   stop(): void;
-
-  /** Get current state for all sessions */
   getStates(): Map<SessionId, SessionStatus>;
-
-  /** Force-check a specific session now */
   check(sessionId: SessionId): Promise<void>;
 }
 
 /** Plugin registry — discovery + loading */
 export interface PluginRegistry {
-  /** Register a plugin, optionally with config to pass to create() */
   register(plugin: PluginModule, config?: Record<string, unknown>): void;
-
-  /** Get a plugin by slot and name */
   get<T>(slot: PluginSlot, name: string): T | null;
-
-  /** List plugins for a slot */
   list(slot: PluginSlot): PluginManifest[];
-
-  /** Load built-in plugins, optionally with orchestrator config for plugin settings */
   loadBuiltins(
     config?: OrchestratorConfig,
     importFn?: (pkg: string) => Promise<unknown>,
-    /** Optional override for monorepo-relative fallback when primary import fails */
     fallbackImportFn?: (pkg: string, selfUrl: string) => Promise<unknown>,
   ): Promise<void>;
-
-  /** Load plugins from config (npm packages, local paths) */
   loadFromConfig(
     config: OrchestratorConfig,
     importFn?: (pkg: string) => Promise<unknown>,
@@ -2008,28 +1649,17 @@ export interface PluginRegistry {
 // ERROR DETECTION HELPERS
 // =============================================================================
 
-/**
- * Detect if an error indicates that an issue was not found in the tracker.
- * Used by spawn validation to distinguish "not found" from other errors (auth, network, etc).
- *
- * Uses specific patterns to avoid matching infrastructure errors like "API key not found",
- * "Team not found", "Configuration not found", etc.
- */
 export function isIssueNotFoundError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const message = (err as Error).message?.toLowerCase() || "";
 
-  // Match issue-specific not-found patterns
   return (
     (message.includes("issue") &&
       (message.includes("not found") || message.includes("does not exist"))) ||
     message.includes("no issue found") ||
     message.includes("could not find issue") ||
-    // GitHub: "no issue found" or "could not resolve to an Issue"
     message.includes("could not resolve to an issue") ||
-    // Linear: "Issue <id> not found" or "No issue with identifier"
     message.includes("no issue with identifier") ||
-    // GitHub: "invalid issue format" (ad-hoc free-text strings)
     message.includes("invalid issue format")
   );
 }
@@ -2070,4 +1700,60 @@ export class ConfigNotFoundError extends Error {
     super(message ?? "No agent-orchestrator.yaml found. Run `ao start` to bootstrap a config.");
     this.name = "ConfigNotFoundError";
   }
+}
+
+/** Thrown when a project cannot be resolved into an effective runtime config. */
+export class ProjectResolveError extends Error {
+  constructor(
+    public readonly projectId: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ProjectResolveError";
+  }
+}
+
+// =============================================================================
+// PORTFOLIO — Cross-project aggregation
+// =============================================================================
+
+export interface PortfolioProject {
+  id: string;
+  name: string;
+  configPath: string;
+  configProjectKey: string;
+  repoPath: string;
+  repo?: string;
+  defaultBranch?: string;
+  sessionPrefix: string;
+  source: "discovered" | "registered" | "config";
+  enabled: boolean;
+  pinned: boolean;
+  lastSeenAt: string;
+  resolveError?: string;
+}
+
+export interface PortfolioPreferences {
+  version: 1;
+  defaultProjectId?: string;
+  projectOrder?: string[];
+  projects?: Record<string, {
+    pinned?: boolean;
+    enabled?: boolean;
+    displayName?: string;
+  }>;
+}
+
+export interface PortfolioRegistered {
+  version: 1;
+  projects: Array<{
+    path: string;
+    configProjectKey?: string;
+    addedAt: string;
+  }>;
+}
+
+export interface PortfolioSession {
+  session: Session;
+  project: PortfolioProject;
 }
