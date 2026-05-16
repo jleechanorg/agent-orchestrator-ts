@@ -23,7 +23,7 @@ jobs:
       release_type: ${{ steps.detect.outputs.release_type }}
       next_version: ${{ steps.detect.outputs.next_version }}
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,7 +48,8 @@ jobs:
           if [ -z "$NEXT" ]; then
             if [ $EXIT -ne 0 ]; then
               # Check output text: benign no-op messages that produce exit 1 without being real errors
-              if echo "$OUTPUT" | grep -qiE 'not.published.from.current.branch|already.up.to.date|no.releases.found|nothing.to.release|skip.releasing|EGITNOPERMISSION|local branch.*is behind'; then
+              # Note: EGITNOPERMISSION is excluded here — it indicates a real auth/permission failure
+              if echo "$OUTPUT" | grep -qiE 'not.published.from.current.branch|already.up.to.date|no.releases.found|nothing.to.release|skip.releasing|local branch.*is behind'; then
                 echo "release_type=none" >> $GITHUB_OUTPUT
               else
                 echo "release_type=error" >> $GITHUB_OUTPUT
