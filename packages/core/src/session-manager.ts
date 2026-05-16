@@ -1021,6 +1021,21 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       );
     }
 
+    // Hard cap: prevent spawn storms (2026-05-15: 517 sessions, loadavg=205, 2h outage)
+    const MAX_CONCURRENT_SESSIONS = process.env.AO_MAX_CONCURRENT_SESSIONS
+      ? parseInt(process.env.AO_MAX_CONCURRENT_SESSIONS, 10)
+      : 20;
+    const allProjectSessions = await list(spawnConfig.projectId);
+    const activeSessions = allProjectSessions.filter(
+      (s) => !TERMINAL_SESSION_STATUSES.has(s.status),
+    );
+    if (activeSessions.length >= MAX_CONCURRENT_SESSIONS) {
+      throw new Error(
+        `Spawn rejected: ${activeSessions.length} active sessions >= cap (${MAX_CONCURRENT_SESSIONS}). ` +
+          `Set AO_MAX_CONCURRENT_SESSIONS env var to increase. Wait for sessions to complete.`,
+      );
+    }
+
     const selection = resolveAgentSelection({
       role: "worker",
       project,

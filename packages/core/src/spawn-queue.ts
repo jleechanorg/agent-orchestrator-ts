@@ -24,6 +24,27 @@ const MAX_PENDING_REQUESTS = 100;
 
 const lastDrainTimeByProject = new Map<string, number>();
 
+/** Returns 1-minute load average, or null if unavailable. */
+async function getLoadAvg1m(): Promise<number | null> {
+  try {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+    if (process.platform === "darwin") {
+      const { stdout } = await execFileAsync("sysctl", ["-n", "vm.loadavg"]);
+      // format: "{ 1.23 4.56 7.89 }"
+      const m = stdout.match(/\{\s*([\d.]+)/);
+      return m ? parseFloat(m[1]) : null;
+    } else {
+      const { readFile } = await import("node:fs/promises");
+      const content = await readFile("/proc/loadavg", "utf8");
+      return parseFloat(content.split(" ")[0]);
+    }
+  } catch {
+    return null;
+  }
+}
+
 interface QueuedSpawnRequest {
   id: string;
   issueId?: string;
@@ -178,6 +199,20 @@ export async function drainSpawnQueue(
       projectId,
       data: { activeCount, maxActiveSessions: queueConfig.maxActiveSessions },
       level: "debug",
+    });
+    return 0;
+  }
+
+  const load = await getLoadAvg1m();
+  if (load !== null && load > 20) {
+    observer.recordOperation({
+      metric: "lifecycle_poll",
+      operation: "lifecycle.spawn_queue.load_high",
+      outcome: "success",
+      correlationId,
+      projectId,
+      data: { load1m: load, threshold: 20 },
+      level: "warn",
     });
     return 0;
   }
