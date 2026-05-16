@@ -1284,6 +1284,7 @@ export function registerStop(program: Command): void {
             await sm.kill(session.id, { purgeOpenCode });
           }
           await writeLastStop({ projectId, sessionIds });
+          await stopLifecycleWorker(config, projectId);
         } else {
           const allSessions = await sm.list();
           const projectSessions = allSessions.filter(

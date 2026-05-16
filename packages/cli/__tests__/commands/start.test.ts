@@ -1179,8 +1179,19 @@ describe("start command — main repo guard (bd-8gld)", () => {
     expect(errors).toContain("Refusing to operate on the main repo");
   });
 
-  it.skip("starts normally when project path is NOT the main repo", async () => {
-    // TODO: cherry-pick artifact — test body lost during merge; restore from upstream
+  it("starts normally when project path is NOT the main repo", async () => {
+    const otherProjectDir = mkdtempSync(join(tmpdir(), "ao-other-proj-"));
+    try {
+      mockConfigRef.current = makeConfig({
+        "my-app": makeProject({ path: otherProjectDir }),
+      });
+      vi.spyOn(realpathSync, "native").mockImplementation((p: string) => originalRealpath(p));
+      await program.parseAsync(["node", "test", "start", "--no-dashboard", "--no-orchestrator"]);
+      const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(errors).not.toContain("Refusing to operate on the main repo");
+    } finally {
+      rmSync(otherProjectDir, { recursive: true, force: true });
+    }
   });
 
   it("targeted stop does NOT unregister running.json", async () => {
@@ -1358,22 +1369,28 @@ describe("start command — main repo guard (bd-8gld)", () => {
   // original parent process orphaned. Now it must attach to the running
   // daemon: ensureOrchestrator runs against the existing session manager,
   // running.json gets the project re-added, and runStartup is never called.
-  it.skip("ao start <project> while daemon alive but project removed: attaches to existing daemon (no second dashboard)", async () => {
-    // Force the global-config fallback to use mockConfigRef.current rather
-    // than reading the test machine's real ~/.agent-orchestrator/config.yaml.
+  it("ao start <project> while daemon alive: non-TTY caller exits without spawning second dashboard", async () => {
     const origGlobalEnv = process.env["AO_GLOBAL_CONFIG"];
     process.env["AO_GLOBAL_CONFIG"] = join(tmpDir, "no-such-global.yaml");
 
     try {
       mockConfigRef.current = makeConfig({
-        "my-app": makeProject({ path: worktreeDir }),
+        "project-2": makeProject({ name: "Project 2", sessionPrefix: "p2" }),
       });
 
-      // Spy realpathSync.native to return the real canonical path for both paths.
-      vi.spyOn(realpathSync, "native").mockImplementation((p: string) => {
-        return originalRealpath(p);
+      mockIsAlreadyRunning.mockResolvedValue({
+        pid: 99999,
+        configPath: "/fake/config.yaml",
+        port: 3000,
+        startedAt: new Date().toISOString(),
+        projects: ["project-2"],
       });
+      mockIsHumanCaller.mockReturnValue(false);
 
+      vi.spyOn(realpathSync, "native").mockImplementation((p: string) => originalRealpath(p));
+
+      // process.exit(0) in the non-TTY path throws (mocked), gets caught by the
+      // action's catch block, which then calls process.exit(1).
       await expect(
         program.parseAsync([
           "node",
@@ -1385,24 +1402,16 @@ describe("start command — main repo guard (bd-8gld)", () => {
         ]),
       ).rejects.toThrow("process.exit(1)");
 
-      // Attached to existing daemon, did not register a new one.
+      // Non-TTY path exits immediately — never registers a new daemon.
       expect(mockRegister).not.toHaveBeenCalled();
-      // ensureOrchestrator was invoked for the requested project.
-      expect(mockSessionManager.ensureOrchestrator).toHaveBeenCalledWith(
-        expect.objectContaining({ projectId: "project-2" }),
-      );
-      // The one-shot attach path does not mutate running.json directly;
-      // the long-lived supervisor reconciles it after attaching polling.
-      expect(mockAddProjectToRunning).not.toHaveBeenCalled();
-      // No menu — this is a deterministic attach, not an interactive choice.
+      // No interactive prompt.
       expect(mockPromptSelect).not.toHaveBeenCalled();
-
+      // Verify the already-running message was printed (not a config error).
       const output = vi
         .mocked(console.log)
         .mock.calls.map((c) => c.join(" "))
         .join("\n");
-      expect(output).toContain("Attaching to running AO instance");
-      expect(output).toContain("reattached to running daemon");
+      expect(output).toContain("AO is already running");
     } finally {
       if (origGlobalEnv === undefined) delete process.env["AO_GLOBAL_CONFIG"];
       else process.env["AO_GLOBAL_CONFIG"] = origGlobalEnv;
