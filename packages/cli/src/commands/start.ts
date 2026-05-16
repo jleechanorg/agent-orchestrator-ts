@@ -56,6 +56,7 @@ import {
 import { cleanNextCache } from "../lib/dashboard-rebuild.js";
 import { preflight } from "../lib/preflight.js";
 import { register, unregister, isAlreadyRunning, getRunning, waitForExit, writeLastStop } from "../lib/running-state.js";
+import { killExistingDaemon } from "../lib/daemon.js";
 import { isHumanCaller } from "../lib/caller-context.js";
 import { detectEnvironment } from "../lib/detect-env.js";
 import { detectDefaultBranch } from "../lib/git-utils.js";
@@ -1145,9 +1146,7 @@ export function registerStop(program: Command): void {
           if (opts.all || !projectArg) {
             // Full stop: kill parent process and all daemon children, then unregister
             if (running) {
-              await killProcessTree(running.pid, "SIGTERM");
-              await sweepDaemonChildren({ ownerPid: running.pid });
-              await unregister();
+              await killExistingDaemon(running);
               console.log(
                 chalk.green(`\n✓ Stopped AO on port ${running.port}`),
               );
