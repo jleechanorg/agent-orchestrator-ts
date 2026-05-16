@@ -111,7 +111,7 @@ jobs:
           # create a minimal one. `changeset version --snapshot` consumes and
           # deletes it, so no cleanup is needed.
           if [ -z "$(ls .changeset/*.md 2>/dev/null | grep -vi 'README')" ]; then
-            printf -- '---\n"@aoagents/ao": patch\n---\n\nchore: canary build\n' > .changeset/canary-temp.md
+            printf -- '---\n"@jleechanorg/ao": patch\n---\n\nchore: canary build\n' > .changeset/canary-temp.md
           fi
           pnpm changeset version --snapshot nightly
         env:
