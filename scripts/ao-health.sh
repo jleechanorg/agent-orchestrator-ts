@@ -25,6 +25,9 @@ PY
 
 # Check whether a process command line matches this install's AO binary,
 # accounting for symlinks and /private prefix on macOS.
+# Also resolves the CMD binary itself so that two different symlinks to the
+# same real file (e.g. /Users/.../bin/ao -> .nvm/.../bin/ao -> dist/index.js)
+# are correctly recognised as the same binary.
 command_matches_ao_binary() {
   local cmd="$1"
   local ao_bin="$2"
@@ -32,7 +35,16 @@ command_matches_ao_binary() {
   ao_real="$(resolve_path "$ao_bin")"
   ao_alt="${ao_bin#/private}"
   ao_real_alt="${ao_real#/private}"
-  [[ "$cmd" == *"$ao_bin"* || "$cmd" == *"$ao_alt"* || "$cmd" == *"$ao_real"* || "$cmd" == *"$ao_real_alt"* ]]
+  # Fast path: literal string match
+  if [[ "$cmd" == *"$ao_bin"* || "$cmd" == *"$ao_alt"* || "$cmd" == *"$ao_real"* || "$cmd" == *"$ao_real_alt"* ]]; then
+    return 0
+  fi
+  # Slow path: resolve the binary embedded in CMD and compare real paths.
+  # CMD is typically "node /path/to/ao <subcmd>" — extract second word.
+  local cmd_bin cmd_real
+  cmd_bin=$(awk '{print $2}' 2>/dev/null <<< "$cmd")
+  cmd_real="$(resolve_path "$cmd_bin" 2>/dev/null)"
+  [[ -n "$cmd_real" && -n "$ao_real" && "$cmd_real" == "$ao_real" ]]
 }
 
 # ── Config ──────────────────────────────────────────────────────────────────
