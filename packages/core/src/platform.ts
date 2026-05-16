@@ -30,7 +30,7 @@ export function getDefaultRuntime(): "tmux" | "process" {
 
 // -- Shell resolution --
 
-interface ShellInfo {
+export interface ShellInfo {
   cmd: string;
   args: (command: string) => string[];
 }
@@ -200,7 +200,7 @@ export async function findPidByPort(port: number): Promise<string | null> {
       return null;
     } else {
       // Unix: lsof
-      const { stdout } = await execFileAsync("lsof", ["-ti", `:${port}`, "-sTCP:LISTEN"]);
+      const { stdout } = await execFileAsync("lsof", ["-ti", `:${port}`, "-sTCP:LISTEN"], { encoding: "utf8" });
       const pid = stdout.trim().split("\n")[0]?.trim();
       if (!pid || !/^\d+$/.test(pid)) return null;
       return pid;

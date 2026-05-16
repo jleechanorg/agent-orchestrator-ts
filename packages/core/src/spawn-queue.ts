@@ -31,14 +31,17 @@ async function getLoadAvg1m(): Promise<number | null> {
     const { promisify } = await import("node:util");
     const execFileAsync = promisify(execFile);
     if (process.platform === "darwin") {
-      const { stdout } = await execFileAsync("sysctl", ["-n", "vm.loadavg"]);
+      const { stdout } = await execFileAsync("sysctl", ["-n", "vm.loadavg"], { encoding: "utf8" });
       // format: "{ 1.23 4.56 7.89 }"
       const m = stdout.match(/\{\s*([\d.]+)/);
-      return m ? parseFloat(m[1]) : null;
+      const load = m?.[1] ? Number.parseFloat(m[1]) : Number.NaN;
+      return Number.isFinite(load) ? load : null;
     } else {
       const { readFile } = await import("node:fs/promises");
       const content = await readFile("/proc/loadavg", "utf8");
-      return parseFloat(content.split(" ")[0]);
+      const token = content.trim().split(/\s+/)[0];
+      const load = token ? Number.parseFloat(token) : Number.NaN;
+      return Number.isFinite(load) ? load : null;
     }
   } catch {
     return null;
