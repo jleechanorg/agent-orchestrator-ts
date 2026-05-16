@@ -69,18 +69,18 @@ eval "$(echo "$_init_output" | grep -E 'declare -x [A-Za-z_][A-Za-z0-9_]*="[^"]+
   echo "WARNING: failed to parse shell exports, continuing with plist defaults" >&2
 }
 
-# Restore plist-provided ANTHROPIC_BASE_URL if shell profile overwrote it with stale localhost.
-# Covers: lean-proxy http://localhost:9000, any http://localhost:*, http://127.0.0.1:*
+# Restore plist-provided ANTHROPIC_BASE_URL if shell profile overwrote it with a stale localhost.
+# Only acts when the plist provided a valid non-localhost endpoint that was overwritten.
+# If no plist endpoint exists, a shell-provided localhost value may be intentional (e.g., a
+# local Anthropic-compatible proxy) and must not be removed.
 _shell_base_url="${ANTHROPIC_BASE_URL:-}"
 if [[ "$_shell_base_url" == http://localhost* || "$_shell_base_url" == http://127.0.0.1* ]]; then
   if [[ -n "$_plist_base_url" && "$_plist_base_url" != http://localhost* && "$_plist_base_url" != http://127.0.0.1* ]]; then
     # Plist had a valid non-localhost endpoint; restore it over the stale shell value.
     ANTHROPIC_BASE_URL="$_plist_base_url"
     export ANTHROPIC_BASE_URL
-  else
-    # No valid plist endpoint; unset the stale localhost value so callers use the default.
-    unset ANTHROPIC_BASE_URL
   fi
+  # No valid plist endpoint: leave shell localhost value intact (may be an intentional proxy).
 fi
 
 exec "$TARGET" "$@"
