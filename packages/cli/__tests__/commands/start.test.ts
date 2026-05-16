@@ -17,7 +17,7 @@ import {
   lstatSync,
   symlinkSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionManager } from "@jleechanorg/ao-core";
 import { stringify as yamlStringify, parse as parseYaml } from "yaml";
@@ -52,6 +52,7 @@ const {
     get: vi.fn(),
     spawn: vi.fn(),
     spawnOrchestrator: vi.fn(),
+    ensureOrchestrator: vi.fn(),
     send: vi.fn(),
     claimPR: vi.fn(),
   },
@@ -110,11 +111,15 @@ const { mockIsHumanCaller } = vi.hoisted(() => ({
   mockIsHumanCaller: vi.fn().mockReturnValue(true),
 }));
 
+const { mockGit } = vi.hoisted(() => ({
+  mockGit: vi.fn(),
+}));
+
 vi.mock("../../src/lib/shell.js", () => ({
   tmux: vi.fn(),
   exec: mockExec,
   execSilent: mockExecSilent,
-  git: vi.fn(),
+  git: mockGit,
   gh: vi.fn(),
   getTmuxSessions: vi.fn().mockResolvedValue([]),
   getTmuxActivity: vi.fn().mockResolvedValue(null),
@@ -215,8 +220,9 @@ vi.mock("../../src/lib/running-state.js", () => ({
 }));
 
 vi.mock("../../src/lib/caller-context.js", () => ({
-  isHumanCaller: vi.fn().mockReturnValue(true),
+  isHumanCaller: mockIsHumanCaller,
   getCallerType: vi.fn().mockReturnValue("human"),
+  promptSelect: mockPromptSelect,
 }));
 
 vi.mock("../../src/lib/detect-env.js", () => ({
@@ -287,7 +293,14 @@ beforeEach(() => {
 
   mockSessionManager.get.mockReset();
   mockSessionManager.spawnOrchestrator.mockReset();
+  mockSessionManager.ensureOrchestrator.mockReset();
+  mockSessionManager.ensureOrchestrator.mockResolvedValue(undefined);
   mockSessionManager.kill.mockReset();
+  mockIsHumanCaller.mockReset();
+  mockIsHumanCaller.mockReturnValue(true);
+  mockPromptSelect.mockReset();
+  mockIsAlreadyRunning.mockReset();
+  mockIsAlreadyRunning.mockReturnValue(null);
   mockExec.mockReset();
   mockExecSilent.mockReset();
   // Default: execSilent returns null (gh not available), so clone falls through to git SSH/HTTPS
@@ -332,6 +345,8 @@ beforeEach(() => {
   });
   mockStopLifecycleWorker.mockReset();
   mockStopLifecycleWorker.mockResolvedValue(true);
+  mockGit.mockReset();
+  mockGit.mockResolvedValue(undefined);
   mockSpawn.mockClear();
 });
 
@@ -1423,8 +1438,7 @@ describe("start command — autoCreateConfig", () => {
     mockProcessCwd.mockReturnValue(tmpDir);
 
     // Non-interactive — skip the repo prompt (no ownerRepo detected)
-    const callerContext = await import("../../src/lib/caller-context.js");
-    vi.spyOn(callerContext, "isHumanCaller").mockReturnValue(false);
+    mockIsHumanCaller.mockReturnValue(false);
 
     await autoCreateConfig(tmpDir);
 
@@ -1661,7 +1675,7 @@ describe("start command — already-running detection", () => {
     });
 
     createFakeRepo(tmpDir, "https://github.com/org/unregistered.git");
-    mockProcessCwd.mockReturnValue(tmpDir);
+    mockCwd(tmpDir);
     mockPromptSelect.mockResolvedValue("quit");
     mockConfigRef.current = makeConfig({
       "my-app": makeProject({ path: join(tmpDir, "main-repo") }),
@@ -1742,6 +1756,8 @@ describe("no-dashboard keepalive", () => {
    * without causing an error (i.e., the keepalive path is reachable).
    */
   it("starts lifecycle and completes without error when --no-dashboard is used", async () => {
+    mockConfigRef.current = makeConfig({ "my-app": makeProject() });
+    mockSessionManager.spawnOrchestrator.mockResolvedValue({ id: "app-orchestrator" });
     await program.parseAsync(["node", "test", "start", "--no-dashboard"]);
     expect(mockEnsureLifecycleWorker).toHaveBeenCalled();
     expect(mockStopLifecycleWorker).not.toHaveBeenCalled();
@@ -1844,9 +1860,8 @@ describe("no-dashboard keepalive", () => {
       },
       { indent: 2 },
     );
-    writeFileSync(configPath, originalYaml);
-
     mockConfigRef.current = makeConfig({ "my-app": makeProject() });
+    writeFileSync(configPath, originalYaml);
     mockCwd(tmpDir);
 
     // process.exit(0) throws, caught by catch block which calls exit(1)
@@ -2081,10 +2096,10 @@ describe("start command — global registry mutations", () => {
         projects: Record<string, Record<string, unknown>>;
       };
       const addedEntry = Object.values(globalConfig.projects).find(
-        (entry) => entry.path === realpathSync(addedRepoDir),
+        (entry) => entry.path === resolve(addedRepoDir),
       );
       expect(addedEntry).toMatchObject({
-        path: realpathSync(addedRepoDir),
+        path: resolve(addedRepoDir),
         defaultBranch: "master",
         sessionPrefix: "add",
       });
