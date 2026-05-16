@@ -373,6 +373,7 @@ export type { OutboxEntry, OutboxConfig } from "./slack-outbox.js";
 export {
   PatternSynthesizer,
 } from "./pattern-synthesizer.js";
+export {
   registerWindowsPtyHost,
   unregisterWindowsPtyHost,
   getWindowsPtyHosts,

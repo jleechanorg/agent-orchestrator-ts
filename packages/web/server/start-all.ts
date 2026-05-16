@@ -29,16 +29,16 @@ function log(label: string, msg: string): void {
   process.stdout.write(`[${label}] ${msg}\n`);
 }
 
-function spawnProcess(label: string, command: string, args: string[]): ChildProcess {
-  const child = spawn(command, args, {
-    cwd: pkgRoot,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: process.env,
-  });
+function spawnProcess(
+  label: string,
+  command: string,
+  args: string[],
+  opts?: { restart?: boolean }
+): ChildProcess {
+  let restarts = 0;
+  const maxRestarts = 3;
+  let slotIndex = -1;
 
-  child.stdout?.on("data", (data: Buffer) => {
-    for (const line of data.toString().split("\n").filter(Boolean)) {
-      log(label, line);
   function launch(): ChildProcess {
     const child = spawnManagedDaemonChild(`dashboard:${label}`, command, args, {
       cwd: pkgRoot,
@@ -75,20 +75,11 @@ function spawnProcess(label: string, command: string, args: string[]): ChildProc
       slotIndex = children.length;
       children.push(child);
     }
-  });
 
-  child.stderr?.on("data", (data: Buffer) => {
-    for (const line of data.toString().split("\n").filter(Boolean)) {
-      log(label, line);
-    }
-  });
+    return child;
+  }
 
-  child.on("exit", (code) => {
-    log(label, `exited with code ${code}`);
-  });
-
-  children.push(child);
-  return child;
+  return launch();
 }
 
 /**
@@ -118,13 +109,8 @@ function resolveNextBin(): string {
 
 // Start Next.js production server
 const port = process.env["PORT"] || "3000";
-spawnProcess("next", resolveNextBin(), ["start", "-p", port]);
+const nextBin = resolveNextBin();
 
-// Start terminal WebSocket server
-spawnProcess("terminal", "node", [resolve(__dirname, "terminal-websocket.js")]);
-
-// Start direct terminal WebSocket server
-spawnProcess("direct-terminal", "node", [resolve(__dirname, "direct-terminal-ws.js")]);
 if (isWindows() && nextBin !== "next") {
   // On Windows, run the JS entry point via the current node binary.
   // spawn() can't execute .js files directly on Windows.
@@ -132,6 +118,9 @@ if (isWindows() && nextBin !== "next") {
 } else {
   spawnProcess("next", nextBin, ["start", "-p", port]);
 }
+
+// Start terminal WebSocket server
+spawnProcess("terminal", "node", [resolve(__dirname, "terminal-websocket.js")]);
 
 // Start direct terminal WebSocket server (auto-restart on crash)
 spawnProcess("direct-terminal", "node", [resolve(__dirname, "direct-terminal-ws.js")], {
