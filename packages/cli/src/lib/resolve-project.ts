@@ -36,7 +36,7 @@ import {
   type OrchestratorConfig,
   type ParsedRepoUrl,
   type ProjectConfig,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import chalk from "chalk";
 import ora from "ora";
 import { findFreePort } from "./web-dir.js";

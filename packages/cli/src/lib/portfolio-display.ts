@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import type { PortfolioProject } from "@aoagents/ao-core";
+import type { PortfolioProject } from "@jleechanorg/ao-core";
 
 type PortfolioSessionCount = {
   total: number;

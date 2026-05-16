@@ -17,7 +17,7 @@
 
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { isWindows } from "@aoagents/ao-core";
+import { isWindows } from "@jleechanorg/ao-core";
 
 /**
  * Resolve symlinks. Falls back to the input on any filesystem error so

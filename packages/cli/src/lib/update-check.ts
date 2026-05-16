@@ -20,7 +20,7 @@ import {
   loadGlobalConfig,
   type UpdateChannel,
   type InstallMethodOverride,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import { getCliVersion } from "../options/version.js";
 
 // ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ export function isAgentOrchestratorRepoRoot(root: string): boolean {
     return false;
   }
 
-  return readPackageName(resolve(root, "packages", "ao", "package.json")) === "@aoagents/ao";
+  return readPackageName(resolve(root, "packages", "ao", "package.json")) === "@jleechanorg/ao";
 }
 
 export function isAoCliPackageRoot(root: string): boolean {
@@ -147,7 +147,7 @@ export function isAoCliPackageRoot(root: string): boolean {
     return false;
   }
 
-  return readPackageName(resolve(root, "package.json")) === "@aoagents/ao-cli";
+  return readPackageName(resolve(root, "package.json")) === "@jleechanorg/ao-cli";
 }
 
 /**
@@ -210,7 +210,7 @@ export function detectInstallMethod(): InstallMethod {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the currently-installed `@aoagents/ao` version.
+ * Resolve the currently-installed `@jleechanorg/ao` version.
  *
  * Delegates to core's `getInstalledAoVersion` (single source of truth shared
  * with the dashboard) and falls back to the CLI's own embedded version when
@@ -267,15 +267,15 @@ export function getUpdateCommand(
     case "git":
       return "ao update";
     case "npm-global":
-      return `npm install -g @aoagents/ao@${tag}`;
+      return `npm install -g @jleechanorg/ao@${tag}`;
     case "pnpm-global":
-      return `pnpm add -g @aoagents/ao@${tag}`;
+      return `pnpm add -g @jleechanorg/ao@${tag}`;
     case "bun-global":
-      return `bun add -g @aoagents/ao@${tag}`;
+      return `bun add -g @jleechanorg/ao@${tag}`;
     case "homebrew":
       return "brew upgrade ao";
     case "unknown":
-      return `npm install -g @aoagents/ao@${tag}`;
+      return `npm install -g @jleechanorg/ao@${tag}`;
   }
 }
 
@@ -423,7 +423,7 @@ export async function fetchGitLatestState(
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch the latest version of @aoagents/ao for the given dist-tag.
+ * Fetch the latest version of @jleechanorg/ao for the given dist-tag.
  *
  * Hits the full package document (not the per-tag URL) so we get all dist-tags
  * in one round trip. Channels:
@@ -616,7 +616,7 @@ export function scheduleBackgroundRefresh(): void {
 /**
  * Re-export the core implementation so CLI consumers (and the existing test
  * suite) keep importing from this module while the dashboard imports the same
- * function from `@aoagents/ao-core` — single source of truth for the prerelease
+ * function from `@jleechanorg/ao-core` — single source of truth for the prerelease
  * comparison rules.
  */
 export const isVersionOutdated = coreIsVersionOutdated;

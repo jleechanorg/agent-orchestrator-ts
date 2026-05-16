@@ -7,7 +7,7 @@ import {
   getProjectDir,
   loadGlobalConfig,
   registerProjectInGlobalConfig,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 
 const invalidatePortfolioServicesCache = vi.fn();
 const getServices = vi.fn();

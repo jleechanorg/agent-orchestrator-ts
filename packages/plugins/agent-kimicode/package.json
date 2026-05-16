@@ -1,5 +1,5 @@
 {
-  "name": "@aoagents/ao-plugin-agent-kimicode",
+  "name": "@jleechanorg/ao-plugin-agent-kimicode",
   "version": "0.8.0",
   "description": "Agent plugin: Kimi Code CLI (MoonshotAI)",
   "license": "MIT",
@@ -34,7 +34,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@aoagents/ao-core": "workspace:*"
+    "@jleechanorg/ao-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

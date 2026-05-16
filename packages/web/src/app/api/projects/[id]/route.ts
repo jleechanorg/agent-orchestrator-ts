@@ -15,7 +15,7 @@ import {
   type OpenCodeSessionManager,
   type PluginRegistry,
   type LocalProjectConfig,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import { revalidatePath } from "next/cache";
 import { getServices, invalidatePortfolioServicesCache } from "@/lib/services";
 import { stopStaleWindowsPtyHosts } from "@/lib/windows-pty-cleanup";

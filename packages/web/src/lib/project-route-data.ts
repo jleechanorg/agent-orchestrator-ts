@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
-import type { DegradedProjectEntry, ProjectConfig } from "@aoagents/ao-core";
+import type { DegradedProjectEntry, ProjectConfig } from "@jleechanorg/ao-core";
 import { getServices } from "@/lib/services";
 import { getAllProjects, type ProjectInfo } from "@/lib/project-name";
 

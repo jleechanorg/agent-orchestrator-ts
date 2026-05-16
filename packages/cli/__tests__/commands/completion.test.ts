@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Command } from "commander";
-import type * as CoreModule from "@aoagents/ao-core";
-import type { Session } from "@aoagents/ao-core";
+import type * as CoreModule from "@jleechanorg/ao-core";
+import type { Session } from "@jleechanorg/ao-core";
 
 const { mockConfigRef, mockSessionManager } = vi.hoisted(() => ({
   mockConfigRef: { current: null as Record<string, unknown> | null },
@@ -10,7 +10,7 @@ const { mockConfigRef, mockSessionManager } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@aoagents/ao-core", async (importOriginal) => {
+vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
   const actual = (await importOriginal()) as typeof CoreModule;
   return {
     ...actual,

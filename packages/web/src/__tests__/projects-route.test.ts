@@ -15,7 +15,7 @@ import {
   generateExternalId,
   loadGlobalConfig,
   registerProjectInGlobalConfig,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 
 const invalidatePortfolioServicesCache = vi.fn();
 

@@ -4,7 +4,7 @@
  * Single source of truth for:
  *   - the on-disk path of the update-check cache
  *   - a raw (no-validation) read of that cache file
- *   - the currently-installed `@aoagents/ao` version
+ *   - the currently-installed `@jleechanorg/ao` version
  *
  * Both the CLI's `update-check.ts` and the dashboard's `/api/version` route
  * consume these. Without this module, both sides would reimplement the cache
@@ -68,11 +68,11 @@ export function readUpdateCheckCacheRaw(): UpdateCheckCacheRaw | null {
 }
 
 /**
- * The currently-installed `@aoagents/ao` version.
+ * The currently-installed `@jleechanorg/ao` version.
  *
  * Tries the wrapper package first (the canonical version users see). Falls
- * back to `@aoagents/ao-web` for dev mode where the wrapper isn't always in
- * `node_modules` — the dashboard ships in lockstep with `@aoagents/ao` (the
+ * back to `@jleechanorg/ao-web` for dev mode where the wrapper isn't always in
+ * `node_modules` — the dashboard ships in lockstep with `@jleechanorg/ao` (the
  * changeset linked group), so the web version is a safe proxy.
  *
  * Final fallback returns `"0.0.0"` so callers always have a string to
@@ -80,7 +80,7 @@ export function readUpdateCheckCacheRaw(): UpdateCheckCacheRaw | null {
  */
 export function getInstalledAoVersion(): string {
   const require = createRequire(fileURLToPath(import.meta.url));
-  const candidates = ["@aoagents/ao/package.json", "@aoagents/ao-web/package.json"];
+  const candidates = ["@jleechanorg/ao/package.json", "@jleechanorg/ao-web/package.json"];
   for (const candidate of candidates) {
     try {
       const pkg = require(candidate) as { version?: unknown };

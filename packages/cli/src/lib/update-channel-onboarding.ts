@@ -18,7 +18,7 @@ import {
   UpdateChannelSchema,
   type GlobalConfig,
   type UpdateChannel,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import { promptSelect } from "./prompts.js";
 import { isHumanCaller } from "./caller-context.js";
 

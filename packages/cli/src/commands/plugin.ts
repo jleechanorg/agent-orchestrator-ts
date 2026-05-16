@@ -10,7 +10,7 @@ import {
   type PluginSlot,
   type InstalledPluginConfig,
   type OrchestratorConfig,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import { parseDocument } from "yaml";
 import {
   buildPluginDescriptor,

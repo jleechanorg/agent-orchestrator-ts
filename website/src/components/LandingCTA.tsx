@@ -9,7 +9,7 @@ export function LandingCTA() {
           Start <em className="italic text-[var(--landing-muted)]">orchestrating.</em>
         </h2>
         <div className="landing-card inline-flex items-center gap-3 rounded-lg px-6 py-3 font-mono text-[0.9375rem] text-white mb-8">
-          <span className="text-[var(--landing-muted)] opacity-40">$</span> npm i -g @aoagents/ao
+          <span className="text-[var(--landing-muted)] opacity-40">$</span> npm i -g @jleechanorg/ao
         </div>
         <div className="flex items-center justify-center gap-4 flex-wrap">
           <a

@@ -2,7 +2,7 @@ import { lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from "node
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
-import type { Session } from "@aoagents/ao-core";
+import type { Session } from "@jleechanorg/ao-core";
 
 // =============================================================================
 // Kimi session-discovery layer

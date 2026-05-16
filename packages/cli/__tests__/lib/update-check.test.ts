@@ -55,10 +55,10 @@ const { mockGlobalConfig } = vi.hoisted(() => ({
   mockGlobalConfig: { value: null as null | { updateChannel?: string; installMethod?: string } },
 }));
 
-import type * as AoCoreType from "@aoagents/ao-core";
+import type * as AoCoreType from "@jleechanorg/ao-core";
 
-vi.mock("@aoagents/ao-core", async () => {
-  const actual = (await vi.importActual("@aoagents/ao-core")) as typeof AoCoreType;
+vi.mock("@jleechanorg/ao-core", async () => {
+  const actual = (await vi.importActual("@jleechanorg/ao-core")) as typeof AoCoreType;
   return {
     ...actual,
     loadGlobalConfig: () => mockGlobalConfig.value,
@@ -194,7 +194,7 @@ describe("update-check", () => {
     it("returns 'npm-global' for /usr/local/lib/node_modules path", () => {
       expect(
         classifyInstallPath(
-          "/usr/local/lib/node_modules/@aoagents/ao-cli/dist/lib/update-check.js",
+          "/usr/local/lib/node_modules/@jleechanorg/ao-cli/dist/lib/update-check.js",
         ),
       ).toBe("npm-global");
     });
@@ -202,7 +202,7 @@ describe("update-check", () => {
     it("returns 'npm-global' for nvm global path", () => {
       expect(
         classifyInstallPath(
-          "/home/user/.nvm/versions/node/v20.0.0/lib/node_modules/@aoagents/ao-cli/dist/lib/update-check.js",
+          "/home/user/.nvm/versions/node/v20.0.0/lib/node_modules/@jleechanorg/ao-cli/dist/lib/update-check.js",
         ),
       ).toBe("npm-global");
     });
@@ -218,7 +218,7 @@ describe("update-check", () => {
     it("returns 'pnpm-global' for pnpm global store path", () => {
       expect(
         classifyInstallPath(
-          "/home/user/.local/share/pnpm/global/5/node_modules/.pnpm/@aoagents+ao-cli@0.2.2/node_modules/@aoagents/ao-cli/dist/lib/update-check.js",
+          "/home/user/.local/share/pnpm/global/5/node_modules/.pnpm/@aoagents+ao-cli@0.2.2/node_modules/@jleechanorg/ao-cli/dist/lib/update-check.js",
         ),
       ).toBe("pnpm-global");
     });
@@ -227,7 +227,7 @@ describe("update-check", () => {
       mockExistsSync.mockReturnValue(false);
       expect(
         classifyInstallPath(
-          "/home/user/my-project/node_modules/.pnpm/@aoagents+ao-cli@0.2.2/node_modules/@aoagents/ao-cli/dist/lib/update-check.js",
+          "/home/user/my-project/node_modules/.pnpm/@aoagents+ao-cli@0.2.2/node_modules/@jleechanorg/ao-cli/dist/lib/update-check.js",
         ),
       ).toBe("unknown");
     });
@@ -236,7 +236,7 @@ describe("update-check", () => {
       mockExistsSync.mockReturnValue(false);
       expect(
         classifyInstallPath(
-          "/home/user/my-project/node_modules/@aoagents/ao-cli/dist/lib/update-check.js",
+          "/home/user/my-project/node_modules/@jleechanorg/ao-cli/dist/lib/update-check.js",
         ),
       ).toBe("unknown");
     });
@@ -246,7 +246,7 @@ describe("update-check", () => {
         if (path.endsWith(".git")) return true;
         return false;
       });
-      mockReadFileSync.mockReturnValue(JSON.stringify({ name: "@aoagents/ao" }));
+      mockReadFileSync.mockReturnValue(JSON.stringify({ name: "@jleechanorg/ao" }));
 
       expect(
         classifyInstallPath("/home/user/agent-orchestrator/packages/cli/src/lib/update-check.ts"),
@@ -281,7 +281,7 @@ describe("update-check", () => {
         if (path.endsWith(".git")) return true;
         return false;
       });
-      mockReadFileSync.mockReturnValue(JSON.stringify({ name: "@aoagents/ao" }));
+      mockReadFileSync.mockReturnValue(JSON.stringify({ name: "@jleechanorg/ao" }));
 
       const result = detectInstallMethod();
       expect(["git", "npm-global", "unknown"]).toContain(result);
@@ -309,15 +309,15 @@ describe("update-check", () => {
     });
 
     it("returns npm install command for npm-global installs", () => {
-      expect(getUpdateCommand("npm-global")).toBe("npm install -g @aoagents/ao@latest");
+      expect(getUpdateCommand("npm-global")).toBe("npm install -g @jleechanorg/ao@latest");
     });
 
     it("returns pnpm add command for pnpm-global installs", () => {
-      expect(getUpdateCommand("pnpm-global")).toBe("pnpm add -g @aoagents/ao@latest");
+      expect(getUpdateCommand("pnpm-global")).toBe("pnpm add -g @jleechanorg/ao@latest");
     });
 
     it("returns npm install command for unknown installs", () => {
-      expect(getUpdateCommand("unknown")).toBe("npm install -g @aoagents/ao@latest");
+      expect(getUpdateCommand("unknown")).toBe("npm install -g @jleechanorg/ao@latest");
     });
   });
 
@@ -652,7 +652,7 @@ describe("update-check", () => {
     it("returns null when dist-tags missing", async () => {
       mockFetch.mockResolvedValue({
         ok: true,
-        json: async () => ({ name: "@aoagents/ao" }),
+        json: async () => ({ name: "@jleechanorg/ao" }),
       });
       expect(await fetchLatestVersion("stable")).toBeNull();
     });
@@ -861,7 +861,7 @@ describe("update-check", () => {
       const info = await checkForUpdate({ force: true, installMethod: "npm-global" });
       expect(info.installMethod).toBe("npm-global");
       expect(info.latestVersion).toBe("0.3.0");
-      expect(info.recommendedCommand).toBe("npm install -g @aoagents/ao@latest");
+      expect(info.recommendedCommand).toBe("npm install -g @jleechanorg/ao@latest");
     });
 
     it("uses npm registry and pnpm-global command for pnpm-global installs", async () => {
@@ -878,7 +878,7 @@ describe("update-check", () => {
       const info = await checkForUpdate({ force: true, installMethod: "pnpm-global" });
       expect(info.installMethod).toBe("pnpm-global");
       expect(info.latestVersion).toBe("0.3.0");
-      expect(info.recommendedCommand).toBe("pnpm add -g @aoagents/ao@latest");
+      expect(info.recommendedCommand).toBe("pnpm add -g @jleechanorg/ao@latest");
     });
 
     it("uses cached git state without consulting npm registry", async () => {
@@ -901,7 +901,7 @@ describe("update-check", () => {
             latestRevisionAtCheck: "abc",
           });
         }
-        return JSON.stringify({ name: "@aoagents/ao" });
+        return JSON.stringify({ name: "@jleechanorg/ao" });
       });
 
       const info = await checkForUpdate();
@@ -916,7 +916,7 @@ describe("update-check", () => {
       mockExistsSync.mockImplementation((path: string) => path.endsWith(".git"));
       mockReadFileSync.mockImplementation((path: string) => {
         if (path.endsWith("update-check.json")) throw new Error("ENOENT");
-        return JSON.stringify({ name: "@aoagents/ao" });
+        return JSON.stringify({ name: "@jleechanorg/ao" });
       });
       mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
         if (args[0] === "rev-parse" && args[1] === "HEAD") return "local\n";
@@ -996,7 +996,7 @@ describe("update-check", () => {
       const output = stderrSpy.mock.calls[0]![0] as string;
       expect(output).toContain("Update available");
       expect(output).toContain("99.0.0");
-      expect(output).toContain("npm install -g @aoagents/ao@latest");
+      expect(output).toContain("npm install -g @jleechanorg/ao@latest");
     });
 
     it("prints git update notice from cached git state", () => {
@@ -1019,7 +1019,7 @@ describe("update-check", () => {
             currentRevisionAtCheck: "local",
           });
         }
-        return JSON.stringify({ name: "@aoagents/ao" });
+        return JSON.stringify({ name: "@jleechanorg/ao" });
       });
 
       maybeShowUpdateNotice();
@@ -1159,7 +1159,7 @@ describe("update-check", () => {
     it("returns 'bun-global' for ~/.bun/install/global/ paths", () => {
       expect(
         classifyInstallPath(
-          "/home/user/.bun/install/global/node_modules/@aoagents/ao-cli/dist/lib/update-check.js",
+          "/home/user/.bun/install/global/node_modules/@jleechanorg/ao-cli/dist/lib/update-check.js",
         ),
       ).toBe("bun-global");
     });
@@ -1178,7 +1178,7 @@ describe("update-check", () => {
       // FIRST or we'd misclassify brew installs as npm-global.
       expect(
         classifyInstallPath(
-          "/usr/local/Cellar/ao/0.5.0/libexec/lib/node_modules/@aoagents/ao-cli/dist/lib/update-check.js",
+          "/usr/local/Cellar/ao/0.5.0/libexec/lib/node_modules/@jleechanorg/ao-cli/dist/lib/update-check.js",
         ),
       ).toBe("homebrew");
     });
@@ -1187,22 +1187,22 @@ describe("update-check", () => {
   describe("getUpdateCommand — channel-aware (Section B)", () => {
     it("uses @nightly tag for nightly channel", () => {
       expect(getUpdateCommand("npm-global", "nightly")).toBe(
-        "npm install -g @aoagents/ao@nightly",
+        "npm install -g @jleechanorg/ao@nightly",
       );
       expect(getUpdateCommand("pnpm-global", "nightly")).toBe(
-        "pnpm add -g @aoagents/ao@nightly",
+        "pnpm add -g @jleechanorg/ao@nightly",
       );
       expect(getUpdateCommand("bun-global", "nightly")).toBe(
-        "bun add -g @aoagents/ao@nightly",
+        "bun add -g @jleechanorg/ao@nightly",
       );
     });
 
     it("uses @latest tag for stable + manual channels", () => {
       expect(getUpdateCommand("npm-global", "stable")).toBe(
-        "npm install -g @aoagents/ao@latest",
+        "npm install -g @jleechanorg/ao@latest",
       );
       expect(getUpdateCommand("npm-global", "manual")).toBe(
-        "npm install -g @aoagents/ao@latest",
+        "npm install -g @jleechanorg/ao@latest",
       );
     });
 

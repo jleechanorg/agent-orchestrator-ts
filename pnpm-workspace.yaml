@@ -3,3 +3,5 @@ packages:
   - "packages/plugins/*"
   - "autonomous-harness"
   - "!packages/mobile"
+  - "!packages/plugins/agent-kimicode"
+  - "!packages/plugins/runtime-process"

@@ -66,11 +66,11 @@ describe("script-runner", () => {
     "uses the package root for packaged installs inside node_modules",
     () => {
       const modulePath =
-        "/usr/local/lib/node_modules/@aoagents/ao-cli/dist/lib/script-runner.js";
+        "/usr/local/lib/node_modules/@jleechanorg/ao-cli/dist/lib/script-runner.js";
 
       expect(resolveScriptLayoutFromPath(modulePath)).toBe("package-install");
       expect(resolveDefaultRepoRootFromPath(modulePath)).toBe(
-        "/usr/local/lib/node_modules/@aoagents/ao-cli",
+        "/usr/local/lib/node_modules/@jleechanorg/ao-cli",
       );
     },
   );
@@ -118,7 +118,7 @@ describe("script-runner", () => {
     mkdirSync(join(tempRoot, "packages", "ao"), { recursive: true });
     writeFileSync(
       join(tempRoot, "packages", "ao", "package.json"),
-      JSON.stringify({ name: "@aoagents/ao" }),
+      JSON.stringify({ name: "@jleechanorg/ao" }),
     );
 
     process.env["AO_REPO_ROOT"] = tempRoot;
@@ -150,7 +150,7 @@ describe("script-runner", () => {
       mkdirSync(join(tempRoot, "packages", "ao"), { recursive: true });
       writeFileSync(
         join(tempRoot, "packages", "ao", "package.json"),
-        JSON.stringify({ name: "@aoagents/ao" }),
+        JSON.stringify({ name: "@jleechanorg/ao" }),
       );
 
       process.env["AO_REPO_ROOT"] = tempRoot;
@@ -201,7 +201,7 @@ describe("script-runner", () => {
       mkdirSync(join(tempRoot, "packages", "ao"), { recursive: true });
       writeFileSync(
         join(tempRoot, "packages", "ao", "package.json"),
-        JSON.stringify({ name: "@aoagents/ao" }),
+        JSON.stringify({ name: "@jleechanorg/ao" }),
       );
       process.env["AO_REPO_ROOT"] = tempRoot;
 
@@ -222,7 +222,7 @@ describe("script-runner", () => {
     mkdirSync(join(tempRoot, "packages", "ao"), { recursive: true });
     writeFileSync(
       join(tempRoot, "packages", "ao", "package.json"),
-      JSON.stringify({ name: "@aoagents/ao" }),
+      JSON.stringify({ name: "@jleechanorg/ao" }),
     );
 
     process.env["AO_REPO_ROOT"] = tempRoot;

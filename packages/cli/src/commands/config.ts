@@ -19,7 +19,7 @@ import {
   type GlobalConfig,
   type UpdateChannel,
   type InstallMethodOverride,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import { existsSync } from "node:fs";
 
 const SUPPORTED_KEYS = ["updateChannel", "installMethod"] as const;

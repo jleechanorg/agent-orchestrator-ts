@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CI_STATUS } from "@aoagents/ao-core/types";
+import { CI_STATUS } from "@jleechanorg/ao-core/types";
 import { cn } from "@/lib/cn";
 import {
   isPRMergeReady,

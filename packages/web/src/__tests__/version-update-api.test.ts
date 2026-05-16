@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type * as AoCoreType from "@aoagents/ao-core";
+import type * as AoCoreType from "@jleechanorg/ao-core";
 
 // Use a real on-disk cache file in a per-test temp dir rather than mocking
 // node:fs. Mocking ESM-imported fs functions is unreliable when the route
@@ -15,8 +15,8 @@ const { mockGlobalConfig } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@aoagents/ao-core", async () => {
-  const actual = (await vi.importActual("@aoagents/ao-core")) as typeof AoCoreType;
+vi.mock("@jleechanorg/ao-core", async () => {
+  const actual = (await vi.importActual("@jleechanorg/ao-core")) as typeof AoCoreType;
   return {
     ...actual,
     loadGlobalConfig: () => mockGlobalConfig.value,

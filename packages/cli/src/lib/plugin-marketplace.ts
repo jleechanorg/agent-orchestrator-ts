@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { resolveLocalPluginEntrypoint, type InstalledPluginConfig, type PluginSlot } from "@aoagents/ao-core";
+import { resolveLocalPluginEntrypoint, type InstalledPluginConfig, type PluginSlot } from "@jleechanorg/ao-core";
 
 const registryData = createRequire(import.meta.url)("../assets/plugin-registry.json") as unknown[];
 
@@ -125,7 +125,7 @@ export async function refreshMarketplaceCatalog(
   return mergedEntries;
 }
 
-export { normalizeImportedPluginModule } from "@aoagents/ao-core";
+export { normalizeImportedPluginModule } from "@jleechanorg/ao-core";
 
 export function isLocalPluginReference(reference: string): boolean {
   return (

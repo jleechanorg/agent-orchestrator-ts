@@ -1,5 +1,5 @@
 const steps = [
-  { num: "STEP 01", title: "Install", desc: "One command. No dependencies beyond Node.js.", cmd: "npm i -g @aoagents/ao" },
+  { num: "STEP 01", title: "Install", desc: "One command. No dependencies beyond Node.js.", cmd: "npm i -g @jleechanorg/ao" },
   { num: "STEP 02", title: "Configure", desc: "Create an agent-orchestrator.yaml. Pick your agents, tracker, and notifiers.", cmd: "ao start" },
   { num: "STEP 03", title: "Launch", desc: "Assign issues and watch agents spawn.", cmd: "ao batch-spawn 1 2 3" },
 ];

@@ -17,7 +17,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { migrateStorage } from "@aoagents/ao-core";
+import { migrateStorage } from "@jleechanorg/ao-core";
 import { makeSession } from "./helpers/session-factory.js";
 
 // Skipped on Windows: exercises migration FROM the legacy hash-dir layout
@@ -119,7 +119,7 @@ describe.skipIf(process.platform === "win32")("migrate-storage → agent-codex.g
     // Dynamic import: agent-codex captures `~/.codex/sessions` from
     // `homedir()` at module-evaluation time, so we must import it after
     // setting `process.env["HOME"]`.
-    const codexPlugin = (await import("@aoagents/ao-plugin-agent-codex"))
+    const codexPlugin = (await import("@jleechanorg/ao-plugin-agent-codex"))
       .default;
     const agent = codexPlugin.create();
     const session = makeSession("ao-1", null, newWorktreePath);

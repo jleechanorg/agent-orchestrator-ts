@@ -20,7 +20,7 @@
  */
 
 import chalk from "chalk";
-import { killProcessTree, sweepDaemonChildren } from "@aoagents/ao-core";
+import { killProcessTree, sweepDaemonChildren } from "@jleechanorg/ao-core";
 import { unregister, waitForExit, type RunningState } from "./running-state.js";
 
 /**

@@ -5,7 +5,7 @@ import {
   type RuntimeHandle,
   type AgentLaunchConfig,
   type ProjectConfig,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import {
   mkdtempSync,
   mkdirSync,
@@ -51,7 +51,7 @@ const {
   mockIsWindows: vi.fn(() => false),
 }));
 
-vi.mock("@aoagents/ao-core", async (importOriginal) => {
+vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,

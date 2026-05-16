@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import chalk from "chalk";
-import { migrateStorage, rollbackStorage } from "@aoagents/ao-core";
+import { migrateStorage, rollbackStorage } from "@jleechanorg/ao-core";
 
 export function registerMigrateStorage(program: Command): void {
   program

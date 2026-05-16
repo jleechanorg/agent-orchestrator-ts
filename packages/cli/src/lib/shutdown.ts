@@ -17,7 +17,7 @@ import {
   loadConfig,
   markDaemonShutdownHandlerInstalled,
   sweepDaemonChildren,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import { stopBunTmpJanitor } from "./bun-tmp-janitor.js";
 import { getSessionManager } from "./create-session-manager.js";
 import { stopAllLifecycleWorkers } from "./lifecycle-service.js";

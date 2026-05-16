@@ -2,7 +2,7 @@ import {
   isOrchestratorSession,
   isTerminalSession,
   type Session,
-} from "@aoagents/ao-core/types";
+} from "@jleechanorg/ao-core/types";
 import type { Orchestrator } from "@/components/OrchestratorSelector";
 
 export function getOrchestratorSessionId(project: { sessionPrefix: string }): string {

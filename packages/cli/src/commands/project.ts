@@ -12,7 +12,7 @@ import {
   savePreferences,
   loadLocalProjectConfig,
   loadConfig,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import {
   formatPortfolioDegradedReason,
   formatPortfolioProjectName,

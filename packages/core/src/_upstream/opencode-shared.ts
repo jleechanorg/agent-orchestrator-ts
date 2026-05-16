@@ -11,7 +11,7 @@
  *    via `TMPDIR`. The cli-side janitor then sweeps only that directory.
  *
  * 2. **Single shared cache for `opencode session list`.**
- *    Both `@aoagents/ao-core` and the `agent-opencode` plugin previously
+ *    Both `@jleechanorg/ao-core` and the `agent-opencode` plugin previously
  *    kept independent module-level caches. Per poll cycle the system
  *    therefore spawned at least two `opencode session list` processes
  *    instead of one. A single cache exported from core collapses them.

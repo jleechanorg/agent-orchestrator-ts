@@ -24,7 +24,7 @@ import {
   type OrchestratorConfig,
   getProjectSessionsDir,
   type Session,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 
 // ── Shared setup ─────────────────────────────────────────────────────
 

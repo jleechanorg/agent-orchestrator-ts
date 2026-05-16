@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ConfigNotFoundError, getGlobalConfigPath, loadConfig } from "@aoagents/ao-core";
+import { ConfigNotFoundError, getGlobalConfigPath, loadConfig } from "@jleechanorg/ao-core";
 import { invalidatePortfolioServicesCache } from "@/lib/services";
 
 export const dynamic = "force-dynamic";

@@ -106,7 +106,7 @@ export function LandingHero({ starsLabel }: LandingHeroProps) {
         </p>
         <div className="landing-fade-rise-d2 flex items-center gap-3 mt-10 flex-wrap justify-center">
           <div className="landing-card rounded-lg px-6 py-3 font-mono text-sm">
-            <span className="text-[var(--landing-muted)] opacity-40">$</span> npx @aoagents/ao start
+            <span className="text-[var(--landing-muted)] opacity-40">$</span> npx @jleechanorg/ao start
           </div>
           <a
             href="/docs"

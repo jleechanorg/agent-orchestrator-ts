@@ -7,7 +7,7 @@ import {
   getGlobalConfigPath,
   type OrchestratorConfig,
   type Session,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import { getSessionManager } from "./create-session-manager.js";
 import { isOrchestratorSessionName } from "./session-utils.js";
 

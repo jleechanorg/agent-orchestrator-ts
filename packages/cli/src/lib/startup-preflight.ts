@@ -21,7 +21,7 @@ import {
   inventoryHashDirs,
   isWindows,
   type OrchestratorConfig,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import { execSilent } from "./shell.js";
 import { detectOpenClawInstallation } from "./openclaw-probe.js";
 import { applyOpenClawCredentials } from "./credential-resolver.js";

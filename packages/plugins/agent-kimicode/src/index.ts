@@ -20,7 +20,7 @@ import {
   type RuntimeHandle,
   type Session,
   type WorkspaceHooksConfig,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createReadStream, readFileSync } from "node:fs";

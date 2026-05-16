@@ -17,7 +17,7 @@ import {
   loadGlobalConfig,
   readUpdateCheckCacheRaw,
   type UpdateChannel,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 
 export const dynamic = "force-dynamic";
 

@@ -9,7 +9,7 @@ import {
   type ActivityEvent,
   type ActivityEventLevel,
   type ActivityEventKind,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 
 interface JsonEnvelope {
   version: number;
