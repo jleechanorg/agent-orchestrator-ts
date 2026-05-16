@@ -143,19 +143,22 @@ for project in $PROJECTS; do
     AO_CONFIG_PATH="$CONFIG_PATH" nohup ao lifecycle-worker "$project" >> "$LOG_FILE" 2>&1 &
     disown
     STARTED=$((STARTED + 1))
-    sleep 2
 
-    # Verify the started worker belongs to this install (same scoping as
-    # the liveness check above — prevents false OK from another install's worker).
+    # Retry pgrep up to 5 times (1s apart) to handle slow process startup and
+    # "already running" cases where the new ao process exits immediately but the
+    # existing worker is still visible.
     started_ok=false
-    started_pids=$(pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" 2>/dev/null || true)
-    for spid in $started_pids; do
-        SCMD=$(ps -p "$spid" -o args= 2>/dev/null) || continue
-        if [ -n "$AO_MATCH" ]; then
-            if command_matches_ao_binary "$SCMD" "$AO_MATCH"; then started_ok=true; break; fi
-        else
-            started_ok=true; break
-        fi
+    for _attempt in 1 2 3 4 5; do
+        sleep 1
+        started_pids=$(pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" 2>/dev/null || true)
+        for spid in $started_pids; do
+            SCMD=$(ps -p "$spid" -o args= 2>/dev/null) || continue
+            if [ -n "$AO_MATCH" ]; then
+                if command_matches_ao_binary "$SCMD" "$AO_MATCH"; then started_ok=true; break 2; fi
+            else
+                started_ok=true; break 2
+            fi
+        done
     done
     if [ "$started_ok" = "true" ]; then
         log "OK: $project worker started"

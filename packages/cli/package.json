@@ -43,6 +43,7 @@
     "@jleechanorg/ao-plugin-agent-minimax": "workspace:*",
     "@jleechanorg/ao-plugin-agent-wafer": "workspace:*",
     "@jleechanorg/ao-plugin-agent-opencode": "workspace:*",
+    "@jleechanorg/ao-plugin-agent-openw": "workspace:*",
     "@jleechanorg/ao-plugin-poller-github-pr": "workspace:*",
     "@jleechanorg/ao-plugin-scm-gitlab": "workspace:*",
     "@jleechanorg/ao-plugin-tracker-beads": "workspace:*",
