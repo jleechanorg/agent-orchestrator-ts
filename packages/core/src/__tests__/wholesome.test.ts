@@ -543,6 +543,10 @@ describe("wholesome — structural source-code assertions", () => {
       "151433a5975dc5846919b9db7d79cb4945f133da", // fix(skeptic): SKEPTIC_BOT_AUTHOR default to jleechan2015
       "456c836a10b217406a0c55cb5759217e69ecf6cd", // fix(skeptic): SKEPTIC_BOT_AUTHOR default is github-actions[bot]
       "c859cdbb7c27755ff7fae366d7e294b586460410", // fix: restore --model flag to Claude CLI invocations in llm-eval
+      // feat/spawn-storm-concurrency-cap (PR #564): pre-[agento] commits on this branch
+      "5ec2b7b1b0b10dc75e00ac34b21bd06cb68da9b5", // fix(cli): reap daemon children on start/stop (cherry-pick upstream #1849)
+      "c1b42355a59176afd3bfa84b447d882082ecc8e5", // feat(cli): cap concurrent sessions in spawn-queue load gate
+      "2f6ef8e63e5ca378146f0316dbdad4b20cada297", // feat(core): universal session cap at session-manager.spawn()
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
