@@ -117,6 +117,9 @@ if (isWindows() && nextBin !== "next") {
   spawnProcess("next", nextBin, ["start", "-p", port]);
 }
 
+// Start terminal WebSocket server
+spawnProcess("terminal", "node", [resolve(__dirname, "terminal-websocket.js")]);
+
 // Start direct terminal WebSocket server (auto-restart on crash)
 spawnProcess("direct-terminal", "node", [resolve(__dirname, "direct-terminal-ws.js")], {
   restart: true,
