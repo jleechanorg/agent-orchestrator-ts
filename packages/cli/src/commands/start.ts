@@ -9,13 +9,10 @@
  * (or equivalent flag) at launch time — no file writing required.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve, basename } from "node:path";
-import { type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve, basename, dirname } from "node:path";
 import { cwd } from "node:process";
 import { resolveProjectByCwd } from "../lib/resolve-project-cwd.js";
 import chalk from "chalk";
@@ -36,29 +33,19 @@ import {
   validateManagedConfigTopology,
   normalizeOrchestratorSessionStrategy,
   ConfigNotFoundError,
-  isCanonicalGlobalConfigPath,
-  isTerminalSession,
-  getDefaultRuntime,
-  isWindows,
   isMac,
   isLinux,
-  findPidByPort,
-  killProcessTree,
-  loadLocalProjectConfigDetailed,
-  registerProjectInGlobalConfig,
-  getGlobalConfigPath,
-  type OrchestratorConfig,
-  type ProjectConfig,
-  type ParsedRepoUrl,
-} from "@jleechanorg/ao-core";
-  writeLocalProjectConfig,
+  isWindows,
   spawnManagedDaemonChild,
   sweepDaemonChildren,
   scanAoOrphans,
   reapAoOrphans,
+  type OrchestratorConfig,
+  type ProjectConfig,
+  type ParsedRepoUrl,
   type DaemonChildSweepResult,
   type AoOrphanProcess,
-} from "@aoagents/ao-core";
+} from "@jleechanorg/ao-core";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 import { exec, execSilent, git } from "../lib/shell.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
@@ -82,21 +69,6 @@ import {
   generateRulesFromTemplates,
   formatProjectTypeForDisplay,
 } from "../lib/project-detection.js";
-import { formatCommandError } from "../lib/cli-errors.js";
-import { findProjectForDirectory } from "../lib/project-resolution.js";
-import {
-  type InstallAttempt,
-  canPromptForInstall,
-  genericInstallHints,
-  askYesNo,
-  runInteractiveCommand,
-  tryInstallWithAttempts,
-} from "../lib/install-helpers.js";
-import { ensureGit, runtimePreflight } from "../lib/startup-preflight.js";
-import { installShutdownHandlers, isShutdownInProgress } from "../lib/shutdown.js";
-import { resolveOrCreateProject } from "../lib/resolve-project.js";
-import { pathsEqual } from "../lib/path-equality.js";
-import { maybePromptForUpdateChannel } from "../lib/update-channel-onboarding.js";
 
 const DEFAULT_PORT = 3000;
 
@@ -247,141 +219,6 @@ function resolveProjectByRepo(
 
   // No repo match — fall back to standard resolution (works for single-project)
   return resolveProject(config);
-  return await resolveProject(config);
-}
-
-/**
- * Prompt the user to optionally switch orchestrator/worker agents at startup.
- * Shows only agents detected on the current system (reuses detectAvailableAgents).
- * Returns the chosen agents
- */
-async function promptAgentSelection(): Promise<{
-  orchestratorAgent: string;
-  workerAgent: string;
-} | null> {
-  if (canPromptForInstall()) {
-    const available = await detectAvailableAgents();
-    if (available.length === 0) {
-      console.log(chalk.yellow("No agent runtimes detected — using existing config."));
-      return null;
-    }
-
-    const agentOptions = available.map((a) => ({ value: a.name, label: a.displayName }));
-
-    const orchestratorAgent = await promptSelect("Orchestrator agent:", agentOptions);
-    const workerAgent = await promptSelect("Worker agent:", agentOptions);
-
-    return { orchestratorAgent, workerAgent };
-  } else {
-    return null;
-  }
-}
-
-function ghInstallAttempts(): InstallAttempt[] {
-  if (isMac()) {
-    return [{ cmd: "brew", args: ["install", "gh"], label: "brew install gh" }];
-  }
-  if (isLinux()) {
-    return [
-      {
-        cmd: "sudo",
-        args: ["apt-get", "install", "-y", "gh"],
-        label: "sudo apt-get install -y gh",
-      },
-      { cmd: "sudo", args: ["dnf", "install", "-y", "gh"], label: "sudo dnf install -y gh" },
-    ];
-  }
-  if (isWindows()) {
-    return [
-      {
-        cmd: "winget",
-        args: ["install", "--id", "GitHub.cli", "-e", "--source", "winget"],
-        label: "winget install --id GitHub.cli -e --source winget",
-      },
-    ];
-  }
-  return [];
-}
-
-interface AgentInstallOption {
-  id: string;
-  label: string;
-  cmd: string;
-  args: string[];
-}
-
-const AGENT_INSTALL_OPTIONS: AgentInstallOption[] = [
-  {
-    id: "claude-code",
-    label: "Claude Code",
-    cmd: "npm",
-    args: ["install", "-g", "@anthropic-ai/claude-code"],
-  },
-  {
-    id: "codex",
-    label: "OpenAI Codex",
-    cmd: "npm",
-    args: ["install", "-g", "@openai/codex"],
-  },
-  {
-    id: "aider",
-    label: "Aider",
-    cmd: "pipx",
-    args: ["install", "aider-chat"],
-  },
-  {
-    id: "opencode",
-    label: "OpenCode",
-    cmd: "npm",
-    args: ["install", "-g", "opencode-ai"],
-  },
-  {
-    id: "kimicode",
-    label: "Kimi Code",
-    cmd: "uv",
-    args: ["tool", "install", "kimi-cli"],
-  },
-];
-
-async function promptInstallAgentRuntime(available: DetectedAgent[]): Promise<DetectedAgent[]> {
-  if (available.length > 0 || !canPromptForInstall()) return available;
-
-  console.log(chalk.yellow("⚠ No supported agent runtime detected."));
-  console.log(
-    chalk.dim("  You can install one now (recommended) or continue and install later.\n"),
-  );
-  const choice = await promptSelect("Choose runtime to install:", [
-    ...AGENT_INSTALL_OPTIONS.map((option) => ({
-      value: option.id,
-      label: option.label,
-      hint: [option.cmd, ...option.args].join(" "),
-    })),
-    { value: "skip", label: "Skip for now" },
-  ]);
-  if (choice === "skip") {
-    return available;
-  }
-
-  const selected = AGENT_INSTALL_OPTIONS.find((option) => option.id === choice);
-  if (!selected) {
-    return available;
-  }
-
-  console.log(chalk.dim(`  Installing ${selected.label}...`));
-  try {
-    await runInteractiveCommand(selected.cmd, selected.args, {
-      action: `install ${selected.label}`,
-      installHints: genericInstallHints(selected.cmd),
-    });
-    const refreshed = await detectAvailableAgents();
-    if (refreshed.length > 0) {
-      console.log(chalk.green(`  ✓ ${selected.label} installed successfully`));
-    }
-    return refreshed;
-  } catch {
-    console.log(chalk.yellow(`  ⚠ Could not install ${selected.label} automatically.`));
-    return available;
-  }
 }
 
 /**
@@ -755,29 +592,18 @@ async function startDashboard(
   let child: ChildProcess;
   if (isDevMode) {
     // Monorepo development: use pnpm run dev (tsx, HMR, etc.)
-    child = spawn("pnpm", ["run", "dev"], {
-  if (useDevServer) {
-    // Monorepo with --dev: use pnpm run dev (tsx watch, HMR, etc.)
-    console.log(chalk.dim("  Mode: development (HMR enabled)"));
     child = spawnManagedDaemonChild("dashboard", "pnpm", ["run", "dev"], {
       cwd: webDir,
       stdio: "inherit",
-      detached: false,
+      detached: !isWindows(),
       env,
     });
   } else {
     // Production (installed from npm): use pre-built start-all script
-    child = spawn("node", [resolve(webDir, "dist-server", "start-all.js")], {
-    // Production: use pre-built start-all script.
-    if (isMonorepo) {
-      console.log(chalk.dim("  Mode: optimized (production bundles)"));
-      console.log(chalk.dim("  Tip: use --dev for hot reload when editing dashboard UI\n"));
-    }
-    const startScript = resolve(webDir, "dist-server", "start-all.js");
-    child = spawnManagedDaemonChild("dashboard", "node", [startScript], {
+    child = spawnManagedDaemonChild("dashboard", "node", [resolve(webDir, "dist-server", "start-all.js")], {
       cwd: webDir,
       stdio: "inherit",
-      detached: false,
+      detached: !isWindows(),
       env,
     });
   }
@@ -863,11 +689,6 @@ async function runStartup(
   guardMainRepo(resolvedProjectPath, mainRepoPath);
 
   const sessionId = `${project.sessionPrefix}-orchestrator`;
-  // Install the parent shutdown path before spawning any managed children.
-  // This guarantees a SIGINT/SIGTERM in the middle of startup still performs
-  // the full AO cleanup instead of relying on Node's default signal exit.
-  installShutdownHandlers({ configPath: config.configPath, projectId });
-
   const shouldStartLifecycle = opts?.dashboard !== false || opts?.orchestrator !== false;
   let lifecycleStatus: Awaited<ReturnType<typeof ensureLifecycleWorker>> | null = null;
   let port = config.port ?? DEFAULT_PORT;
@@ -1006,7 +827,6 @@ async function runStartup(
   if (dashboardProcess) {
     dashboardProcess.on("exit", (code) => {
       if (openAbort) openAbort.abort();
-      if (isShutdownInProgress()) return;
       if (code !== 0 && code !== null) {
         console.error(chalk.red(`Dashboard exited with code ${code}`));
       }
@@ -1066,133 +886,6 @@ async function stopDashboard(port: number): Promise<void> {
   } catch {
     console.log(chalk.yellow("Could not stop dashboard (may not be running)"));
   }
-
-  console.log(chalk.yellow("Could not stop dashboard (may not be running)"));
-}
-
-function formatSweepSummary(result: DaemonChildSweepResult): string {
-  return `${result.terminated} graceful, ${result.forceKilled} force-killed${
-    result.failed > 0 ? `, ${result.failed} failed` : ""
-  }`;
-}
-
-async function sweepRegisteredDaemonChildren(ownerPid?: number): Promise<void> {
-  const result = await sweepDaemonChildren({ ownerPid });
-  if (result.attempted > 0) {
-    console.log(
-      chalk.dim(
-        `  Swept ${result.attempted} registered daemon child(ren): ${formatSweepSummary(result)}`,
-      ),
-    );
-  }
-}
-
-function describeAoOrphans(orphans: AoOrphanProcess[]): string {
-  return orphans
-    .map((orphan) => `${orphan.pid} (${orphan.role})`)
-    .slice(0, 8)
-    .join(", ");
-}
-
-async function maybeSweepAoOrphansOnStart(reapOrphans: boolean | undefined): Promise<void> {
-  const orphans = await scanAoOrphans();
-  if (orphans.length === 0) return;
-
-  if (!reapOrphans && isHumanCaller()) {
-    console.log(
-      chalk.yellow(
-        `\n  Found ${orphans.length} orphaned AO child process(es): ${describeAoOrphans(orphans)}`,
-      ),
-    );
-    reapOrphans = await promptConfirm("Kill orphaned AO child processes before starting?", true);
-  }
-
-  if (!reapOrphans) {
-    console.log(
-      chalk.yellow(
-        `  Found ${orphans.length} orphaned AO child process(es). Run \`ao start --reap-orphans\` to clean them up.`,
-      ),
-    );
-    return;
-  }
-
-  const result = await reapAoOrphans(orphans);
-  console.log(
-    chalk.green(
-      `  Reaped ${result.attempted} orphaned AO child process(es): ${formatSweepSummary(result)}`,
-    ),
-  );
-}
-
-/**
- * Spawn an orchestrator session against an already-running daemon, invalidate
- * the dashboard's project cache, and surface enough context for the user to
- * find the new session.
- *
- * Replaces the per-arg-shape inline blocks (§3.2 URL/path-while-running and
- * §3.3 project-id-while-running) that previously each carried their own
- * messaging + reload + browser-open code. The two flows differ only in which
- * line of "registered" vs "reattached" they print, driven by `justCreated`.
- */
-async function attachAndSpawnOrchestrator(opts: {
-  running: RunningState;
-  config: OrchestratorConfig;
-  projectId: string;
-  project: ProjectConfig;
-  /** True when this CLI invocation registered the project for the first
-   *  time (URL clone or path register). Drives the "registered" vs
-   *  "reattached" message line. */
-  justCreated: boolean;
-}): Promise<void> {
-  const { running, config, projectId, project, justCreated } = opts;
-  const daemon = attachToDaemon(running);
-
-  console.log(
-    chalk.dim(
-      justCreated
-        ? "\n  Spawning orchestrator session...\n"
-        : "\n  Attaching to running AO instance...\n",
-    ),
-  );
-
-  const sm = await getSessionManager(config);
-  const systemPrompt = generateOrchestratorPrompt({ config, projectId, project });
-  const session = await sm.ensureOrchestrator({ projectId, systemPrompt });
-
-  if (justCreated) {
-    console.log(chalk.green(`\n✓ Project "${projectId}" registered in the global config.`));
-    console.log(chalk.green(`✓ Orchestrator session ready: ${session.id}`));
-  } else {
-    console.log(chalk.green(`✓ Orchestrator session ready: ${session.id}`));
-    console.log(
-      chalk.green(`✓ Project "${projectId}" reattached to running daemon (PID ${daemon.pid}).`),
-    );
-  }
-
-  const notifyResult = await daemon.notifyProjectChange();
-  if (notifyResult.ok) {
-    console.log(chalk.dim(`  Dashboard config reloaded.`));
-  } else {
-    console.log(
-      chalk.yellow(`  ⚠ ${notifyResult.reason}. Refresh the page if the project doesn't show up.`),
-    );
-  }
-
-  if (!running.projects.includes(projectId)) {
-    console.log(
-      chalk.yellow(
-        `\nℹ Lifecycle polling for "${projectId}" will attach within ~60s\n` +
-          `  because the running ao start process now supervises active global projects.\n`,
-      ),
-    );
-  }
-
-  if (isHumanCaller()) {
-    console.log(chalk.dim(`  Opening dashboard: http://localhost:${daemon.port}\n`));
-    openUrl(`http://localhost:${daemon.port}`);
-  } else {
-    console.log(`Dashboard: http://localhost:${daemon.port}`);
-  }
 }
 
 // =============================================================================
@@ -1223,9 +916,6 @@ export function registerStart(program: Command): void {
     .option("--no-dashboard", "Skip starting the dashboard server")
     .option("--no-orchestrator", "Skip starting the orchestrator agent")
     .option("--rebuild", "Clean and rebuild dashboard before starting")
-    .option("--dev", "Use Next.js dev server with hot reload (for dashboard UI development)")
-    .option("--interactive", "Prompt to configure config settings")
-    .option("--reap-orphans", "Kill orphaned AO child processes before starting")
     .action(
       async (
         projectArg?: string,
@@ -1233,14 +923,9 @@ export function registerStart(program: Command): void {
           dashboard?: boolean;
           orchestrator?: boolean;
           rebuild?: boolean;
-          dev?: boolean;
-          interactive?: boolean;
-          reapOrphans?: boolean;
         },
       ) => {
         try {
-          releaseStartupLock = await acquireStartupLock();
-          await maybeSweepAoOrphansOnStart(opts?.reapOrphans);
           let config: OrchestratorConfig;
           let projectId: string;
           let project: ProjectConfig;
@@ -1355,7 +1040,7 @@ export function registerStart(program: Command): void {
                   process.platform === "win32"
                     ? ["cmd.exe", ["/c", "start", "", url]]
                     : [process.platform === "linux" ? "xdg-open" : "open", [url]];
-                spawn(cmd, args, { stdio: "ignore" });
+                spawnProcess(cmd, args, { stdio: "ignore" });
                 process.exit(0);
               } else if (choice.trim() === "2") {
                 // Generate unique orchestrator: same project, new session
@@ -1420,29 +1105,6 @@ export function registerStart(program: Command): void {
             startedAt: new Date().toISOString(),
             projects: Object.keys(config.projects),
           });
-          unlockStartup();
-
-          // Start the Bun-extracted /tmp/.*.{so,dylib} janitor once per AO
-          // process. Single-instance is enforced by running.json + the
-          // startup lock above, so this call site is reached at most once
-          // per process. The janitor uses an unref'd interval timer, so it
-          // does not keep the event loop alive on its own and dies with the
-          // process on SIGTERM/SIGINT.
-          startBunTmpJanitor({
-            onSweep: ({ removed, freedBytes, errors }) => {
-              if (removed > 0) {
-                console.info(
-                  `[bun-tmp-janitor] reclaimed ${removed} file(s) / ${freedBytes} bytes`,
-                );
-              }
-              if (errors > 0) {
-                console.warn(`[bun-tmp-janitor] sweep had ${errors} error(s)`);
-              }
-            },
-          });
-
-          // Ctrl+C and `ao stop` (which sends SIGTERM) perform a full
-          // graceful shutdown via the handler installed inside runStartup().
         } catch (err) {
           if (err instanceof Error) {
             console.error(chalk.red("\nError:"), err.message);
@@ -1474,50 +1136,6 @@ export function registerStop(program: Command): void {
         projectArg?: string,
         opts: { purgeSession?: boolean; all?: boolean } = {},
       ) => {
-    .action(async (projectArg?: string, opts: { purgeSession?: boolean; all?: boolean } = {}) => {
-      try {
-        // Check running.json first
-        const running = await getRunning();
-
-        if (opts.all) {
-          // --all: kill via running.json if available, then fallback to config
-          if (running) {
-            // Sweep detached Windows pty-hosts BEFORE killing the parent.
-            // detached:true puts them outside the parent's process tree, so
-            // taskkill /T cannot reach them. The sweep speaks the named-pipe
-            // protocol so node-pty disposes ConPTY gracefully (avoids WER
-            // 0x800700e8). No-op on non-Windows.
-            await sweepWindowsPtyHostsBeforeParentKill();
-            await sweepRegisteredDaemonChildren(running.pid);
-            // killProcessTree handles process trees on Windows (taskkill /T /F)
-            // and process groups on Unix; it swallows "already dead" internally.
-            await killProcessTree(running.pid, "SIGTERM");
-            await unregister();
-            console.log(chalk.green(`\n✓ Stopped AO on port ${running.port}`));
-            console.log(chalk.dim(`  Projects: ${running.projects.join(", ")}\n`));
-          } else {
-            console.log(chalk.yellow("No running AO instance found in running.json."));
-          }
-          return;
-        }
-
-        let config = loadConfig();
-        // ao stop affects all projects (it kills the parent ao start process),
-        // so load the global config which has all registered projects.
-        // When a specific project is targeted, only fall back to global if
-        // the project isn't in the local config.
-        if (!projectArg || !config.projects[projectArg]) {
-          const globalPath = getGlobalConfigPath();
-          if (existsSync(globalPath)) {
-            config = loadConfig(globalPath);
-          }
-        }
-        const { projectId: _projectId, project } = await resolveProject(config, projectArg, "stop");
-        const port = config.port ?? DEFAULT_PORT;
-
-        console.log(chalk.bold(`\nStopping orchestrator for ${chalk.cyan(project.name)}\n`));
-
-        const sm = await getSessionManager(config);
         try {
           // Check running.json first
           const running = await getRunning();
@@ -1577,17 +1195,7 @@ export function registerStop(program: Command): void {
             } catch {
               // Already dead
             }
-            // Sweep detached Windows pty-hosts BEFORE killing the parent.
-            // detached:true puts them outside the parent's process tree, so
-            // taskkill /T cannot reach them. The sweep speaks the named-pipe
-            // protocol so node-pty disposes ConPTY gracefully (avoids WER
-            // 0x800700e8). No-op on non-Windows.
-            await sweepWindowsPtyHostsBeforeParentKill();
-            await sweepRegisteredDaemonChildren(running.pid);
-            await killProcessTree(running.pid, "SIGTERM");
             await unregister();
-          } else {
-            await sweepRegisteredDaemonChildren();
           }
           await stopDashboard(running?.port ?? port);
 

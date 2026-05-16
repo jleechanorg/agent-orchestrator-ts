@@ -66,6 +66,8 @@ describe("terminal-websocket.ts", () => {
 
   it("does not check file existence for session validation", () => {
     expect(source).not.toMatch(/existsSync.*session/i);
+  });
+
   it("kills child process trees during shutdown", () => {
     expect(source).toMatch(/killProcessTree/);
     expect(source).toMatch(/spawnManagedDaemonChild/);
