@@ -154,6 +154,42 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Verify that the process at `entry.pid` is still the AO child recorded in
+ * the registry. `isProcessAlive` only proves *some* process owns the PID; a
+ * recycled PID would pass that check. This function additionally compares the
+ * live process's parent PID and/or command prefix against the registered values
+ * so we never signal an unrelated process.
+ *
+ * Falls back to true (allow kill) when ps is unavailable (Windows) or when the
+ * entry carries no verifiable metadata — the liveness guard still applies.
+ */
+async function verifyPidOwnership(entry: DaemonChildEntry): Promise<boolean> {
+  if (!isProcessAlive(entry.pid)) return false;
+  if (isWindows()) return true;
+  try {
+    const { stdout } = await execFileAsync(
+      "ps",
+      ["-p", String(entry.pid), "-o", "ppid=,command="],
+      { encoding: "utf8", windowsHide: true },
+    );
+    const line = stdout.trim();
+    if (!line) return false;
+    const spaceIdx = line.search(/\s/);
+    const actualPpid = spaceIdx > 0 ? parseInt(line.slice(0, spaceIdx), 10) : NaN;
+    const actualCommand = spaceIdx > 0 ? line.slice(spaceIdx).trimStart() : "";
+    // Accept if parent PID matches the registered owner, OR if the command
+    // starts with the same executable as what was recorded at registration.
+    const ppidMatch = !isNaN(actualPpid) && actualPpid === entry.parentPid;
+    const registeredExe = entry.command?.split(/\s+/)[0] ?? "";
+    const commandMatch = registeredExe.length > 0 && actualCommand.startsWith(registeredExe);
+    return ppidMatch || commandMatch;
+  } catch {
+    // ps unavailable or the PID is already gone — treat as unverified but alive.
+    return isProcessAlive(entry.pid);
+  }
+}
+
 async function waitForProcessesExit(pids: number[], timeoutMs: number): Promise<Set<number>> {
   const alive = new Set(pids.filter(isProcessAlive));
   const deadline = Date.now() + timeoutMs;
@@ -361,17 +397,25 @@ export async function sweepDaemonChildren(
     failed: 0,
   };
 
-  // Re-verify each PID is alive immediately before killing to guard against PID reuse.
-  const confirmedAlive = entries.filter((entry) => isProcessAlive(entry.pid));
-  for (const entry of confirmedAlive) {
+  // Verify each PID still belongs to the registered AO child before sending
+  // signals. isProcessAlive alone only proves some process owns the PID; the
+  // ownership check also verifies parent PID / command so a recycled PID is not
+  // accidentally killed.
+  const confirmedOwned = (
+    await Promise.all(entries.map(async (entry) => ({ entry, owned: await verifyPidOwnership(entry) })))
+  )
+    .filter(({ owned }) => owned)
+    .map(({ entry }) => entry);
+
+  for (const entry of confirmedOwned) {
     await killProcessTree(entry.pid, "SIGTERM").catch(() => {});
   }
 
-  const pids = confirmedAlive.map((entry) => entry.pid);
+  const pids = confirmedOwned.map((entry) => entry.pid);
   const stillAliveAfterTerm = await waitForProcessesExit(pids, graceMs);
   result.terminated = pids.length - stillAliveAfterTerm.size;
 
-  for (const entry of confirmedAlive.filter((entry) => stillAliveAfterTerm.has(entry.pid))) {
+  for (const entry of confirmedOwned.filter((entry) => stillAliveAfterTerm.has(entry.pid))) {
     await killProcessTree(entry.pid, "SIGKILL").catch(() => {});
   }
 
@@ -379,7 +423,7 @@ export async function sweepDaemonChildren(
   result.forceKilled = stillAliveAfterTerm.size - stillAliveAfterKill.size;
   result.failed = stillAliveAfterKill.size;
 
-  pruneSweptDaemonChildren(new Set(confirmedAlive.map((entry) => entry.pid)));
+  pruneSweptDaemonChildren(new Set(confirmedOwned.map((entry) => entry.pid)));
   return result;
 }
 
