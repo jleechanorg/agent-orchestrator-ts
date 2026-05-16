@@ -18,6 +18,7 @@ console.log(`  bumped ${rootPkg.name} → ${version}`);
 const pkgFiles = [
   ...globSync("packages/*/package.json", { cwd: root, ignore: "packages/mobile/package.json" }),
   ...globSync("packages/plugins/*/package.json", { cwd: root }),
+  ...globSync("autonomous-harness/package.json", { cwd: root }),
 ];
 
 for (const rel of pkgFiles) {
