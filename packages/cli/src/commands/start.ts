@@ -9,7 +9,7 @@
  * (or equivalent flag) at launch time — no file writing required.
  */
 
-import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
+import { execFile, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve, basename } from "node:path";
@@ -33,18 +33,11 @@ import {
   validateManagedConfigTopology,
   normalizeOrchestratorSessionStrategy,
   ConfigNotFoundError,
-  isMac,
-  isLinux,
   isWindows,
   spawnManagedDaemonChild,
-  sweepDaemonChildren,
-  scanAoOrphans,
-  reapAoOrphans,
   type OrchestratorConfig,
   type ProjectConfig,
   type ParsedRepoUrl,
-  type DaemonChildSweepResult,
-  type AoOrphanProcess,
 } from "@jleechanorg/ao-core";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 import { exec, execSilent, git } from "../lib/shell.js";
@@ -1040,7 +1033,7 @@ export function registerStart(program: Command): void {
                   process.platform === "win32"
                     ? ["cmd.exe", ["/c", "start", "", url]]
                     : [process.platform === "linux" ? "xdg-open" : "open", [url]];
-                spawnProcess(cmd, args, { stdio: "ignore" });
+                execFile(cmd, args);
                 process.exit(0);
               } else if (choice.trim() === "2") {
                 // Generate unique orchestrator: same project, new session

@@ -75,13 +75,13 @@ const { mockProcessCwd } = vi.hoisted(() => ({
   mockProcessCwd: vi.fn<() => string | undefined>(),
 }));
 
-const { mockPromptSelect, mockPromptConfirm } = vi.hoisted(() => ({
+const { mockPromptSelect, mockPromptConfirm: _mockPromptConfirm } = vi.hoisted(() => ({
   mockPromptSelect: vi.fn(),
   mockPromptConfirm: vi.fn().mockResolvedValue(true),
 }));
 
 const {
-  mockAcquireStartupLock,
+  mockAcquireStartupLock: _mockAcquireStartupLock,
   mockIsAlreadyRunning,
   mockGetRunning,
   mockRegister,
@@ -89,9 +89,9 @@ const {
   mockRemoveProjectFromRunning,
   mockAddProjectToRunning,
   mockWaitForExit,
-  mockReadLastStop,
-  mockWriteLastStop,
-  mockClearLastStop,
+  mockReadLastStop: _mockReadLastStop,
+  mockWriteLastStop: _mockWriteLastStop,
+  mockClearLastStop: _mockClearLastStop,
 } = vi.hoisted(() => ({
   mockAcquireStartupLock: vi.fn().mockResolvedValue(() => {}),
   mockIsAlreadyRunning: vi.fn().mockReturnValue(null),
@@ -296,6 +296,7 @@ beforeEach(() => {
     pid: 12345,
     pidFile: "/tmp/lifecycle-worker.pid",
     logFile: "/tmp/lifecycle-worker.log",
+  });
   mockFindPidByPort.mockReset();
   mockFindPidByPort.mockResolvedValue(null);
   mockKillProcessTree.mockReset();
@@ -1154,7 +1155,7 @@ describe("start command — main repo guard (bd-8gld)", () => {
 
   it("starts normally when project path is NOT the main repo", async () => {
     // Set up config with a different project path.
-    const worktreeDir = mkdtempSync(join(tmpdir(), "ao-worktree-guard-"));
+    const _worktreeDir = mkdtempSync(join(tmpdir(), "ao-worktree-guard-"));
     expect(mockSessionManager.kill).toHaveBeenCalledWith("p2-1", { purgeOpenCode: false });
 
     const output = vi
@@ -1750,6 +1751,11 @@ describe("no-dashboard keepalive", () => {
    * without causing an error (i.e., the keepalive path is reachable).
    */
   it("starts lifecycle and completes without error when --no-dashboard is used", async () => {
+    await program.parseAsync(["node", "test", "start", "--no-dashboard"]);
+    expect(mockEnsureLifecycleWorker).toHaveBeenCalled();
+    expect(mockStopLifecycleWorker).not.toHaveBeenCalled();
+  });
+
   it("creates new orchestrator entry when human caller selects 'new'", async () => {
     mockIsAlreadyRunning.mockResolvedValue({
       pid: 9999,
