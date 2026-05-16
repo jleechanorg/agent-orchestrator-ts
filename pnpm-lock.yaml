@@ -212,9 +212,6 @@ importers:
       '@jleechanorg/ao-plugin-workspace-worktree':
         specifier: workspace:*
         version: link:../plugins/workspace-worktree
-      '@jleechanorg/ao-web':
-        specifier: workspace:*
-        version: link:../web
       chalk:
         specifier: ^5.4.0
         version: 5.6.2
@@ -230,6 +227,10 @@ importers:
       yaml:
         specifier: ^2.8.3
         version: 2.8.3
+    optionalDependencies:
+      '@jleechanorg/ao-web':
+        specifier: workspace:*
+        version: link:../web
     devDependencies:
       '@types/node':
         specifier: ^25.2.3

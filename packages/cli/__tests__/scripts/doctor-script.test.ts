@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   mkdirSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -186,5 +187,103 @@ describe("scripts/ao-doctor.sh", () => {
     expect(worktreeDirExists).toBe(true);
     expect(commentedDataDirExists).toBe(false);
     expect(commentedWorktreeDirExists).toBe(false);
-  }, 30_000);
+  }, 120_000);
+
+  it("fails when the ao launcher resolves into an AO worktree", { timeout: 30000 }, () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-worktree-link-"));
+    const fakeRepo = createHealthyRepo(tempRoot);
+    const binDir = join(tempRoot, "bin");
+    mkdirSync(binDir, { recursive: true });
+    createHealthyPath(binDir);
+
+    const fakeHome = join(tempRoot, "home");
+    const worktreeBinDir = join(
+      fakeHome,
+      ".worktrees",
+      "agent-orchestrator",
+      "pr-528",
+      "packages",
+      "cli",
+      "dist",
+    );
+    mkdirSync(worktreeBinDir, { recursive: true });
+    const worktreeAo = join(worktreeBinDir, "index.js");
+    writeExecutable(worktreeAo, "#!/usr/bin/env node\nconsole.log('0.1.3');\n");
+    rmSync(join(binDir, "ao"), { force: true });
+    symlinkSync(worktreeAo, join(binDir, "ao"));
+
+    const configPath = join(tempRoot, "agent-orchestrator.yaml");
+    const dataDir = join(tempRoot, "data");
+    const worktreeDir = join(tempRoot, "worktrees");
+    mkdirSync(dataDir, { recursive: true });
+    mkdirSync(worktreeDir, { recursive: true });
+    writeFileSync(
+      configPath,
+      [`dataDir: ${dataDir}`, `worktreeDir: ${worktreeDir}`, "projects: {}"].join("\n"),
+    );
+
+    const result = spawnSync("bash", [scriptPath], {
+      env: {
+        ...process.env,
+        HOME: fakeHome,
+        PATH: `${binDir}:/usr/bin:/bin`,
+        AO_REPO_ROOT: fakeRepo,
+        AO_CONFIG_PATH: configPath,
+        AO_STAGING_CONFIG_PATH: join(tempRoot, ".openclaw", "agent-orchestrator.yaml"),
+        AO_PROD_CONFIG_PATH: join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml"),
+      },
+      encoding: "utf8",
+    });
+
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("FAIL");
+    expect(result.stdout).toContain(".worktrees");
+    expect(result.stdout).toContain("ao launcher resolves inside an AO worktree");
+  });
+
+  it("warns when running ao version is older than published npm version", { timeout: 30000 }, () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-version-"));
+    const fakeRepo = createHealthyRepo(tempRoot);
+    const binDir = join(tempRoot, "bin");
+    mkdirSync(binDir, { recursive: true });
+    createHealthyPath(binDir);
+
+    writeExecutable(
+      join(binDir, "ao"),
+      '#!/bin/bash\nif [ "$1" = "--version" ]; then printf "0.1.3\\n"; exit 0; fi\nexit 0\n',
+    );
+    writeExecutable(
+      join(binDir, "npm"),
+      '#!/bin/bash\nif [ "$1" = "view" ] && [ "$2" = "@jleechanorg/ao-cli" ] && [ "$3" = "version" ]; then printf "0.3.0\\n"; exit 0; fi\nexit 0\n',
+    );
+
+    const configPath = join(tempRoot, "agent-orchestrator.yaml");
+    const dataDir = join(tempRoot, "data");
+    const worktreeDir = join(tempRoot, "worktrees");
+    mkdirSync(dataDir, { recursive: true });
+    mkdirSync(worktreeDir, { recursive: true });
+    writeFileSync(
+      configPath,
+      [`dataDir: ${dataDir}`, `worktreeDir: ${worktreeDir}`, "projects: {}"].join("\n"),
+    );
+
+    const result = spawnSync("bash", [scriptPath], {
+      env: {
+        ...process.env,
+        PATH: `${binDir}:/usr/bin:/bin`,
+        AO_REPO_ROOT: fakeRepo,
+        AO_CONFIG_PATH: configPath,
+        AO_STAGING_CONFIG_PATH: join(tempRoot, ".openclaw", "agent-orchestrator.yaml"),
+        AO_PROD_CONFIG_PATH: join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml"),
+      },
+      encoding: "utf8",
+    });
+
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    expect(result.stdout).toContain("WARN");
+    expect(result.stdout).toContain("OLDER than published npm version");
+  });
 });

@@ -11,6 +11,13 @@ source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 # shellcheck source=./lib/pnpm-global-path.sh
 source "$SCRIPT_DIR/lib/pnpm-global-path.sh"
 
+if [[ "$REPO_ROOT" == "$HOME/.worktrees/"* || "$REPO_ROOT" == */.worktrees/* ]] && [ "${AO_ALLOW_WORKTREE_LINK:-}" != "1" ]; then
+  echo "ERROR: Refusing to globally link ao from an AO worktree: $REPO_ROOT"
+  echo "  Install the tool with: npm install -g @jleechanorg/ao-cli"
+  echo "  Maintainers who intentionally want this worktree on PATH can rerun with AO_ALLOW_WORKTREE_LINK=1."
+  exit 1
+fi
+
 echo "Agent Orchestrator Setup"
 echo ""
 
@@ -228,6 +235,16 @@ fi
 if ! command -v ao >/dev/null 2>&1; then
   echo "ERROR: pnpm install -g succeeded but 'ao' is not on PATH (PNPM_HOME=${PNPM_HOME:-})."
   exit 1
+fi
+
+AO_VERIFY_PATH="$(command -v ao 2>/dev/null || true)"
+if [ -n "$AO_VERIFY_PATH" ]; then
+  AO_VERIFY_REAL="$(realpath "$AO_VERIFY_PATH" 2>/dev/null || printf '%s' "$AO_VERIFY_PATH")"
+  if [[ "$AO_VERIFY_REAL" == "$HOME/.worktrees/"* || "$AO_VERIFY_REAL" == */.worktrees/* ]]; then
+    echo "ERROR: Post-install verification failed — ao resolves to a worktree: $AO_VERIFY_PATH -> $AO_VERIFY_REAL" >&2
+    echo "  Fix: run scripts/fix-ao-link.sh from the main clone" >&2
+    exit 1
+  fi
 fi
 
 echo ""
