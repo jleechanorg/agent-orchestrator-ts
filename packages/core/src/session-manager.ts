@@ -1823,6 +1823,41 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         }
       }
 
+      // Persist runtime probe result to disk so the lifecycle manager sees it
+      // on next poll. We only persist the runtime signal and detecting state —
+      // the lifecycle manager's resolveProbeDecision pipeline is the single
+      // authority on terminal decisions (terminated/done). See #1735.
+      // Check the on-disk state (raw) to avoid re-writing when already
+      // detecting — enrichment sets detecting in-memory, but we only need
+      // to persist the transition once to avoid resetting lastTransitionAt.
+      const onDiskLifecycle = parseCanonicalLifecycle(raw, {
+        sessionId: sessionName,
+        status: validateStatus(raw["status"]),
+      });
+      if (
+        session.lifecycle &&
+        (session.lifecycle.runtime.state === "missing" ||
+          session.lifecycle.runtime.state === "exited") &&
+        onDiskLifecycle.session.state !== "terminated" &&
+        onDiskLifecycle.session.state !== "done" &&
+        onDiskLifecycle.session.state !== "detecting"
+      ) {
+        try {
+          const persisted = buildUpdatedLifecycle(sessionName, raw, (next) => {
+            next.session.state = "detecting";
+            next.session.reason = "runtime_lost";
+            next.session.lastTransitionAt = new Date().toISOString();
+            next.runtime.state = session.lifecycle!.runtime.state;
+            next.runtime.reason = session.lifecycle!.runtime.reason;
+            next.runtime.lastObservedAt = new Date().toISOString();
+          });
+          updateMetadata(sessionsDir, sessionName, lifecycleMetadataUpdates(raw, persisted));
+          session.lifecycle = persisted;
+          session.status = deriveLegacyStatus(persisted);
+        } catch {
+          // Persist failed — in-memory state is still correct for this request
+        }
+      }
       return session;
     });
 
