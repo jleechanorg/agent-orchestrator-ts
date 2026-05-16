@@ -84,7 +84,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.check.outputs.skip != 'true'
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           # No `registry-url`: this workflow does not publish to npm.
 
