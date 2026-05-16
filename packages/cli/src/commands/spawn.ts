@@ -347,20 +347,27 @@ export function registerSpawn(program: Command): void {
 
               for (const leaf of leaves) {
                 const siblings = getSiblings(plan.tree, leaf.id);
+                const leafPrompt = leaf.description.replace(/[\r\n]/g, " ").trim();
+                if (leafPrompt.length > 4096) {
+                  console.error(chalk.red(`  ✗ ${leaf.description.slice(0, 40)} — prompt exceeds 4096 chars`));
+                  continue;
+                }
+                const leafSpawnConfig = {
+                  projectId,
+                  issueId,
+                  lineage: leaf.lineage,
+                  siblings,
+                  agent: opts.agent,
+                  runtimeOverride: opts.runtime,
+                  prompt: leafPrompt,
+                };
                 try {
                   // Storm prevention: check cap before each decomposed spawn.
                   const currentSessions = await sm.list(projectId);
                   const currentActive = currentSessions.filter((s) => !TERMINAL_STATUSES.has(s.status));
                   if (currentActive.length >= queueCfg.maxActiveSessions) {
                     if (queueCfg.enabled) {
-                      const queued = enqueueSpawnRequest(config.configPath, projectId, {
-                        issueId,
-                        lineage: leaf.lineage,
-                        siblings,
-                        agent: opts.agent,
-                        runtimeOverride: opts.runtime,
-                        prompt: leaf.description,
-                      });
+                      const queued = enqueueSpawnRequest(config.configPath, projectId, leafSpawnConfig);
                       console.log(
                         chalk.yellow(
                           `  ⏳ Queued ${leaf.description.slice(0, 40)}… — request ${queued.requestId}`,
@@ -377,14 +384,7 @@ export function registerSpawn(program: Command): void {
                     }
                   }
 
-                  const session = await sm.spawn({
-                    projectId,
-                    issueId, // All work on the same parent issue for now
-                    lineage: leaf.lineage,
-                    siblings,
-                    agent: opts.agent,
-                    runtimeOverride: opts.runtime,
-                  });
+                  const session = await sm.spawn(leafSpawnConfig);
                   console.log(`  ${chalk.green("✓")} ${session.id} — ${leaf.description}`);
                 } catch (err) {
                   console.error(
