@@ -1033,7 +1033,14 @@ export function registerStart(program: Command): void {
                   process.platform === "win32"
                     ? ["cmd.exe", ["/c", "start", "", url]]
                     : [process.platform === "linux" ? "xdg-open" : "open", [url]];
-                execFile(cmd, args);
+                const opener = execFile(cmd, args);
+                opener.once("error", () => {
+                  console.warn(
+                    chalk.yellow(
+                      `Could not open the browser automatically. Open ${url} manually.`,
+                    ),
+                  );
+                });
                 process.exit(0);
               } else if (choice.trim() === "2") {
                 // Generate unique orchestrator: same project, new session
