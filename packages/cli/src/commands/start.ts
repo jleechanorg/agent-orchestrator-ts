@@ -366,7 +366,7 @@ async function handleUrlStart(
  * Detects environment, project type, and generates config with smart defaults.
  * Returns the loaded config.
  */
-async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig> {
+export async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig> {
   console.log(chalk.bold.cyan("\n  Agent Orchestrator — First Run Setup\n"));
   console.log(chalk.dim("  Detecting project and generating config...\n"));
 
