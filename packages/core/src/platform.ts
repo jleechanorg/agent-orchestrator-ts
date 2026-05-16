@@ -186,7 +186,7 @@ export async function findPidByPort(port: number): Promise<string | null> {
   try {
     if (isWindows()) {
       // netstat -ano shows all connections with PIDs
-      const { stdout } = await execFileAsync("netstat", ["-ano"], { windowsHide: true });
+      const { stdout } = await execFileAsync("netstat", ["-ano"], { windowsHide: true, encoding: "utf8" });
       const portPattern = new RegExp(`:${port}(?!\\d)`);
       for (const line of stdout.split("\n")) {
         // Match LISTENING state on the target local port exactly
@@ -212,7 +212,7 @@ export async function findPidByPort(port: number): Promise<string | null> {
 
 // -- Environment defaults --
 
-interface EnvDefaults {
+export interface EnvDefaults {
   HOME: string;
   SHELL: string;
   TMPDIR: string;

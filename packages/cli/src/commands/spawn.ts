@@ -352,12 +352,26 @@ export function registerSpawn(program: Command): void {
                   const currentSessions = await sm.list(projectId);
                   const currentActive = currentSessions.filter((s) => !TERMINAL_STATUSES.has(s.status));
                   if (currentActive.length >= queueCfg.maxActiveSessions) {
-                    console.error(
-                      chalk.red(
-                        `  ✗ Spawn rejected: ${currentActive.length} active sessions >= cap (${queueCfg.maxActiveSessions}). Remaining subtasks skipped.`,
-                      ),
-                    );
-                    break;
+                    if (queueCfg.enabled) {
+                      const queued = enqueueSpawnRequest(config.configPath, projectId, {
+                        agent: opts.agent,
+                        runtimeOverride: opts.runtime,
+                        prompt: leaf.description,
+                      });
+                      console.log(
+                        chalk.yellow(
+                          `  ⏳ Queued ${leaf.description.slice(0, 40)}… — request ${queued.requestId}`,
+                        ),
+                      );
+                      continue;
+                    } else {
+                      console.error(
+                        chalk.red(
+                          `  ✗ Spawn rejected: ${currentActive.length} active sessions >= cap (${queueCfg.maxActiveSessions}). Remaining subtasks skipped.`,
+                        ),
+                      );
+                      break;
+                    }
                   }
 
                   const session = await sm.spawn({
@@ -479,6 +493,7 @@ export function registerBatchSpawn(program: Command): void {
                 `  Queue ${issue} — active sessions ${activeSessions.length}/${queueConfig.maxActiveSessions}, request ${queued.requestId}`,
               ),
             );
+            spawnedIssues.add(issue.toLowerCase());
             skipped.push({ issue, existing: queued.requestId });
           } else {
             console.error(
