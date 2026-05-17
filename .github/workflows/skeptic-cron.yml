@@ -12,6 +12,8 @@ name: Skeptic Cron
 # posts VERDICT comment → this workflow checks 7th condition + merges.
 #
 on:
+  schedule:
+    - cron: '*/20 * * * *'
   workflow_dispatch:
 
 jobs:

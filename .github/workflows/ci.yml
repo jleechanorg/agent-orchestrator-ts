@@ -138,7 +138,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
+        run: |
+          if [ "$(uname)" = "Darwin" ]; then
+            brew install tmux 2>/dev/null || true
+          else
+            sudo apt-get update && sudo apt-get install -y tmux
+          fi
       - name: Start tmux server
         run: tmux start-server
       - run: pnpm install --frozen-lockfile
