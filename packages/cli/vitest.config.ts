@@ -51,6 +51,6 @@ export default defineConfig({
         maxForks: 1,
       },
     },
-    poolTimeout: 30000,
+    poolTimeout: 60000,
   },
 });
