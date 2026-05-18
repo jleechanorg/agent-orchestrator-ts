@@ -50,6 +50,11 @@ export default defineConfig({
     testTimeout: 60000,
     forceExit: true,
     pool: "forks",
+    poolOptions: {
+      forks: {
+        maxForks: 1,
+      },
+    },
     poolTimeout: 180000,
   },
 });
