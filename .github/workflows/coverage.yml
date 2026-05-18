@@ -74,15 +74,22 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - uses: actions/setup-python@v5
-        id: setup-python
+      - name: Setup Python (Linux)
+        if: runner.os != 'macOS'
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      - name: Setup Python (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install python@3.12 2>/dev/null || true
+          python3.12 --version || python3 --version
+
       - name: Install diff-cover
         run: |
-          python3 -m pip install --break-system-packages --upgrade pip setuptools wheel
-          python3 -m pip install --break-system-packages diff-cover pyyaml
+          python3 -m pip install --break-system-packages --upgrade pip setuptools wheel 2>/dev/null || python3 -m pip install --upgrade pip setuptools wheel
+          python3 -m pip install --break-system-packages diff-cover pyyaml 2>/dev/null || python3 -m pip install diff-cover pyyaml
           python3 -c "import yaml; print('pyyaml version:', yaml.__version__)"
 
       - run: pnpm install --frozen-lockfile
