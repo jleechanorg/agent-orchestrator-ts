@@ -34,6 +34,26 @@ jobs:
             echo "Docker not available on this runner 💤 skipping onboarding test"
           fi
 
+      - name: Pick available host ports
+        id: pick-ports
+        if: steps.docker-check.outputs.available == 'true'
+        run: |
+          pick_free_port() {
+            local port candidate
+            for candidate in "$@"; do
+              if ! ss -tlnp 2>/dev/null | grep -q ":${candidate} " && \
+                 ! lsof -iTCP:${candidate} -sTCP:LISTEN 2>/dev/null | grep -q .; then
+                echo "$candidate"
+                return
+              fi
+            done
+            # Fallback: let OS pick a random port
+            python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"
+          }
+          echo "dashboard=$(pick_free_port 9000 19000 29000)" >> "$GITHUB_OUTPUT"
+          echo "ws=$(pick_free_port 9001 19001 29001)" >> "$GITHUB_OUTPUT"
+          echo "dtw=$(pick_free_port 9003 19003 29003)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         if: steps.docker-check.outputs.available == 'true'
         uses: docker/setup-buildx-action@v3
@@ -46,6 +66,10 @@ jobs:
       - name: Run onboarding test
         if: steps.docker-check.outputs.available == 'true'
         working-directory: tests/integration
+        env:
+          ONBOARDING_PORT_DASHBOARD: ${{ steps.pick-ports.outputs.dashboard }}
+          ONBOARDING_PORT_WS: ${{ steps.pick-ports.outputs.ws }}
+          ONBOARDING_PORT_DTW: ${{ steps.pick-ports.outputs.dtw }}
         run: docker compose up --abort-on-container-exit --exit-code-from onboarding-test
 
       - name: Extract metrics
