@@ -45,12 +45,12 @@ export default defineConfig({
     include: ["__tests__/**/*.test.ts", "src/__tests__/**/*.test.ts"],
     testTimeout: 60000,
     forceExit: true,
-    pool: "forks",
+    pool: "threads",
     poolOptions: {
-      forks: {
-        maxForks: 1,
+      threads: {
+        minThreads: 1,
+        maxThreads: 4,
       },
     },
-    poolTimeout: 180000,
   },
 });
