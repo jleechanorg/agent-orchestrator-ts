@@ -120,6 +120,17 @@ if [ -z "$AO_MATCH" ]; then
     AO_MATCH="$(command -v ao 2>/dev/null || true)"
 fi
 
+# Build the launch command for lifecycle-worker.
+# When AO_CLI_PATH points to a source-tree dist (e.g. packages/cli/dist/index.js),
+# invoke it as "node $AO_CLI_PATH" so the source-tree's Zod schema is used,
+# not the globally-installed npm binary which may have a stale/narrower enum.
+# Fall back to plain "ao" when AO_CLI_PATH is not set.
+if [ -n "${AO_CLI_PATH:-}" ] && [ -f "${AO_CLI_PATH}" ]; then
+    AO_LAUNCH="node ${AO_CLI_PATH}"
+else
+    AO_LAUNCH="ao"
+fi
+
 for project in $PROJECTS; do
     escaped_project="$(escape_ere "$project")"
     # Scope liveness check to this install's binary — a worker from another
@@ -139,8 +150,9 @@ for project in $PROJECTS; do
         fi
     fi
 
-    log "START: $project worker missing, starting..."
-    AO_CONFIG_PATH="$CONFIG_PATH" nohup ao lifecycle-worker "$project" >> "$LOG_FILE" 2>&1 &
+    log "START: $project worker missing, starting... (cmd=$AO_LAUNCH)"
+    # shellcheck disable=SC2086  # AO_LAUNCH is intentionally word-split (may be "node /path/to/index.js")
+    AO_CONFIG_PATH="$CONFIG_PATH" nohup $AO_LAUNCH lifecycle-worker "$project" >> "$LOG_FILE" 2>&1 &
     disown
     STARTED=$((STARTED + 1))
     sleep 2
