@@ -106,10 +106,10 @@ jobs:
         run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
       - name: Kill stray ao processes from previous CI runs
         run: |
-          pkill -f '\bao\s+lifecycle-worker\b' || true
-          pkill -f '\bao\s+start\b' || true
+          pkill -f '[[:space:]]ao[[:space:]].*lifecycle-worker' || true
+          pkill -f '[[:space:]]ao[[:space:]].*start' || true
           for i in 1 2 3 4 5; do
-            if ! pgrep -f '\bao\s+(lifecycle-worker|start)\b' >/dev/null 2>&1; then
+            if ! pgrep -f '[[:space:]]ao[[:space:]].*(lifecycle-worker|start)' >/dev/null 2>&1; then
               exit 0
             fi
             sleep 1
