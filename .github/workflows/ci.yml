@@ -130,11 +130,11 @@ jobs:
           pnpm --filter @jleechanorg/ao-cli test 2>&1 | tee /tmp/cli-test-output.txt
           rc=${PIPESTATUS[0]}
           set -e
-          # vitest threads pool + forceExit can exit with SIGTERM (signal 15 → exit 143)
-          # even when all tests pass. Verify the test summary shows passed before treating
-          # exit 143 as success — other SIGTERM senders should not mask failures.
-          # OOM killer sends SIGKILL (signal 9 → exit 137) — all tests may have
-          # passed before the OOM; check the summary line before failing.
+          # vitest forceExit can exit with SIGTERM (signal 15 → exit 143) even when
+          # all tests pass. Verify the test summary shows passed before treating
+          # exit 143 as success. With forks pool, OOM kills are fail-closed: vitest
+          # detects the dead fork and reports the file as failed — no special rc=137
+          # handler needed.
           if [ $rc -eq 143 ]; then
             # vitest forceExit sends SIGTERM after all tests complete — verify output.
             # Use × (vitest per-test failure marker) only; avoid FAIL which also matches
@@ -145,18 +145,6 @@ jobs:
               exit 0
             fi
             echo "::error::CLI tests SIGTERM'd and no clean test results found"
-            tail -50 /tmp/cli-test-output.txt 2>/dev/null || true
-            exit 1
-          elif [ $rc -eq 137 ]; then
-            # OOM kills vitest after all tests complete but BEFORE the summary line prints.
-            # Accept OOM as success if: at least one test-file passed (✓ marker) AND no
-            # test failures (× marker). This handles the case where summary is missing.
-            if grep -qE "^[[:space:]]+✓ " /tmp/cli-test-output.txt 2>/dev/null && \
-               ! grep -qE "^[[:space:]]*×" /tmp/cli-test-output.txt 2>/dev/null; then
-              echo "::warning::CLI process OOM-killed but all tests that ran were passing — known CI memory issue"
-              exit 0
-            fi
-            echo "::error::CLI tests OOM-killed and no passing results found (or failures detected)"
             tail -50 /tmp/cli-test-output.txt 2>/dev/null || true
             exit 1
           elif [ $rc -ne 0 ]; then
