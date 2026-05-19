@@ -86,38 +86,29 @@ jobs:
         run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
       - name: Kill stray ao processes from previous CI runs
         run: pkill -f "ao lifecycle-worker" || true; pkill -f "ao start" || true; sleep 1
-      - name: Run tests (non-CLI packages)
-        run: pnpm -r --filter '!@jleechanorg/ao-cli' --filter '!@jleechanorg/ao-web' test
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_HEAD_REF: ${{ github.head_ref }}
-          GITHUB_BASE_REF: ${{ github.base_ref }}
-      - name: Run shell and evidence-gate-patterns tests
-        run: pnpm run test:shell && pnpm run test:evidence-gate-patterns
-      - name: Run CLI tests
-        id: cli-tests
+      - name: Run pnpm test
+        id: pnpm-tests
         run: |
           # Use ${PIPESTATUS[0]} so rc reflects pnpm's exit, not tee's. Enabling
           # pipefail would trip GHA's `bash -e` before the handler runs.
-          pnpm --filter @jleechanorg/ao-cli test 2>&1 | tee /tmp/cli-test-output.txt
+          pnpm test 2>&1 | tee /tmp/pnpm-test-output.txt
           rc=${PIPESTATUS[0]}
           # vitest threads pool + forceExit can exit with SIGTERM (signal 15 → exit 143)
           # even when all tests pass. Treat exit 143 (SIGTERM) as success.
           # OOM killer sends SIGKILL (signal 9 → exit 137) — all tests may have
           # passed before the OOM; check the summary line before failing.
           if [ $rc -eq 143 ]; then
-            echo "CLI tests passed (vitest forceExit sent SIGTERM — treating as success)"
+            echo "Tests passed (vitest forceExit sent SIGTERM — treating as success)"
             exit 0
           elif [ $rc -eq 137 ]; then
-            if grep -q "Tests.*passed" /tmp/cli-test-output.txt; then
-              echo "::warning::CLI process OOM-killed but tests passed before kill — known CI memory issue"
+            if grep -q "Tests.*passed" /tmp/pnpm-test-output.txt && ! grep -qE "Tests.*[0-9]+ failed" /tmp/pnpm-test-output.txt; then
+              echo "::warning::Test process OOM-killed but tests passed before kill — known CI memory issue"
               exit 0
             fi
-            echo "::error::CLI tests OOM-killed and no test results found"
+            echo "::error::Tests OOM-killed and no passing summary found"
             exit 1
           elif [ $rc -ne 0 ]; then
-            echo "::warning::CLI tests failed with exit code $rc"
+            echo "::error::Tests failed with exit code $rc"
             exit 1
           fi
         env:
