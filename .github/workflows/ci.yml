@@ -96,17 +96,11 @@ jobs:
       - name: Run CLI tests
         id: cli-tests
         run: |
-          trap 'echo "Parent shell received SIGTERM — ignoring to let handler evaluate child exit"' TERM
           CLI_TEST_OUTPUT=/tmp/cli-test-output.txt
-          pnpm --filter @jleechanorg/ao-cli test > "$CLI_TEST_OUTPUT" 2>&1 &
-          CLI_PID=$!
-          tail -f "$CLI_TEST_OUTPUT" &
-          TAIL_PID=$!
-          wait $CLI_PID 2>/dev/null
-          CLI_EXIT=$?
-          kill $TAIL_PID 2>/dev/null || true
-          wait $TAIL_PID 2>/dev/null || true
-          trap - TERM
+          set +e
+          pnpm --filter @jleechanorg/ao-cli test 2>&1 | tee "$CLI_TEST_OUTPUT"
+          CLI_EXIT=${PIPESTATUS[0]}
+          set -e
           echo "CLI test exit code: $CLI_EXIT"
           if [ "$CLI_EXIT" -eq 0 ]; then
             echo "CLI tests passed normally"
