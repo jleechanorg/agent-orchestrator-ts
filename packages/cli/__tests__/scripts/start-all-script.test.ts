@@ -18,6 +18,23 @@ function createFakeBinary(binDir: string, name: string, body: string): void {
   writeExecutable(join(binDir, name), `#!/bin/bash\nset -e\n${body}\n`);
 }
 
+// Hermetic python3 stub: bypasses the runtime pyyaml dependency in start-all.sh
+// so tests do not require pyyaml installed in the CI runner image. First call
+// (`import yaml; yaml.safe_load(...)`) exits 0; second call (`for pid in ...`)
+// prints the test project id.
+function createPythonStub(binDir: string, projectId: string): void {
+  writeExecutable(
+    join(binDir, "python3"),
+    [
+      "#!/bin/bash",
+      'case "$*" in',
+      `  *"for pid in"*) echo ${JSON.stringify(projectId)} ;;`,
+      "esac",
+      "exit 0",
+    ].join("\n") + "\n",
+  );
+}
+
 function createConfig(path: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(
@@ -56,13 +73,12 @@ describe("scripts/start-all.sh", () => {
     const binDir = join(tempRoot, "bin");
     mkdirSync(binDir, { recursive: true });
     createFakeBinary(binDir, "pgrep", "exit 0");
+    createPythonStub(binDir, "script-test");
 
-    const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
-    const testBinDir = `${binDir}${pythonBinDir ? `:${pythonBinDir}` : ""}`;
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        PATH: `${testBinDir}:/usr/bin:/bin`,
+        PATH: `${binDir}:/usr/bin:/bin`,
         AO_CONFIG_PATH: explicitConfig,
         AO_STAGING_CONFIG_PATH: stagingConfig,
         AO_PROD_CONFIG_PATH: productionConfig,
@@ -89,13 +105,12 @@ describe("scripts/start-all.sh", () => {
     mkdirSync(binDir, { recursive: true });
     createFakeBinary(binDir, "pgrep", "exit 0");
     createFakeBinary(binDir, "ao", `echo "$@" >> "${aoLog}"`);
+    createPythonStub(binDir, "script-test");
 
-    const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
-    const testBinDir = `${binDir}${pythonBinDir ? `:${pythonBinDir}` : ""}`;
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        PATH: `${testBinDir}:/usr/bin:/bin`,
+        PATH: `${binDir}:/usr/bin:/bin`,
         AO_CONFIG_PATH: explicitConfig,
         AO_MAIN_REPO: join(tempRoot, "missing-main-repo"),
         AO_START_ALL_LOCKDIR: join(tempRoot, "ao-start-all.lock"),
@@ -125,13 +140,12 @@ describe("scripts/start-all.sh", () => {
     // Large out-of-range PID prevents kill "$pid" from targeting a real process.
     createFakeBinary(binDir, "pgrep", "echo 999999999; exit 0");
     createFakeBinary(binDir, "ao", `echo "$@" >> "${aoLog}"`);
+    createPythonStub(binDir, "script-test");
 
-    const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
-    const testBinDir = `${binDir}${pythonBinDir ? `:${pythonBinDir}` : ""}`;
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        PATH: `${testBinDir}:/usr/bin:/bin`,
+        PATH: `${binDir}:/usr/bin:/bin`,
         AO_CONFIG_PATH: explicitConfig,
         AO_MAIN_REPO: join(tempRoot, "missing-main-repo"),
         AO_START_ALL_LOCKDIR: join(tempRoot, "ao-start-all.lock"),
