@@ -18,6 +18,23 @@ function createFakeBinary(binDir: string, name: string, body: string): void {
   writeExecutable(join(binDir, name), `#!/bin/bash\nset -e\n${body}\n`);
 }
 
+function createFakePython3(binDir: string): void {
+  // Stubs python3 for start-all.sh yaml operations without requiring PyYAML.
+  // Handles the two call patterns used by the script:
+  //   1) python3 -c "import yaml; yaml.safe_load(open('FILE'))"  → exit 0 (pass validation)
+  //   2) python3 -c "import yaml\n...for pid in cfg.get..."      → print project names from FILE
+  writeExecutable(join(binDir, "python3"), [
+    "#!/bin/bash",
+    '[ "$1" = "-c" ] || exit 0',
+    'script="$2"',
+    'if printf \'%s\\n\' "$script" | grep -q \'for pid in\'; then',
+    '  config_file="$(printf \'%s\\n\' "$script" | grep -o "open(\'[^\']*\')" | head -1 | sed "s/open(\'//;s/\')//")"',
+    '  [ -f "$config_file" ] && awk \'/^projects:/{p=1;next} p&&/^  [a-zA-Z_-]/{sub(/:.*/,"");sub(/^  /,"");print} p&&/^[^ ]/{p=0}\' "$config_file"',
+    "fi",
+    "exit 0",
+  ].join("\n"));
+}
+
 function createConfig(path: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(
@@ -56,13 +73,12 @@ describe("scripts/start-all.sh", () => {
     const binDir = join(tempRoot, "bin");
     mkdirSync(binDir, { recursive: true });
     createFakeBinary(binDir, "pgrep", "exit 0");
+    createFakePython3(binDir);
 
-    const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
-    const testBinDir = `${binDir}${pythonBinDir ? `:${pythonBinDir}` : ""}`;
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        PATH: `${testBinDir}:/usr/bin:/bin`,
+        PATH: `${binDir}:/usr/bin:/bin`,
         AO_CONFIG_PATH: explicitConfig,
         AO_STAGING_CONFIG_PATH: stagingConfig,
         AO_PROD_CONFIG_PATH: productionConfig,
@@ -89,13 +105,12 @@ describe("scripts/start-all.sh", () => {
     mkdirSync(binDir, { recursive: true });
     createFakeBinary(binDir, "pgrep", "exit 0");
     createFakeBinary(binDir, "ao", `echo "$@" >> "${aoLog}"`);
+    createFakePython3(binDir);
 
-    const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
-    const testBinDir = `${binDir}${pythonBinDir ? `:${pythonBinDir}` : ""}`;
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        PATH: `${testBinDir}:/usr/bin:/bin`,
+        PATH: `${binDir}:/usr/bin:/bin`,
         AO_CONFIG_PATH: explicitConfig,
         AO_MAIN_REPO: join(tempRoot, "missing-main-repo"),
         AO_START_ALL_LOCKDIR: join(tempRoot, "ao-start-all.lock"),
@@ -125,13 +140,12 @@ describe("scripts/start-all.sh", () => {
     // Large out-of-range PID prevents kill "$pid" from targeting a real process.
     createFakeBinary(binDir, "pgrep", "echo 999999999; exit 0");
     createFakeBinary(binDir, "ao", `echo "$@" >> "${aoLog}"`);
+    createFakePython3(binDir);
 
-    const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
-    const testBinDir = `${binDir}${pythonBinDir ? `:${pythonBinDir}` : ""}`;
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        PATH: `${testBinDir}:/usr/bin:/bin`,
+        PATH: `${binDir}:/usr/bin:/bin`,
         AO_CONFIG_PATH: explicitConfig,
         AO_MAIN_REPO: join(tempRoot, "missing-main-repo"),
         AO_START_ALL_LOCKDIR: join(tempRoot, "ao-start-all.lock"),
@@ -158,11 +172,10 @@ describe("scripts/start-all.sh", () => {
     mkdirSync(dirname(stagingConfig), { recursive: true });
     symlinkSync(productionConfig, stagingConfig);
 
-    const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        PATH: pythonBinDir ? `${pythonBinDir}:/usr/bin:/bin` : `/usr/bin:/bin`,
+        PATH: `/usr/bin:/bin`,
         AO_CONFIG_PATH: "",
         AO_STAGING_CONFIG_PATH: stagingConfig,
         AO_PROD_CONFIG_PATH: productionConfig,

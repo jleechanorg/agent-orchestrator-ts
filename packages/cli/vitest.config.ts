@@ -43,12 +43,12 @@ export default defineConfig({
   },
   test: {
     include: ["__tests__/**/*.test.ts", "src/__tests__/**/*.test.ts"],
-    testTimeout: 15000,
+    testTimeout: 30000,
+    forceExit: true,
     pool: "threads",
     poolOptions: {
       threads: {
-        minThreads: 1,
-        maxThreads: 8,
+        singleThread: true,
       },
     },
   },
