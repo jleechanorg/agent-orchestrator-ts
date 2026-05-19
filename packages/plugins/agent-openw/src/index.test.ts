@@ -9,7 +9,7 @@ vi.mock("node:child_process", () => ({
       const result = mockExecFileAsync(...args.slice(0, -1));
       if (result && typeof result.then === "function") {
         result
-          .then((r: { stdout: string; stderr: string }) => callback(null, r.stdout, r.stderr))
+          .then((r: { stdout: string; stderr: string }) => callback(null, r))
           .catch((e: Error) => callback(e));
       }
     }
