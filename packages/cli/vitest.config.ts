@@ -47,9 +47,6 @@ export default defineConfig({
     pool: "forks",
     poolOptions: {
       forks: {
-        // Serial: one test file at a time prevents heap accumulation across
-        // files. OOM kills are fail-closed: vitest detects the dead fork and
-        // reports the file as failed rather than silently accepting partial results.
         maxForks: 1,
       },
     },

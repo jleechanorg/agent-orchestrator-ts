@@ -31,6 +31,7 @@ describe("OpenClaw config topology scripts", () => {
         AO_PROD_CONFIG_PATH: productionConfig,
       },
       encoding: "utf8",
+      timeout: 20_000,
     });
 
     const stagingExists = existsSync(stagingConfig);
@@ -69,7 +70,7 @@ describe("OpenClaw config topology scripts", () => {
           "ao_find_config_path",
         ].join("; "),
       ],
-      { env: process.env, encoding: "utf8" },
+      { env: process.env, encoding: "utf8", timeout: 20_000 },
     );
 
     rmSync(tempRoot, { recursive: true, force: true });
@@ -96,6 +97,7 @@ describe("OpenClaw config topology scripts", () => {
         AO_PROD_CONFIG_PATH: productionConfig,
       },
       encoding: "utf8",
+      timeout: 20_000,
     });
 
     const repairedStaging = existsSync(stagingConfig) ? readFileSync(stagingConfig, "utf8") : "";
@@ -122,6 +124,7 @@ describe("OpenClaw config topology scripts", () => {
         AO_PROD_CONFIG_PATH: productionConfig,
       },
       encoding: "utf8",
+      timeout: 20_000,
     });
     try {
       expect(result.status, result.stderr || result.stdout).toBe(0);
@@ -153,6 +156,7 @@ describe("OpenClaw config topology scripts", () => {
         AO_PROD_CONFIG_PATH: productionConfig,
       },
       encoding: "utf8",
+      timeout: 20_000,
     });
 
     rmSync(tempRoot, { recursive: true, force: true });

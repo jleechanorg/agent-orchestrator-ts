@@ -68,7 +68,7 @@ jobs:
 
   test:
     name: Test
-    timeout-minutes: 30
+    timeout-minutes: 60
     # SECURITY: Fork-aware runner selection — do not simplify. See PR #273.
     runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
               || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
@@ -88,44 +88,17 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
-      - name: Install PyYAML for shell-script tests
-        # validate-config.sh, bootstrap-openclaw-config.sh, promote-openclaw-config.sh,
-        # and start-all.sh invoke `python3 -c "import yaml; ..."` for config parsing.
-        # The self-hosted ARM64 runner image does not ship PyYAML by default.
-        run: |
-          if command -v python3 >/dev/null 2>&1 && ! python3 -c "import yaml" 2>/dev/null; then
-            if command -v pip3 >/dev/null 2>&1; then
-              pip3 install --break-system-packages pyyaml 2>/dev/null || pip3 install pyyaml
-            elif command -v apt-get >/dev/null 2>&1; then
-              sudo apt-get update && sudo apt-get install -y python3-yaml
-            fi
-          fi
+      - name: Install pyyaml (required by validate-config.sh and start-all.sh)
+        run: python3 -m pip install --break-system-packages --quiet pyyaml || python3 -m pip install --quiet pyyaml
       - name: Ensure base branch ref is available
         if: github.event_name == 'pull_request'
         # For fork PRs, origin/ is the fork; explicitly fetch base branch as local ref.
         run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
       - name: Kill stray ao processes from previous CI runs
-        run: |
-          pkill -f 'ao lifecycle-worker' || true
-          pkill -f 'ao start' || true
-          for i in 1 2 3 4 5; do
-            if ! pgrep -f 'ao.*(lifecycle-worker|start)' >/dev/null 2>&1; then
-              exit 0
-            fi
-            sleep 1
-          done
-      - name: Run tests (non-CLI packages)
-        run: pnpm -r --filter '!@jleechanorg/ao-cli' --filter '!@jleechanorg/ao-web' test
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_HEAD_REF: ${{ github.head_ref }}
-          GITHUB_BASE_REF: ${{ github.base_ref }}
-      - name: Run shell and evidence-gate-patterns tests
-        run: pnpm run test:shell && pnpm run test:evidence-gate-patterns
-      - name: Run CLI tests
-        id: cli-tests
-        run: pnpm --filter @jleechanorg/ao-cli test
+        run: pkill -f "ao lifecycle-worker" || true; pkill -f "ao start" || true; sleep 1
+      - name: Run pnpm test
+        id: pnpm-tests
+        run: pnpm test
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

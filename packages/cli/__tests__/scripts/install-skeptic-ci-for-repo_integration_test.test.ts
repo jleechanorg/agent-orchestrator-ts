@@ -63,6 +63,7 @@ describe("scripts/install-skeptic-ci-for-repo.sh", () => {
   it("prints help and exits 0", () => {
     const result = spawnSync("bash", [scriptPath, "--help"], {
       encoding: "utf8",
+      timeout: 20_000,
     });
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("Install only skeptic-gate");
@@ -88,6 +89,7 @@ describe("scripts/install-skeptic-ci-for-repo.sh", () => {
           SKEPTIC_CI_REF: "main",
         },
         encoding: "utf8",
+        timeout: 20_000,
       });
 
       const gate = join(fakeRepo, ".github", "workflows", "skeptic-gate.yml");
@@ -123,6 +125,7 @@ describe("scripts/install-skeptic-ci-for-repo.sh", () => {
           SKEPTIC_CI_REF: "main",
         },
         encoding: "utf8",
+        timeout: 20_000,
       });
 
       const gate = join(fakeRepo, ".github", "workflows", "skeptic-gate.yml");
@@ -158,6 +161,7 @@ describe("scripts/install-skeptic-ci-for-repo.sh", () => {
           SKEPTIC_CI_REF: "main",
         },
         encoding: "utf8",
+        timeout: 20_000,
       });
 
       expect(result.status).not.toBe(0);

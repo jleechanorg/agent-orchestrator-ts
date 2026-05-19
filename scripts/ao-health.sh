@@ -124,13 +124,26 @@ fi
 FAILURES=0
 STARTED=0
 
-# Resolve this install's AO binary path for liveness scoping — prevents
-# a stale worker from another AO install (different binary) masking the
-# fact that *this* install's worker is not running.
-# Prefer AO_CLI_PATH (source-tree CLI set by launchd plist) over the PATH shim.
-# Workers launched via node /.../dist/index.js show that node path in ps, not the
-# npm shim, so matching against AO_CLI_PATH avoids false "missing" detections.
-AO_MATCH="${AO_CLI_PATH:-$(command -v ao 2>/dev/null || true)}"
+# Resolve AO binary for launch and liveness-scoping together so both
+# always agree on the same path.  AO_MATCH is used by command_matches_ao_binary
+# to scope pgrep hits to *this* install; AO_LAUNCH is the actual command array.
+# When AO_CLI_PATH points to a source-tree dist (e.g. packages/cli/dist/index.js),
+# invoke it as "node $AO_CLI_PATH" so the source-tree's Zod schema is used,
+# not the globally-installed npm binary which may have a stale/narrower enum.
+# When AO_CLI_PATH is an executable binary or shell script, run it directly.
+# Fall back to plain "ao" (from PATH) when AO_CLI_PATH is unset or missing.
+# Uses an array to preserve paths with spaces through word-splitting.
+if [ -n "${AO_CLI_PATH:-}" ] && [ -f "${AO_CLI_PATH}" ]; then
+    if [ -x "${AO_CLI_PATH}" ]; then
+        AO_LAUNCH=("${AO_CLI_PATH}")
+    else
+        AO_LAUNCH=(node "${AO_CLI_PATH}")
+    fi
+    AO_MATCH="${AO_CLI_PATH}"
+else
+    AO_LAUNCH=(ao)
+    AO_MATCH="$(command -v ao 2>/dev/null || true)"
+fi
 
 for project in $PROJECTS; do
     escaped_project="$(escape_ere "$project")"
@@ -151,8 +164,8 @@ for project in $PROJECTS; do
         fi
     fi
 
-    log "START: $project worker missing, starting..."
-    AO_CONFIG_PATH="$CONFIG_PATH" nohup ao lifecycle-worker "$project" >> "$LOG_FILE" 2>&1 &
+    log "START: $project worker missing, starting... (cmd=${AO_LAUNCH[*]})"
+    AO_CONFIG_PATH="$CONFIG_PATH" nohup "${AO_LAUNCH[@]}" lifecycle-worker "$project" >> "$LOG_FILE" 2>&1 &
     disown
     STARTED=$((STARTED + 1))
     sleep 2

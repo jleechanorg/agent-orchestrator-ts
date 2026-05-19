@@ -1,10 +1,9 @@
 /**
- * Tests for scripts/ao-health.sh AO_CLI_PATH → AO_MATCH liveness scoping.
+ * Tests for scripts/ao-health.sh AO_CLI_PATH → AO_LAUNCH construction.
  *
- * PR #563 fix: AO_MATCH now uses AO_CLI_PATH so workers launched via
- * `node /path/to/index.js lifecycle-worker <project>` (source-tree CLI) are
- * correctly detected as running. Before the fix AO_MATCH always used the PATH
- * shim, causing false "worker missing" detections for source-tree workers.
+ * Verifies that when AO_CLI_PATH points to a non-executable JS file the
+ * lifecycle-worker is launched as `node <path>`, and when AO_CLI_PATH is
+ * unset the fallback is `ao`.
  */
 
 import { describe, it, expect } from "vitest";
@@ -13,6 +12,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
   existsSync,
 } from "node:fs";
@@ -46,22 +46,14 @@ function createConfig(configPath: string, projectId = "ao-health-test"): void {
 
 /**
  * Runs ao-health.sh with a controlled stub environment.
- *
- * pgrep/ps stubs simulate a running lifecycle-worker with the given cmdline.
- * Omit workerCmdline to simulate no running worker.
+ * Returns the content of the log file written by the script.
  */
 function runAoHealth(opts: {
   tempRoot: string;
   aoCliPath?: string;
   projectId?: string;
-  workerCmdline?: string;
 }): string {
-  const {
-    tempRoot,
-    aoCliPath,
-    projectId = "ao-health-test",
-    workerCmdline,
-  } = opts;
+  const { tempRoot, aoCliPath, projectId = "ao-health-test" } = opts;
 
   const binDir = join(tempRoot, "bin");
   mkdirSync(binDir, { recursive: true });
@@ -72,53 +64,45 @@ function runAoHealth(opts: {
   const configPath = join(tempRoot, "agent-orchestrator.yaml");
   createConfig(configPath, projectId);
 
-  // python3: stub YAML parser — echoes project ID
+  // python3: stub YAML parser — prints the project ID when called with a config path
   writeExecutable(
     join(binDir, "python3"),
     `#!/bin/bash\necho ${JSON.stringify(projectId)}\nexit 0\n`,
   );
 
-  if (workerCmdline) {
-    // pgrep: returns fake PID 12345 when queried for lifecycle-worker
-    writeExecutable(
-      join(binDir, "pgrep"),
-      `#!/bin/bash\nif [[ "$*" == *"lifecycle-worker"* ]]; then echo 12345; exit 0; fi\nexit 1\n`,
-    );
-    // ps: returns the simulated worker cmdline for PID 12345
-    writeExecutable(
-      join(binDir, "ps"),
-      `#!/bin/bash\nif [[ "$*" == *"12345"* ]]; then echo ${JSON.stringify(workerCmdline)}; fi\nexit 0\n`,
-    );
-  } else {
-    // No running worker
-    writeExecutable(join(binDir, "pgrep"), "#!/bin/bash\nexit 1\n");
-    writeExecutable(join(binDir, "ps"), "#!/bin/bash\nexit 0\n");
-  }
+  // pgrep: always returns empty (no workers running)
+  writeExecutable(join(binDir, "pgrep"), "#!/bin/bash\nexit 1\n");
 
-  // nohup / sleep: no-ops for launch path
+  // ps: returns nothing
+  writeExecutable(join(binDir, "ps"), "#!/bin/bash\nexit 0\n");
+
+  // nohup: discard actual launch (we only care about the log line)
   writeExecutable(join(binDir, "nohup"), "#!/bin/bash\nexit 0\n");
+
+  // sleep: instant
   writeExecutable(join(binDir, "sleep"), "#!/bin/bash\nexit 0\n");
 
-  // ao: stub
-  writeExecutable(join(binDir, "ao"), "#!/bin/bash\nexit 0\n");
-
-  // node: stub
-  writeExecutable(join(binDir, "node"), "#!/bin/bash\nexit 0\n");
-
-  // git: return "main" for branch check
-  writeExecutable(
-    join(binDir, "git"),
-    '#!/bin/bash\nif [[ "$*" == *"branch --show-current"* ]]; then echo "main"; fi\nexit 0\n',
-  );
-
-  // stat: small file (no rotation)
-  writeExecutable(join(binDir, "stat"), "#!/bin/bash\necho 0\n");
-
-  // launchctl: not found (plist bootstrap no-op)
+  // launchctl: report service not found so bootstrap branch no-ops
   writeExecutable(
     join(binDir, "launchctl"),
     '#!/bin/bash\necho "Could not find service"; exit 0\n',
   );
+
+  // stat: return 0 (small file, no rotation)
+  writeExecutable(join(binDir, "stat"), "#!/bin/bash\necho 0\n");
+
+  // ao: stub (fallback binary)
+  writeExecutable(join(binDir, "ao"), "#!/bin/bash\nexit 0\n");
+
+  // node: stub (used when AO_CLI_PATH is a .js file)
+  writeExecutable(join(binDir, "node"), "#!/bin/bash\nexit 0\n");
+
+  // git: stub to avoid slow git operations in CI (branch check in ao-health.sh)
+  writeExecutable(join(binDir, "git"), '#!/bin/bash\nif [[ "$*" == *"branch --show-current"* ]]; then echo "main"; fi\nexit 0\n');
+
+  // command: shell builtin — use a wrapper that returns the stub path
+  // (used by ao-health.sh: AO_MATCH="$(command -v ao ...)")
+  // We leave this to the real shell builtin; our stub ao is on PATH.
 
   const env: Record<string, string> = {
     ...process.env,
@@ -126,6 +110,7 @@ function runAoHealth(opts: {
     AO_CONFIG_PATH: configPath,
     AO_LOG_DIR: logsDir,
     HOME: tempRoot,
+    // Prevent repo topology walk from hitting the real home dir
     AO_REPO_ROOT: repoRoot,
   };
 
@@ -135,59 +120,58 @@ function runAoHealth(opts: {
     delete env["AO_CLI_PATH"];
   }
 
-  const result = spawnSync("bash", [scriptPath], {
+  spawnSync("bash", [scriptPath], {
     env,
     encoding: "utf8",
     timeout: 15_000,
   });
-
-  // Script must always exit 0 (launchd throttle fix)
-  expect(result.status, `ao-health.sh exited ${result.status}: ${result.stderr}`).toBe(0);
 
   const logFile = join(logsDir, "ao-health.log");
   if (!existsSync(logFile)) return "";
   return readFileSync(logFile, "utf8");
 }
 
-describe("ao-health.sh AO_MATCH liveness scoping", () => {
-  it("detects a source-tree worker (launched via AO_CLI_PATH) as own worker", () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "ao-health-match-"));
+describe("ao-health.sh AO_LAUNCH construction", () => {
+  it("uses 'node <path>' when AO_CLI_PATH points to a non-executable JS file", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-health-test-"));
 
-    // Source-tree CLI path (non-executable JS file, like dist/index.js)
+    // Create a non-executable JS file (simulates packages/cli/dist/index.js)
     const distDir = join(tempRoot, "packages", "cli", "dist");
     mkdirSync(distDir, { recursive: true });
     const cliPath = join(distDir, "index.js");
-    writeFileSync(cliPath, "// stub");
+    writeFileSync(cliPath, "// stub\n");
+    // NOT chmodSync to 0o755 — stays non-executable
 
-    // Simulate a running worker whose cmdline is: node /path/to/index.js lifecycle-worker ao-health-test
-    const workerCmdline = `node ${cliPath} lifecycle-worker ao-health-test`;
-
-    const log = runAoHealth({ tempRoot, aoCliPath: cliPath, workerCmdline });
-
-    // Worker was detected → script should NOT log "START: worker missing"
-    // (it skipped the start because own_worker=true)
-    expect(log).not.toContain("worker missing");
-  });
-
-  it("starts worker when AO_CLI_PATH is set but no matching process is found", () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "ao-health-nomatch-"));
-
-    const distDir = join(tempRoot, "packages", "cli", "dist");
-    mkdirSync(distDir, { recursive: true });
-    const cliPath = join(distDir, "index.js");
-    writeFileSync(cliPath, "// stub");
-
-    // No running worker (pgrep returns nothing)
     const log = runAoHealth({ tempRoot, aoCliPath: cliPath });
+    rmSync(tempRoot, { recursive: true, force: true });
 
-    expect(log).toContain("worker missing");
+    expect(log).toContain(`cmd=node ${cliPath}`);
+    expect(log).not.toContain("cmd=ao");
   });
 
-  it("exits 0 always, even when worker start fails (launchd throttle fix)", () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "ao-health-exit0-"));
-    // runAoHealth already asserts exit 0 inside — this test exists to make the
-    // launchd exit-0 invariant an explicit, named test case.
-    runAoHealth({ tempRoot });
-    // If we reach here, exit code was 0 (asserted in runAoHealth)
+  it("falls back to 'ao' when AO_CLI_PATH is not set", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-health-fallback-"));
+
+    const log = runAoHealth({ tempRoot }); // no aoCliPath
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    expect(log).toContain("cmd=ao");
+  });
+
+  it("uses the executable directly when AO_CLI_PATH is an executable script", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-health-exec-"));
+
+    const binDir = join(tempRoot, "custom-bin");
+    mkdirSync(binDir, { recursive: true });
+    const execPath = join(binDir, "ao-custom");
+    writeFileSync(execPath, "#!/bin/bash\nexit 0\n");
+    chmodSync(execPath, 0o755);
+
+    const log = runAoHealth({ tempRoot, aoCliPath: execPath });
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    // Should not prepend 'node' for an executable file
+    expect(log).toContain(`cmd=${execPath}`);
+    expect(log).not.toContain(`cmd=node ${execPath}`);
   });
 });

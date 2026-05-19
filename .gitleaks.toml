@@ -18,9 +18,7 @@ commits = [
   "656290f8af78d1c244094a453ff4b019a32ef8f2",
   "6ca0dc83f8ad348240ea5839bc090b2512c578c1",
   "7e7d9ab47ff0803dfc7a5d490da31c190915bd32",
-  # activity-events.test.ts: canonical AWS-published example access key
-  # ID ("AKIAIOSFODNN7EXAMPLE") used in redaction test fixtures.
-  "7ba759991e4a19e79b594b618a92c0674b977121",
+  # False positive: test assertion containing string that matches aws-access-token pattern
   "fc7d76ad54d6a7350de0fca298a1294ce8a1f3a2",
 ]
 

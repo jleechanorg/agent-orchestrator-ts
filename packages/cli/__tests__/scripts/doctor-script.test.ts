@@ -119,6 +119,7 @@ describe("scripts/ao-doctor.sh", () => {
         AO_PROD_CONFIG_PATH: join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml"),
       },
       encoding: "utf8",
+      timeout: 30_000,
     });
 
     rmSync(tempRoot, { recursive: true, force: true });
@@ -170,6 +171,7 @@ describe("scripts/ao-doctor.sh", () => {
         AO_DOCTOR_TMP_ROOT: tmpRoot,
       },
       encoding: "utf8",
+      timeout: 60_000,
     });
 
     const staleStillExists = existsSync(staleFile);
@@ -235,6 +237,7 @@ describe("scripts/ao-doctor.sh", () => {
         AO_PROD_CONFIG_PATH: join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml"),
       },
       encoding: "utf8",
+      timeout: 30_000,
     });
 
     rmSync(tempRoot, { recursive: true, force: true });
@@ -281,6 +284,7 @@ describe("scripts/ao-doctor.sh", () => {
         AO_PROD_CONFIG_PATH: join(tempRoot, ".openclaw_prod", "agent-orchestrator.yaml"),
       },
       encoding: "utf8",
+      timeout: 30_000,
     });
 
     rmSync(tempRoot, { recursive: true, force: true });
