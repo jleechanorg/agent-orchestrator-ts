@@ -100,7 +100,7 @@ describe("attachToDaemon", () => {
   });
 });
 
-describe.skipIf(process.env.CI === "true")("killExistingDaemon", () => {
+describe("killExistingDaemon", () => {
   it("uses killProcessTree(SIGTERM), awaits exit, and unregisters on the happy path", async () => {
     mockWaitForExit.mockResolvedValueOnce(true);
     await killExistingDaemon(fakeRunning);
