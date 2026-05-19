@@ -120,11 +120,16 @@ jobs:
             echo "CLI tests passed (vitest forceExit sent SIGTERM — treating as success)"
             exit 0
           elif [ $rc -eq 137 ]; then
-            if grep -q "Tests.*passed" /tmp/cli-test-output.txt; then
+            # vitest prints "Test Files  X passed (X)" then "Tests  X passed (X)"
+            # Match either line; also verify no FAIL markers present (guard against
+            # "Tests  1 failed | 3 passed (4)" false-positive on mixed output)
+            if grep -qE "(Test Files|Tests)[[:space:]].*passed" /tmp/cli-test-output.txt 2>/dev/null && \
+               ! grep -qE "^[[:space:]]*(×|FAIL )" /tmp/cli-test-output.txt 2>/dev/null; then
               echo "::warning::CLI process OOM-killed but tests passed before kill — known CI memory issue"
               exit 0
             fi
-            echo "::error::CLI tests OOM-killed and no test results found"
+            echo "::error::CLI tests OOM-killed and no clean test results found"
+            tail -50 /tmp/cli-test-output.txt 2>/dev/null || true
             exit 1
           elif [ $rc -ne 0 ]; then
             echo "::warning::CLI tests failed with exit code $rc"
