@@ -96,6 +96,9 @@ function runAoHealth(opts: {
   // node: stub (used when AO_CLI_PATH is a .js file)
   writeExecutable(join(binDir, "node"), "#!/bin/bash\nexit 0\n");
 
+  // git: stub to avoid slow git operations in CI (branch check in ao-health.sh)
+  writeExecutable(join(binDir, "git"), '#!/bin/bash\nif [[ "$*" == *"branch --show-current"* ]]; then echo "main"; fi\nexit 0\n');
+
   // command: shell builtin — use a wrapper that returns the stub path
   // (used by ao-health.sh: AO_MATCH="$(command -v ao ...)")
   // We leave this to the real shell builtin; our stub ao is on PATH.

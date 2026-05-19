@@ -98,9 +98,11 @@ jobs:
           # OOM killer sends SIGKILL (signal 9 → exit 137) — all tests may have
           # passed before the OOM; check the summary line before failing.
           if [ $rc -eq 143 ]; then
-            # vitest forceExit sends SIGTERM after all tests complete — verify output
+            # vitest forceExit sends SIGTERM after all tests complete — verify output.
+            # Use × (vitest per-test failure marker) only; avoid FAIL which also matches
+            # intentional RED-phase output from shell test scripts (test-doctor-expand-home.sh).
             if grep -qE "(Test Files|Tests)[[:space:]].*passed" /tmp/pnpm-test-output.txt 2>/dev/null && \
-               ! grep -qE "^[[:space:]]*(×|FAIL )" /tmp/pnpm-test-output.txt 2>/dev/null; then
+               ! grep -qE "^[[:space:]]*×" /tmp/pnpm-test-output.txt 2>/dev/null; then
               echo "Tests passed (vitest forceExit sent SIGTERM — treating as success)"
               exit 0
             fi
@@ -109,7 +111,7 @@ jobs:
             exit 1
           elif [ $rc -eq 137 ]; then
             if grep -qE "(Test Files|Tests)[[:space:]].*passed" /tmp/pnpm-test-output.txt 2>/dev/null && \
-               ! grep -qE "^[[:space:]]*(×|FAIL )" /tmp/pnpm-test-output.txt 2>/dev/null; then
+               ! grep -qE "^[[:space:]]*×" /tmp/pnpm-test-output.txt 2>/dev/null; then
               echo "::warning::Test process OOM-killed but tests passed before kill — known CI memory issue"
               exit 0
             fi
