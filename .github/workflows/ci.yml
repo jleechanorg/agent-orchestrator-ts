@@ -98,7 +98,7 @@ jobs:
         run: |
           trap 'echo "Parent shell received SIGTERM — ignoring to let handler evaluate child exit"' TERM
           CLI_TEST_OUTPUT=/tmp/cli-test-output.txt
-          setsid pnpm --filter @jleechanorg/ao-cli test > "$CLI_TEST_OUTPUT" 2>&1 &
+          pnpm --filter @jleechanorg/ao-cli test > "$CLI_TEST_OUTPUT" 2>&1 &
           CLI_PID=$!
           tail -f "$CLI_TEST_OUTPUT" &
           TAIL_PID=$!
