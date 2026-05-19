@@ -112,20 +112,14 @@ fi
 FAILURES=0
 STARTED=0
 
-# Resolve this install's AO binary path for liveness scoping — prevents
-# a stale worker from another AO install (different binary) masking the
-# fact that *this* install's worker is not running.
-AO_MATCH="${AO_CLI_PATH:-}"
-if [ -z "$AO_MATCH" ]; then
-    AO_MATCH="$(command -v ao 2>/dev/null || true)"
-fi
-
-# Build the launch command for lifecycle-worker.
+# Resolve AO binary for launch and liveness-scoping together so both
+# always agree on the same path.  AO_MATCH is used by command_matches_ao_binary
+# to scope pgrep hits to *this* install; AO_LAUNCH is the actual command array.
 # When AO_CLI_PATH points to a source-tree dist (e.g. packages/cli/dist/index.js),
 # invoke it as "node $AO_CLI_PATH" so the source-tree's Zod schema is used,
 # not the globally-installed npm binary which may have a stale/narrower enum.
 # When AO_CLI_PATH is an executable binary or shell script, run it directly.
-# Fall back to plain "ao" when AO_CLI_PATH is not set.
+# Fall back to plain "ao" (from PATH) when AO_CLI_PATH is unset or missing.
 # Uses an array to preserve paths with spaces through word-splitting.
 if [ -n "${AO_CLI_PATH:-}" ] && [ -f "${AO_CLI_PATH}" ]; then
     if [ -x "${AO_CLI_PATH}" ]; then
@@ -133,8 +127,10 @@ if [ -n "${AO_CLI_PATH:-}" ] && [ -f "${AO_CLI_PATH}" ]; then
     else
         AO_LAUNCH=(node "${AO_CLI_PATH}")
     fi
+    AO_MATCH="${AO_CLI_PATH}"
 else
     AO_LAUNCH=(ao)
+    AO_MATCH="$(command -v ao 2>/dev/null || true)"
 fi
 
 for project in $PROJECTS; do
