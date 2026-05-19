@@ -213,7 +213,13 @@ export async function drainSpawnQueue(
     return 0;
   }
 
-  const load = await (deps.getLoadAvg ?? getLoadAvg1m)();
+  const load = await (async () => {
+    try {
+      return await (deps.getLoadAvg ?? getLoadAvg1m)();
+    } catch {
+      return null;
+    }
+  })();
   if (load !== null && load > 20) {
     observer.recordOperation({
       metric: "lifecycle_poll",

@@ -39,16 +39,23 @@ jobs:
         if: steps.docker-check.outputs.available == 'true'
         run: |
           pick_free_port() {
-            local port candidate
+            local candidate
+            local HAS_SS HAS_LSOF
+            command -v ss >/dev/null 2>&1 && HAS_SS=1 || HAS_SS=0
+            command -v lsof >/dev/null 2>&1 && HAS_LSOF=1 || HAS_LSOF=0
             for candidate in "$@"; do
-              if ! ss -tlnp 2>/dev/null | grep -q ":${candidate} " && \
-                 ! lsof -iTCP:${candidate} -sTCP:LISTEN 2>/dev/null | grep -q .; then
-                echo "$candidate"
-                return
+              # Only check with tools that are actually available
+              if [ "$HAS_SS" = "1" ] && ss -tlnp 2>/dev/null | grep -q ":${candidate} "; then
+                continue
               fi
+              if [ "$HAS_LSOF" = "1" ] && lsof -iTCP:${candidate} -sTCP:LISTEN 2>/dev/null | grep -q .; then
+                continue
+              fi
+              echo "$candidate"
+              return
             done
-            # Fallback: let OS pick a random port
-            python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"
+            # Fallback: bind a socket to let the OS pick — close immediately to release the port
+            python3 -c "import socket; s=socket.socket(); s.bind(('',0)); p=s.getsockname()[1]; s.close(); print(p)"
           }
           echo "dashboard=$(pick_free_port 9000 19000 29000)" >> "$GITHUB_OUTPUT"
           echo "ws=$(pick_free_port 9001 19001 29001)" >> "$GITHUB_OUTPUT"
