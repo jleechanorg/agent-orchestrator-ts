@@ -123,18 +123,24 @@ jobs:
           # even when all tests pass. Treat exit 143 (SIGTERM) as success.
           # OOM killer sends SIGKILL (signal 9 → exit 137) — all tests may have
           # passed before the OOM; check the summary lines before failing.
-          if [ $rc -eq 143 ]; then
-            echo "CLI tests passed (vitest forceExit sent SIGTERM — treating as success)"
-            exit 0
-          elif [ $rc -eq 137 ]; then
+          if [ $rc -eq 143 ] || [ $rc -eq 137 ]; then
             # vitest prints "Test Files  X passed (X)" then "Tests  X passed (X)"
-            # Match either line; also verify no FAIL markers are present
+            # Match either line; reject if any failure count appears; also verify no FAIL markers
             if grep -qE "(Test Files|Tests)[[:space:]].*passed" /tmp/cli-test-output.txt 2>/dev/null && \
+               ! grep -qE "(Test Files|Tests)[[:space:]].*[1-9][0-9]* failed" /tmp/cli-test-output.txt 2>/dev/null && \
                ! grep -qE "^[[:space:]]*(×|FAIL )" /tmp/cli-test-output.txt 2>/dev/null; then
-              echo "::warning::CLI process OOM-killed but tests passed before kill — known CI memory issue"
+              if [ $rc -eq 143 ]; then
+                echo "CLI tests passed (vitest forceExit sent SIGTERM — treating as success)"
+              else
+                echo "::warning::CLI process OOM-killed but tests passed before kill — known CI memory issue"
+              fi
               exit 0
             fi
-            echo "::error::CLI tests OOM-killed and no clean test results found"
+            if [ $rc -eq 143 ]; then
+              echo "::error::CLI tests exited with SIGTERM (rc=143) but no passing summary found"
+            else
+              echo "::error::CLI tests OOM-killed and no clean test results found"
+            fi
             tail -50 /tmp/cli-test-output.txt 2>/dev/null || true
             exit 1
           elif [ $rc -ne 0 ]; then
