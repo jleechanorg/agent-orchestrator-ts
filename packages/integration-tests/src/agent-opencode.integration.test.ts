@@ -203,7 +203,7 @@ describe("getLaunchCommand (integration)", () => {
     });
     expect(cmd).toContain("--agent 'sisyphus'");
     expect(cmd).toContain("--prompt 'fix the bug'");
-    expect(cmd).toBe("opencode --title 'AO:test-1' --agent 'sisyphus' --prompt 'fix the bug'");
+    expect(cmd).toBe("opencode run --title 'AO:test-1' --agent 'sisyphus' --prompt 'fix the bug'");
   });
 
   it("generates correct command with systemPrompt", () => {
@@ -215,7 +215,9 @@ describe("getLaunchCommand (integration)", () => {
     expect(cmd).toContain("--prompt");
     expect(cmd).toContain("You are an orchestrator");
     expect(cmd).toContain("do the task");
-    expect(cmd).toBe("opencode --title 'AO:test-1' --prompt 'You are an orchestrator\n\ndo the task'");
+    expect(cmd).toBe(
+      "opencode run --title 'AO:test-1' --prompt 'You are an orchestrator\n\ndo the task'",
+    );
   });
 
   it("generates correct command with systemPromptFile", () => {
@@ -227,7 +229,9 @@ describe("getLaunchCommand (integration)", () => {
     expect(cmd).toContain("--prompt");
     expect(cmd).toContain("$(cat '/tmp/orchestrator-prompt.md')");
     expect(cmd).toContain("do the task");
-    expect(cmd).toBe("opencode --title 'AO:test-1' --prompt \"$(cat '/tmp/orchestrator-prompt.md')\n\ndo the task\"");
+    expect(cmd).toBe(
+      "opencode run --title 'AO:test-1' --prompt \"$(cat '/tmp/orchestrator-prompt.md')\n\ndo the task\"",
+    );
   });
 
   it("generates correct command with model override", () => {
@@ -253,7 +257,7 @@ describe("getLaunchCommand (integration)", () => {
     expect(cmd).toContain("You are an expert");
     expect(cmd).toContain("review this code");
     expect(cmd).toBe(
-      "opencode --title 'AO:test-1' --model 'gpt-5.2' --agent 'oracle' --prompt 'You are an expert\n\nreview this code'",
+      "opencode run --title 'AO:test-1' --model 'gpt-5.2' --agent 'oracle' --prompt 'You are an expert\n\nreview this code'",
     );
   });
 
@@ -277,7 +281,9 @@ describe("getLaunchCommand (integration)", () => {
     });
     expect(cmd).toContain("--prompt");
     expect(cmd).toContain("$(cat '/tmp/orchestrator-prompt.md')");
-    expect(cmd).toBe("opencode --title 'AO:test-orchestrator' --prompt \"$(cat '/tmp/orchestrator-prompt.md')\"");
+    expect(cmd).toBe(
+      "opencode run --title 'AO:test-orchestrator' --prompt \"$(cat '/tmp/orchestrator-prompt.md')\"",
+    );
   });
 
   it("escapes single quotes in systemPrompt", () => {
@@ -312,7 +318,7 @@ describe("getLaunchCommand (integration)", () => {
       ...baseConfig,
       prompt: "",
     });
-    expect(cmd).toBe("opencode --title 'AO:test-1'");
+    expect(cmd).toBe("opencode run --title 'AO:test-1'");
     expect(cmd).not.toContain("--prompt");
   });
 
@@ -331,8 +337,8 @@ describe("getLaunchCommand (integration)", () => {
       ...baseConfig,
       prompt: "start work",
     });
-    expect(cmd).toBe("opencode --title 'AO:test-1' --prompt 'start work'");
-    expect(cmd).not.toContain("opencode run");
+    expect(cmd).toBe("opencode run --title 'AO:test-1' --prompt 'start work'");
+    expect(cmd).toContain("opencode run");
     expect(cmd).not.toContain("SES_ID");
   });
 
@@ -347,7 +353,7 @@ describe("getLaunchCommand (integration)", () => {
       },
       prompt: "continue",
     });
-    expect(cmd).toBe("opencode --session 'ses_abc123' --prompt 'continue'");
+    expect(cmd).toBe("opencode run --session 'ses_abc123' --prompt 'continue'");
   });
 });
 
