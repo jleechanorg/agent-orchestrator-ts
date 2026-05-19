@@ -135,19 +135,6 @@ jobs:
             echo "::error::CLI tests SIGTERM'd and no clean test results found"
             tail -50 /tmp/cli-test-output.txt 2>/dev/null || true
             exit 1
-          elif [ $rc -eq 137 ]; then
-            # OOM kills vitest after all tests complete but BEFORE the summary line prints.
-            # Accept OOM as success if: at least one test-file passed (✓ marker) AND no
-            # test failures (× marker). This handles the case where summary is missing.
-            # Also accept the summary-present case (OOM during worker cleanup).
-            if grep -qE "^[[:space:]]+✓ " /tmp/cli-test-output.txt 2>/dev/null && \
-               ! grep -qE "^[[:space:]]*×" /tmp/cli-test-output.txt 2>/dev/null; then
-              echo "::warning::CLI process OOM-killed but all tests that ran were passing — known CI memory issue"
-              exit 0
-            fi
-            echo "::error::CLI tests OOM-killed and no passing results found (or failures detected)"
-            tail -50 /tmp/cli-test-output.txt 2>/dev/null || true
-            exit 1
           elif [ $rc -ne 0 ]; then
             echo "::warning::CLI tests failed with exit code $rc"
             exit 1
