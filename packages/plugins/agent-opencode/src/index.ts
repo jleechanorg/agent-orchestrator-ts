@@ -125,6 +125,11 @@ function createOpenCodeAgent(): Agent {
     getLaunchCommand(config: AgentLaunchConfig): string {
       const parts: string[] = ["opencode"];
 
+      // Session resumption: use persisted session ID from agentConfig when available.
+      // For fresh sessions (no existingSessionId), opencode generates its own session
+      // ID automatically. AO does not pass --title because the opencode CLI does not
+      // expose a --title flag for interactive (TUI) launches; session tracking relies
+      // on the persisted opencodeSessionId in agentConfig, populated on first run.
       const existingSessionId = asValidOpenCodeSessionId(
         (config.projectConfig.agentConfig as OpenCodeAgentConfig | undefined)?.opencodeSessionId,
       );
