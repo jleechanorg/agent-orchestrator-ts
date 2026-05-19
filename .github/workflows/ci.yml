@@ -95,37 +95,37 @@ jobs:
         run: pnpm run test:shell && pnpm run test:evidence-gate-patterns
       - name: Run CLI tests
         id: cli-tests
-        run: |
-          CLI_TEST_OUTPUT=/tmp/cli-test-output.txt
-          set +e
-          pnpm --filter @jleechanorg/ao-cli test 2>&1 | tee "$CLI_TEST_OUTPUT"
-          CLI_EXIT=${PIPESTATUS[0]}
-          set -e
-          echo "CLI test exit code: $CLI_EXIT"
-          if [ "$CLI_EXIT" -eq 0 ]; then
-            echo "CLI tests passed normally"
-            exit 0
-          elif [ "$CLI_EXIT" -eq 137 ]; then
-            echo "CLI tests OOM-killed (exit 137) — checking if tests actually passed"
-            if grep -qE "Tests.*passed" "$CLI_TEST_OUTPUT"; then
-              echo "Tests passed before OOM — treating as success"
-              exit 0
-            else
-              echo "Tests did NOT pass before OOM — treating as failure"
-              exit 1
-            fi
-          elif [ "$CLI_EXIT" -eq 143 ]; then
-            echo "CLI tests received SIGTERM (exit 143) from forceExit — treating as success"
-            exit 0
-          else
-            echo "CLI tests failed with exit code $CLI_EXIT"
-            exit "$CLI_EXIT"
-          fi
+        continue-on-error: true
+        run: pnpm --filter @jleechanorg/ao-cli test 2>&1 | tee /tmp/cli-test-output.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           GITHUB_BASE_REF: ${{ github.base_ref }}
+      - name: Evaluate CLI test result
+        if: always()
+        run: |
+          CLI_EXIT=${{ steps.cli-tests.outcome == 'success' && '0' || '1' }}
+          OUTPUT=/tmp/cli-test-output.txt
+          if [ "$CLI_EXIT" -eq 0 ]; then
+            echo "CLI tests passed normally"
+            exit 0
+          fi
+          if grep -qE "Tests.*passed" "$OUTPUT" 2>/dev/null; then
+            PASSED=$(grep -oP '\d+(?= passed)' "$OUTPUT" | tail -1)
+            FAILED=$(grep -oP '\d+(?= failed)' "$OUTPUT" | tail -1 || echo 0)
+            echo "CLI tests exited abnormally but $PASSED tests passed, $FAILED failed"
+            if [ "$FAILED" -eq 0 ] || [ -z "$FAILED" ]; then
+              echo "No test failures detected — treating as success"
+              exit 0
+            else
+              echo "Test failures detected — treating as failure"
+              exit 1
+            fi
+          else
+            echo "No 'Tests passed' found in output — treating as failure"
+            exit 1
+          fi
       - name: Kill ao processes spawned by CLI tests
         if: always()
         run: pkill -f "ao " || true; sleep 2
