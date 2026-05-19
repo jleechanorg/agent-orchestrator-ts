@@ -48,7 +48,7 @@ jobs:
           if [ -z "$NEXT" ]; then
             if [ $EXIT -ne 0 ]; then
               # Check output text: benign no-op messages that produce exit 1 without being real errors
-              if echo "$OUTPUT" | grep -qiE 'not.published.from.current.branch|already.up.to.date|no.releases.found|nothing.to.release|skip.releasing|local branch.*is behind|EGITNOPERMISSION'; then
+              if echo "$OUTPUT" | grep -qiE 'not.published.from.current.branch|already.up.to.date|no.releases.found|nothing.to.release|skip.releasing|local branch.*is behind'; then
                 echo "release_type=none" >> $GITHUB_OUTPUT
               else
                 echo "release_type=error" >> $GITHUB_OUTPUT

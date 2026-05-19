@@ -30,6 +30,12 @@ if [ -z "$GLOBAL_MODULES" ] || [ ! -d "$GLOBAL_MODULES" ]; then
   echo "ERROR: Could not determine global pnpm modules path (got: '$GLOBAL_MODULES')." >&2
   exit 1
 fi
+# Guard against root-like paths before running rm -rf
+_norm="${GLOBAL_MODULES%/}"
+if [ -z "$_norm" ] || [ "$_norm" = "/" ] || [ "$_norm" = "//" ] || [ "$_norm" = "." ]; then
+  echo "ERROR: GLOBAL_MODULES resolved to root-like path '$GLOBAL_MODULES' — refusing rm -rf." >&2
+  exit 1
+fi
 if [ -e "$GLOBAL_MODULES/@jleechanorg/ao-cli" ]; then
   echo "  Removing stale global @jleechanorg/ao-cli link..."
   rm -rf "$GLOBAL_MODULES/@jleechanorg/ao-cli"
