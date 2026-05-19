@@ -22,21 +22,21 @@ function createFakeSleep(binDir: string): void {
   writeExecutable(join(binDir, "sleep"), "exit 0");
 }
 
-// Hermetic python3 stub: bypasses the runtime pyyaml dependency in start-all.sh
-// so tests do not require pyyaml installed in the CI runner image. First call
-// (`import yaml; yaml.safe_load(...)`) exits 0; second call (`for pid in ...`)
-// prints the test project id.
-function createPythonStub(binDir: string, projectId: string): void {
-  writeExecutable(
-    join(binDir, "python3"),
-    [
-      "#!/bin/bash",
-      'case "$*" in',
-      `  *"for pid in"*) echo ${JSON.stringify(projectId)} ;;`,
-      "esac",
-      "exit 0",
-    ].join("\n") + "\n",
-  );
+function createFakePython3(binDir: string): void {
+  // Stubs python3 for start-all.sh yaml operations without requiring PyYAML.
+  // Handles the two call patterns used by the script:
+  //   1) python3 -c "import yaml; yaml.safe_load(open('FILE'))"  → exit 0 (pass validation)
+  //   2) python3 -c "import yaml\n...for pid in cfg.get..."      → print project names from FILE
+  writeExecutable(join(binDir, "python3"), [
+    "#!/bin/bash",
+    '[ "$1" = "-c" ] || exit 0',
+    'script="$2"',
+    'if printf \'%s\\n\' "$script" | grep -q \'for pid in\'; then',
+    '  config_file="$(printf \'%s\\n\' "$script" | grep -o "open(\'[^\']*\')" | head -1 | sed "s/open(\'//;s/\')//")"',
+    '  [ -f "$config_file" ] && awk \'/^projects:/{p=1;next} p&&/^  [a-zA-Z_-]/{sub(/:.*/,"");sub(/^  /,"");print} p&&/^[^ ]/{p=0}\' "$config_file"',
+    "fi",
+    "exit 0",
+  ].join("\n"));
 }
 
 function createConfig(path: string): void {
@@ -77,7 +77,7 @@ describe("scripts/start-all.sh", () => {
     const binDir = join(tempRoot, "bin");
     mkdirSync(binDir, { recursive: true });
     createFakeBinary(binDir, "pgrep", "exit 0");
-    createPythonStub(binDir, "script-test");
+    createFakePython3(binDir);
     createFakeSleep(binDir);
 
     const result = spawnSync("bash", [scriptPath], {
@@ -111,7 +111,7 @@ describe("scripts/start-all.sh", () => {
     mkdirSync(binDir, { recursive: true });
     createFakeBinary(binDir, "pgrep", "exit 0");
     createFakeBinary(binDir, "ao", `echo "$@" >> "${aoLog}"`);
-    createPythonStub(binDir, "script-test");
+    createFakePython3(binDir);
     createFakeSleep(binDir);
 
     const result = spawnSync("bash", [scriptPath], {
@@ -148,7 +148,7 @@ describe("scripts/start-all.sh", () => {
     // Large out-of-range PID prevents kill "$pid" from targeting a real process.
     createFakeBinary(binDir, "pgrep", "echo 999999999; exit 0");
     createFakeBinary(binDir, "ao", `echo "$@" >> "${aoLog}"`);
-    createPythonStub(binDir, "script-test");
+    createFakePython3(binDir);
     createFakeSleep(binDir);
 
     const result = spawnSync("bash", [scriptPath], {
