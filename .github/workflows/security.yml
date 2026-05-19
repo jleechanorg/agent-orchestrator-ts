@@ -53,7 +53,10 @@ jobs:
             linux:x64)   EXPECTED_SHA256="b1e20dfbd81fa5eeefc91ace3371d4db75d2250c0d426cb6acf1e51722726779" ;;
             linux:arm64) EXPECTED_SHA256="6bdb864bf9183525513612942c94edcf47da7ff72331b4b660a313c251214437" ;;
             darwin:arm64) EXPECTED_SHA256="4e7bee2df7d61217e9af00c3507db1870a2676cb3b73fb5a3fdca3060734cc0e" ;;
-            *)       echo "WARNING: no checksum for $OS_SUFFIX:$ARCH_SUFFIX — skipping verification" ;;
+            *)
+              echo "ERROR: no checksum for $OS_SUFFIX:$ARCH_SUFFIX — refusing to install unverified binary" >&2
+              exit 1
+              ;;
           esac
           if [ -n "${EXPECTED_SHA256:-}" ]; then
             echo "Expected SHA256: $EXPECTED_SHA256"
