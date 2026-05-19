@@ -27,6 +27,10 @@ export default defineConfig({
         __dirname,
         "../plugins/agent-opencode/src/index.ts",
       ),
+      "@jleechanorg/ao-plugin-agent-openw": resolve(
+        __dirname,
+        "../plugins/agent-openw/src/index.ts",
+      ),
       "@jleechanorg/ao-plugin-agent-minimax": resolve(
         __dirname,
         "../plugins/agent-minimax/src/index.ts",

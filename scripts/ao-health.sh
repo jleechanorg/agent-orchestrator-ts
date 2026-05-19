@@ -25,20 +25,19 @@ PY
 
 # Check whether a process command line matches this install's AO binary,
 # accounting for symlinks and /private prefix on macOS.
+# Also resolves the CMD binary itself so that two different symlinks to the
+# same real file (e.g. /Users/.../bin/ao -> .nvm/.../bin/ao -> dist/index.js)
+# are correctly recognised as the same binary.
 command_matches_ao_binary() {
   local cmd="$1"
   local ao_bin="$2"
   local ao_real cmd_bin cmd_real
   ao_real="$(resolve_path "$ao_bin")"
-  # Substring check (fast path for exact match)
   local ao_alt="${ao_bin#/private}"
   local ao_real_alt="${ao_real#/private}"
   if [[ "$cmd" == *"$ao_bin"* || "$cmd" == *"$ao_alt"* || "$cmd" == *"$ao_real"* || "$cmd" == *"$ao_real_alt"* ]]; then
     return 0
   fi
-  # Realpath comparison: extract the /path/to/ao token from CMD and resolve it.
-  # Handles the case where CMD has an intermediate symlink path that differs
-  # from both ao_bin and ao_real (e.g., node /.nvm/.../bin/ao vs /Users/.../bin/ao).
   cmd_bin=$(echo "$cmd" | grep -oE '(/[^ ]+/ao)( |$)' | head -1 | xargs 2>/dev/null || true)
   if [ -n "$cmd_bin" ]; then
     cmd_real="$(resolve_path "$cmd_bin")"
@@ -168,19 +167,22 @@ for project in $PROJECTS; do
     AO_CONFIG_PATH="$CONFIG_PATH" nohup "${AO_LAUNCH[@]}" lifecycle-worker "$project" >> "$LOG_FILE" 2>&1 &
     disown
     STARTED=$((STARTED + 1))
-    sleep 2
 
-    # Verify the started worker belongs to this install (same scoping as
-    # the liveness check above — prevents false OK from another install's worker).
+    # Retry pgrep up to 5 times (1s apart) to handle slow process startup and
+    # "already running" cases where the new ao process exits immediately but the
+    # existing worker is still visible.
     started_ok=false
-    started_pids=$(pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" 2>/dev/null || true)
-    for spid in $started_pids; do
-        SCMD=$(ps -p "$spid" -o args= 2>/dev/null) || continue
-        if [ -n "$AO_MATCH" ]; then
-            if command_matches_ao_binary "$SCMD" "$AO_MATCH"; then started_ok=true; break; fi
-        else
-            started_ok=true; break
-        fi
+    for _attempt in 1 2 3 4 5; do
+        sleep 1
+        started_pids=$(pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" 2>/dev/null || true)
+        for spid in $started_pids; do
+            SCMD=$(ps -p "$spid" -o args= 2>/dev/null) || continue
+            if [ -n "$AO_MATCH" ]; then
+                if command_matches_ao_binary "$SCMD" "$AO_MATCH"; then started_ok=true; break 2; fi
+            else
+                started_ok=true; break 2
+            fi
+        done
     done
     if [ "$started_ok" = "true" ]; then
         log "OK: $project worker started"
