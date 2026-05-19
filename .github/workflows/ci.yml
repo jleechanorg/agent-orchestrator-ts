@@ -98,14 +98,23 @@ jobs:
           # OOM killer sends SIGKILL (signal 9 → exit 137) — all tests may have
           # passed before the OOM; check the summary line before failing.
           if [ $rc -eq 143 ]; then
-            echo "Tests passed (vitest forceExit sent SIGTERM — treating as success)"
-            exit 0
+            # vitest forceExit sends SIGTERM after all tests complete — verify output
+            if grep -qE "(Test Files|Tests)[[:space:]].*passed" /tmp/pnpm-test-output.txt 2>/dev/null && \
+               ! grep -qE "^[[:space:]]*(×|FAIL )" /tmp/pnpm-test-output.txt 2>/dev/null; then
+              echo "Tests passed (vitest forceExit sent SIGTERM — treating as success)"
+              exit 0
+            fi
+            echo "::error::Tests SIGTERM'd and no clean test results found"
+            tail -50 /tmp/pnpm-test-output.txt 2>/dev/null || true
+            exit 1
           elif [ $rc -eq 137 ]; then
-            if grep -q "Tests.*passed" /tmp/pnpm-test-output.txt && ! grep -qE "Tests.*[0-9]+ failed" /tmp/pnpm-test-output.txt; then
+            if grep -qE "(Test Files|Tests)[[:space:]].*passed" /tmp/pnpm-test-output.txt 2>/dev/null && \
+               ! grep -qE "^[[:space:]]*(×|FAIL )" /tmp/pnpm-test-output.txt 2>/dev/null; then
               echo "::warning::Test process OOM-killed but tests passed before kill — known CI memory issue"
               exit 0
             fi
             echo "::error::Tests OOM-killed and no passing summary found"
+            tail -50 /tmp/pnpm-test-output.txt 2>/dev/null || true
             exit 1
           elif [ $rc -ne 0 ]; then
             echo "::error::Tests failed with exit code $rc"
