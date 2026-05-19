@@ -561,6 +561,8 @@ describe("wholesome — structural source-code assertions", () => {
       "35da2e7a423b54b853b0bb6eeeac25ad3b4ac384", // fix: add registry-url to setup-node for npm publish authentication
       "5d2db1fb68ec6cade74f0d60e57850c36ade1035", // fix: mark ao-web package as private to prevent broken npm publish
       "bf37bde9fa2a5f0a6a13d21500afd5046b704af3", // fix: move ao-web to optionalDependencies to fix npm install
+      // fix/opencode-json-pipeline (PR #568): Cursor Agent commit without [agento] prefix
+      "ca4d920c399ba589357e1a92565683585939681c", // fix: update integration tests to expect 'opencode run' command prefix
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
