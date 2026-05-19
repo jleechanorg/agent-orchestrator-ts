@@ -102,7 +102,7 @@ jobs:
             # Use × (vitest per-test failure marker) only; avoid FAIL which also matches
             # intentional RED-phase output from shell test scripts (test-doctor-expand-home.sh).
             if grep -qE "(Test Files|Tests)[[:space:]].*passed" /tmp/pnpm-test-output.txt 2>/dev/null && \
-               ! grep -qE "^[[:space:]]*×" /tmp/pnpm-test-output.txt 2>/dev/null; then
+               ! grep -qE "^[[:space:]]*✕" /tmp/pnpm-test-output.txt 2>/dev/null; then
               echo "Tests passed (vitest forceExit sent SIGTERM — treating as success)"
               exit 0
             fi
@@ -114,7 +114,7 @@ jobs:
             # Accept OOM as success if: at least one test-file passed (✓ marker) AND no
             # test failures (× marker). This handles the case where summary is missing.
             if grep -qE "^[[:space:]]+✓ " /tmp/pnpm-test-output.txt 2>/dev/null && \
-               ! grep -qE "^[[:space:]]*×" /tmp/pnpm-test-output.txt 2>/dev/null; then
+               ! grep -qE "^[[:space:]]*✕" /tmp/pnpm-test-output.txt 2>/dev/null; then
               echo "::warning::Test process OOM-killed but all tests that ran were passing — known CI memory issue"
               exit 0
             fi
