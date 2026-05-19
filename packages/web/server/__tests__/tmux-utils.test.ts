@@ -483,7 +483,10 @@ describe("resolveTmuxSession", () => {
           return "8474d6f29887-ao-15\na1b2c3d4e5f6-ao-16\nao-orchestrator\n";
         });
 
-      const result = resolveTmuxSession("ao-15", TMUX, mockExec);
+      // Use emptyFs to skip on-disk lookup and force the tmux list-sessions path.
+      // Without it, the real ~/.agent-orchestrator dir on self-hosted runners can
+      // shadow the mocked list-sessions output and return a wrapped-storageKey name.
+      const result = resolveTmuxSession("ao-15", TMUX, mockExec, emptyFs);
 
       expect(result).toBe("8474d6f29887-ao-15");
     });
@@ -498,7 +501,7 @@ describe("resolveTmuxSession", () => {
           return "8474d6f29887-ao-15\n8474d6f29887-ao-16\n";
         });
 
-      const result = resolveTmuxSession("ao-1", TMUX, mockExec);
+      const result = resolveTmuxSession("ao-1", TMUX, mockExec, emptyFs);
 
       expect(result).toBeNull();
     });
@@ -516,7 +519,7 @@ describe("resolveTmuxSession", () => {
         });
 
       // Should match the one with valid hash prefix, not the ambiguous one
-      expect(resolveTmuxSession("app-1", TMUX, mockExec)).toBe("8474d6f29887-app-1");
+      expect(resolveTmuxSession("app-1", TMUX, mockExec, emptyFs)).toBe("8474d6f29887-app-1");
     });
 
     it("rejects session names where hash prefix is not 12-char hex", () => {
@@ -536,7 +539,7 @@ describe("resolveTmuxSession", () => {
           ].join("\n") + "\n";
         });
 
-      expect(resolveTmuxSession("ao-15", TMUX, mockExec)).toBeNull();
+      expect(resolveTmuxSession("ao-15", TMUX, mockExec, emptyFs)).toBeNull();
     });
 
     it("only matches valid 12-char lowercase hex prefix", () => {
