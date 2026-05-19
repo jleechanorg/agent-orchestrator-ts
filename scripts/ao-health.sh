@@ -127,10 +127,10 @@ STARTED=0
 # Resolve this install's AO binary path for liveness scoping — prevents
 # a stale worker from another AO install (different binary) masking the
 # fact that *this* install's worker is not running.
-# NOTE: AO_CLI_PATH is the source-tree CLI (for fork commands like ao skeptic).
-# Workers are started via `ao` on PATH (the npm global). Always use PATH
-# binary for liveness matching so detect and start use the same binary.
-AO_MATCH="$(command -v ao 2>/dev/null || true)"
+# Prefer AO_CLI_PATH (source-tree CLI set by launchd plist) over the PATH shim.
+# Workers launched via node /.../dist/index.js show that node path in ps, not the
+# npm shim, so matching against AO_CLI_PATH avoids false "missing" detections.
+AO_MATCH="${AO_CLI_PATH:-$(command -v ao 2>/dev/null || true)}"
 
 for project in $PROJECTS; do
     escaped_project="$(escape_ere "$project")"
