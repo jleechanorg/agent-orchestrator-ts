@@ -22,6 +22,7 @@ describe("scripts/install-repo-skills.sh", () => {
         AO_REPO_ROOT: repoRoot,
       },
       encoding: "utf8",
+      timeout: 20_000,
     });
 
     expect(result.status).toBe(0);
