@@ -115,6 +115,8 @@ function runAoHealth(opts: {
 
   if (aoCliPath !== undefined) {
     env["AO_CLI_PATH"] = aoCliPath;
+  } else {
+    delete env["AO_CLI_PATH"];
   }
 
   spawnSync("bash", [scriptPath], {
