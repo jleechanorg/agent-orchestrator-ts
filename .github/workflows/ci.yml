@@ -95,8 +95,9 @@ jobs:
         run: pnpm run test:shell && pnpm run test:evidence-gate-patterns
       - name: Run CLI tests
         id: cli-tests
+        timeout-minutes: 10
         continue-on-error: true
-        run: pnpm --filter @jleechanorg/ao-cli test 2>&1 | tee /tmp/cli-test-output.txt
+        run: pnpm --filter @jleechanorg/ao-cli test > /tmp/cli-test-output.txt 2>&1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -105,17 +106,22 @@ jobs:
       - name: Evaluate CLI test result
         if: always()
         run: |
-          CLI_EXIT=${{ steps.cli-tests.outcome == 'success' && '0' || '1' }}
           OUTPUT=/tmp/cli-test-output.txt
-          if [ "$CLI_EXIT" -eq 0 ]; then
+          OUTCOME="${{ steps.cli-tests.outcome }}"
+          echo "CLI test step outcome: $OUTCOME"
+          if [ "$OUTCOME" = "success" ]; then
             echo "CLI tests passed normally"
             exit 0
+          fi
+          if [ ! -f "$OUTPUT" ]; then
+            echo "No output file found — treating as failure"
+            exit 1
           fi
           if grep -qE "Tests.*passed" "$OUTPUT" 2>/dev/null; then
             PASSED=$(grep -oP '\d+(?= passed)' "$OUTPUT" | tail -1)
             FAILED=$(grep -oP '\d+(?= failed)' "$OUTPUT" | tail -1 || echo 0)
             echo "CLI tests exited abnormally but $PASSED tests passed, $FAILED failed"
-            if [ "$FAILED" -eq 0 ] || [ -z "$FAILED" ]; then
+            if [ -z "$FAILED" ] || [ "$FAILED" -eq 0 ]; then
               echo "No test failures detected — treating as success"
               exit 0
             else
