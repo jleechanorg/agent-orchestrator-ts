@@ -474,7 +474,12 @@ check_published_version() {
 
   local published_version
   # timeout 5s prevents CI/test environments from hanging on slow/unavailable npm registry
-  published_version="$(timeout 5 npm view @jleechanorg/ao-cli version 2>/dev/null || true)"
+  # timeout is unavailable on macOS without coreutils; fall back to direct call
+  if command -v timeout >/dev/null 2>&1; then
+    published_version="$(timeout 5 npm view @jleechanorg/ao-cli version 2>/dev/null || true)"
+  else
+    published_version="$(npm view @jleechanorg/ao-cli version 2>/dev/null || true)"
+  fi
   if [ -z "$published_version" ]; then
     warn "could not fetch published @jleechanorg/ao-cli version (npm registry unreachable or package not published). Fix: check npm auth and registry"
     return
