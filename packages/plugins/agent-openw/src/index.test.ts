@@ -9,7 +9,7 @@ vi.mock("node:child_process", () => ({
       const result = mockExecFileAsync(...args.slice(0, -1));
       if (result && typeof result.then === "function") {
         result
-          .then((r: { stdout: string; stderr: string }) => callback(null, r))
+          .then((r: { stdout: string; stderr: string }) => callback(null, r.stdout, r.stderr))
           .catch((e: Error) => callback(e));
       }
     }
@@ -309,7 +309,9 @@ describe("isProcessRunning", () => {
 
   it("returns false for process handle with dead PID", async () => {
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
-      throw new Error("ESRCH");
+      const err = new Error("no such process") as NodeJS.ErrnoException;
+      err.code = "ESRCH";
+      throw err;
     });
     expect(await agent.isProcessRunning(makeProcessHandle(123))).toBe(false);
     killSpy.mockRestore();
