@@ -84,6 +84,11 @@
     <string>@CLAUDE_BINARY@</string>
     <key>SSL_CERT_FILE</key>
     <string>/etc/ssl/cert.pem</string>
+    <!-- Source-tree CLI for fork-specific commands (ao skeptic verify, etc.)
+         that are absent from the published npm binary. Workers inherit this
+         env var; skeptic-reviewer.ts uses it to resolve the ao binary. -->
+    <key>AO_CLI_PATH</key>
+    <string>@REPO_ROOT@/packages/cli/dist/index.js</string>
   </dict>
 
   <key>StandardOutPath</key>

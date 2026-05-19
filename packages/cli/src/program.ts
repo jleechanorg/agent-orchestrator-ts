@@ -1,4 +1,7 @@
 import { Command } from "commander";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { registerInit } from "./commands/init.js";
 import { registerStatus } from "./commands/status.js";
 import { registerSpawn, registerBatchSpawn } from "./commands/spawn.js";
@@ -16,6 +19,16 @@ import { registerSkeptic } from "./commands/skeptic.js";
 import { registerSkepticInstall } from "./commands/skeptic/install.js";
 import { getConfigInstruction } from "./lib/config-instruction.js";
 import { registerAutonomousHarness } from "@jleechanorg/ao-autonomous-harness";
+
+const _pkgDir = dirname(fileURLToPath(import.meta.url));
+const _pkgVersion: string = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(join(_pkgDir, "../package.json"), "utf8")) as { version: string };
+    return pkg.version;
+  } catch {
+    return "0.1.0";
+  }
+})();
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -41,7 +54,7 @@ export function buildProgram(): Command {
         "  Installed by: bash scripts/setup.sh",
       ].join("\n"),
     )
-    .version("0.1.0");
+    .version(_pkgVersion);
 
   registerInit(program);
   registerStart(program);

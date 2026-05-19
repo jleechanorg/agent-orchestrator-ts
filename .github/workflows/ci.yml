@@ -54,7 +54,17 @@ jobs:
       - run: pnpm -r --filter '!@jleechanorg/ao-web' --filter '!@jleechanorg/ao-autonomous-harness' typecheck
       - run: pnpm --filter '@jleechanorg/ao-autonomous-harness' typecheck
       # Build web (Next.js build includes its own typecheck)
-      - run: pnpm --filter @jleechanorg/ao-web build
+      # OOM kill (SIGKILL) from runner memory pressure — retry once before failing
+      - name: Build web
+        run: |
+          pnpm --filter @jleechanorg/ao-web build 2>&1 | tee /tmp/web-build-output.txt
+          rc=${PIPESTATUS[0]}
+          if [ $rc -eq 137 ]; then
+            echo "::warning::Next.js build OOM-killed — retrying once"
+            pnpm --filter @jleechanorg/ao-web build
+          elif [ $rc -ne 0 ]; then
+            exit $rc
+          fi
 
   test:
     name: Test

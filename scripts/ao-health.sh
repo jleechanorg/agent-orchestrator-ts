@@ -28,11 +28,23 @@ PY
 command_matches_ao_binary() {
   local cmd="$1"
   local ao_bin="$2"
-  local ao_real ao_alt ao_real_alt
+  local ao_real cmd_bin cmd_real
   ao_real="$(resolve_path "$ao_bin")"
-  ao_alt="${ao_bin#/private}"
-  ao_real_alt="${ao_real#/private}"
-  [[ "$cmd" == *"$ao_bin"* || "$cmd" == *"$ao_alt"* || "$cmd" == *"$ao_real"* || "$cmd" == *"$ao_real_alt"* ]]
+  # Substring check (fast path for exact match)
+  local ao_alt="${ao_bin#/private}"
+  local ao_real_alt="${ao_real#/private}"
+  if [[ "$cmd" == *"$ao_bin"* || "$cmd" == *"$ao_alt"* || "$cmd" == *"$ao_real"* || "$cmd" == *"$ao_real_alt"* ]]; then
+    return 0
+  fi
+  # Realpath comparison: extract the /path/to/ao token from CMD and resolve it.
+  # Handles the case where CMD has an intermediate symlink path that differs
+  # from both ao_bin and ao_real (e.g., node /.nvm/.../bin/ao vs /Users/.../bin/ao).
+  cmd_bin=$(echo "$cmd" | grep -oE '(/[^ ]+/ao)( |$)' | head -1 | xargs 2>/dev/null || true)
+  if [ -n "$cmd_bin" ]; then
+    cmd_real="$(resolve_path "$cmd_bin")"
+    [ "$cmd_real" = "$ao_real" ] && return 0
+  fi
+  return 1
 }
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -221,4 +233,6 @@ if [ -f "$LOG_FILE" ]; then
 fi
 
 log "DONE started=$STARTED killed=$KILLED failures=$FAILURES"
-exit "$FAILURES"
+# Always exit 0 so launchd's StartInterval fires every 5 min without throttling.
+# Non-zero exit activates KeepAlive (immediate respawn), causing crash-loop throttle.
+exit 0

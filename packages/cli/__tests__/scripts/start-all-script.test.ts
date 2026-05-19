@@ -182,11 +182,10 @@ describe("scripts/start-all.sh", () => {
     mkdirSync(dirname(stagingConfig), { recursive: true });
     symlinkSync(productionConfig, stagingConfig);
 
-    const pythonBinDir = process.env.PYTHON_BIN ? resolve(dirname(process.env.PYTHON_BIN)) : "";
     const result = spawnSync("bash", [scriptPath], {
       env: {
         ...process.env,
-        PATH: pythonBinDir ? `${pythonBinDir}:/usr/bin:/bin` : `/usr/bin:/bin`,
+        PATH: `/usr/bin:/bin`,
         AO_CONFIG_PATH: "",
         AO_STAGING_CONFIG_PATH: stagingConfig,
         AO_PROD_CONFIG_PATH: productionConfig,

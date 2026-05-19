@@ -43,4 +43,7 @@ regexes = [
   "your-api-key-here",
   "your-token-here",
   "example\\.com",
+
+  # Canonical AWS-published example access key ID (safe placeholder; see AWS docs)
+  "AKIAIOSFODNN7EXAMPLE",
 ]
