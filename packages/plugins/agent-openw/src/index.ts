@@ -240,6 +240,9 @@ function createOpenWAgent(): Agent {
         env["OPENAI_API_KEY"] = waferKey;
         console.debug("[ao-plugin-agent-openw] WAFER_API_KEY resolved");
       } else {
+        // Explicitly blank OPENAI_API_KEY to prevent inheriting a dev machine's
+        // OpenAI key and sending it to Wafer's endpoint.
+        env["OPENAI_API_KEY"] = "";
         console.error(
           "[ao-plugin-agent-openw] WAFER_API_KEY not found. Set WAFER_API_KEY in your environment or in a file listed under envSource in agent-orchestrator.yaml.",
         );
