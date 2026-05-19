@@ -123,13 +123,12 @@ function createOpenCodeAgent(): Agent {
     supportsSystemPromptFile: true,
 
     getLaunchCommand(config: AgentLaunchConfig): string {
-      const parts: string[] = ["opencode"];
+      const parts: string[] = ["opencode", "run"];
 
       // Session resumption: use persisted session ID from agentConfig when available.
-      // For fresh sessions (no existingSessionId), pass --title so that
-      // discoverOpenCodeSessionIdsByTitle (session-manager.ts) can map AO session ID
-      // to the opencode session ID on first run. The TUI accepts --title even though
-      // it is not listed in `opencode --help`.
+      // For fresh sessions (no existingSessionId), pass --title (supported by opencode run)
+      // so that discoverOpenCodeSessionIdsByTitle (session-manager.ts) can map AO session
+      // ID to the opencode session ID on first run.
       const existingSessionId = asValidOpenCodeSessionId(
         (config.projectConfig.agentConfig as OpenCodeAgentConfig | undefined)?.opencodeSessionId,
       );

@@ -102,12 +102,12 @@ describe("getLaunchCommand", () => {
 
   it("generates base command without prompt (fresh session includes --title)", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    expect(cmd).toBe("opencode --title 'AO:sess-1'");
+    expect(cmd).toBe("opencode run --title 'AO:sess-1'");
   });
 
   it("uses --prompt with shell-escaped prompt", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "Fix it" }));
-    expect(cmd).toBe("opencode --title 'AO:sess-1' --prompt 'Fix it'");
+    expect(cmd).toBe("opencode run --title 'AO:sess-1' --prompt 'Fix it'");
   });
 
   it("includes --model with shell-escaped value", () => {
@@ -161,9 +161,8 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--prompt 'fix the bug'");
   });
 
-  it("does not use opencode run or node -e pipe", () => {
+  it("does not use node -e pipe or SES_ID json parsing", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    expect(cmd).not.toContain("opencode run");
     expect(cmd).not.toContain("node -e");
     expect(cmd).not.toContain("SES_ID");
   });
@@ -225,7 +224,7 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPrompt: "You are an orchestrator" }),
     );
-    expect(cmd).toBe("opencode --title 'AO:sess-1' --prompt 'You are an orchestrator'");
+    expect(cmd).toBe("opencode run --title 'AO:sess-1' --prompt 'You are an orchestrator'");
   });
 
   it("generates command with systemPrompt and task prompt combined", () => {
@@ -233,7 +232,7 @@ describe("getLaunchCommand", () => {
       makeLaunchConfig({ systemPrompt: "You are an orchestrator", prompt: "do the task" }),
     );
     expect(cmd).toBe(
-      "opencode --title 'AO:sess-1' --prompt 'You are an orchestrator\n\ndo the task'",
+      "opencode run --title 'AO:sess-1' --prompt 'You are an orchestrator\n\ndo the task'",
     );
   });
 
@@ -250,7 +249,7 @@ describe("getLaunchCommand", () => {
 
   it("generates command with systemPromptFile via shell substitution", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ systemPromptFile: "/tmp/prompt.md" }));
-    expect(cmd).toBe("opencode --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\"");
+    expect(cmd).toBe("opencode run --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\"");
   });
 
   it("systemPromptFile takes precedence over systemPrompt", () => {
@@ -260,7 +259,7 @@ describe("getLaunchCommand", () => {
         systemPromptFile: "/tmp/file-prompt.md",
       }),
     );
-    expect(cmd).toBe("opencode --title 'AO:sess-1' --prompt \"$(cat '/tmp/file-prompt.md')\"");
+    expect(cmd).toBe("opencode run --title 'AO:sess-1' --prompt \"$(cat '/tmp/file-prompt.md')\"");
     expect(cmd).not.toContain("direct prompt");
   });
 
@@ -273,7 +272,7 @@ describe("getLaunchCommand", () => {
       }),
     );
     expect(cmd).toBe(
-      "opencode --title 'AO:sess-1' --agent 'sisyphus' --prompt \"$(cat '/tmp/orchestrator.md')\n\nfix the bug\"",
+      "opencode run --title 'AO:sess-1' --agent 'sisyphus' --prompt \"$(cat '/tmp/orchestrator.md')\n\nfix the bug\"",
     );
   });
 
@@ -285,7 +284,7 @@ describe("getLaunchCommand", () => {
       }),
     );
     expect(cmd).toBe(
-      "opencode --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\n\nfix \\\"this\\\" and \\$HOME\"",
+      "opencode run --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\n\nfix \\\"this\\\" and \\$HOME\"",
     );
   });
 
@@ -297,7 +296,7 @@ describe("getLaunchCommand", () => {
       }),
     );
     expect(cmd).toBe(
-      "opencode --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\n\nuse \\`backticks\\` here\"",
+      "opencode run --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\n\nuse \\`backticks\\` here\"",
     );
   });
 
@@ -309,7 +308,7 @@ describe("getLaunchCommand", () => {
       }),
     );
     expect(cmd).toBe(
-      "opencode --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\n\npath\\\\to\\\\file\"",
+      "opencode run --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\n\npath\\\\to\\\\file\"",
     );
   });
 
@@ -370,7 +369,7 @@ describe("getLaunchCommand", () => {
       }),
     );
 
-    expect(cmd).toBe("opencode --session 'ses_abc123' --prompt 'continue'");
+    expect(cmd).toBe("opencode run --session 'ses_abc123' --prompt 'continue'");
   });
 
   it("strips provider prefix from model", () => {

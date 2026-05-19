@@ -105,7 +105,7 @@ jobs:
             sleep 1
           done
       - name: Run tests (non-CLI packages)
-        run: pnpm -r --filter '!@jleechanorg/ao-cli' --filter '!@jleechanorg/ao-web' test
+        run: pnpm -r --filter '!@jleechanorg/ao-cli' test
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
