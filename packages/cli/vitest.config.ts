@@ -43,12 +43,14 @@ export default defineConfig({
   },
   test: {
     include: ["__tests__/**/*.test.ts", "src/__tests__/**/*.test.ts"],
-    testTimeout: 15000,
-    pool: "threads",
+    testTimeout: 30000,
+    pool: "forks",
     poolOptions: {
-      threads: {
-        minThreads: 1,
-        maxThreads: 8,
+      forks: {
+        // Serial: one test file at a time prevents heap accumulation across
+        // files. OOM kills are fail-closed: vitest detects the dead fork and
+        // reports the file as failed rather than silently accepting partial results.
+        maxForks: 1,
       },
     },
   },

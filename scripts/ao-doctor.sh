@@ -505,7 +505,13 @@ check_published_version() {
   fi
 
   local published_version
-  published_version="$(npm view @jleechanorg/ao-cli version 2>/dev/null || true)"
+  # timeout 5s prevents CI/test environments from hanging on slow/unavailable npm registry
+  # macOS does not ship GNU timeout — fall back to plain npm if unavailable
+  if command -v timeout >/dev/null 2>&1; then
+    published_version="$(timeout 5 npm view @jleechanorg/ao-cli version 2>/dev/null || true)"
+  else
+    published_version="$(npm view @jleechanorg/ao-cli version 2>/dev/null || true)"
+  fi
   if [ -z "$published_version" ]; then
     warn "could not fetch published @jleechanorg/ao-cli version (npm registry unreachable or package not published). Fix: check npm auth and registry"
     return
@@ -516,13 +522,15 @@ check_published_version() {
     return
   fi
 
-  local r_major r_minor p_major p_minor
+  local r_major r_minor r_patch p_major p_minor p_patch
   r_major="$(echo "$running_version" | cut -d. -f1)"
   r_minor="$(echo "$running_version" | cut -d. -f2)"
+  r_patch="$(echo "$running_version" | cut -d. -f3)"
   p_major="$(echo "$published_version" | cut -d. -f1)"
   p_minor="$(echo "$published_version" | cut -d. -f2)"
+  p_patch="$(echo "$published_version" | cut -d. -f3)"
 
-  if [ "${r_major:-0}" -lt "${p_major:-0}" ] || { [ "${r_major:-0}" = "${p_major:-0}" ] && [ "${r_minor:-0}" -lt "${p_minor:-0}" ]; }; then
+  if [ "${r_major:-0}" -lt "${p_major:-0}" ] || { [ "${r_major:-0}" = "${p_major:-0}" ] && [ "${r_minor:-0}" -lt "${p_minor:-0}" ]; } || { [ "${r_major:-0}" = "${p_major:-0}" ] && [ "${r_minor:-0}" = "${p_minor:-0}" ] && [ "${r_patch:-0}" -lt "${p_patch:-0}" ]; }; then
     warn "running ao version ($running_version) is OLDER than published npm version ($published_version). Fix: npm install -g @jleechanorg/ao-cli (or run scripts/setup.sh from the main clone)"
     return
   fi

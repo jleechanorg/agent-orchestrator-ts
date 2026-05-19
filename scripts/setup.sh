@@ -14,6 +14,7 @@ source "$SCRIPT_DIR/lib/pnpm-global-path.sh"
 if [[ "$REPO_ROOT" == "$HOME/.worktrees/"* || "$REPO_ROOT" == */.worktrees/* ]] && [ "${AO_ALLOW_WORKTREE_LINK:-}" != "1" ]; then
   echo "ERROR: Refusing to globally link ao from an AO worktree: $REPO_ROOT"
   echo "  Install the tool with: npm install -g @jleechanorg/ao-cli"
+  echo "  After any install/update, run 'ao doctor' and confirm zero FAIL results."
   echo "  Maintainers who intentionally want this worktree on PATH can rerun with AO_ALLOW_WORKTREE_LINK=1."
   exit 1
 fi
