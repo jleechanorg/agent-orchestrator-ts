@@ -71,7 +71,7 @@ jobs:
           # ----------------------------------------------------------------
 
           echo "Waiting for CI check runs to register and complete..."
-          MAX_WAIT=900
+          MAX_WAIT=1800
           INTERVAL=30
           ELAPSED=0
           # Minimum required core jobs: Lint + Typecheck. These are the fastest
