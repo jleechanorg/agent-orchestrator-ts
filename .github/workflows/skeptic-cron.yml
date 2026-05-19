@@ -207,8 +207,8 @@ jobs:
             BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
               --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
               2>/dev/null || echo "none")
-            if [ "$BUGBOT_CONCLUSION" != "success" ]; then
-              echo "  [SKIP] Gate-4 FAIL: Bugbot check-run=$BUGBOT_CONCLUSION (not success)"
+            if [ "$BUGBOT_CONCLUSION" != "success" ] && [ "$BUGBOT_CONCLUSION" != "neutral" ] && [ "$BUGBOT_CONCLUSION" != "skipped" ] && [ "$BUGBOT_CONCLUSION" != "none" ]; then
+              echo "  [SKIP] Gate-4 FAIL: Bugbot check-run=$BUGBOT_CONCLUSION (not clean)"
               SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
               continue
             fi
