@@ -97,8 +97,28 @@ jobs:
         id: cli-tests
         continue-on-error: true
         run: |
-          timeout 540 pnpm --filter @jleechanorg/ao-cli test > /tmp/cli-test-output.txt 2>&1
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set +e
+          setsid pnpm --filter @jleechanorg/ao-cli test > /tmp/cli-test-output.txt 2>&1 &
+          CLI_PID=$!
+          CLI_PGRP=$(ps -o pgid= -p $CLI_PID | tr -d ' ')
+          TIMEOUT=540
+          ELAPSED=0
+          while kill -0 $CLI_PID 2>/dev/null; do
+            if [ $ELAPSED -ge $TIMEOUT ]; then
+              echo "CLI tests timed out after ${TIMEOUT}s — killing process group $CLI_PGRP"
+              kill -- -$CLI_PGRP 2>/dev/null || true
+              sleep 2
+              kill -9 -- -$CLI_PGRP 2>/dev/null || true
+              break
+            fi
+            sleep 5
+            ELAPSED=$((ELAPSED + 5))
+          done
+          wait $CLI_PID 2>/dev/null
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          echo "CLI test exit code: $EXIT_CODE"
+          set -e
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
