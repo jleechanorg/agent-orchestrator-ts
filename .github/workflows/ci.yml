@@ -116,7 +116,13 @@ jobs:
       - name: Run CLI tests
         id: cli-tests
         run: |
-          pnpm --filter @jleechanorg/ao-cli test 2>&1 | tee /tmp/cli-test-output.txt; rc=$?
+          rm -f /tmp/cli-test-output.txt
+          pnpm --filter @jleechanorg/ao-cli test > /tmp/cli-test-output.txt 2>&1 & CLI_PID=$!
+          # Stream output to stdout while capturing to file (unbuffered)
+          tail -f /tmp/cli-test-output.txt &
+          TAIL_PID=$!
+          wait $CLI_PID 2>/dev/null; rc=$?
+          kill $TAIL_PID 2>/dev/null
           # vitest threads pool + forceExit can exit with SIGTERM (signal 15 → exit 143)
           # even when all tests pass. Treat exit 143 (SIGTERM) as success.
           # OOM killer sends SIGKILL (signal 9 → exit 137) — all tests may have
@@ -125,7 +131,7 @@ jobs:
             echo "CLI tests passed (vitest forceExit sent SIGTERM — treating as success)"
             exit 0
           elif [ $rc -eq 137 ]; then
-            if grep -q "Tests.*passed" /tmp/cli-test-output.txt; then
+            if grep -q "Tests.*passed" /tmp/cli-test-output.txt 2>/dev/null; then
               echo "::warning::CLI process OOM-killed but tests passed before kill — known CI memory issue"
               exit 0
             fi
