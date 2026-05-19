@@ -4,6 +4,12 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-05-18
+
+- **PR #568 OPEN — opencode JSON pipeline + CI OOM fixes** — 15 commits on `fix/opencode-json-pipeline`: `singleThread` serialization for CLI OOM, file-capture before kill, exit-137 graceful handling, agent-opencode plugin rewrite eliminating hanging shell-pipe JSON loop (bd-vqd3), skeptic bugbot gate 4 fix. Priority: land this first.
+- **P0 governance holes** — bd-io8q: main branch has zero protection (any merge allowed). bd-vpzh: 7 PRs merged without CR APPROVED. bd-866a: merge-gate passes on VERDICT=SKIPPED. Fix order: #568 → skeptic gate (#563) → merge-gate fail-open → branch protection.
+- **5 PRs all OPEN** — #568 (opencode JSON), #569 (AO_CLI_PATH), #566 (openw reliability), #565 (upstream merge), #563 (PR561 threads).
+
 ### 2026-05-01
 
 - **MiniMax 401 root cause fixed** — `setup-launchd.sh` was missing sed substitutions for `MINIMAX_API_KEY`, `MINIMAX_BASE_URL`, `MINIMAX_MODEL`, `MINIMAX_ANTHROPIC_BASE_URL` in `install_lifecycle_plist()`. Installed plist had literal `@MINIMAX_API_KEY@` strings → bash expanded to empty → 401 on every MiniMax API call → `/login` stall. PR **#510 MERGED** (sed substitutions + AO_CLI_PATH). PR **#512 OPEN** (fail-fast `@VAR@` check in `test-launchd-env.sh`). Skill `minimax-401-diagnostic/SKILL.md` updated with Step 0. Pattern recurred 6+ times — harness fix: `@VAR@` check added to test script.
