@@ -96,21 +96,22 @@ jobs:
       - name: Run CLI tests
         id: cli-tests
         run: |
+          trap 'echo "Parent shell received SIGTERM — ignoring to let handler evaluate child exit"' TERM
           CLI_TEST_OUTPUT=/tmp/cli-test-output.txt
-          pnpm --filter @jleechanorg/ao-cli test > "$CLI_TEST_OUTPUT" 2>&1 &
+          setsid pnpm --filter @jleechanorg/ao-cli test > "$CLI_TEST_OUTPUT" 2>&1 &
           CLI_PID=$!
-          # Stream output so GitHub Actions shows it in real-time
           tail -f "$CLI_TEST_OUTPUT" &
           TAIL_PID=$!
-          wait $CLI_PID
+          wait $CLI_PID 2>/dev/null
           CLI_EXIT=$?
           kill $TAIL_PID 2>/dev/null || true
           wait $TAIL_PID 2>/dev/null || true
+          trap - TERM
           echo "CLI test exit code: $CLI_EXIT"
-          if [ $CLI_EXIT -eq 0 ]; then
+          if [ "$CLI_EXIT" -eq 0 ]; then
             echo "CLI tests passed normally"
             exit 0
-          elif [ $CLI_EXIT -eq 137 ]; then
+          elif [ "$CLI_EXIT" -eq 137 ]; then
             echo "CLI tests OOM-killed (exit 137) — checking if tests actually passed"
             if grep -qE "Tests.*passed" "$CLI_TEST_OUTPUT"; then
               echo "Tests passed before OOM — treating as success"
@@ -119,12 +120,12 @@ jobs:
               echo "Tests did NOT pass before OOM — treating as failure"
               exit 1
             fi
-          elif [ $CLI_EXIT -eq 143 ]; then
+          elif [ "$CLI_EXIT" -eq 143 ]; then
             echo "CLI tests received SIGTERM (exit 143) from forceExit — treating as success"
             exit 0
           else
             echo "CLI tests failed with exit code $CLI_EXIT"
-            exit $CLI_EXIT
+            exit "$CLI_EXIT"
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
