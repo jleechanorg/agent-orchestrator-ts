@@ -91,6 +91,7 @@ describe("scripts/start-all.sh", () => {
         AO_START_ALL_LOCKDIR: join(tempRoot, "ao-start-all.lock"),
       },
       encoding: "utf8",
+      timeout: 20_000,
     });
 
     rmSync(tempRoot, { recursive: true, force: true });
@@ -122,6 +123,7 @@ describe("scripts/start-all.sh", () => {
         AO_START_ALL_LOCKDIR: join(tempRoot, "ao-start-all.lock"),
       },
       encoding: "utf8",
+      timeout: 20_000,
     });
 
     const aoWasCalled = waitForFile(aoLog, 300);
@@ -159,6 +161,7 @@ describe("scripts/start-all.sh", () => {
         AO_START_REPLACE_EXISTING: "1",
       },
       encoding: "utf8",
+      timeout: 20_000,
     });
 
     const aoWasCalled = waitForFile(aoLog, 1000);
@@ -191,6 +194,7 @@ describe("scripts/start-all.sh", () => {
         AO_START_ALL_LOCKDIR: join(tempRoot, "ao-start-all.lock"),
       },
       encoding: "utf8",
+      timeout: 20_000,
     });
 
     rmSync(tempRoot, { recursive: true, force: true });
@@ -226,6 +230,7 @@ describe("scripts/start-all.sh", () => {
         HOME: tempRoot,
       },
       encoding: "utf8",
+      timeout: 20_000,
     });
 
     rmSync(tempRoot, { recursive: true, force: true });
