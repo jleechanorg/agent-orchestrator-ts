@@ -12,6 +12,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
   existsSync,
 } from "node:fs";
@@ -142,6 +143,7 @@ describe("ao-health.sh AO_LAUNCH construction", () => {
     // NOT chmodSync to 0o755 — stays non-executable
 
     const log = runAoHealth({ tempRoot, aoCliPath: cliPath });
+    rmSync(tempRoot, { recursive: true, force: true });
 
     expect(log).toContain(`cmd=node ${cliPath}`);
     expect(log).not.toContain("cmd=ao");
@@ -151,6 +153,7 @@ describe("ao-health.sh AO_LAUNCH construction", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-health-fallback-"));
 
     const log = runAoHealth({ tempRoot }); // no aoCliPath
+    rmSync(tempRoot, { recursive: true, force: true });
 
     expect(log).toContain("cmd=ao");
   });
@@ -165,6 +168,7 @@ describe("ao-health.sh AO_LAUNCH construction", () => {
     chmodSync(execPath, 0o755);
 
     const log = runAoHealth({ tempRoot, aoCliPath: execPath });
+    rmSync(tempRoot, { recursive: true, force: true });
 
     // Should not prepend 'node' for an executable file
     expect(log).toContain(`cmd=${execPath}`);
