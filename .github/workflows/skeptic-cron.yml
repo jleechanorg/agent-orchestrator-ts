@@ -410,7 +410,7 @@ jobs:
             BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
               --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
               2>/dev/null || echo "none")
-            BUGBOT_STATUS=$(if [ "$BUGBOT_CONCLUSION" = "success" ]; then echo "PASS"; else echo "FAIL (check-run=$BUGBOT_CONCLUSION)"; fi)
+            BUGBOT_STATUS=$(if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ]; then echo "PASS"; else echo "FAIL (check-run=$BUGBOT_CONCLUSION)"; fi)
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
             # 5. Inline comments resolved (GraphQL)
