@@ -18,6 +18,10 @@ function createFakeBinary(binDir: string, name: string, body: string): void {
   writeExecutable(join(binDir, name), `#!/bin/bash\nset -e\n${body}\n`);
 }
 
+function createFakeSleep(binDir: string): void {
+  writeExecutable(join(binDir, "sleep"), "exit 0");
+}
+
 // Hermetic python3 stub: bypasses the runtime pyyaml dependency in start-all.sh
 // so tests do not require pyyaml installed in the CI runner image. First call
 // (`import yaml; yaml.safe_load(...)`) exits 0; second call (`for pid in ...`)
@@ -74,6 +78,7 @@ describe("scripts/start-all.sh", () => {
     mkdirSync(binDir, { recursive: true });
     createFakeBinary(binDir, "pgrep", "exit 0");
     createPythonStub(binDir, "script-test");
+    createFakeSleep(binDir);
 
     const result = spawnSync("bash", [scriptPath], {
       env: {
@@ -106,6 +111,7 @@ describe("scripts/start-all.sh", () => {
     createFakeBinary(binDir, "pgrep", "exit 0");
     createFakeBinary(binDir, "ao", `echo "$@" >> "${aoLog}"`);
     createPythonStub(binDir, "script-test");
+    createFakeSleep(binDir);
 
     const result = spawnSync("bash", [scriptPath], {
       env: {
@@ -141,6 +147,7 @@ describe("scripts/start-all.sh", () => {
     createFakeBinary(binDir, "pgrep", "echo 999999999; exit 0");
     createFakeBinary(binDir, "ao", `echo "$@" >> "${aoLog}"`);
     createPythonStub(binDir, "script-test");
+    createFakeSleep(binDir);
 
     const result = spawnSync("bash", [scriptPath], {
       env: {
