@@ -100,14 +100,14 @@ describe("plugin manifest & exports", () => {
 describe("getLaunchCommand", () => {
   const agent = create();
 
-  it("generates base command without prompt", () => {
+  it("generates base command without prompt (fresh session includes --title)", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    expect(cmd).toBe("opencode");
+    expect(cmd).toBe("opencode --title 'AO:sess-1'");
   });
 
   it("uses --prompt with shell-escaped prompt", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "Fix it" }));
-    expect(cmd).toBe("opencode --prompt 'Fix it'");
+    expect(cmd).toBe("opencode --title 'AO:sess-1' --prompt 'Fix it'");
   });
 
   it("includes --model with shell-escaped value", () => {
@@ -168,6 +168,28 @@ describe("getLaunchCommand", () => {
     expect(cmd).not.toContain("SES_ID");
   });
 
+  it("includes --title for fresh sessions so discoverOpenCodeSessionIdsByTitle can find them", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig());
+    expect(cmd).toContain("--title 'AO:sess-1'");
+  });
+
+  it("does not include --title when resuming an existing session", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({
+        projectConfig: {
+          name: "my-project",
+          repo: "owner/repo",
+          path: "/workspace/repo",
+          defaultBranch: "main",
+          sessionPrefix: "my",
+          agentConfig: { opencodeSessionId: "ses_abc123" },
+        },
+      }),
+    );
+    expect(cmd).not.toContain("--title");
+    expect(cmd).toContain("--session 'ses_abc123'");
+  });
+
   it("works with different agent names: oracle", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ subagent: "oracle", prompt: "review code" }),
@@ -203,14 +225,16 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPrompt: "You are an orchestrator" }),
     );
-    expect(cmd).toBe("opencode --prompt 'You are an orchestrator'");
+    expect(cmd).toBe("opencode --title 'AO:sess-1' --prompt 'You are an orchestrator'");
   });
 
   it("generates command with systemPrompt and task prompt combined", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPrompt: "You are an orchestrator", prompt: "do the task" }),
     );
-    expect(cmd).toBe("opencode --prompt 'You are an orchestrator\n\ndo the task'");
+    expect(cmd).toBe(
+      "opencode --title 'AO:sess-1' --prompt 'You are an orchestrator\n\ndo the task'",
+    );
   });
 
   it("escapes single quotes in combined systemPrompt and prompt", () => {
@@ -226,7 +250,7 @@ describe("getLaunchCommand", () => {
 
   it("generates command with systemPromptFile via shell substitution", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ systemPromptFile: "/tmp/prompt.md" }));
-    expect(cmd).toBe("opencode --prompt \"$(cat '/tmp/prompt.md')\"");
+    expect(cmd).toBe("opencode --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\"");
   });
 
   it("systemPromptFile takes precedence over systemPrompt", () => {
@@ -236,7 +260,7 @@ describe("getLaunchCommand", () => {
         systemPromptFile: "/tmp/file-prompt.md",
       }),
     );
-    expect(cmd).toBe("opencode --prompt \"$(cat '/tmp/file-prompt.md')\"");
+    expect(cmd).toBe("opencode --title 'AO:sess-1' --prompt \"$(cat '/tmp/file-prompt.md')\"");
     expect(cmd).not.toContain("direct prompt");
   });
 
@@ -248,7 +272,9 @@ describe("getLaunchCommand", () => {
         prompt: "fix the bug",
       }),
     );
-    expect(cmd).toBe("opencode --agent 'sisyphus' --prompt \"$(cat '/tmp/orchestrator.md')\n\nfix the bug\"");
+    expect(cmd).toBe(
+      "opencode --title 'AO:sess-1' --agent 'sisyphus' --prompt \"$(cat '/tmp/orchestrator.md')\n\nfix the bug\"",
+    );
   });
 
   it("escapes special characters in prompt when combined with systemPromptFile", () => {
@@ -258,7 +284,9 @@ describe("getLaunchCommand", () => {
         prompt: 'fix "this" and $HOME',
       }),
     );
-    expect(cmd).toBe("opencode --prompt \"$(cat '/tmp/prompt.md')\n\nfix \\\"this\\\" and \\$HOME\"");
+    expect(cmd).toBe(
+      "opencode --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\n\nfix \\\"this\\\" and \\$HOME\"",
+    );
   });
 
   it("escapes backticks in prompt when combined with systemPromptFile", () => {
@@ -268,7 +296,9 @@ describe("getLaunchCommand", () => {
         prompt: "use `backticks` here",
       }),
     );
-    expect(cmd).toBe("opencode --prompt \"$(cat '/tmp/prompt.md')\n\nuse \\`backticks\\` here\"");
+    expect(cmd).toBe(
+      "opencode --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\n\nuse \\`backticks\\` here\"",
+    );
   });
 
   it("escapes backslashes in prompt when combined with systemPromptFile", () => {
@@ -278,7 +308,9 @@ describe("getLaunchCommand", () => {
         prompt: "path\\to\\file",
       }),
     );
-    expect(cmd).toBe("opencode --prompt \"$(cat '/tmp/prompt.md')\n\npath\\\\to\\\\file\"");
+    expect(cmd).toBe(
+      "opencode --title 'AO:sess-1' --prompt \"$(cat '/tmp/prompt.md')\n\npath\\\\to\\\\file\"",
+    );
   });
 
   it("handles prompt with special characters", () => {
