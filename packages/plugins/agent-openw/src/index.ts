@@ -121,7 +121,7 @@ process.stdin.on('data', c => input += c).on('end', () => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value === 'string') {
       const trimmed = value.trim();
-      if (/^\d+$/.test(trimmed)) {
+      if (/^\\d+$/.test(trimmed)) {
         const epochMs = Number(trimmed);
         return Number.isFinite(epochMs) ? epochMs : Number.NEGATIVE_INFINITY;
       }
