@@ -4,12 +4,11 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
-### 2026-05-20
+### 2026-05-18
 
-- **PR #570: ci.yml OOM recovery fix** — `.github/workflows/ci.yml` OOM recovery (exit 137) accepts zero-failure Vitest summary as success. Added `PASSED -gt 0` and `FAILED` missing guards: when `grep -oP '\d+(?= passed)'` returns empty or zero, exits 1 (possible truncation); when `grep -oP '\d+(?= failed)'` returns empty, exits 1 (possible truncation). Resolves CR P2 threads (lines 165-166). Branch: `fix-openw-worker-reliability-v2`, head `d0cc653a3`.
-- **PR #568: integration tests fixed** — pr568-worker subagent fixed integration test assertions to match simplified `opencode run` command format. Removed `exec opencode --session` expectations, updated `--model`/`--agent` argument order.
-- **lifecycle-worker restart** — `ERR_MODULE_NOT_FOUND` on `@jleechanorg/ao-plugin-agent-opencode` after source build. Fixed: rebuilt plugin, confirmed lifecycle-worker takes positional arg (not `--project` flag). Restart command: `ao lifecycle-worker agent-orchestrator`.
-- **PR #565 CONFLICTING** — `feat/bd-h44x-upstream-merge` still has merge conflicts. assess agent running.
+- **PR #568 OPEN — opencode JSON pipeline + CI OOM fixes** — 15 commits on `fix/opencode-json-pipeline`: `singleThread` serialization for CLI OOM, file-capture before kill, exit-137 graceful handling, agent-opencode plugin rewrite eliminating hanging shell-pipe JSON loop (bd-vqd3), skeptic bugbot gate 4 fix. Priority: land this first.
+- **P0 governance holes** — bd-io8q: main branch has zero protection (any merge allowed). bd-vpzh: 7 PRs merged without CR APPROVED. bd-866a: merge-gate passes on VERDICT=SKIPPED. Fix order: #568 → skeptic gate (#563) → merge-gate fail-open → branch protection.
+- **5 PRs all OPEN** — #568 (opencode JSON), #569 (AO_CLI_PATH), #566 (openw reliability), #565 (upstream merge), #563 (PR561 threads).
 
 ### 2026-05-01
 
