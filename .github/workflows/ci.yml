@@ -88,31 +88,7 @@ jobs:
         run: pkill -f "ao lifecycle-worker" || true; pkill -f "ao start" || true; sleep 1
       - name: Run pnpm test
         id: pnpm-tests
-        run: |
-          # Use ${PIPESTATUS[0]} so rc reflects pnpm's exit, not tee's. Enabling
-          # pipefail would trip GHA's `bash -e` before the handler runs.
-          pnpm test 2>&1 | tee /tmp/pnpm-test-output.txt
-          rc=${PIPESTATUS[0]}
-          # vitest forks pool + forceExit sends SIGTERM (exit 143) after last fork exits.
-          # With forks pool, OOM kills a single fork → vitest reports that file as FAILED
-          # (fail-closed). rc=137 heuristic removed — forks pool handles OOM natively.
-          if [ $rc -eq 143 ]; then
-            # forceExit SIGTERM may fire before aggregate summary line flushes.
-            # Accept if: no × failures AND (summary line present OR at least one ✓ file).
-            if ! grep -qE "^[[:space:]]*✕" /tmp/pnpm-test-output.txt 2>/dev/null; then
-              if grep -qE "(Test Files|Tests)[[:space:]].*passed" /tmp/pnpm-test-output.txt 2>/dev/null || \
-                 grep -qE "^[[:space:]]*✓ " /tmp/pnpm-test-output.txt 2>/dev/null; then
-                echo "Tests passed (vitest forceExit sent SIGTERM — treating as success)"
-                exit 0
-              fi
-            fi
-            echo "::error::Tests SIGTERM'd and no clean test results found"
-            tail -50 /tmp/pnpm-test-output.txt 2>/dev/null || true
-            exit 1
-          elif [ $rc -ne 0 ]; then
-            echo "::error::Tests failed with exit code $rc"
-            exit 1
-          fi
+        run: pnpm test
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
