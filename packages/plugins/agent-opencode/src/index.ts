@@ -181,9 +181,9 @@ function createOpenCodeAgent(): Agent {
       } else {
         if (combinedPrompt) {
           if (config.systemPromptFile) {
-            parts.push("--prompt", combinedPrompt);
+            parts.push(combinedPrompt);
           } else {
-            parts.push("--prompt", shellEscape(combinedPrompt));
+            parts.push(shellEscape(combinedPrompt));
           }
         } else {
           parts.push(shellEscape("."));
