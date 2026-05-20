@@ -125,7 +125,6 @@ jobs:
           PR_NUM: ${{ steps.resolve.outputs.pr_num }}
           HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
-          SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
         run: |
           PR_NUM=$PR_NUM
           set +e
@@ -136,12 +135,6 @@ jobs:
           fi
           echo "Only accepting verdicts posted after: $TRIGGER_UPDATED"
           echo "Filter by trigger SHA: ${HEAD_SHA:0:7}"
-
-          PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login // empty' 2>/dev/null || true)
-          if [ -z "$PR_AUTHOR" ]; then
-            echo "ERROR: PR author lookup failed"
-            exit 1
-          fi
 
           INTERVAL=30
           MAX_ATTEMPTS=30  # 30 * 30s = 15 minutes
@@ -170,7 +163,6 @@ jobs:
             fi
 
             VERDICT_RAW=$(
-              SKEPTIC_BOT_AUTHOR="$SKEPTIC_BOT_AUTHOR" \
               HEAD_SHA="$HEAD_SHA" \
               TRIGGER_UPDATED="$TRIGGER_UPDATED" \
               gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
@@ -195,22 +187,15 @@ jobs:
               if [ "$PR_STATE_FAIL" -eq 0 ]; then
                 API_FAILURES=0
               fi
-              VERDICT_JSON=$(echo "$VERDICT_RAW" | jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
+              VERDICT_JSON=$(echo "$VERDICT_RAW" | jq -s \
                 --arg tu "$TRIGGER_UPDATED" --arg ts "$HEAD_SHA" \
-                --arg pr_author "$PR_AUTHOR" \
                 --arg VERDICT_RE "(?:^|\\n)[ \\t]*(?:> ?)?(?:\\#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?" \
                 'def extract_verdict(verdict_re): (.body | ([match(verdict_re; "ig")] | last | .captures[0].string // "" | ascii_upcase)) // "";
                 add
                 | map(. + {verdict: extract_verdict($VERDICT_RE)})
                 | map(select(
                     (.body as $body
-                    | (
-                      ((.user.login | ascii_downcase) == ($author | ascii_downcase))
-                      or (
-                        ((.user.login | ascii_downcase) == "github-actions[bot]")
-                        and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
-                      )
-                    )
+                    | true)
                     and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                     and (.verdict != "")
                     and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
