@@ -6,7 +6,7 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ### 2026-05-20
 
-- **PR #570: ci.yml OOM recovery fix** — `.github/workflows/ci.yml` OOM recovery (exit 137) now treats zero-failure Vitest summary as success. When `grep -oP '\d+(?= failed)'` returns empty but `passed=N` exists, exits 0 instead of 1. Cherry-picked to `fix-openw-worker-reliability-v2` branch at `fabc78a15`. Resolves P2 thread on line 166.
+- **PR #570: ci.yml OOM recovery fix** — `.github/workflows/ci.yml` OOM recovery (exit 137) accepts zero-failure Vitest summary as success. Added `PASSED -gt 0` and `FAILED` missing guards: when `grep -oP '\d+(?= passed)'` returns empty or zero, exits 1 (possible truncation); when `grep -oP '\d+(?= failed)'` returns empty, exits 1 (possible truncation). Resolves CR P2 threads (lines 165-166). Branch: `fix-openw-worker-reliability-v2`, head `d0cc653a3`.
 - **PR #568: integration tests fixed** — pr568-worker subagent fixed integration test assertions to match simplified `opencode run` command format. Removed `exec opencode --session` expectations, updated `--model`/`--agent` argument order.
 - **lifecycle-worker restart** — `ERR_MODULE_NOT_FOUND` on `@jleechanorg/ao-plugin-agent-opencode` after source build. Fixed: rebuilt plugin, confirmed lifecycle-worker takes positional arg (not `--project` flag). Restart command: `ao lifecycle-worker agent-orchestrator`.
 - **PR #565 CONFLICTING** — `feat/bd-h44x-upstream-merge` still has merge conflicts. assess agent running.
