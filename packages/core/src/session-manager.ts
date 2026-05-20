@@ -845,7 +845,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     effectiveAgentName: string,
     sessionListPromise?: Promise<OpenCodeSessionListEntry[]>,
   ): Promise<void> {
-    if (effectiveAgentName !== "opencode") return;
+    if (effectiveAgentName !== "opencode" && effectiveAgentName !== "openw") return;
     if (asValidOpenCodeSessionId(session.metadata["opencodeSessionId"])) return;
 
     const discovered = await discoverOpenCodeSessionIdByTitle(
@@ -1226,7 +1226,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // Get agent launch config and create runtime — clean up workspace on failure
     const opencodeIssueSessionStrategy = project.opencodeIssueSessionStrategy ?? "reuse";
     const reusedOpenCodeSessionId =
-      plugins.agent.name === "opencode" && promptIssueId
+      (plugins.agent.name === "opencode" || plugins.agent.name === "openw") && promptIssueId
         ? await resolveOpenCodeSessionReuse({
             sessionsDir,
             criteria: { issueId: promptIssueId },
@@ -1358,7 +1358,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
 
       if (
-        plugins.agent.name === "opencode" &&
+        (plugins.agent.name === "opencode" || plugins.agent.name === "openw") &&
         opencodeIssueSessionStrategy === "reuse" &&
         !session.metadata["opencodeSessionId"]
       ) {
@@ -1501,7 +1501,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const rawStatus = existingRaw["status"] ?? "";
       if (TERMINAL_STATUSES.has(rawStatus as Parameters<typeof TERMINAL_STATUSES.has>[0])) {
         const shouldArchive =
-          plugins.agent.name === "opencode" && orchestratorSessionStrategy === "reuse";
+          (plugins.agent.name === "opencode" || plugins.agent.name === "openw") && orchestratorSessionStrategy === "reuse";
         try {
           deleteMetadata(sessionsDir, sessionId, shouldArchive);
         } catch {
@@ -1576,14 +1576,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     const reusableOpenCodeSessionId =
-      plugins.agent.name === "opencode" && orchestratorSessionStrategy === "reuse"
+      plugins.agent.name === "opencode" ||
+      plugins.agent.name === "openw" &&
+        orchestratorSessionStrategy === "reuse"
         ? await resolveOpenCodeSessionReuse({
             sessionsDir,
             criteria: { sessionId },
             strategy: "reuse",
           })
         : undefined;
-    if (plugins.agent.name === "opencode" && orchestratorSessionStrategy === "delete") {
+    if ((plugins.agent.name === "opencode" || plugins.agent.name === "openw") &&
+        orchestratorSessionStrategy === "delete") {
       await resolveOpenCodeSessionReuse({
         sessionsDir,
         criteria: { sessionId },
@@ -1741,7 +1744,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const effectiveAgentName = selection.agentName;
       const plugins = resolvePlugins(project, effectiveAgentName);
       const sessionListPromise =
-        effectiveAgentName === "opencode"
+        effectiveAgentName === "opencode" ||
+          effectiveAgentName === "openw"
           ? (openCodeSessionListPromise ??= fetchOpenCodeSessionList())
           : undefined;
 
@@ -2111,7 +2115,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     let didPurgeOpenCodeSession = false;
-    if (options?.purgeOpenCode === true && cleanupAgent === "opencode") {
+    if (options?.purgeOpenCode === true &&
+        (cleanupAgent === "opencode" || cleanupAgent === "openw")) {
       const mappedOpenCodeSessionId =
         asValidOpenCodeSessionId(raw["opencodeSessionId"]) ??
         (await discoverOpenCodeSessionIdByTitle(
@@ -2262,11 +2267,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
         const cleanupAgent = resolveSelectionForSession(project, archivedId, archived).agentName;
         const mappedOpenCodeSessionId = asValidOpenCodeSessionId(archived["opencodeSessionId"]);
-        if (cleanupAgent === "opencode" && archived["opencodeCleanedAt"]) {
+        if ((cleanupAgent === "opencode" || cleanupAgent === "openw") && archived["opencodeCleanedAt"]) {
           pushSkipped(projectKey, archivedId);
           continue;
         }
-        if (cleanupAgent === "opencode" && mappedOpenCodeSessionId && shouldPurgeOpenCode) {
+        if ((cleanupAgent === "opencode" || cleanupAgent === "openw") && mappedOpenCodeSessionId && shouldPurgeOpenCode) {
           if (!options?.dryRun) {
             try {
               await deleteOpenCodeSession(mappedOpenCodeSessionId);
@@ -2330,7 +2335,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     const selection = resolveSelectionForSession(project, sessionId, raw);
     const selectedAgent = selection.agentName;
-    if (selectedAgent === "opencode" && !asValidOpenCodeSessionId(raw["opencodeSessionId"])) {
+    if (selectedAgent === "opencode" || selectedAgent === "openw" && !asValidOpenCodeSessionId(raw["opencodeSessionId"])) {
       const discovered = await discoverOpenCodeSessionIdByTitle(
         sessionId,
         OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS,
@@ -2383,7 +2388,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     const getOpenCodeSessionUpdatedAt = async (): Promise<number | undefined> => {
       const mappedSessionId = asValidOpenCodeSessionId(raw["opencodeSessionId"]);
-      if (agentName !== "opencode" || !mappedSessionId) {
+      if ((agentName !== "opencode" && agentName !== "openw") || !mappedSessionId) {
         return undefined;
       }
 
@@ -2777,8 +2782,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     const selection = resolveSelectionForSession(project, sessionId, raw);
     const selectedAgent = selection.agentName;
-    if (selectedAgent !== "opencode") {
-      throw new Error(`Session ${sessionId} is not using the opencode agent`);
+    if (selectedAgent !== "opencode" && selectedAgent !== "openw") {
+      throw new Error(`Session ${sessionId} is not using the opencode or openw agent`);
     }
 
     const mapped = asValidOpenCodeSessionId(raw["opencodeSessionId"]);
@@ -2838,7 +2843,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     const selection = resolveSelectionForSession(project, sessionId, raw);
     const selectedAgent = selection.agentName;
-    if (selectedAgent === "opencode" && !asValidOpenCodeSessionId(raw["opencodeSessionId"])) {
+    if (selectedAgent === "opencode" || selectedAgent === "openw" && !asValidOpenCodeSessionId(raw["opencodeSessionId"])) {
       const discovered = await discoverOpenCodeSessionIdByTitle(
         sessionId,
         OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS,
