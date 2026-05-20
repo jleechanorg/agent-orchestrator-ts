@@ -72,13 +72,24 @@ function parseSessionList(raw: string): OpenCodeSessionListEntry[] {
 
 /**
  * Parse JSON stream lines from `opencode run --format json` output.
- * Each line is a JSON object. We look for objects containing a session_id field.
- * The step_start event typically contains the session_id.
+ * Each line is a JSON object. We look for objects containing a session ID field.
+ * OpenCode emits `sessionID` (camelCase) in its JSON stream; we also check
+ * `session_id` (snake_case) and `id` for forward compatibility.
  */
 function buildSessionIdCaptureScript(): string {
   const script = `
 let buffer = '';
 let captured = null;
+const extract = obj => {
+  if (!obj || captured) return;
+  for (const key of ['sessionID', 'session_id', 'id']) {
+    const val = obj[key];
+    if (typeof val === 'string' && /^ses_[A-Za-z0-9_-]+$/.test(val)) {
+      captured = val;
+      return;
+    }
+  }
+};
 process.stdin.on('data', chunk => {
   buffer += chunk;
   const lines = buffer.split('\\n');
@@ -87,21 +98,11 @@ process.stdin.on('data', chunk => {
     if (captured) continue;
     const trimmed = line.trim();
     if (!trimmed) continue;
-    try {
-      const obj = JSON.parse(trimmed);
-      if (obj && typeof obj.session_id === 'string' && /^ses_[A-Za-z0-9_-]+$/.test(obj.session_id)) {
-        captured = obj.session_id;
-      }
-    } catch {}
+    try { extract(JSON.parse(trimmed)); } catch {}
   }
 }).on('end', () => {
   if (buffer.trim()) {
-    try {
-      const obj = JSON.parse(buffer.trim());
-      if (obj && typeof obj.session_id === 'string' && /^ses_[A-Za-z0-9_-]+$/.test(obj.session_id)) {
-        captured = obj.session_id;
-      }
-    } catch {}
+    try { extract(JSON.parse(buffer.trim())); } catch {}
   }
   if (captured) {
     process.stdout.write(captured);
@@ -246,7 +247,7 @@ function createOpenCodeAgent(): Agent {
         ];
         const captureScript = buildSessionIdCaptureScript();
         const fallbackScript = buildSessionLookupScript();
-        const runCommand = ["opencode", "run", ...runOptions, "--command", "true"].join(" ");
+        const runCommand = ["opencode", "run", ...runOptions, shellEscape(".")].join(" ");
         const resumeOptions = [...(promptValue ? ["--prompt", promptValue] : []), ...sharedOptions];
         const resumeOptionsSuffix = resumeOptions.length > 0 ? ` ${resumeOptions.join(" ")}` : "";
         const missingSessionError = shellEscape(
