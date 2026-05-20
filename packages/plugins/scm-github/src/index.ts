@@ -1454,6 +1454,10 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async listOpenPRs(project: ProjectConfig): Promise<PRInfo[]> {
+      if (!project.repo) {
+        throw new Error("project.repo is required for listOpenPRs");
+      }
+
       const [owner, repo] = parseProjectRepo(project.repo);
       type RestPull = {
         number: number;
@@ -1490,6 +1494,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
       if (!session.branch) return null;
+
+      if (!project.repo) {
+        throw new Error("project.repo is required for detectPR");
+      }
+
       const [owner, repo] = parseProjectRepo(project.repo);
 
       // Primary: gh pr list --head (GraphQL-backed) — finds PRs regardless of
@@ -1576,6 +1585,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async resolvePR(reference: string, project: ProjectConfig): Promise<PRInfo> {
       // Use REST API to avoid GraphQL rate limits
+
+      if (!project.repo) {
+        throw new Error("project.repo is required for resolvePR");
+      }
+
       const [owner, repo] = parseProjectRepo(project.repo);
       const raw = await gh(["api", `repos/${owner}/${repo}/pulls/${reference}`]);
 
