@@ -119,9 +119,9 @@ jobs:
           while kill -0 $CLI_PID 2>/dev/null; do
             if [ $ELAPSED -ge $TIMEOUT ]; then
               echo "CLI tests timed out after ${TIMEOUT}s — killing process group $CLI_PGRP"
-              kill -- -$CLI_PGRP 2>/dev/null || true
+              [ -n "$CLI_PGRP" ] && kill -- -$CLI_PGRP 2>/dev/null || true
               sleep 2
-              kill -9 -- -$CLI_PGRP 2>/dev/null || true
+              [ -n "$CLI_PGRP" ] && kill -9 -- -$CLI_PGRP 2>/dev/null || true
               break
             fi
             sleep 5
