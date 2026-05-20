@@ -110,7 +110,8 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          setsid pnpm --filter @jleechanorg/ao-cli test > /tmp/cli-test-output.txt 2>&1 &
+          OUTPUT_FILE="/tmp/cli-test-output-${{ github.run_id }}-${{ github.run_attempt }}.txt"
+          setsid pnpm --filter @jleechanorg/ao-cli test > "$OUTPUT_FILE" 2>&1 &
           CLI_PID=$!
           CLI_PGRP=$(ps -o pgid= -p $CLI_PID | tr -d ' ')
           TIMEOUT=540
@@ -132,6 +133,7 @@ jobs:
           echo "CLI test exit code: $EXIT_CODE"
           echo "cli_pid=$CLI_PID" >> "$GITHUB_OUTPUT"
           echo "cli_pgrp=$CLI_PGRP" >> "$GITHUB_OUTPUT"
+          echo "output_file=$OUTPUT_FILE" >> "$GITHUB_OUTPUT"
           exit $EXIT_CODE
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -141,7 +143,7 @@ jobs:
       - name: Evaluate CLI test result
         if: always()
         run: |
-          OUTPUT=/tmp/cli-test-output.txt
+          OUTPUT="${{ steps.cli-tests.outputs.output_file }}"
           OUTCOME="${{ steps.cli-tests.outcome }}"
           EXIT_CODE="${{ steps.cli-tests.outputs.exit_code }}"
           echo "CLI test step outcome: $OUTCOME"
