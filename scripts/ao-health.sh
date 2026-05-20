@@ -75,11 +75,46 @@ source "$REPO_ROOT/scripts/lib/ao-config-topology.sh" 2>/dev/null || {
     log "FATAL: cannot source ao-config-topology.sh"; exit 1
 }
 
+# ── Wafer endpoint canary probe ────────────────────────────────────────────────
+# Probes the wafer API to verify auth is valid, not just that the process runs.
+# Distinguishes three states: (a) reachable + auth valid, (b) auth expired/bad,
+# (c) endpoint unreachable.
+probe_wafer_endpoint() {
+  local api_key="${WAFER_API_KEY:-}"
+
+  if [ -z "$api_key" ]; then
+    return 0
+  fi
+
+  local resp http_code
+  resp=$(curl -s -w "\n%{http_code}" \
+    --max-time 15 \
+    -H "Authorization: Bearer $api_key" \
+    "https://pass.wafer.ai/v1/models" 2>/dev/null || true)
+
+  http_code=$(printf '%s' "$resp" | tail -1)
+
+  case "$http_code" in
+    200) log "OK: wafer endpoint auth valid" ;;
+    401|403) log "WARN: wafer auth invalid/expired (HTTP $http_code)" ;;
+    000) log "WARN: wafer endpoint unreachable (curl timeout/DNS)" ;;
+    *) log "WARN: wafer endpoint returned HTTP $http_code" ;;
+  esac
+  return 0
+}
+
 # ── Discover projects ────────────────────────────────────────────────────────
 CONFIG_PATH=$(ao_find_config_path) || { log "FATAL: no config found"; exit 1; }
 
-PROJECTS=$(
-  python3 - "$CONFIG_PATH" <<'PYEOF' 2>/dev/null
+# Pre-load WAFER_API_KEY from config plugins section for the canary probe
+WAFER_API_KEY="${WAFER_API_KEY:-$(python3 - "$CONFIG_PATH" <<'PYEOF' 2>/dev/null
+import sys, yaml
+cfg = yaml.safe_load(open(sys.argv[1])) or {}
+print(cfg.get('plugins', {}).get('WAFER_API_KEY', ''))
+PYEOF
+)}"
+
+PROJECTS=$(python3 - "$CONFIG_PATH" <<'PYEOF' 2>/dev/null
 import sys
 yaml = __import__('yaml')
 config_path = sys.argv[1]
@@ -190,6 +225,9 @@ for project in $PROJECTS; do
         log "FAIL: $project worker failed to start"
         FAILURES=$((FAILURES + 1))
     fi
+
+    # Gate 8: wafer canary probe — verify API auth is valid (not just process alive)
+    probe_wafer_endpoint
 done
 
 # ── Kill orphans (lifecycle-worker PIDs not matching any project) ─────────────
