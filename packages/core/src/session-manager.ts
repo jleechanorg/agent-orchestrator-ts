@@ -1677,7 +1677,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
 
       if (
-        plugins.agent.name === "opencode" &&
+        (plugins.agent.name === "opencode" || plugins.agent.name === "openw") &&
         orchestratorSessionStrategy === "reuse" &&
         !session.metadata["opencodeSessionId"]
       ) {
