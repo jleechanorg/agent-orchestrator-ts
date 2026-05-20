@@ -1576,8 +1576,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     const reusableOpenCodeSessionId =
-      plugins.agent.name === "opencode" ||
-      plugins.agent.name === "openw" &&
+      (plugins.agent.name === "opencode" ||
+       plugins.agent.name === "openw") &&
         orchestratorSessionStrategy === "reuse"
         ? await resolveOpenCodeSessionReuse({
             sessionsDir,
