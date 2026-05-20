@@ -449,6 +449,10 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
     async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
       if (!session.branch) return null;
 
+      if (!project.repo) {
+        throw new Error("project.repo is required for detectPR");
+      }
+
       const parts = project.repo.split("/");
       if (parts.length < 2 || !parts[0] || !parts[1]) {
         throw new Error(`Invalid repo format "${project.repo}", expected "owner/repo"`);
