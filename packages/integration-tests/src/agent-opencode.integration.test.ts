@@ -250,7 +250,7 @@ describe("getLaunchCommand (integration)", () => {
     });
     expect(cmd).toContain("--agent 'oracle'");
     expect(cmd).toContain(
-      "opencode run --format json --title 'AO:test-1' --agent 'oracle' --model 'gpt-5.2'",
+      "opencode run --format json --title 'AO:test-1' --model 'gpt-5.2' --agent 'oracle'",
     );
     expect(cmd).toContain("'You are an expert\n\nreview this code'");
     expect(cmd).toContain("--model 'gpt-5.2'");
