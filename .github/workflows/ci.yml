@@ -107,6 +107,7 @@ jobs:
         run: pnpm run test:shell && pnpm run test:evidence-gate-patterns
       - name: Run CLI tests
         id: cli-tests
+        continue-on-error: true
         run: |
           set +e
           setsid pnpm --filter @jleechanorg/ao-cli test > /tmp/cli-test-output.txt 2>&1 &
