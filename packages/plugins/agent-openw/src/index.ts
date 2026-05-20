@@ -1,7 +1,4 @@
-import {
-  setupMcpMailInWorkspace,
-  stripProviderPrefix,
-} from "@jleechanorg/ao-plugin-agent-base";
+import { setupMcpMailInWorkspace, stripProviderPrefix } from "@jleechanorg/ao-plugin-agent-base";
 import {
   DEFAULT_READY_THRESHOLD_MS,
   shellEscape,
@@ -238,7 +235,8 @@ function createOpenWAgent(): Agent {
       const env: Record<string, string> = {};
       env["AO_SESSION_ID"] = config.sessionId;
 
-      env["OPENAI_BASE_URL"] = process.env.OPENW_OPENAI_BASE_URL?.trim() || DEFAULT_OPENW_OPENAI_BASE_URL;
+      env["OPENAI_BASE_URL"] =
+        process.env.OPENW_OPENAI_BASE_URL?.trim() || DEFAULT_OPENW_OPENAI_BASE_URL;
 
       const waferKey = process.env["WAFER_API_KEY"];
       if (waferKey) {
