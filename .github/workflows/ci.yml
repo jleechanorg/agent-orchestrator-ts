@@ -156,12 +156,15 @@ jobs:
             echo "No output file found — treating as failure"
             exit 1
           fi
-          if grep -qE "Tests.*passed" "$OUTPUT" 2>/dev/null; then
+          if { [ "$EXIT_CODE" = "137" ] || [ "$EXIT_CODE" = "143" ]; } \
+            && grep -qE "Tests.*passed" "$OUTPUT" 2>/dev/null; then
             PASSED=$(grep -oP '\d+(?= passed)' "$OUTPUT" | tail -1)
             FAILED=$(grep -oP '\d+(?= failed)' "$OUTPUT" | tail -1)
-            # Default FAILED to 0 if no "failed" token found (all tests passed)
-            FAILED=${FAILED:-0}
-            echo "CLI tests exited abnormally but $PASSED tests passed, $FAILED failed"
+            echo "CLI tests exited abnormally ($EXIT_CODE) but $PASSED tests passed, ${FAILED:-0} failed"
+            if [ -z "$FAILED" ]; then
+              echo "No failed count found in output — treating as failure (possible truncation)"
+              exit 1
+            fi
             if [ "$FAILED" -eq 0 ] 2>/dev/null; then
               echo "No test failures detected — treating as success"
               exit 0
@@ -170,7 +173,7 @@ jobs:
               exit 1
             fi
           else
-            echo "No 'Tests passed' found in output — treating as failure"
+            echo "CLI tests exited with $EXIT_CODE — treating as failure"
             exit 1
           fi
       - name: Kill CLI test process group
