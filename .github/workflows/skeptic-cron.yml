@@ -405,8 +405,8 @@ jobs:
             fi
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
-            # Gate 4: Bugbot clean — fail on any non-success conclusion.
-            # "success" only; cancelled/timed_out/action_required/stale all fail the gate.
+            # Gate 4: Bugbot clean — pass on success/neutral/skipped only.
+            # Pass on "success", "neutral", or "skipped"; cancelled/timed_out/action_required/stale fail.
             BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
               --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
               2>/dev/null || echo "none")

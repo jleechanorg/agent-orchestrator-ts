@@ -22,8 +22,6 @@ export default defineConfig({
       "@jleechanorg/ao-core/utils": resolve(__dirname, "src/utils.ts"),
       "@jleechanorg/ao-core": resolve(__dirname, "src/index.ts"),
     },
-    forceExit: true,
-    poolTimeout: 10000,
     coverage: {
       provider: "v8",
       reporter: ["lcov"],

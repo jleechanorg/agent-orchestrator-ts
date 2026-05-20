@@ -48,7 +48,6 @@ export default defineConfig({
   test: {
     include: ["__tests__/**/*.test.ts", "src/__tests__/**/*.test.ts"],
     testTimeout: 30000,
-    forceExit: true,
     pool: "forks",
     poolOptions: {
       forks: {
