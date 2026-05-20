@@ -86,11 +86,14 @@ probe_wafer_endpoint() {
     return 0
   fi
 
-  local resp http_code
+  local resp http_code hdr_file
+  hdr_file=$(mktemp "${TMPDIR:-/tmp}/ao-health-hdr.XXXXXX")
+  printf 'Authorization: Bearer %s' "$api_key" > "$hdr_file"
   resp=$(curl -s -w "\n%{http_code}" \
     --max-time 15 \
-    -H "Authorization: Bearer $api_key" \
+    -H @"$hdr_file" \
     "https://pass.wafer.ai/v1/models" 2>/dev/null || true)
+  rm -f "$hdr_file"
 
   http_code=$(printf '%s' "$resp" | tail -1)
 
