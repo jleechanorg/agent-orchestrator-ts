@@ -130,7 +130,7 @@ jobs:
           EXIT_CODE=$?
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
           echo "CLI test exit code: $EXIT_CODE"
-          set -e
+          exit $EXIT_CODE
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
