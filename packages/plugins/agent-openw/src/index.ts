@@ -120,7 +120,12 @@ process.stdin.on('data', c => input += c).on('end', () => {
   const timestamp = value => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value === 'string') {
-      const parsed = Date.parse(value);
+      const trimmed = value.trim();
+      if (/^\d+$/.test(trimmed)) {
+        const epochMs = Number(trimmed);
+        return Number.isFinite(epochMs) ? epochMs : Number.NEGATIVE_INFINITY;
+      }
+      const parsed = Date.parse(trimmed);
       return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
     }
     return Number.NEGATIVE_INFINITY;

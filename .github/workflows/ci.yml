@@ -107,7 +107,6 @@ jobs:
         run: pnpm run test:shell && pnpm run test:evidence-gate-patterns
       - name: Run CLI tests
         id: cli-tests
-        continue-on-error: true
         run: |
           set +e
           setsid pnpm --filter @jleechanorg/ao-cli test > /tmp/cli-test-output.txt 2>&1 &
@@ -130,6 +129,8 @@ jobs:
           EXIT_CODE=$?
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
           echo "CLI test exit code: $EXIT_CODE"
+          echo "cli_pid=$CLI_PID" >> "$GITHUB_OUTPUT"
+          echo "cli_pgrp=$CLI_PGRP" >> "$GITHUB_OUTPUT"
           exit $EXIT_CODE
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -141,8 +142,10 @@ jobs:
         run: |
           OUTPUT=/tmp/cli-test-output.txt
           OUTCOME="${{ steps.cli-tests.outcome }}"
+          EXIT_CODE="${{ steps.cli-tests.outputs.exit_code }}"
           echo "CLI test step outcome: $OUTCOME"
-          if [ "$OUTCOME" = "success" ]; then
+          echo "CLI test exit code: $EXIT_CODE"
+          if [ "$OUTCOME" = "success" ] && [ "$EXIT_CODE" = "0" ]; then
             echo "CLI tests passed normally"
             exit 0
           fi
@@ -152,9 +155,13 @@ jobs:
           fi
           if grep -qE "Tests.*passed" "$OUTPUT" 2>/dev/null; then
             PASSED=$(grep -oP '\d+(?= passed)' "$OUTPUT" | tail -1)
-            FAILED=$(grep -oP '\d+(?= failed)' "$OUTPUT" | tail -1 || echo 0)
+            FAILED=$(grep -oP '\d+(?= failed)' "$OUTPUT" | tail -1)
             echo "CLI tests exited abnormally but $PASSED tests passed, $FAILED failed"
-            if [ -z "$FAILED" ] || [ "$FAILED" -eq 0 ]; then
+            if [ -z "$FAILED" ]; then
+              echo "No failed count found in output — treating as failure (possible truncation)"
+              exit 1
+            fi
+            if [ "$FAILED" -eq 0 ] 2>/dev/null; then
               echo "No test failures detected — treating as success"
               exit 0
             else
@@ -165,9 +172,14 @@ jobs:
             echo "No 'Tests passed' found in output — treating as failure"
             exit 1
           fi
-      - name: Kill ao processes spawned by CLI tests
+      - name: Kill CLI test process group
         if: always()
-        run: pkill -f "ao " || true; sleep 2
+        run: |
+          CLI_PGRP="${{ steps.cli-tests.outputs.cli_pgrp }}"
+          if [ -n "$CLI_PGRP" ]; then
+            kill -- -$CLI_PGRP 2>/dev/null || true
+          fi
+          sleep 1
 
   builtin-plugin-deps:
     name: Builtin Plugin Deps
