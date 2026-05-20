@@ -225,10 +225,12 @@ for project in $PROJECTS; do
         log "FAIL: $project worker failed to start"
         FAILURES=$((FAILURES + 1))
     fi
-
-    # Gate 8: wafer canary probe — verify API auth is valid (not just process alive)
-    probe_wafer_endpoint
 done
+
+# Wafer endpoint canary — run once after the full project loop so it
+# probes every iteration regardless of whether individual workers were already
+# running (the in-loop probe was skipped when workers were healthy).
+probe_wafer_endpoint
 
 # ── Kill orphans (lifecycle-worker PIDs not matching any project) ─────────────
 ALL_PIDS=$(pgrep -f "lifecycle-worker" 2>/dev/null) || true

@@ -160,11 +160,15 @@ jobs:
             && grep -qE "Tests.*passed" "$OUTPUT" 2>/dev/null; then
             PASSED=$(grep -oP '\d+(?= passed)' "$OUTPUT" | tail -1)
             FAILED=$(grep -oP '\d+(?= failed)' "$OUTPUT" | tail -1)
-            echo "CLI tests exited abnormally ($EXIT_CODE) but $PASSED tests passed, ${FAILED:-0} failed"
+            if [ -z "$PASSED" ] || [ "$PASSED" -eq 0 ]; then
+              echo "No passed count found or zero — treating as failure (possible truncation)"
+              exit 1
+            fi
             if [ -z "$FAILED" ]; then
               echo "No failed count found in output — treating as failure (possible truncation)"
               exit 1
             fi
+            echo "CLI tests exited abnormally ($EXIT_CODE) but $PASSED tests passed, ${FAILED:-0} failed"
             if [ "$FAILED" -eq 0 ] 2>/dev/null; then
               echo "No test failures detected — treating as success"
               exit 0
