@@ -123,15 +123,13 @@ function createOpenCodeAgent(): Agent {
     supportsSystemPromptFile: true,
 
     getLaunchCommand(config: AgentLaunchConfig): string {
-      const parts: string[] = ["opencode", "run"];
+      const parts: string[] = ["opencode", "run", "--format", "json"];
 
-      // Session resumption: use persisted session ID from agentConfig when available.
-      // For fresh sessions (no existingSessionId), pass --title (supported by opencode run)
-      // so that discoverOpenCodeSessionIdsByTitle (session-manager.ts) can map AO session
-      // ID to the opencode session ID on first run.
       const existingSessionId = asValidOpenCodeSessionId(
         (config.projectConfig.agentConfig as OpenCodeAgentConfig | undefined)?.opencodeSessionId,
       );
+
+      const isResuming = !!existingSessionId;
 
       if (existingSessionId) {
         parts.push("--session", shellEscape(existingSessionId));
@@ -155,7 +153,6 @@ function createOpenCodeAgent(): Agent {
         parts.push("--agent", shellEscape(config.subagent));
       }
 
-      // OpenCode doesn't support --append-system-prompt; fold system prompt into --prompt
       let combinedPrompt = "";
       if (config.systemPromptFile) {
         combinedPrompt = `$(cat ${shellEscape(config.systemPromptFile)})`;
@@ -173,12 +170,23 @@ function createOpenCodeAgent(): Agent {
         combinedPrompt = config.prompt;
       }
 
-      if (combinedPrompt) {
-        if (config.systemPromptFile) {
-          // Already quoted with command substitution
-          parts.push("--prompt", combinedPrompt);
+      if (isResuming) {
+        if (combinedPrompt) {
+          if (config.systemPromptFile) {
+            parts.push("--prompt", combinedPrompt);
+          } else {
+            parts.push("--prompt", shellEscape(combinedPrompt));
+          }
+        }
+      } else {
+        if (combinedPrompt) {
+          if (config.systemPromptFile) {
+            parts.push(combinedPrompt);
+          } else {
+            parts.push(shellEscape(combinedPrompt));
+          }
         } else {
-          parts.push("--prompt", shellEscape(combinedPrompt));
+          parts.push(shellEscape("."));
         }
       }
 
@@ -358,6 +366,44 @@ function createOpenCodeAgent(): Agent {
   };
 }
 
+function buildSessionIdCaptureScript(): string {
+  const script = `
+let buffer = '';
+let captured = null;
+const extract = obj => {
+  if (!obj || captured) return;
+  for (const key of ['sessionID', 'session_id', 'id']) {
+    const val = obj[key];
+    if (typeof val === 'string' && /^ses_[A-Za-z0-9_-]+$/.test(val)) {
+      captured = val;
+      return;
+    }
+  }
+};
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  const lines = buffer.split('\\n');
+  buffer = lines.pop() || '';
+  for (const line of lines) {
+    if (captured) continue;
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try { extract(JSON.parse(trimmed)); } catch {}
+  }
+}).on('end', () => {
+  if (buffer.trim()) {
+    try { extract(JSON.parse(buffer.trim())); } catch {}
+  }
+  if (captured) {
+    process.stdout.write(captured);
+    process.exit(0);
+  }
+  process.exit(1);
+});
+  `.trim();
+  return script.replace(/\n/g, " ").replace(/\s+/g, " ");
+}
+
 // =============================================================================
 // Plugin Export
 // =============================================================================
@@ -365,6 +411,8 @@ function createOpenCodeAgent(): Agent {
 export function create(): Agent {
   return createOpenCodeAgent();
 }
+
+export { buildSessionIdCaptureScript };
 
 export function detect(): boolean {
   try {
