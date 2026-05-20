@@ -202,42 +202,33 @@ describe("getLaunchCommand (integration)", () => {
       prompt: "fix the bug",
     });
     expect(cmd).toContain("--agent 'sisyphus'");
-    expect(cmd).toContain(
-      "opencode run --format json --title 'AO:test-1' --agent 'sisyphus' '.'",
+    expect(cmd).toBe(
+      "opencode run --format json --title 'AO:test-1' --agent 'sisyphus' 'fix the bug'",
     );
-    expect(cmd).toContain("'fix the bug'");
-    expect(cmd).toContain("exec opencode --session \"$SES_ID\" --prompt 'fix the bug'");
-    expect(cmd).toContain("--agent 'sisyphus'");
   });
 
   it("generates correct command with systemPrompt", () => {
-    const cmd = agent.getLaunchCommand({
-      ...baseConfig,
+    });
+    expect(cmd).toContain("--prompt");
       systemPrompt: "You are an orchestrator",
       prompt: "do the task",
     });
-    expect(cmd).toContain("opencode run --format json --title 'AO:test-1' '.'");
-    expect(cmd).toContain(
-      `exec opencode --session "$SES_ID" --prompt 'You are an orchestrator
-
-do the task'`,
+    expect(cmd).toBe(
+      "opencode run --format json --title 'AO:test-1' 'You are an orchestrator\n\ndo the task'",
     );
   });
 
-  it("generates correct command with systemPromptFile", () => {
-    const cmd = agent.getLaunchCommand({
-      ...baseConfig,
+      prompt: "do the task",
+    });
+    expect(cmd).toContain("--prompt");
       systemPromptFile: "/tmp/orchestrator-prompt.md",
       prompt: "do the task",
     });
-    expect(cmd).toContain("opencode run --format json --title 'AO:test-1' '.'");
-    expect(cmd).toContain(
-      "exec opencode --session \"$SES_ID\" --prompt \"$(cat '/tmp/orchestrator-prompt.md'; printf '\\n\\n'; printf %s 'do the task')\"",
+    expect(cmd).toBe(
+      "opencode run --format json --title 'AO:test-1' \"$(cat '/tmp/orchestrator-prompt.md')\n\ndo the task\"",
     );
   });
 
-  it("generates correct command with model override", () => {
-    const cmd = agent.getLaunchCommand({
       ...baseConfig,
       model: "claude-sonnet-4-5-20250929",
       prompt: "do the task",
@@ -253,23 +244,21 @@ do the task'`,
       model: "gpt-5.2",
       prompt: "review this code",
     });
+      prompt: "review this code",
+    });
     expect(cmd).toContain("--agent 'oracle'");
-    expect(cmd).toContain(
-      "opencode run --format json --title 'AO:test-1' --agent 'oracle' --model 'gpt-5.2' '.'",
-    );
-    expect(cmd).toContain(
-      "exec opencode --session \"$SES_ID\" --prompt 'You are an expert\n\nreview this code' --agent 'oracle' --model 'gpt-5.2'",
+    expect(cmd).toBe(
+      "opencode run --format json --title 'AO:test-1' --model 'gpt-5.2' --agent 'oracle' 'You are an expert\n\nreview this code'",
     );
     expect(cmd).toContain("--model 'gpt-5.2'");
   });
-
-  it("systemPromptFile takes precedence over systemPrompt", () => {
     const cmd = agent.getLaunchCommand({
       ...baseConfig,
       systemPrompt: "direct prompt",
       systemPromptFile: "/tmp/file-prompt.md",
     });
-    expect(cmd).toContain("\"$(cat '/tmp/file-prompt.md')\"");
+    expect(cmd).toContain("--prompt");
+    expect(cmd).toContain("$(cat '/tmp/file-prompt.md')");
     expect(cmd).not.toContain("direct prompt");
   });
 
@@ -278,21 +267,18 @@ do the task'`,
       ...baseConfig,
       sessionId: "test-orchestrator",
       permissions: "permissionless",
+      permissions: "permissionless",
       systemPromptFile: "/tmp/orchestrator-prompt.md",
     });
-    expect(cmd).toContain(
-      "opencode run --format json --title 'AO:test-orchestrator' '.'",
-    );
-    expect(cmd).toContain(
-      'exec opencode --session "$SES_ID" --prompt "$(cat \'/tmp/orchestrator-prompt.md\')"',
+    expect(cmd).toBe(
+      "opencode run --format json --title 'AO:test-orchestrator' \"$(cat '/tmp/orchestrator-prompt.md')\"",
     );
   });
 
-  it("escapes single quotes in systemPrompt", () => {
-    const cmd = agent.getLaunchCommand({
       ...baseConfig,
       systemPrompt: "it's important",
     });
+    expect(cmd).toContain("--prompt");
     expect(cmd).toContain("'it'\\''s important'");
   });
 
@@ -301,7 +287,8 @@ do the task'`,
       ...baseConfig,
       systemPromptFile: "/tmp/it's-prompt.md",
     });
-    expect(cmd).toContain("\"$(cat '/tmp/it'\\''s-prompt.md')\"");
+    expect(cmd).toContain("--prompt");
+    expect(cmd).toContain("$(cat '/tmp/it'\\''s-prompt.md')");
   });
 
   it("handles prompt with special shell characters", () => {
@@ -309,46 +296,40 @@ do the task'`,
       ...baseConfig,
       prompt: "fix  and `backtick` and 'quote'",
     });
-    expect(cmd).toContain("opencode run --format json --title 'AO:test-1' '.'");
     expect(cmd).toContain("fix  and `backtick`");
-    expect(cmd).toContain('exec opencode --session "$SES_ID" --prompt');
+    expect(cmd).toContain("opencode run --format json --title 'AO:test-1'");
+    expect(cmd).not.toContain("exec opencode");
+    expect(cmd).not.toContain("SES_ID");
   });
 
   it("handles empty prompt", () => {
-    const cmd = agent.getLaunchCommand({
+      ...baseConfig,
       ...baseConfig,
       prompt: "",
     });
-    expect(cmd).toContain("opencode run --format json --title 'AO:test-1' '.'");
-    expect(cmd).toContain('exec opencode --session "$SES_ID"');
-    expect(cmd).toContain("opencode session list --format json");
-    expect(cmd).toContain("AO:test-1");
+    expect(cmd).toBe("opencode run --format json --title 'AO:test-1' '.'");
   });
 
   it("handles prompt with newlines", () => {
-    const cmd = agent.getLaunchCommand({
+    });
       ...baseConfig,
       prompt: "line1\nline2",
     });
-    expect(cmd).toContain("opencode run --format json --title 'AO:test-1' '.'");
-    expect(cmd).toContain('exec opencode --session "$SES_ID" --prompt \'line1');
+    expect(cmd).toContain("opencode run --format json --title 'AO:test-1'");
+    expect(cmd).toContain("'line1");
+    expect(cmd).not.toContain("exec opencode");
   });
 
   it("uses run bootstrap launch for fresh sessions", () => {
-    const cmd = agent.getLaunchCommand({
-      ...baseConfig,
+      prompt: "start work",
+    });
       prompt: "start work",
     });
     expect(cmd).toContain("--title 'AO:test-1'");
-    expect(cmd).toContain("opencode run --format json --title 'AO:test-1' '.'");
-    expect(cmd).toContain("exec opencode --session \"$SES_ID\" --prompt 'start work'");
-    expect(cmd).toContain('exec opencode --session "$SES_ID"');
+    expect(cmd).toBe("opencode run --format json --title 'AO:test-1' 'start work'");
   });
 
   it("uses --session when existing OpenCode session id is provided", () => {
-    const cmd = agent.getLaunchCommand({
-      ...baseConfig,
-      projectConfig: {
         ...baseConfig.projectConfig,
         agentConfig: {
           opencodeSessionId: "ses_abc123",
@@ -356,13 +337,13 @@ do the task'`,
       },
       prompt: "continue",
     });
-    expect(cmd).toBe("opencode --session 'ses_abc123' --prompt 'continue'");
+      },
+      prompt: "continue",
+    });
+    expect(cmd).toBe("opencode run --format json --session 'ses_abc123' --prompt 'continue'");
   });
 });
 
-// ---------------------------------------------------------------------------
-// getEnvironment tests
-// ---------------------------------------------------------------------------
 
 describe("getEnvironment (integration)", () => {
   const agent = opencodePlugin.create();
