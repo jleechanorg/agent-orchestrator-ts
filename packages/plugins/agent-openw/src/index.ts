@@ -175,7 +175,7 @@ function createOpenWAgent(): Agent {
         sharedOptions.push("--agent", shellEscape(config.subagent));
       }
 
-      const model = process.env.OPENW_MODEL?.trim() || DEFAULT_OPENW_MODEL;
+      const model = config.model?.trim() || process.env.OPENW_MODEL?.trim() || DEFAULT_OPENW_MODEL;
       const stripped = stripProviderPrefix(model);
       if (!stripped) {
         throw new Error(

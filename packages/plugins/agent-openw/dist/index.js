@@ -1,4 +1,4 @@
-import { setupMcpMailInWorkspace, stripProviderPrefix, } from "@jleechanorg/ao-plugin-agent-base";
+import { setupMcpMailInWorkspace, stripProviderPrefix } from "@jleechanorg/ao-plugin-agent-base";
 import { DEFAULT_READY_THRESHOLD_MS, shellEscape, asValidOpenCodeSessionId, } from "@jleechanorg/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
@@ -143,7 +143,7 @@ function createOpenWAgent() {
             if (config.subagent) {
                 sharedOptions.push("--agent", shellEscape(config.subagent));
             }
-            const model = process.env.OPENW_MODEL?.trim() || DEFAULT_OPENW_MODEL;
+            const model = config.model?.trim() || process.env.OPENW_MODEL?.trim() || DEFAULT_OPENW_MODEL;
             const stripped = stripProviderPrefix(model);
             if (!stripped) {
                 throw new Error(`[ao-plugin-agent-openw] Invalid model "${model}": provider prefix with no model name`);
@@ -196,7 +196,8 @@ function createOpenWAgent() {
         getEnvironment(config) {
             const env = {};
             env["AO_SESSION_ID"] = config.sessionId;
-            env["OPENAI_BASE_URL"] = process.env.OPENW_OPENAI_BASE_URL?.trim() || DEFAULT_OPENW_OPENAI_BASE_URL;
+            env["OPENAI_BASE_URL"] =
+                process.env.OPENW_OPENAI_BASE_URL?.trim() || DEFAULT_OPENW_OPENAI_BASE_URL;
             const waferKey = process.env["WAFER_API_KEY"];
             if (waferKey) {
                 env["OPENAI_API_KEY"] = waferKey;
