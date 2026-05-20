@@ -165,8 +165,8 @@ jobs:
               exit 1
             fi
             if [ -z "$FAILED" ]; then
-              echo "CLI tests exited abnormally ($EXIT_CODE) but all-pass (no failures in output) — treating as success"
-              exit 0
+              echo "Missing failed count — treating as failure (possible truncation or no test summary emitted)"
+              exit 1
             fi
             echo "CLI tests exited abnormally ($EXIT_CODE) but $PASSED tests passed, ${FAILED:-0} failed"
             if [ "$FAILED" -eq 0 ] 2>/dev/null; then

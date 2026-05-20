@@ -106,13 +106,21 @@ probe_wafer_endpoint() {
 # ── Discover projects ────────────────────────────────────────────────────────
 CONFIG_PATH=$(ao_find_config_path) || { log "FATAL: no config found"; exit 1; }
 
-# Pre-load WAFER_API_KEY from config plugins section for the canary probe
-WAFER_API_KEY="${WAFER_API_KEY:-$(python3 - "$CONFIG_PATH" <<'PYEOF' 2>/dev/null
+# Pre-load WAFER_API_KEY from the same sources AO workers use:
+# 1. Shell environment (set via launchd wrapper or parent shell)
+# 2. envSource (default: ~/.bashrc — mirrors AO bootstrapEnvSource)
+# 3. YAML config plugins section (fallback for explicit config-only setups)
+if [ -z "${WAFER_API_KEY:-}" ]; then
+  WAFER_API_KEY=$(bash --noprofile --norc -c 'source ~/.bashrc 2>/dev/null; printf "%s" "${WAFER_API_KEY:-}"' 2>/dev/null || true)
+fi
+if [ -z "${WAFER_API_KEY:-}" ]; then
+  WAFER_API_KEY=$(python3 - "$CONFIG_PATH" <<'PYEOF' 2>/dev/null
 import sys, yaml
 cfg = yaml.safe_load(open(sys.argv[1])) or {}
 print(cfg.get('plugins', {}).get('WAFER_API_KEY', ''))
 PYEOF
-)}"
+)
+fi
 
 PROJECTS=$(python3 - "$CONFIG_PATH" <<'PYEOF' 2>/dev/null
 import sys
