@@ -2335,7 +2335,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     const selection = resolveSelectionForSession(project, sessionId, raw);
     const selectedAgent = selection.agentName;
-    if (selectedAgent === "opencode" || selectedAgent === "openw" && !asValidOpenCodeSessionId(raw["opencodeSessionId"])) {
+    if ((selectedAgent === "opencode" || selectedAgent === "openw") && !asValidOpenCodeSessionId(raw["opencodeSessionId"])) {
       const discovered = await discoverOpenCodeSessionIdByTitle(
         sessionId,
         OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS,
@@ -2843,7 +2843,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     const selection = resolveSelectionForSession(project, sessionId, raw);
     const selectedAgent = selection.agentName;
-    if (selectedAgent === "opencode" || selectedAgent === "openw" && !asValidOpenCodeSessionId(raw["opencodeSessionId"])) {
+    if ((selectedAgent === "opencode" || selectedAgent === "openw") && !asValidOpenCodeSessionId(raw["opencodeSessionId"])) {
       const discovered = await discoverOpenCodeSessionIdByTitle(
         sessionId,
         OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS,
