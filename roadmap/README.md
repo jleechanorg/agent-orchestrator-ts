@@ -4,6 +4,13 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-05-20
+
+- **PR #570: ci.yml OOM recovery fix** — `.github/workflows/ci.yml` OOM recovery (exit 137) now treats zero-failure Vitest summary as success. When `grep -oP '\d+(?= failed)'` returns empty but `passed=N` exists, exits 0 instead of 1. Cherry-picked to `fix-openw-worker-reliability-v2` branch at `fabc78a15`. Resolves P2 thread on line 166.
+- **PR #568: integration tests fixed** — pr568-worker subagent fixed integration test assertions to match simplified `opencode run` command format. Removed `exec opencode --session` expectations, updated `--model`/`--agent` argument order.
+- **lifecycle-worker restart** — `ERR_MODULE_NOT_FOUND` on `@jleechanorg/ao-plugin-agent-opencode` after source build. Fixed: rebuilt plugin, confirmed lifecycle-worker takes positional arg (not `--project` flag). Restart command: `ao lifecycle-worker agent-orchestrator`.
+- **PR #565 CONFLICTING** — `feat/bd-h44x-upstream-merge` still has merge conflicts. assess agent running.
+
 ### 2026-05-01
 
 - **MiniMax 401 root cause fixed** — `setup-launchd.sh` was missing sed substitutions for `MINIMAX_API_KEY`, `MINIMAX_BASE_URL`, `MINIMAX_MODEL`, `MINIMAX_ANTHROPIC_BASE_URL` in `install_lifecycle_plist()`. Installed plist had literal `@MINIMAX_API_KEY@` strings → bash expanded to empty → 401 on every MiniMax API call → `/login` stall. PR **#510 MERGED** (sed substitutions + AO_CLI_PATH). PR **#512 OPEN** (fail-fast `@VAR@` check in `test-launchd-env.sh`). Skill `minimax-401-diagnostic/SKILL.md` updated with Step 0. Pattern recurred 6+ times — harness fix: `@VAR@` check added to test script.

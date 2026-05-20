@@ -673,7 +673,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   ): string[] {
     const matchesCriteria = (id: string, raw: Record<string, string> | null): boolean => {
       if (!raw) return false;
-      if (raw["agent"] !== "opencode") return false;
+      if (raw["agent"] !== "opencode" && raw["agent"] !== "openw") return false;
       if (criteria.issueId !== undefined && raw["issue"] !== criteria.issueId) return false;
       if (criteria.sessionId !== undefined && id !== criteria.sessionId) return false;
       return true;
