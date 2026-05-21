@@ -1045,6 +1045,36 @@ export interface Terminal {
 }
 
 // =============================================================================
+// LOCK — Plugin Slot 9
+// =============================================================================
+
+export interface LockEntry {
+  domain: string;
+  pr_number: number;
+  agent: string;
+  branch: string;
+  timestamp: string;
+}
+
+export interface CheckResult {
+  status: "free" | "held";
+  held_by: LockEntry[];
+}
+
+export interface AreaLock {
+  readonly name: string;
+  reserve(
+    prNumber: number,
+    changedFiles: string[],
+    agent: string,
+    branch: string,
+    runtimeProjectRoot?: string,
+  ): Promise<LockEntry[]>;
+  release(prNumber: number, runtimeProjectRoot?: string): Promise<LockEntry[]>;
+  check(changedFiles: string[], runtimeProjectRoot?: string): Promise<CheckResult>;
+}
+
+// =============================================================================
 // EVENTS
 // =============================================================================
 
@@ -1858,7 +1888,8 @@ export type PluginSlot =
   | "scm"
   | "notifier"
   | "terminal"
-  | "poller";
+  | "poller"
+  | "lock";
 
 /** Plugin manifest — what every plugin exports */
 export interface PluginManifest {
@@ -1885,6 +1916,29 @@ export interface PluginModule<T = unknown> {
 
   /** Optional: detect whether this plugin's runtime/binary is available on the system. */
   detect?(): boolean;
+}
+
+// =============================================================================
+// LOCK PLUGIN CONTRACT
+// =============================================================================
+
+export interface LockEntry {
+  domain: string;
+  pr_number: number;
+  agent: string;
+  branch: string;
+  timestamp: string;
+}
+
+export interface CheckResult {
+  status: "free" | "held";
+  held_by: LockEntry[];
+}
+
+export interface AreaLock {
+  reserve(prNumber: number, changedFiles: string[], agent: string, branch: string, runtimeProjectRoot?: string): Promise<LockEntry[]>;
+  release(prNumber: number, runtimeProjectRoot?: string): Promise<LockEntry[]>;
+  check(changedFiles: string[], runtimeProjectRoot?: string): Promise<CheckResult>;
 }
 
 // =============================================================================

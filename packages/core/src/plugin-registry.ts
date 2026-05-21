@@ -62,6 +62,8 @@ export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pk
   // Terminals
   { slot: "terminal", name: "iterm2", pkg: "@jleechanorg/ao-plugin-terminal-iterm2" },
   { slot: "terminal", name: "web", pkg: "@jleechanorg/ao-plugin-terminal-web" },
+  // Locks
+  { slot: "lock", name: "area-lock", pkg: "@jleechanorg/ao-plugin-area-lock" },
   // Pollers
   { slot: "poller", name: "github-pr", pkg: "@jleechanorg/ao-plugin-poller-github-pr" },
   // Runtimes
@@ -92,6 +94,14 @@ function extractPluginConfig(
   // SCM plugins are configured under config.plugins.<plugin-name> (e.g., plugins["scm-github"])
   if (slot === "scm") {
     const pluginConfig = config.plugins?.[`scm-${name}`];
+    if (pluginConfig && typeof pluginConfig === "object") {
+      return pluginConfig as Record<string, unknown>;
+    }
+  }
+
+  // Lock plugins: config.plugins["lock-<name>"] (e.g., plugins["lock-area-lock"])
+  if (slot === "lock") {
+    const pluginConfig = config.plugins?.[`lock-${name}`];
     if (pluginConfig && typeof pluginConfig === "object") {
       return pluginConfig as Record<string, unknown>;
     }

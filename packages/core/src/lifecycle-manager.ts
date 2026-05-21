@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { logAoAction } from "./ao-action-log.js";
 import { emitLifecycleTransition, emitActivityTransition } from "./lifecycle-activity-events.js";
+
 import { reapPostMergeCoWorkers } from "./fork-lifecycle-postmerge.js";
 import {
   pruneStaleSessionIds,
@@ -47,9 +48,11 @@ import {
   type PRState,
   type ActivityState,
   type ProjectConfig as _ProjectConfig,
+  type AreaLock,
 } from "./types.js";
 import { listMetadata, readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
+import { getWorkspaceChangedFiles } from "./utils/worktree-git.js";
 import {
   clearProjectPause,
   detectAndApplyRateLimitPause,
@@ -725,6 +728,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // correct status (merged, ci_failed, etc.) on this same cycle.
           const sessionsDir = getSessionsDir(config.configPath, project.path);
           updateMetadata(sessionsDir, session.id, { pr: detectedPR.url });
+
+          // Reserve domain locks for this newly detected PR
+          const lock = registry.get<AreaLock>("lock", "area-lock");
+          if (lock && session.workspacePath && session.branch) {
+            try {
+              const changedFiles = await getWorkspaceChangedFiles(session.workspacePath, detectedPR.baseBranch ?? project.defaultBranch);
+              if (changedFiles.length > 0) {
+                const agentName = session.metadata["agent"] ?? "worker";
+                await lock.reserve(detectedPR.number, changedFiles, agentName, session.branch, session.workspacePath);
+                // Mark lock as reserved to avoid re-reserving on subsequent polls
+                session.metadata["lockReserved"] = "true";
+                updateMetadata(sessionsDir, session.id, { lockReserved: "true" });
+              }
+            } catch (err) {
+              console.error(`[lifecycle-manager] Failed to reserve domain locks for PR #${detectedPR.number}: ${err}`);
+            }
+          }
         }
       } catch {
         // bd-6jc: detectPR threw — this SCM failure counts toward the consecutive-
@@ -751,6 +771,29 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           session.metadata["scmFailureCount"] = "0";
           const sessionsDir = getSessionsDir(config.configPath, project.path);
           updateMetadata(sessionsDir, session.id, { scmFailureCount: "0" });
+        }
+      }
+    }
+
+    // 3.5. Reserve domain locks for sessions that have PR metadata but haven't reserved yet
+    //      This handles sessions where PR metadata was written by the agent or loaded from disk
+    //      and bypassed the auto-detect path above.
+    if (session.pr && session.workspacePath && session.branch) {
+      const lock = registry.get<AreaLock>("lock", "area-lock");
+      const lockReserved = session.metadata["lockReserved"] === "true";
+      if (lock && !lockReserved) {
+        try {
+          const changedFiles = await getWorkspaceChangedFiles(session.workspacePath, project.defaultBranch);
+          if (changedFiles.length > 0) {
+            const agentName = session.metadata["agent"] ?? "worker";
+            await lock.reserve(session.pr.number, changedFiles, agentName, session.branch, session.workspacePath);
+            // Mark lock as reserved to avoid re-reserving on subsequent polls
+            session.metadata["lockReserved"] = "true";
+            const sessionsDir = getSessionsDir(config.configPath, project.path);
+            updateMetadata(sessionsDir, session.id, { lockReserved: "true" });
+          }
+        } catch (err) {
+          console.error(`[lifecycle-manager] Failed to reserve domain locks for PR #${session.pr.number}: ${err}`);
         }
       }
     }

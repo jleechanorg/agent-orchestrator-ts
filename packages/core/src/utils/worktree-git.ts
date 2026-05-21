@@ -113,3 +113,42 @@ export async function findRepoPathForWorktree(
 
   return null;
 }
+
+type ExecFileFn = (
+  file: string,
+  args: readonly string[],
+  opts: object,
+) => Promise<{ stdout: string; stderr: string }>;
+
+export async function getWorkspaceChangedFiles(
+  workspacePath: string,
+  baseBranch: string,
+  execFn?: ExecFileFn,
+): Promise<string[]> {
+  const exec = execFn ?? execFileAsync;
+  try {
+    const { stdout } = await exec(
+      "git",
+      ["diff", "--name-only", `${baseBranch}...HEAD`],
+      { cwd: workspacePath, timeout: 10_000 },
+    );
+    return stdout
+      .split("\n")
+      .map((f) => f.trim())
+      .filter((f) => f.length > 0);
+  } catch {
+    try {
+      const { stdout } = await exec(
+        "git",
+        ["diff", "--name-only", `origin/${baseBranch}...HEAD`],
+        { cwd: workspacePath, timeout: 10_000 },
+      );
+      return stdout
+        .split("\n")
+        .map((f) => f.trim())
+        .filter((f) => f.length > 0);
+    } catch {
+      return [];
+    }
+  }
+}

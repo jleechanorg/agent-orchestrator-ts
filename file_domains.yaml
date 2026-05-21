@@ -1,0 +1,103 @@
+# agent-orchestrator domain registry.
+#
+# Maps file paths (glob patterns) to named domains. Two PRs that touch
+# files in the same domain will collide at spawn time.
+#
+# Pattern syntax: fnmatch globs. Leading "./" is stripped before matching.
+
+domains:
+  core-runtime:
+    paths:
+      - "packages/core/src/session*.ts"
+      - "packages/core/src/lifecycle*.ts"
+      - "packages/core/src/runtime*.ts"
+    owners:
+      - "@core"
+
+  core-plugins:
+    paths:
+      - "packages/core/src/plugin*.ts"
+      - "packages/core/src/types.ts"
+    owners:
+      - "@core"
+
+  core-review:
+    paths:
+      - "packages/core/src/review*.ts"
+      - "packages/core/src/merge-gate.ts"
+      - "packages/core/src/terminal-guard.ts"
+      - "packages/core/src/no-delta-watchdog.ts"
+    owners:
+      - "@review"
+
+  core-gh:
+    paths:
+      - "packages/core/src/gh-*.ts"
+      - "packages/core/src/auto-resolve-threads.ts"
+    owners:
+      - "@integrations"
+
+  core-messaging:
+    paths:
+      - "packages/core/src/event-bus.ts"
+      - "packages/core/src/slack*.ts"
+      - "packages/core/src/mcp*.ts"
+      - "packages/core/src/webhook*.ts"
+    owners:
+      - "@integrations"
+
+  agent-plugins:
+    paths:
+      - "packages/plugins/agent-*/**/*.ts"
+    owners:
+      - "@agents"
+
+  runtime-plugins:
+    paths:
+      - "packages/plugins/runtime-*/**/*.ts"
+    owners:
+      - "@infra"
+
+  tracker-plugins:
+    paths:
+      - "packages/plugins/tracker-*/**/*.ts"
+    owners:
+      - "@trackers"
+
+  notifier-plugins:
+    paths:
+      - "packages/plugins/notifier-*/**/*.ts"
+    owners:
+      - "@notifiers"
+
+  scm-plugins:
+    paths:
+      - "packages/plugins/scm-*/**/*.ts"
+    owners:
+      - "@scm"
+
+  poller-plugins:
+    paths:
+      - "packages/plugins/poller-*/**/*.ts"
+    owners:
+      - "@pollers"
+
+  lock-plugins:
+    paths:
+      - "packages/plugins/area-lock/**/*.ts"
+    owners:
+      - "@core"
+
+  ci-workflows:
+    paths:
+      - ".github/workflows/*.yml"
+      - ".github/workflows/*.yaml"
+    owners:
+      - "@infra"
+
+  docs:
+    paths:
+      - "docs/*.md"
+      - "README.md"
+      - "ARCHITECTURE.md"
+    advisory: true

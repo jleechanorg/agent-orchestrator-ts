@@ -46,6 +46,7 @@
     "@jleechanorg/ao-plugin-agent-opencode": "workspace:*",
     "@jleechanorg/ao-plugin-agent-openw": "workspace:*",
     "@jleechanorg/ao-plugin-agent-grok": "workspace:*",
+    "@jleechanorg/ao-plugin-area-lock": "workspace:*",
     "@jleechanorg/ao-plugin-poller-github-pr": "workspace:*",
     "@jleechanorg/ao-plugin-scm-gitlab": "workspace:*",
     "@jleechanorg/ao-plugin-tracker-beads": "workspace:*",

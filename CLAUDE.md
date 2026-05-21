@@ -304,3 +304,21 @@ This repo also ships **`skills/agent-orchestrator/SKILL.md`** and installs it in
 
 | Deep reference | `roadmap/claude-fork-reference.md` |
 |----------------|-------------------------------------|
+
+## Area-Lock Integration
+
+The **area-lock** plugin (`@jleechanorg/ao-plugin-area-lock`) wraps the `domain_lock` CLI from the [merge_train](https://github.com/jleechanorg/merge_train) Python package to provide domain collision detection at PR spawn time.
+
+**Plugin slot:** `lock`
+
+**API:** `AreaLock` interface — `reserve(pr, files, agent, branch)`, `release(pr)`, `check(files)`
+
+**Domain registry:** `file_domains.yaml` at project root maps fnmatch globs to named domains. Two PRs touching the same domain will collide.
+
+**Usage:**
+```ts
+import areaLockPlugin from "@jleechanorg/ao-plugin-area-lock";
+const lock = areaLockPlugin.create({ projectRoot: "/path/to/repo" });
+const result = await lock.check(["packages/core/src/session.ts"]);
+if (result.status === "held") { /* conflict detected */ }
+```
