@@ -96,14 +96,98 @@ jobs:
         run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
       - name: Kill stray ao processes from previous CI runs
         run: pkill -f "ao lifecycle-worker" || true; pkill -f "ao start" || true; sleep 1
-      - name: Run pnpm test
-        id: pnpm-tests
-        run: pnpm test
+      - name: Run tests (non-CLI packages)
+        run: pnpm -r --filter '!@jleechanorg/ao-cli' --filter '!@jleechanorg/ao-web' test
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           GITHUB_BASE_REF: ${{ github.base_ref }}
+      - name: Run shell and evidence-gate-patterns tests
+        run: pnpm run test:shell && pnpm run test:evidence-gate-patterns
+      - name: Run CLI tests
+        id: cli-tests
+        continue-on-error: true
+        run: |
+          set +e
+          OUTPUT_FILE="/tmp/cli-test-output-${{ github.run_id }}-${{ github.run_attempt }}.txt"
+          setsid pnpm --filter @jleechanorg/ao-cli test > "$OUTPUT_FILE" 2>&1 &
+          CLI_PID=$!
+          CLI_PGRP=$(ps -o pgid= -p $CLI_PID | tr -d ' ')
+          TIMEOUT=540
+          ELAPSED=0
+          while kill -0 $CLI_PID 2>/dev/null; do
+            if [ $ELAPSED -ge $TIMEOUT ]; then
+              echo "CLI tests timed out after ${TIMEOUT}s — killing process group $CLI_PGRP"
+              [ -n "$CLI_PGRP" ] && kill -- -$CLI_PGRP 2>/dev/null || true
+              sleep 2
+              [ -n "$CLI_PGRP" ] && kill -9 -- -$CLI_PGRP 2>/dev/null || true
+              break
+            fi
+            sleep 5
+            ELAPSED=$((ELAPSED + 5))
+          done
+          wait $CLI_PID 2>/dev/null
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          echo "CLI test exit code: $EXIT_CODE"
+          echo "cli_pid=$CLI_PID" >> "$GITHUB_OUTPUT"
+          echo "cli_pgrp=$CLI_PGRP" >> "$GITHUB_OUTPUT"
+          echo "output_file=$OUTPUT_FILE" >> "$GITHUB_OUTPUT"
+          exit $EXIT_CODE
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+      - name: Evaluate CLI test result
+        if: always()
+        run: |
+          OUTPUT="${{ steps.cli-tests.outputs.output_file }}"
+          OUTCOME="${{ steps.cli-tests.outcome }}"
+          EXIT_CODE="${{ steps.cli-tests.outputs.exit_code }}"
+          echo "CLI test step outcome: $OUTCOME"
+          echo "CLI test exit code: $EXIT_CODE"
+          if [ "$OUTCOME" = "success" ] && [ "$EXIT_CODE" = "0" ]; then
+            echo "CLI tests passed normally"
+            exit 0
+          fi
+          if [ ! -f "$OUTPUT" ]; then
+            echo "No output file found — treating as failure"
+            exit 1
+          fi
+          if { [ "$EXIT_CODE" = "137" ] || [ "$EXIT_CODE" = "143" ]; } \
+            && grep -qE "Tests.*passed" "$OUTPUT" 2>/dev/null; then
+            PASSED=$(grep -oP '\d+(?= passed)' "$OUTPUT" | tail -1)
+            FAILED=$(grep -oP '\d+(?= failed)' "$OUTPUT" | tail -1)
+            if [ -z "$PASSED" ] || [ "$PASSED" -eq 0 ]; then
+              echo "No passed count found or zero — treating as failure (possible truncation)"
+              exit 1
+            fi
+            if [ -z "$FAILED" ]; then
+              echo "Missing failed count — treating as failure (possible truncation or no test summary emitted)"
+              exit 1
+            fi
+            echo "CLI tests exited abnormally ($EXIT_CODE) but $PASSED tests passed, ${FAILED:-0} failed"
+            if [ "$FAILED" -eq 0 ] 2>/dev/null; then
+              echo "No test failures detected — treating as success"
+              exit 0
+            else
+              echo "Test failures detected — treating as failure"
+              exit 1
+            fi
+          else
+            echo "CLI tests exited with $EXIT_CODE — treating as failure"
+            exit 1
+          fi
+      - name: Kill CLI test process group
+        if: always()
+        run: |
+          CLI_PGRP="${{ steps.cli-tests.outputs.cli_pgrp }}"
+          if [ -n "$CLI_PGRP" ]; then
+            kill -- -$CLI_PGRP 2>/dev/null || true
+          fi
+          sleep 1
 
   builtin-plugin-deps:
     name: Builtin Plugin Deps

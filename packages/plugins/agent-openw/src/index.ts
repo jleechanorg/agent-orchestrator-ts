@@ -1,10 +1,4 @@
-import {
-  setupMcpMailInWorkspace,
-  isWaferModel,
-  isZaiModel,
-  stripProviderPrefix,
-  isCustomProviderModel,
-} from "@jleechanorg/ao-plugin-agent-base";
+import { setupMcpMailInWorkspace, stripProviderPrefix } from "@jleechanorg/ao-plugin-agent-base";
 import {
   DEFAULT_READY_THRESHOLD_MS,
   shellEscape,
@@ -24,6 +18,9 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+
+export const DEFAULT_OPENW_OPENAI_BASE_URL = "https://pass.wafer.ai/v1";
+export const DEFAULT_OPENW_MODEL = "wafer.ai/GLM-5.1";
 
 interface OpenCodeSessionListEntry {
   id: string;
@@ -70,12 +67,6 @@ function parseSessionList(raw: string): OpenCodeSessionListEntry[] {
   });
 }
 
-/**
- * Parse JSON stream lines from `opencode run --format json` output.
- * Each line is a JSON object. We look for objects containing a session ID field.
- * OpenCode emits `sessionID` (camelCase) in its JSON stream; we also check
- * `session_id` (snake_case) and `id` for forward compatibility.
- */
 function buildSessionIdCaptureScript(): string {
   const script = `
 let buffer = '';
@@ -126,7 +117,12 @@ process.stdin.on('data', c => input += c).on('end', () => {
   const timestamp = value => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value === 'string') {
-      const parsed = Date.parse(value);
+      const trimmed = value.trim();
+      if (/^\\d+$/.test(trimmed)) {
+        const epochMs = Number(trimmed);
+        return Number.isFinite(epochMs) ? epochMs : Number.NEGATIVE_INFINITY;
+      }
+      const parsed = Date.parse(trimmed);
       return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
     }
     return Number.NEGATIVE_INFINITY;
@@ -146,47 +142,20 @@ process.stdin.on('data', c => input += c).on('end', () => {
   return script.replace(/\n/g, " ").replace(/\s+/g, " ");
 }
 
-// =============================================================================
-// Terminal output patterns (hoisted to avoid repeated allocation)
-// =============================================================================
-
-/** Patterns where the agent is blocked on an interactive prompt — needs human input. */
-const INTERACTIVE_PROMPT_PATTERNS: readonly RegExp[] = [
-  /\[[yY]\/[nN]\]/, // [y/n], [Y/n], [y/N], etc.
-  /\[[yY][eE][sS]\/[nN][oO]\]/, // [yes/no], [YES/NO], etc.
-  /\bconfirm\??\b/i, // "confirm?" or "confirm" as a standalone word
-  /^\s*[→\-•]\s*$/m, // arrow/hyphen/bullet-only line (menu selection)
-];
-
-/** Patterns where the agent is waiting neutrally — AO can send work. */
-const NEUTRAL_WAIT_PATTERNS: readonly RegExp[] = [
-  /press .* to (continue|submit|send|confirm|run)/i,
-  /\b(q|quit|exit|cancel)\b.*\bto\b/i,
-  /\bwaiting\b/i,
-  /\bready\b/i,
-  /proceed\??\b/i, // "proceed?" or "proceed" as a standalone word
-  /\boptions?\b.*\bselect\b/i, // "option select" or "options, select"
-];
-
-// =============================================================================
-// Plugin Manifest
-// =============================================================================
+// Structural [y/N] / [yes/no] UI widgets emitted by OpenCode — deterministic, not semantic.
+const CONFIRMATION_WIDGET_RE = /\[[yY]\/[nN]\]|\[[yY][eE][sS]\/[nN][oO]\]/;
 
 export const manifest = {
-  name: "opencode",
+  name: "openw",
   slot: "agent" as const,
-  description: "Agent plugin: OpenCode",
+  description: "Agent plugin: OpenW (Wafer via OpenCode)",
   version: "0.1.0",
-  displayName: "OpenCode",
+  displayName: "OpenW (Wafer via OpenCode)",
 };
 
-// =============================================================================
-// Agent Implementation
-// =============================================================================
-
-function createOpenCodeAgent(): Agent {
+function createOpenWAgent(): Agent {
   return {
-    name: "opencode",
+    name: "openw",
     processName: "opencode",
     supportsSystemPromptFile: true,
 
@@ -202,10 +171,18 @@ function createOpenCodeAgent(): Agent {
         options.push("--session", shellEscape(existingSessionId));
       }
 
-      // Select specific OpenCode subagent if configured
       if (config.subagent) {
         sharedOptions.push("--agent", shellEscape(config.subagent));
       }
+
+      const model = config.model?.trim() || process.env.OPENW_MODEL?.trim() || DEFAULT_OPENW_MODEL;
+      const stripped = stripProviderPrefix(model);
+      if (!stripped) {
+        throw new Error(
+          `[ao-plugin-agent-openw] Invalid model "${model}": provider prefix with no model name`,
+        );
+      }
+      sharedOptions.push("--model", shellEscape(stripped));
 
       let promptValue: string | undefined;
       if (config.prompt) {
@@ -220,21 +197,6 @@ function createOpenCodeAgent(): Agent {
         promptValue = `"$(cat ${shellEscape(config.systemPromptFile)})"`;
       } else if (config.systemPrompt) {
         promptValue = shellEscape(config.systemPrompt);
-      }
-
-      if (config.model) {
-        // Strip provider prefix (wafer.ai/, z.ai/) — routing is handled by
-        // OPENAI_BASE_URL in getEnvironment(), not by the model name.
-        // Guard: reject provider-only prefixes that would produce an empty model string.
-        const modelArg = isCustomProviderModel(config.model)
-          ? stripProviderPrefix(config.model)
-          : config.model;
-        if (!modelArg) {
-          throw new Error(
-            `[ao-plugin-agent-opencode] Invalid model "${config.model}": provider prefix with no model name`,
-          );
-        }
-        sharedOptions.push("--model", shellEscape(modelArg));
       }
 
       if (!existingSessionId) {
@@ -273,39 +235,28 @@ function createOpenCodeAgent(): Agent {
       const env: Record<string, string> = {};
       env["AO_SESSION_ID"] = config.sessionId;
 
-      // Route provider models to their OpenAI-compatible proxies.
-      // Wafer: the opencodew() bashrc function pattern.
-      // ZAI: the claudeg()-equivalent pattern for opencode.
-      if (isWaferModel(config.model)) {
-        env["OPENAI_BASE_URL"] = "https://pass.wafer.ai/v1";
-        const waferKey = process.env["WAFER_API_KEY"];
-        if (waferKey) {
-          env["OPENAI_API_KEY"] = waferKey;
-        } else {
-          console.warn(
-            "[ao-plugin-agent-opencode] WAFER_API_KEY is not set — opencode may fail to authenticate with wafer.",
-          );
-        }
-      } else if (isZaiModel(config.model)) {
-        env["OPENAI_BASE_URL"] = "https://api.z.ai/v1";
-        const glmKey = process.env["GLM_API_KEY"];
-        if (glmKey) {
-          env["OPENAI_API_KEY"] = glmKey;
-        } else {
-          console.warn(
-            "[ao-plugin-agent-opencode] GLM_API_KEY is not set — opencode may fail to authenticate with ZAI.",
-          );
-        }
+      env["OPENAI_BASE_URL"] =
+        process.env.OPENW_OPENAI_BASE_URL?.trim() || DEFAULT_OPENW_OPENAI_BASE_URL;
+
+      const waferKey = process.env["WAFER_API_KEY"];
+      if (waferKey) {
+        env["OPENAI_API_KEY"] = waferKey;
+        console.debug("[ao-plugin-agent-openw] WAFER_API_KEY resolved");
+      } else {
+        // Explicitly blank OPENAI_API_KEY to prevent inheriting a dev machine's
+        // OpenAI key and sending it to Wafer's endpoint.
+        env["OPENAI_API_KEY"] = "";
+        console.error(
+          "[ao-plugin-agent-openw] WAFER_API_KEY not found. Set WAFER_API_KEY in your environment or in a file listed under envSource in agent-orchestrator.yaml.",
+        );
       }
 
-      // Pass MCP mail configuration to the agent if available
       if (process.env.MCP_AGENT_MAIL_URL) {
         env["MCP_AGENT_MAIL_URL"] = process.env.MCP_AGENT_MAIL_URL;
       }
       if (process.env.MCP_AGENT_MAIL_TOKEN) {
         env["MCP_AGENT_MAIL_TOKEN"] = process.env.MCP_AGENT_MAIL_TOKEN;
       }
-      // NOTE: AO_PROJECT_ID is the caller's responsibility (spawn.ts sets it)
       if (config.issueId) {
         env["AO_ISSUE_ID"] = config.issueId;
       }
@@ -315,17 +266,13 @@ function createOpenCodeAgent(): Agent {
     detectActivity(terminalOutput: string): ActivityState {
       if (!terminalOutput.trim()) return "idle";
 
-      for (const p of INTERACTIVE_PROMPT_PATTERNS) {
-        if (p.test(terminalOutput)) return "waiting_input";
-      }
-
-      // Standalone "?" on its own line (not mid-sentence "?...") — check only the last line
       const lastLine = terminalOutput.trimEnd().split("\n").at(-1) ?? "";
-      if (/^\s*\?\s*$/.test(lastLine)) return "waiting_input";
 
-      for (const p of NEUTRAL_WAIT_PATTERNS) {
-        if (p.test(terminalOutput)) return "ready";
-      }
+      // Structural [y/N] / [yes/no] widgets — OpenCode renders these as literal UI chrome.
+      if (CONFIRMATION_WIDGET_RE.test(lastLine)) return "waiting_input";
+
+      // OpenCode idle prompt: last line is bare `>` or `> ` with no other content.
+      if (/^>\s*$/.test(lastLine)) return "idle";
 
       return "active";
     },
@@ -333,6 +280,7 @@ function createOpenCodeAgent(): Agent {
     async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
       await setupMcpMailInWorkspace(workspacePath, ".opencode");
     },
+
     async getActivityState(
       session: Session,
       readyThresholdMs?: number,
@@ -340,7 +288,6 @@ function createOpenCodeAgent(): Agent {
       const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
       const activeWindowMs = Math.min(30_000, threshold);
 
-      // Check if process is running first
       const exitedAt = new Date();
       if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
       const running = await this.isProcessRunning(session.runtimeHandle);
@@ -350,9 +297,7 @@ function createOpenCodeAgent(): Agent {
         const { stdout } = await execFileAsync(
           "opencode",
           ["session", "list", "--format", "json"],
-          {
-            timeout: 30_000,
-          },
+          { timeout: 30_000 },
         );
 
         const sessions = parseSessionList(stdout);
@@ -436,18 +381,13 @@ function createOpenCodeAgent(): Agent {
     },
 
     async getSessionInfo(_session: Session): Promise<AgentSessionInfo | null> {
-      // OpenCode doesn't have JSONL session files for introspection yet
       return null;
     },
   };
 }
 
-// =============================================================================
-// Plugin Export
-// =============================================================================
-
 export function create(): Agent {
-  return createOpenCodeAgent();
+  return createOpenWAgent();
 }
 
 export function detect(): boolean {
