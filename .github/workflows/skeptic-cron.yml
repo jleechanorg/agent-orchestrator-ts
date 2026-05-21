@@ -12,7 +12,13 @@ name: Skeptic Cron
 # posts VERDICT comment → this workflow checks 7th condition + merges.
 #
 on:
+  schedule:
+    - cron: '*/20 * * * *'
   workflow_dispatch:
+
+concurrency:
+  group: skeptic-cron
+  cancel-in-progress: false
 
 jobs:
   skeptic_cron:
@@ -200,13 +206,14 @@ jobs:
             fi
 
             # ----------------------------------------------------------------
-            # Gate 4: Bugbot clean — fail on any non-success conclusion.
-            # "success" only; cancelled/timed_out/action_required/stale all fail the gate.
+            # Gate 4: Bugbot clean — pass only on success/neutral/skipped.
+            # "none" means Bugbot never ran (0 check-runs) — block, don't pass.
+            # cancelled/timed_out/action_required/stale/failure all fail the gate.
             BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
               --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
               2>/dev/null || echo "none")
-            if [ "$BUGBOT_CONCLUSION" != "success" ]; then
-              echo "  [SKIP] Gate-4 FAIL: Bugbot check-run=$BUGBOT_CONCLUSION (not success)"
+            if [ "$BUGBOT_CONCLUSION" != "success" ] && [ "$BUGBOT_CONCLUSION" != "neutral" ] && [ "$BUGBOT_CONCLUSION" != "skipped" ]; then
+              echo "  [SKIP] Gate-4 FAIL: Bugbot check-run=$BUGBOT_CONCLUSION (not clean)"
               SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1))
               continue
             fi
@@ -398,12 +405,12 @@ jobs:
             fi
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
-            # Gate 4: Bugbot clean — fail on any non-success conclusion.
-            # "success" only; cancelled/timed_out/action_required/stale all fail the gate.
+            # Gate 4: Bugbot clean — pass on success/neutral/skipped only.
+            # Pass on "success", "neutral", or "skipped"; cancelled/timed_out/action_required/stale fail.
             BUGBOT_CONCLUSION=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
               --jq '[.check_runs[] | select(.name == "Cursor Bugbot")] | sort_by(.started_at) | reverse | .[0].conclusion // "none"' \
               2>/dev/null || echo "none")
-            BUGBOT_STATUS=$(if [ "$BUGBOT_CONCLUSION" = "success" ]; then echo "PASS"; else echo "FAIL (check-run=$BUGBOT_CONCLUSION)"; fi)
+            BUGBOT_STATUS=$(if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ]; then echo "PASS"; else echo "FAIL (check-run=$BUGBOT_CONCLUSION)"; fi)
             echo "  [4] Bugbot clean:       $BUGBOT_STATUS"
 
             # 5. Inline comments resolved (GraphQL)

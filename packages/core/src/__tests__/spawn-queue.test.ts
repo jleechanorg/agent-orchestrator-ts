@@ -151,6 +151,7 @@ describe("spawn-queue", () => {
       return {
         sessionManager: makeSessionManager(smOverrides),
         observer: makeObserver(),
+        getLoadAvg: vi.fn().mockResolvedValue(0.5),
       };
     }
 

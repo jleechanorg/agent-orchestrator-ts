@@ -95,7 +95,15 @@ jobs:
         # For fork PRs, origin/ is the fork; explicitly fetch base branch as local ref.
         run: git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
       - name: Kill stray ao processes from previous CI runs
-        run: pkill -f "ao lifecycle-worker" || true; pkill -f "ao start" || true; sleep 1
+        run: |
+          pkill -f 'ao lifecycle-worker' || true
+          pkill -f 'ao start' || true
+          for i in 1 2 3 4 5; do
+            if ! pgrep -f 'ao.*(lifecycle-worker|start)' >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
       - name: Run tests (non-CLI packages)
         run: pnpm -r --filter '!@jleechanorg/ao-cli' --filter '!@jleechanorg/ao-web' test
         env:
@@ -222,7 +230,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
+        run: |
+          if [ "$(uname)" = "Darwin" ]; then
+            brew install tmux 2>/dev/null || true
+          else
+            sudo apt-get update && sudo apt-get install -y tmux
+          fi
       - name: Start tmux server
         run: tmux start-server
       - run: pnpm install --frozen-lockfile
