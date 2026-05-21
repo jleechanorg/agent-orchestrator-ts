@@ -55,9 +55,9 @@ jobs:
               break
             fi
             cat "$_PAGE_TMP" >> "$_PRS_TMP"
-            _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
-            rm -f "$_PAGE_TMP"
-            if [ "$_PAGE_COUNT" -lt 100 ]; then
+              _PAGE_COUNT=$(jq '.check_runs | length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
               break
             fi
             _PRS_PAGE=$((_PRS_PAGE + 1))
