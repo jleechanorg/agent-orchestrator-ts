@@ -85,6 +85,7 @@ export interface EnqueueSpawnRequestInput {
 export interface DrainSpawnQueueDeps {
   sessionManager: SessionManager;
   observer: ProjectObserver;
+  getLoadAvg?: () => Promise<number | null>;
 }
 
 export interface DrainSpawnQueueParams {
@@ -212,7 +213,13 @@ export async function drainSpawnQueue(
     return 0;
   }
 
-  const load = await getLoadAvg1m();
+  const load = await (async () => {
+    try {
+      return await (deps.getLoadAvg ?? getLoadAvg1m)();
+    } catch {
+      return null;
+    }
+  })();
   if (load !== null && load > 20) {
     observer.recordOperation({
       metric: "lifecycle_poll",

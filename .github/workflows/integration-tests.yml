@@ -31,7 +31,12 @@ jobs:
 
       # --- Install tmux ---
       - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
+        run: |
+          if [ "$(uname)" = "Darwin" ]; then
+            brew install tmux 2>/dev/null || true
+          else
+            sudo apt-get update && sudo apt-get install -y tmux
+          fi
 
       # --- Start tmux server ---
       - name: Start tmux server

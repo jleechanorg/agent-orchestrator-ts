@@ -61,7 +61,7 @@ jobs:
           # status=completed + conclusion=success. Test and Test Web are
           # additional/optional jobs beyond the MIN_CORE_JOBS threshold.
           #
-          # Wait for CI to register (up to 15 min) before evaluating. This
+          # Wait for CI to register (up to 30 min) before evaluating. This
           # prevents false FAIL when the workflow fires before CI has even
           # registered its check-runs. Gate 1 treats Lint/Typecheck/Test/Test (Web)
           # as core — pending on any of them blocks PASS — so 5 min was too short
