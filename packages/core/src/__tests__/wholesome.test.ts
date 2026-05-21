@@ -821,9 +821,12 @@ describe("wholesome — structural source-code assertions", () => {
   });
 
   describe("skeptic-cron paginated review pipelines", () => {
-    it("guards paginated review->jq pipelines with pipefail", () => {
+    it("uses explicit page iteration instead of --paginate for reviews", () => {
       const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "skeptic-cron.yml"), "utf-8");
-      expect(workflow).toContain('EVIDENCE_APPROVED=$(set -o pipefail; gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \\');
+      expect(workflow).toContain('per_page=100&page=${_EVIDENCE_REVIEWS_PAGE}');
+      expect(workflow).toContain('EVIDENCE_APPROVED=$(jq -sr');
+      expect(workflow).toContain('$_EVIDENCE_REVIEWS_TMP');
+      expect(workflow).not.toContain('--paginate');
     });
   });
 });
