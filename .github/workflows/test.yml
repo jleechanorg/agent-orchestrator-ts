@@ -129,9 +129,25 @@ jobs:
 
             _RAW_STDERR=$(mktemp)
             _COMMENTS_TMP=$(mktemp)
-            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" \
-              --paginate > "$_COMMENTS_TMP" 2>"$_RAW_STDERR"
-            GH_EXIT=$?
+            _COMMENTS_PAGE=1
+            GH_EXIT=0
+            while true; do
+              _PAGE_TMP=$(mktemp)
+              gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments?per_page=100&page=${_COMMENTS_PAGE}" \
+                > "$_PAGE_TMP" 2>"$_RAW_STDERR"
+              GH_EXIT=$?
+              if [ "$GH_EXIT" -ne 0 ]; then
+                rm -f "$_PAGE_TMP"
+                break
+              fi
+              cat "$_PAGE_TMP" >> "$_COMMENTS_TMP"
+              _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
+                break
+              fi
+              _COMMENTS_PAGE=$((_COMMENTS_PAGE + 1))
+            done
             # Prevent set -e from killing the job; GH_EXIT is checked explicitly below
             true
             RAW_COMMENTS=$(cat "$_COMMENTS_TMP")
