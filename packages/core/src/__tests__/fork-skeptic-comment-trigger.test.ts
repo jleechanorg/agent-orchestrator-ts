@@ -313,6 +313,7 @@ describe("detectAndTriggerSkepticComment", () => {
       detectAndTriggerSkepticComment(
         session,
         processedCommentIds,
+        failedCommentIds,
         lastSkepticSha,
         "test-corr",
         config,
