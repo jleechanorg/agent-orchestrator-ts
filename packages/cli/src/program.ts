@@ -19,6 +19,7 @@ import { registerSkeptic } from "./commands/skeptic.js";
 import { registerSkepticInstall } from "./commands/skeptic/install.js";
 import { getConfigInstruction } from "./lib/config-instruction.js";
 import { registerAutonomousHarness } from "@jleechanorg/ao-autonomous-harness";
+import { registerEvents } from "./commands/events.js";
 
 const _pkgDir = dirname(fileURLToPath(import.meta.url));
 const _pkgVersion: string = (() => {
@@ -71,6 +72,7 @@ export function buildProgram(): Command {
   registerVerify(program);
   registerDoctor(program);
   registerUpdate(program);
+  registerEvents(program);
   const skepticCmd = registerSkeptic(program);
   registerSkepticInstall(skepticCmd);
   // Commander v12 vs v13 has incompatible opts<T>() return type variance.

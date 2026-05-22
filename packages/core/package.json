@@ -1,7 +1,7 @@
 {
   "name": "@jleechanorg/ao-core",
   "version": "0.1.0",
-  "description": "Core library \u2014 types, config, session manager, lifecycle manager, event bus",
+  "description": "Core library — types, config, session manager, lifecycle manager, event bus",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -56,12 +56,16 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.0.18",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.2.3",
+    "@vitest/coverage-v8": "^4.0.18",
     "typescript": "^5.7.0",
     "vitest": "^4.0.18"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.10.0"
   }
 }

@@ -13,6 +13,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { logAoAction } from "./ao-action-log.js";
+import { emitLifecycleTransition, emitActivityTransition } from "./lifecycle-activity-events.js";
 import { reapPostMergeCoWorkers } from "./fork-lifecycle-postmerge.js";
 import {
   pruneStaleSessionIds,
@@ -44,6 +45,7 @@ import {
   type Session,
   type EventPriority,
   type PRState,
+  type ActivityState,
   type ProjectConfig as _ProjectConfig,
 } from "./types.js";
 import { listMetadata, readMetadataRaw, updateMetadata } from "./metadata.js";
@@ -524,6 +526,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   }
 
   const states = new Map<SessionId, SessionStatus>();
+  const activityStateCache = new Map<string, ActivityState>();
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
   const mergeRetryTimestamps = new Map<string, number>(); // "merge-retry-{sessionId}" → last attempt epoch
   const stuckRetryTimestamps = new Map<string, number>(); // "stuck-retry-{sessionId}" → last attempt epoch
@@ -644,6 +647,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Try JSONL-based activity detection first (reads agent's session files directly)
         const activityState = await agent.getActivityState(session, config.readyThresholdMs);
         if (activityState) {
+          const prevActivity = activityStateCache.get(session.id);
+          activityStateCache.set(session.id, activityState.state);
+          if (prevActivity !== undefined && prevActivity !== activityState.state) {
+            emitActivityTransition(session.projectId, session.id, prevActivity, activityState.state);
+          }
           if (activityState.state === "waiting_input") return { status: "needs_input", agentDead: false };
           if (activityState.state === "exited") {
             // Don't return "killed" yet — defer to step 3 (branch-based PR
@@ -1887,6 +1895,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         resetIdleCycles(session.id);
         states.set(session.id, effectiveStatus);
         updateSessionMetadata(session, { status: effectiveStatus });
+        emitLifecycleTransition(session.projectId, session.id, oldStatus, effectiveStatus);
       } else {
         // Preserve oldStatus so the next poll can re-evaluate the SCM check.
         // Bugbot bd-25aa4f11: storing newStatus ("killed") caused the next poll
@@ -2559,6 +2568,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       for (const trackedId of states.keys()) {
         if (!currentSessionIds.has(trackedId)) {
           states.delete(trackedId);
+        }
+      }
+      for (const trackedId of activityStateCache.keys()) {
+        if (!currentSessionIds.has(trackedId)) {
+          activityStateCache.delete(trackedId);
         }
       }
       for (const trackerKey of reactionTrackers.keys()) {

@@ -173,6 +173,11 @@ export function parseTmuxName(tmuxName: string): {
   };
 }
 
+/** Get the base AO directory (~/.agent-orchestrator/) */
+export function getAoBaseDir(): string {
+  return expandHome("~/.agent-orchestrator");
+}
+
 /**
  * Expand ~ to home directory.
  */
