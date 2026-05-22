@@ -529,6 +529,7 @@ async function collectJsonlFiles(dir: string, depth = 0): Promise<string[]> {
  * to avoid loading large rollout files into memory.
  */
 async function sessionFileMatchesCwd(filePath: string, workspacePath: string): Promise<boolean> {
+  const comparableWorkspace = toComparablePath(workspacePath);
   try {
     // Read only the first 4 KB — session_meta is always in the first few lines.
     // Avoids loading large rollout files (100 MB+) into memory.
@@ -552,7 +553,8 @@ async function sessionFileMatchesCwd(filePath: string, workspacePath: string): P
           parsed !== null &&
           !Array.isArray(parsed) &&
           (parsed as CodexJsonlLine).type === "session_meta" &&
-          (parsed as CodexJsonlLine).cwd === workspacePath
+          typeof (parsed as CodexJsonlLine).cwd === "string" &&
+          toComparablePath((parsed as CodexJsonlLine).cwd!) === comparableWorkspace
         ) {
           return true;
         }

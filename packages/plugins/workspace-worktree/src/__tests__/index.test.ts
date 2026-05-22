@@ -356,7 +356,6 @@ describe("workspace.create()", () => {
 
   it("reports error when stale branch reset via -B fails", async () => {
     const ws = create();
-    const worktreePath = "/mock-home/.worktrees/myproject/session-retry";
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main

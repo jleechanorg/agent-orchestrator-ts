@@ -752,15 +752,7 @@ describe("getSessionInfo", () => {
     const sessionContent = jsonl(
       {
         type: "session_meta",
-        payload: {
-          id: "thread-fast-info",
-        },
-      },
-      {
-        type: "turn_context",
-        payload: {
-          model: "gpt-5.5",
-        },
+        model: "gpt-5.5",
       },
     );
 
@@ -813,11 +805,11 @@ describe("getSessionInfo", () => {
   it("chooses the newest duplicate codexThreadId filename match by mtime", async () => {
     const oldContent = jsonl({
       type: "session_meta",
-      payload: { id: "thread-dupe", model: "old-model" },
+      model: "old-model",
     });
     const newContent = jsonl({
       type: "session_meta",
-      payload: { id: "thread-dupe", model: "new-model" },
+      model: "new-model",
     });
 
     mockReaddir.mockResolvedValue([
@@ -888,6 +880,26 @@ describe("getSessionInfo", () => {
     expect(result).not.toBeNull();
     expect(result!.summary).toBe("Codex session (gpt-5.4)");
     expect(mockOpen).toHaveBeenCalled();
+  });
+
+  it("normalizes cwd paths before comparing (backslash vs forward slash)", async () => {
+    const sessionContent = jsonl({
+      type: "session_meta",
+      cwd: "C:/repo/project",
+      model: "gpt-5.4",
+    });
+
+    mockReaddir.mockResolvedValue(["rollout-cwd-norm.jsonl"]);
+    setupMockOpen(sessionContent);
+    setupMockStream(sessionContent);
+    mockStat.mockResolvedValue({ mtimeMs: 1000 });
+
+    const result = await agent.getSessionInfo(
+      makeSession({ workspacePath: "C:\\repo\\project" }),
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.summary).toBe("Codex session (gpt-5.4)");
   });
 
   it("returns session info with cost and model when matching session found", async () => {
