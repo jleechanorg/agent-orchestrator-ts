@@ -76,11 +76,11 @@ describe.skipIf(!canRun)("agent-codex (integration)", () => {
   let tmpDir: string;
 
   // Observations captured while the agent is alive
-  let aliveRunning = false;
+  let aliveRunning: boolean | "indeterminate" = false;
   let aliveActivityState: ActivityDetection | null | undefined;
 
   // Observations captured after the agent exits
-  let exitedRunning: boolean;
+  let exitedRunning: boolean | "indeterminate";
   let exitedActivityState: ActivityDetection | null;
   let sessionInfo: AgentSessionInfo | null;
 

@@ -52,9 +52,9 @@ export async function pollUntil<T>(
  * Poll a function until its return value equals the expected value
  * or the timeout expires. Returns the last value.
  */
-export async function pollUntilEqual<T>(
+export async function pollUntilEqual<T, E extends T = T>(
   fn: () => Promise<T>,
-  expected: T,
+  expected: E,
   opts: { timeoutMs: number; intervalMs?: number },
 ): Promise<T> {
   const { timeoutMs, intervalMs = 1_000 } = opts;

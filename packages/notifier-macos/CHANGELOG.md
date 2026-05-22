@@ -1,4 +1,4 @@
-# @aoagents/ao-notifier-macos
+# @jleechanorg/ao-notifier-macos
 
 ## 0.9.1
 

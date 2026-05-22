@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { AgentLaunchConfig, RuntimeHandle, Session } from "@aoagents/ao-core";
+import type { AgentLaunchConfig, RuntimeHandle, Session } from "@jleechanorg/ao-core";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -8,7 +8,7 @@ const packageJson = require("../../package.json") as {
   version: string;
   description: string;
 };
-const PACKAGE_NAME_PREFIX = "@aoagents/ao-plugin-agent-";
+const PACKAGE_NAME_PREFIX = "@jleechanorg/ao-plugin-agent-";
 const pluginName = packageJson.name.startsWith(PACKAGE_NAME_PREFIX)
   ? packageJson.name.slice(PACKAGE_NAME_PREFIX.length)
   : packageJson.name;
@@ -29,7 +29,7 @@ const {
   mockIsWindows: vi.fn(() => false),
 }));
 
-vi.mock("@aoagents/ao-core", async (importOriginal) => {
+vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
