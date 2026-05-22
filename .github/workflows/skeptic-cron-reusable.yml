@@ -48,9 +48,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_JSON=$(gh api repos/${{ github.repository }}/pulls \
-            --paginate 2>/dev/null \
-            | jq -s '[add[] | select(.draft == false) | {number, title, user: {login: .user.login}, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]' 2>/dev/null || echo "[]")
+          _PRS_TMP=$(mktemp)
+          _PRS_PAGE=1
+          _PRS_FETCH_FAILED=false
+          while true; do
+            _PAGE_TMP=$(mktemp)
+            gh api "repos/${{ github.repository }}/pulls?per_page=100&page=${_PRS_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+            _PRS_EXIT=$?
+            if [ "$_PRS_EXIT" -ne 0 ]; then
+              rm -f "$_PAGE_TMP"
+              _PRS_FETCH_FAILED=true
+              break
+            fi
+            cat "$_PAGE_TMP" >> "$_PRS_TMP"
+            _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+            rm -f "$_PAGE_TMP"
+            if [ "$_PAGE_COUNT" -lt 100 ]; then
+              break
+            fi
+            _PRS_PAGE=$((_PRS_PAGE + 1))
+          done
+          if [ "$_PRS_FETCH_FAILED" = "true" ]; then
+            rm -f "$_PRS_TMP"
+            echo "::error::Failed to fetch open PRs" >&2
+            exit 1
+          fi
+          PR_JSON=$(jq -s '[add[] | select(.draft == false) | {number, title, user: {login: .user.login}, head: {ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref}, mergeable}]' "$_PRS_TMP" 2>/dev/null || echo "[]")
+          rm -f "$_PRS_TMP"
 
           echo "pr_numbers=$(echo "$PR_JSON" | jq -c '.')" >> "$GITHUB_OUTPUT"
           echo "pr_count=$(echo "$PR_JSON" | jq 'length')" >> "$GITHUB_OUTPUT"
@@ -91,13 +115,65 @@ jobs:
             if [ "$(echo "$PR_META" | jq -r '.mergeable')" != "true" ]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
 
             # Gate 3: CR APPROVED
-            LATEST_CR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews --paginate 2>/dev/null | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>/dev/null)
+            _REVIEWS_S3_TMP=$(mktemp)
+            _REVIEWS_S3_PAGE=1
+            _REVIEWS_S3_FETCH_FAILED=false
+            while true; do
+              _PAGE_TMP=$(mktemp)
+              gh api "repos/${{ github.repository }}/pulls/${PR_NUM}/reviews?per_page=100&page=${_REVIEWS_S3_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+              _REVIEWS_S3_EXIT=$?
+              if [ "$_REVIEWS_S3_EXIT" -ne 0 ]; then
+                rm -f "$_PAGE_TMP"
+                _REVIEWS_S3_FETCH_FAILED=true
+                break
+              fi
+              cat "$_PAGE_TMP" >> "$_REVIEWS_S3_TMP"
+              _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
+                break
+              fi
+              _REVIEWS_S3_PAGE=$((_REVIEWS_S3_PAGE + 1))
+            done
+            if [ "$_REVIEWS_S3_FETCH_FAILED" = "true" ]; then
+              rm -f "$_REVIEWS_S3_TMP"
+              echo "::error::Failed to fetch PR reviews for PR #${PR_NUM} (gate 3)" >&2
+              exit 1
+            fi
+            LATEST_CR=$(jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' "$_REVIEWS_S3_TMP" 2>/dev/null)
+            rm -f "$_REVIEWS_S3_TMP"
             if [ "$LATEST_CR" != "APPROVED" ]; then
                 # fallback check — scope to comments after current head was committed
                 HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA" --jq '.commit.committer.date' 2>/dev/null || echo "")
                 CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/status --jq '.statuses | map(select(.context == "CodeRabbit" and .state == "success")) | length' 2>/dev/null || echo 0)
                 if [ -n "$HEAD_COMMITTED_AT" ]; then
-                  CR_COMMENT=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | map(select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$"; "i")))) | length' 2>/dev/null || echo 0)
+                  _CR_COMMENTS_S3_TMP=$(mktemp)
+                  _CR_COMMENTS_S3_PAGE=1
+                  _CR_COMMENTS_S3_FETCH_FAILED=false
+                  while true; do
+                    _PAGE_TMP=$(mktemp)
+                    gh api "repos/${{ github.repository }}/issues/${PR_NUM}/comments?per_page=100&page=${_CR_COMMENTS_S3_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+                    _CR_COMMENTS_S3_EXIT=$?
+                    if [ "$_CR_COMMENTS_S3_EXIT" -ne 0 ]; then
+                      rm -f "$_PAGE_TMP"
+                      _CR_COMMENTS_S3_FETCH_FAILED=true
+                      break
+                    fi
+                    cat "$_PAGE_TMP" >> "$_CR_COMMENTS_S3_TMP"
+                    _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+                    rm -f "$_PAGE_TMP"
+                    if [ "$_PAGE_COUNT" -lt 100 ]; then
+                      break
+                    fi
+                    _CR_COMMENTS_S3_PAGE=$((_CR_COMMENTS_S3_PAGE + 1))
+                  done
+                  if [ "$_CR_COMMENTS_S3_FETCH_FAILED" = "true" ]; then
+                    rm -f "$_CR_COMMENTS_S3_TMP"
+                    echo "::error::Failed to fetch CR approve comments for PR #${PR_NUM}" >&2
+                    exit 1
+                  fi
+                  CR_COMMENT=$(jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | map(select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$"; "i")))) | length' "$_CR_COMMENTS_S3_TMP" 2>/dev/null || echo 0)
+                  rm -f "$_CR_COMMENTS_S3_TMP"
                 else
                   CR_COMMENT=0
                 fi
@@ -105,10 +181,62 @@ jobs:
             fi
 
             # Gate 4: Bugbot
-            BUGBOT=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs --paginate 2>/dev/null | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' 2>/dev/null || echo "error")
+            _BUGBOT_S3_TMP=$(mktemp)
+            _BUGBOT_S3_PAGE=1
+            _BUGBOT_S3_FETCH_FAILED=false
+            while true; do
+              _PAGE_TMP=$(mktemp)
+              gh api "repos/${{ github.repository }}/commits/${PR_SHA}/check-runs?per_page=100&page=${_BUGBOT_S3_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+              _BUGBOT_S3_EXIT=$?
+              if [ "$_BUGBOT_S3_EXIT" -ne 0 ]; then
+                rm -f "$_PAGE_TMP"
+                _BUGBOT_S3_FETCH_FAILED=true
+                break
+              fi
+              cat "$_PAGE_TMP" >> "$_BUGBOT_S3_TMP"
+              _PAGE_COUNT=$(jq '.check_runs | length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
+                break
+              fi
+              _BUGBOT_S3_PAGE=$((_BUGBOT_S3_PAGE + 1))
+            done
+            if [ "$_BUGBOT_S3_FETCH_FAILED" = "true" ]; then
+              rm -f "$_BUGBOT_S3_TMP"
+              echo "::error::Failed to fetch bugbot check-runs for PR #${PR_NUM}" >&2
+              exit 1
+            fi
+            BUGBOT=$(jq -rs '[.[].check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' "$_BUGBOT_S3_TMP" 2>/dev/null || echo "error")
+            rm -f "$_BUGBOT_S3_TMP"
             if [[ ! "$BUGBOT" =~ ^(success|neutral|skipped|none|error)$ ]]; then SKIPPED_NOT_6GREEN=$((SKIPPED_NOT_6GREEN + 1)); continue; fi
 
-            COMMENTS_RAW=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments --paginate 2>/dev/null || echo "[]")
+            _COMMENTS_S3_TMP=$(mktemp)
+            _COMMENTS_S3_PAGE=1
+            _COMMENTS_S3_FETCH_FAILED=false
+            while true; do
+              _PAGE_TMP=$(mktemp)
+              gh api "repos/${{ github.repository }}/issues/${PR_NUM}/comments?per_page=100&page=${_COMMENTS_S3_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+              _COMMENTS_S3_EXIT=$?
+              if [ "$_COMMENTS_S3_EXIT" -ne 0 ]; then
+                rm -f "$_PAGE_TMP"
+                _COMMENTS_S3_FETCH_FAILED=true
+                break
+              fi
+              cat "$_PAGE_TMP" >> "$_COMMENTS_S3_TMP"
+              _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
+                break
+              fi
+              _COMMENTS_S3_PAGE=$((_COMMENTS_S3_PAGE + 1))
+            done
+            if [ "$_COMMENTS_S3_FETCH_FAILED" = "true" ]; then
+              rm -f "$_COMMENTS_S3_TMP"
+              echo "::error::Failed to fetch issue comments for PR #${PR_NUM}" >&2
+              exit 1
+            fi
+            COMMENTS_RAW=$(cat "$_COMMENTS_S3_TMP" || echo "[]")
+            rm -f "$_COMMENTS_S3_TMP"
             PASS_REQUEST_ID=$(echo "$COMMENTS_RAW" | jq -sr \
               --arg sha "$PR_SHA" \
               --arg author "$SKEPTIC_BOT_AUTHOR" \
@@ -307,12 +435,36 @@ jobs:
             echo "  [2] No merge conflicts: $MERGE_CONFLICT"
 
             # 3. CR APPROVED
-            set +e -o pipefail
-            LATEST_CR_RAW=$(gh api repos/$GITHUB_REPOSITORY/pulls/"$PR_NUM"/reviews \
-              --paginate 2>/dev/null \
-              | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' 2>&1)
+            _REVIEWS_S4_TMP=$(mktemp)
+            _REVIEWS_S4_PAGE=1
+            _REVIEWS_S4_FETCH_FAILED=false
+            while true; do
+              _PAGE_TMP=$(mktemp)
+              gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}/reviews?per_page=100&page=${_REVIEWS_S4_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+              _REVIEWS_S4_EXIT=$?
+              if [ "$_REVIEWS_S4_EXIT" -ne 0 ]; then
+                rm -f "$_PAGE_TMP"
+                _REVIEWS_S4_FETCH_FAILED=true
+                break
+              fi
+              cat "$_PAGE_TMP" >> "$_REVIEWS_S4_TMP"
+              _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
+                break
+              fi
+              _REVIEWS_S4_PAGE=$((_REVIEWS_S4_PAGE + 1))
+            done
+            if [ "$_REVIEWS_S4_FETCH_FAILED" = "true" ]; then
+              rm -f "$_REVIEWS_S4_TMP"
+              echo "::error::Failed to fetch PR reviews for PR #${PR_NUM} (gate 3, step 4)" >&2
+              exit 1
+            fi
+            set +e
+            LATEST_CR_RAW=$(jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' "$_REVIEWS_S4_TMP" 2>&1)
             LATEST_CR_EXIT=$?
-            set -e +o pipefail
+            rm -f "$_REVIEWS_S4_TMP"
+            set -e
             if [ $LATEST_CR_EXIT -ne 0 ]; then
               CR_STATE="ERROR"
             else
@@ -330,10 +482,33 @@ jobs:
                 2>/dev/null || echo "none")
               CR_APPROVE_COMMENT="none"
               if [ -n "$HEAD_COMMITTED_AT" ]; then
-                CR_APPROVE_COMMENT=$(gh api repos/$GITHUB_REPOSITORY/issues/"$PR_NUM"/comments \
-                  --paginate 2>/dev/null \
-                  | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' \
-                  2>/dev/null || echo "none")
+                _CR_COMMENTS_S4_TMP=$(mktemp)
+                _CR_COMMENTS_S4_PAGE=1
+                _CR_COMMENTS_S4_FETCH_FAILED=false
+                while true; do
+                  _PAGE_TMP=$(mktemp)
+                  gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUM}/comments?per_page=100&page=${_CR_COMMENTS_S4_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+                  _CR_COMMENTS_S4_EXIT=$?
+                  if [ "$_CR_COMMENTS_S4_EXIT" -ne 0 ]; then
+                    rm -f "$_PAGE_TMP"
+                    _CR_COMMENTS_S4_FETCH_FAILED=true
+                    break
+                  fi
+                  cat "$_PAGE_TMP" >> "$_CR_COMMENTS_S4_TMP"
+                  _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+                  rm -f "$_PAGE_TMP"
+                  if [ "$_PAGE_COUNT" -lt 100 ]; then
+                    break
+                  fi
+                  _CR_COMMENTS_S4_PAGE=$((_CR_COMMENTS_S4_PAGE + 1))
+                done
+                if [ "$_CR_COMMENTS_S4_FETCH_FAILED" = "true" ]; then
+                  rm -f "$_CR_COMMENTS_S4_TMP"
+                  echo "::error::Failed to fetch CR approve comments for PR #${PR_NUM} (step 4)" >&2
+                  exit 1
+                fi
+                CR_APPROVE_COMMENT=$(jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$"; "i")))] | sort_by(.created_at) | last | if . then "APPROVED" else "none" end' "$_CR_COMMENTS_S4_TMP" 2>/dev/null || echo "none")
+                rm -f "$_CR_COMMENTS_S4_TMP"
               fi
               if [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
                 CR_STATE="APPROVED(status+comment)"
@@ -345,10 +520,33 @@ jobs:
             echo "  [3] CR APPROVED:        $CR_APPROVED"
 
             # 4. Bugbot clean
-            BUGBOT_CONCLUSION=$(gh api repos/$GITHUB_REPOSITORY/commits/"$HEAD_SHA"/check-runs \
-              --paginate 2>/dev/null \
-              | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' \
-              2>/dev/null || echo "none")
+            _BUGBOT_S4_TMP=$(mktemp)
+            _BUGBOT_S4_PAGE=1
+            _BUGBOT_S4_FETCH_FAILED=false
+            while true; do
+              _PAGE_TMP=$(mktemp)
+              gh api "repos/$GITHUB_REPOSITORY/commits/${HEAD_SHA}/check-runs?per_page=100&page=${_BUGBOT_S4_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+              _BUGBOT_S4_EXIT=$?
+              if [ "$_BUGBOT_S4_EXIT" -ne 0 ]; then
+                rm -f "$_PAGE_TMP"
+                _BUGBOT_S4_FETCH_FAILED=true
+                break
+              fi
+              cat "$_PAGE_TMP" >> "$_BUGBOT_S4_TMP"
+              _PAGE_COUNT=$(jq '.check_runs | length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
+                break
+              fi
+              _BUGBOT_S4_PAGE=$((_BUGBOT_S4_PAGE + 1))
+            done
+            if [ "$_BUGBOT_S4_FETCH_FAILED" = "true" ]; then
+              rm -f "$_BUGBOT_S4_TMP"
+              echo "::error::Failed to fetch bugbot check-runs for PR #${PR_NUM} (step 4)" >&2
+              exit 1
+            fi
+            BUGBOT_CONCLUSION=$(jq -rs '[.[].check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' "$_BUGBOT_S4_TMP" 2>/dev/null || echo "none")
+            rm -f "$_BUGBOT_S4_TMP"
             if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ] || [ "$BUGBOT_CONCLUSION" = "none" ]; then
               BUGBOT_STATUS="PASS"
             else
@@ -437,8 +635,60 @@ jobs:
             echo "  [5] Comments resolved:   $COMMENTS_STATUS"
 
             # 6. Evidence review (fail-closed)
-            PR_COMMENTS_BODY=$(gh api repos/$GITHUB_REPOSITORY/issues/"$PR_NUM"/comments --paginate 2>/dev/null | jq -r '.[].body' 2>/dev/null || echo "")
-            PR_REVIEWS=$(gh api repos/$GITHUB_REPOSITORY/pulls/"$PR_NUM"/reviews --paginate 2>/dev/null | jq -r '.[].body' 2>/dev/null || echo "")
+            _PR_COMMENTS_BODY_S4_TMP=$(mktemp)
+            _PR_COMMENTS_BODY_S4_PAGE=1
+            _PR_COMMENTS_BODY_S4_FETCH_FAILED=false
+            while true; do
+              _PAGE_TMP=$(mktemp)
+              gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUM}/comments?per_page=100&page=${_PR_COMMENTS_BODY_S4_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+              _PR_COMMENTS_BODY_S4_EXIT=$?
+              if [ "$_PR_COMMENTS_BODY_S4_EXIT" -ne 0 ]; then
+                rm -f "$_PAGE_TMP"
+                _PR_COMMENTS_BODY_S4_FETCH_FAILED=true
+                break
+              fi
+              cat "$_PAGE_TMP" >> "$_PR_COMMENTS_BODY_S4_TMP"
+              _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
+                break
+              fi
+              _PR_COMMENTS_BODY_S4_PAGE=$((_PR_COMMENTS_BODY_S4_PAGE + 1))
+            done
+            if [ "$_PR_COMMENTS_BODY_S4_FETCH_FAILED" = "true" ]; then
+              rm -f "$_PR_COMMENTS_BODY_S4_TMP"
+              echo "::error::Failed to fetch PR comments body for PR #${PR_NUM}" >&2
+              exit 1
+            fi
+            PR_COMMENTS_BODY=$(jq -sr 'add | .[].body' "$_PR_COMMENTS_BODY_S4_TMP" 2>/dev/null || echo "")
+            rm -f "$_PR_COMMENTS_BODY_S4_TMP"
+            _PR_REVIEWS_BODY_S4_TMP=$(mktemp)
+            _PR_REVIEWS_BODY_S4_PAGE=1
+            _PR_REVIEWS_BODY_S4_FETCH_FAILED=false
+            while true; do
+              _PAGE_TMP=$(mktemp)
+              gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}/reviews?per_page=100&page=${_PR_REVIEWS_BODY_S4_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+              _PR_REVIEWS_BODY_S4_EXIT=$?
+              if [ "$_PR_REVIEWS_BODY_S4_EXIT" -ne 0 ]; then
+                rm -f "$_PAGE_TMP"
+                _PR_REVIEWS_BODY_S4_FETCH_FAILED=true
+                break
+              fi
+              cat "$_PAGE_TMP" >> "$_PR_REVIEWS_BODY_S4_TMP"
+              _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
+                break
+              fi
+              _PR_REVIEWS_BODY_S4_PAGE=$((_PR_REVIEWS_BODY_S4_PAGE + 1))
+            done
+            if [ "$_PR_REVIEWS_BODY_S4_FETCH_FAILED" = "true" ]; then
+              rm -f "$_PR_REVIEWS_BODY_S4_TMP"
+              echo "::error::Failed to fetch PR reviews body for PR #${PR_NUM}" >&2
+              exit 1
+            fi
+            PR_REVIEWS=$(jq -sr 'add | .[].body' "$_PR_REVIEWS_BODY_S4_TMP" 2>/dev/null || echo "")
+            rm -f "$_PR_REVIEWS_BODY_S4_TMP"
             PR_BODY=$(gh api repos/$GITHUB_REPOSITORY/pulls/"$PR_NUM" --jq '.body' 2>/dev/null || echo "")
             ALL_TEXT=$(printf "%s\n%s\n%s" "$PR_BODY" "$PR_COMMENTS_BODY" "$PR_REVIEWS")
 
@@ -447,12 +697,61 @@ jobs:
               HAS_VIDEO=true
             fi
 
-            EVIDENCE_APPROVED=$(gh api repos/$GITHUB_REPOSITORY/pulls/"$PR_NUM"/reviews \
-              --paginate 2>/dev/null \
-              | jq -s --arg sha "$HEAD_SHA" 'add | [.[] | select(.user.login == "evidence-review-bot" and .commit_id == $sha)] | map(select(.state == "APPROVED")) | length' 2>/dev/null || echo 0)
+            _EVIDENCE_REVIEWS_S4_TMP=$(mktemp)
+            _EVIDENCE_REVIEWS_S4_PAGE=1
+            _EVIDENCE_REVIEWS_S4_FETCH_FAILED=false
+            while true; do
+              _PAGE_TMP=$(mktemp)
+              gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}/reviews?per_page=100&page=${_EVIDENCE_REVIEWS_S4_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+              _EVIDENCE_REVIEWS_S4_EXIT=$?
+              if [ "$_EVIDENCE_REVIEWS_S4_EXIT" -ne 0 ]; then
+                rm -f "$_PAGE_TMP"
+                _EVIDENCE_REVIEWS_S4_FETCH_FAILED=true
+                break
+              fi
+              cat "$_PAGE_TMP" >> "$_EVIDENCE_REVIEWS_S4_TMP"
+              _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
+                break
+              fi
+              _EVIDENCE_REVIEWS_S4_PAGE=$((_EVIDENCE_REVIEWS_S4_PAGE + 1))
+            done
+            if [ "$_EVIDENCE_REVIEWS_S4_FETCH_FAILED" = "true" ]; then
+              rm -f "$_EVIDENCE_REVIEWS_S4_TMP"
+              echo "::error::Failed to fetch evidence reviews for PR #${PR_NUM}" >&2
+              exit 1
+            fi
+            EVIDENCE_APPROVED=$(jq -s --arg sha "$HEAD_SHA" 'add | [.[] | select(.user.login == "evidence-review-bot" and .commit_id == $sha)] | map(select(.state == "APPROVED")) | length' "$_EVIDENCE_REVIEWS_S4_TMP" 2>/dev/null || echo 0)
+            rm -f "$_EVIDENCE_REVIEWS_S4_TMP"
 
-            EVIDENCE_CHECKS_RAW=$(gh api repos/$GITHUB_REPOSITORY/commits/"$HEAD_SHA"/check-runs?per_page=100 \
-              --paginate 2>/dev/null || echo "[]")
+            _EVIDENCE_CHECKS_S4_TMP=$(mktemp)
+            _EVIDENCE_CHECKS_S4_PAGE=1
+            _EVIDENCE_CHECKS_S4_FETCH_FAILED=false
+            while true; do
+              _PAGE_TMP=$(mktemp)
+              gh api "repos/$GITHUB_REPOSITORY/commits/${HEAD_SHA}/check-runs?per_page=100&page=${_EVIDENCE_CHECKS_S4_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+              _EVIDENCE_CHECKS_S4_EXIT=$?
+              if [ "$_EVIDENCE_CHECKS_S4_EXIT" -ne 0 ]; then
+                rm -f "$_PAGE_TMP"
+                _EVIDENCE_CHECKS_S4_FETCH_FAILED=true
+                break
+              fi
+              cat "$_PAGE_TMP" >> "$_EVIDENCE_CHECKS_S4_TMP"
+              _PAGE_COUNT=$(jq '.check_runs | length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
+                break
+              fi
+              _EVIDENCE_CHECKS_S4_PAGE=$((_EVIDENCE_CHECKS_S4_PAGE + 1))
+            done
+            if [ "$_EVIDENCE_CHECKS_S4_FETCH_FAILED" = "true" ]; then
+              rm -f "$_EVIDENCE_CHECKS_S4_TMP"
+              echo "::error::Failed to fetch evidence check-runs for PR #${PR_NUM}" >&2
+              exit 1
+            fi
+            EVIDENCE_CHECKS_RAW=$(cat "$_EVIDENCE_CHECKS_S4_TMP" || echo "[]")
+            rm -f "$_EVIDENCE_CHECKS_S4_TMP"
             EVIDENCE_CHECK_LATEST=$(echo "$EVIDENCE_CHECKS_RAW" | jq -s \
               '[[.[] | .check_runs[]?] | .[]
                 | .normalized_name = (.name | ascii_downcase | gsub("[ -]"; ""))
@@ -472,16 +771,39 @@ jobs:
             elif [ "${EVIDENCE_CHECK_TOTAL:-0}" -gt 0 ]; then
               EVIDENCE_STATUS="FAIL (evidence check present but not all passing: $EVIDENCE_CHECK_PASS/$EVIDENCE_CHECK_TOTAL)"
             else
-              _CF_TMPFILE=$(mktemp)
-              gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}/files" \
-                --paginate 2>/dev/null | jq -r '.[].filename' 2>/dev/null > "$_CF_TMPFILE"
-              _CF_PIPE_STATUS=("${PIPESTATUS[@]}")
-              CHANGED_FILES=$(cat "$_CF_TMPFILE"); rm -f "$_CF_TMPFILE"
-              if [ "${_CF_PIPE_STATUS[0]}" != "0" ] || [ "${_CF_PIPE_STATUS[1]}" != "0" ]; then
-                EVIDENCE_GATE_REQUIRED="true"
-              else
-                EVIDENCE_GATE_REQUIRED=$(echo "$CHANGED_FILES" | grep -qE '^(testing_(mcp|ui)/|deploy\.sh$|\.github/workflows/evidence-gate\.yml$)' && echo "true" || echo "false")
-              fi
+                _PR_FILES_S4_TMP=$(mktemp)
+                _PR_FILES_S4_PAGE=1
+                _PR_FILES_S4_FETCH_FAILED=false
+                while true; do
+                  _PAGE_TMP=$(mktemp)
+                  gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}/files?per_page=100&page=${_PR_FILES_S4_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+                  _PR_FILES_S4_EXIT=$?
+                  if [ "$_PR_FILES_S4_EXIT" -ne 0 ]; then
+                    rm -f "$_PAGE_TMP"
+                    _PR_FILES_S4_FETCH_FAILED=true
+                    break
+                  fi
+                  cat "$_PAGE_TMP" >> "$_PR_FILES_S4_TMP"
+                  _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+                  rm -f "$_PAGE_TMP"
+                  if [ "$_PAGE_COUNT" -lt 100 ]; then
+                    break
+                  fi
+                  _PR_FILES_S4_PAGE=$((_PR_FILES_S4_PAGE + 1))
+                done
+                if [ "$_PR_FILES_S4_FETCH_FAILED" = "true" ]; then
+                  rm -f "$_PR_FILES_S4_TMP"
+                  echo "::error::Failed to fetch PR files for PR #${PR_NUM}" >&2
+                  exit 1
+                fi
+                CHANGED_FILES=$(jq -sr 'add | .[].filename' "$_PR_FILES_S4_TMP" 2>/dev/null)
+                _CF_JQ_EXIT=$?
+                rm -f "$_PR_FILES_S4_TMP"
+                if [ "$_CF_JQ_EXIT" -ne 0 ]; then
+                  EVIDENCE_GATE_REQUIRED="true"
+                else
+                  EVIDENCE_GATE_REQUIRED=$(echo "$CHANGED_FILES" | grep -qE '^(testing_(mcp|ui)/|deploy\.sh$|\.github/workflows/evidence-gate\.yml$)' && echo "true" || echo "false")
+                fi
               if [ "$EVIDENCE_GATE_REQUIRED" = "false" ] && [ "$HAS_VIDEO" = "true" ]; then
                 EVIDENCE_STATUS="PASS (evidence gate N/A for this PR; video/recording found)"
               elif [ "$EVIDENCE_GATE_REQUIRED" = "false" ] && [ "$HAS_VIDEO" = "false" ]; then
@@ -493,9 +815,33 @@ jobs:
             echo "  [6] Evidence review:    $EVIDENCE_STATUS"
             
             if echo "$EVIDENCE_STATUS" | grep -qi "FAIL"; then
-              EXISTING_COMMENT_IDS=$(gh api repos/$GITHUB_REPOSITORY/issues/$PR_NUM/comments \
-                --paginate 2>/dev/null | jq -r --arg marker "<!-- evidence-required-${PR_NUM} -->" \
-                '[.[] | select((.body // "") | contains($marker))] | .[0].id // empty')
+              _EVIDENCE_MARKER_S4_TMP=$(mktemp)
+              _EVIDENCE_MARKER_S4_PAGE=1
+              _EVIDENCE_MARKER_S4_FETCH_FAILED=false
+              while true; do
+                _PAGE_TMP=$(mktemp)
+                gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUM}/comments?per_page=100&page=${_EVIDENCE_MARKER_S4_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+                _EVIDENCE_MARKER_S4_EXIT=$?
+                if [ "$_EVIDENCE_MARKER_S4_EXIT" -ne 0 ]; then
+                  rm -f "$_PAGE_TMP"
+                  _EVIDENCE_MARKER_S4_FETCH_FAILED=true
+                  break
+                fi
+                cat "$_PAGE_TMP" >> "$_EVIDENCE_MARKER_S4_TMP"
+                _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+                rm -f "$_PAGE_TMP"
+                if [ "$_PAGE_COUNT" -lt 100 ]; then
+                  break
+                fi
+                _EVIDENCE_MARKER_S4_PAGE=$((_EVIDENCE_MARKER_S4_PAGE + 1))
+              done
+              if [ "$_EVIDENCE_MARKER_S4_FETCH_FAILED" = "true" ]; then
+                rm -f "$_EVIDENCE_MARKER_S4_TMP"
+                echo "::error::Failed to fetch evidence marker comments for PR #${PR_NUM}" >&2
+                exit 1
+              fi
+              EXISTING_COMMENT_IDS=$(jq -r --arg marker "<!-- evidence-required-${PR_NUM} -->" -s 'add | [.[] | select((.body // "") | contains($marker))] | .[0].id // empty' "$_EVIDENCE_MARKER_S4_TMP")
+              rm -f "$_EVIDENCE_MARKER_S4_TMP"
               if [ -z "$EXISTING_COMMENT_IDS" ]; then
                 EVIDENCE_BODY_FILE=$(mktemp)
                 printf '%s\n\n%s\n%s\n\n%s\n\n%s\n\n%s\n\n%s\n' \
@@ -519,8 +865,33 @@ jobs:
             fi
 
             # 7. Skeptic verdict
-            SKEPTIC_RAW=$(gh api repos/$GITHUB_REPOSITORY/issues/"$PR_NUM"/comments \
-              --paginate 2>/dev/null || echo "[]")
+            _SKEPTIC_COMMENTS_S4_TMP=$(mktemp)
+            _SKEPTIC_COMMENTS_S4_PAGE=1
+            _SKEPTIC_COMMENTS_S4_FETCH_FAILED=false
+            while true; do
+              _PAGE_TMP=$(mktemp)
+              gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUM}/comments?per_page=100&page=${_SKEPTIC_COMMENTS_S4_PAGE}" > "$_PAGE_TMP" 2>/dev/null
+              _SKEPTIC_COMMENTS_S4_EXIT=$?
+              if [ "$_SKEPTIC_COMMENTS_S4_EXIT" -ne 0 ]; then
+                rm -f "$_PAGE_TMP"
+                _SKEPTIC_COMMENTS_S4_FETCH_FAILED=true
+                break
+              fi
+              cat "$_PAGE_TMP" >> "$_SKEPTIC_COMMENTS_S4_TMP"
+              _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
+              rm -f "$_PAGE_TMP"
+              if [ "$_PAGE_COUNT" -lt 100 ]; then
+                break
+              fi
+              _SKEPTIC_COMMENTS_S4_PAGE=$((_SKEPTIC_COMMENTS_S4_PAGE + 1))
+            done
+            if [ "$_SKEPTIC_COMMENTS_S4_FETCH_FAILED" = "true" ]; then
+              rm -f "$_SKEPTIC_COMMENTS_S4_TMP"
+              echo "::error::Failed to fetch skeptic comments for PR #${PR_NUM}" >&2
+              exit 1
+            fi
+            SKEPTIC_RAW=$(cat "$_SKEPTIC_COMMENTS_S4_TMP" || echo "[]")
+            rm -f "$_SKEPTIC_COMMENTS_S4_TMP"
             REQUEST_ID=$(echo "$SKEPTIC_RAW" | jq -sr --arg sha "$HEAD_SHA" \
               'add
               | map(. + {request_id: (try (.body | capture("<!--\\s*skeptic-request-id-(?<request_id>[A-Za-z0-9_.:-]+)\\s*-->"; "i").request_id) catch "")})
