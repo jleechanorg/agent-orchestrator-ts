@@ -734,12 +734,146 @@ describe("getSessionInfo", () => {
     expect(await agent.getSessionInfo(makeSession())).toBeNull();
   });
 
+  it("uses persisted codexThreadId filename without cwd-prefix open scans", async () => {
+    const sessionContent = jsonl(
+      {
+        type: "session_meta",
+        payload: {
+          id: "thread-fast-info",
+        },
+      },
+      {
+        type: "turn_context",
+        payload: {
+          model: "gpt-5.5",
+        },
+      },
+    );
+
+    mockReaddir.mockResolvedValue(["rollout-2026-05-22T00-00-00-thread-fast-info.jsonl"]);
+    setupMockStream(sessionContent);
+
+    const result = await agent.getSessionInfo(
+      makeSession({
+        workspacePath: "/workspace/test",
+        metadata: { codexThreadId: "thread-fast-info" },
+      }),
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.agentSessionId).toBe("rollout-2026-05-22T00-00-00-thread-fast-info");
+    expect(result!.summary).toBe("Codex session (gpt-5.5)");
+    expect(mockOpen).not.toHaveBeenCalled();
+  });
+
+  it("caches codexThreadId filename lookups by thread id", async () => {
+    const sessionContent = jsonl({
+      type: "session_meta",
+      payload: {
+        id: "thread-cached-info",
+      },
+    });
+
+    mockReaddir.mockResolvedValue(["rollout-thread-cached-info.jsonl"]);
+    mockCreateReadStream.mockImplementation(() => makeContentStream(sessionContent));
+
+    const first = await agent.getSessionInfo(
+      makeSession({
+        workspacePath: "/workspace/first",
+        metadata: { codexThreadId: "thread-cached-info" },
+      }),
+    );
+    const second = await agent.getSessionInfo(
+      makeSession({
+        workspacePath: "/workspace/second",
+        metadata: { codexThreadId: "thread-cached-info" },
+      }),
+    );
+
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(mockReaddir).toHaveBeenCalledTimes(1);
+    expect(mockOpen).not.toHaveBeenCalled();
+  });
+
+  it("chooses the newest duplicate codexThreadId filename match by mtime", async () => {
+    const oldContent = jsonl({
+      type: "session_meta",
+      payload: { id: "thread-dupe", model: "old-model" },
+    });
+    const newContent = jsonl({
+      type: "session_meta",
+      payload: { id: "thread-dupe", model: "new-model" },
+    });
+
+    mockReaddir.mockResolvedValue([
+      "rollout-old-thread-dupe.jsonl",
+      "rollout-new-thread-dupe.jsonl",
+    ]);
+    mockStat.mockImplementation((path: string) => {
+      if (path.includes("rollout-old-thread-dupe")) return Promise.resolve({ mtimeMs: 1000 });
+      if (path.includes("rollout-new-thread-dupe")) return Promise.resolve({ mtimeMs: 2000 });
+      return Promise.reject(new Error("ENOENT"));
+    });
+    mockCreateReadStream.mockImplementation((path: string) => {
+      if (path.includes("rollout-old-thread-dupe")) return makeContentStream(oldContent);
+      if (path.includes("rollout-new-thread-dupe")) return makeContentStream(newContent);
+      return makeContentStream("");
+    });
+
+    const result = await agent.getSessionInfo(
+      makeSession({
+        workspacePath: "/workspace/test",
+        metadata: { codexThreadId: "thread-dupe" },
+      }),
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.agentSessionId).toBe("rollout-new-thread-dupe");
+    expect(result!.summary).toBe("Codex session (new-model)");
+    expect(mockOpen).not.toHaveBeenCalled();
+  });
+
+  it("does not treat infix filename matches as thread-id hits", async () => {
+    mockReaddir.mockResolvedValue(["rollout-thread-fast-extra.jsonl"]);
+
+    const result = await agent.getSessionInfo(
+      makeSession({
+        workspacePath: null,
+        metadata: { codexThreadId: "fast" },
+      }),
+    );
+
+    expect(result).toBeNull();
+    expect(mockOpen).not.toHaveBeenCalled();
+    expect(mockCreateReadStream).not.toHaveBeenCalled();
+  });
+
   it("returns null when no session files match the workspace cwd", async () => {
     mockReaddir.mockResolvedValue(["session-abc.jsonl"]);
     const content = jsonl({ type: "session_meta", cwd: "/other/workspace", model: "gpt-4o" });
     setupMockOpen(content);
     mockReadFile.mockResolvedValue(content);
     expect(await agent.getSessionInfo(makeSession({ workspacePath: "/workspace/test" }))).toBeNull();
+  });
+
+  it("falls back to cwd-prefix scanning when codexThreadId is absent", async () => {
+    const sessionContent = jsonl({
+      type: "session_meta",
+      cwd: "/workspace/test",
+      model: "gpt-5.4",
+    });
+
+    mockReaddir.mockResolvedValue(["rollout-cwd-fallback.jsonl"]);
+    setupMockOpen(sessionContent);
+    setupMockStream(sessionContent);
+    mockStat.mockResolvedValue({ mtimeMs: 1000 });
+
+    const result = await agent.getSessionInfo(makeSession({ workspacePath: "/workspace/test" }));
+
+    expect(result).not.toBeNull();
+    expect(result!.summary).toBe("Codex session (gpt-5.4)");
+    expect(mockOpen).toHaveBeenCalled();
   });
 
   it("returns session info with cost and model when matching session found", async () => {
@@ -1027,6 +1161,21 @@ describe("getRestoreCommand", () => {
     expect(cmd).toContain("'codex' resume");
     expect(cmd).toContain("-c check_for_update_on_startup=false");
     expect(cmd).toContain("thread-abc-123");
+  });
+
+  it("uses persisted Codex thread ID without scanning session files", async () => {
+    const session = makeSession({
+      workspacePath: "/workspace/test",
+      metadata: { codexThreadId: "persisted-thread", codexModel: "gpt-5.3-codex" },
+    });
+
+    const cmd = await agent.getRestoreCommand!(session, makeProjectConfig());
+
+    expect(cmd).toContain("'codex' resume");
+    expect(cmd).toContain("--model 'gpt-5.3-codex'");
+    expect(cmd).toContain("persisted-thread");
+    expect(mockReaddir).not.toHaveBeenCalled();
+    expect(mockOpen).not.toHaveBeenCalled();
   });
 
   it("includes bypass flag when project config permissions=permissionless", async () => {
