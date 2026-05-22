@@ -585,7 +585,7 @@ describe("setupMcpMailInWorkspace", () => {
     );
   });
 
-  it("should include Authorization header with the runtime token when token is present in environment", async () => {
+  it("should NOT serialize Bearer token into settings.json (security: P0 orch-havc)", async () => {
     process.env.MCP_AGENT_MAIL_TOKEN = "secret-token-123";
     mockReadFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
     mockLstat.mockResolvedValue({ isSymbolicLink: () => false } as unknown as Stats);
@@ -595,9 +595,9 @@ describe("setupMcpMailInWorkspace", () => {
     const callArgs = mockWriteFile.mock.calls[0];
     const content = callArgs[1];
     expect(content).toContain("mcp-agent-mail");
-    expect(content).toContain("Authorization");
-    expect(content).toContain("Bearer secret-token-123");
-    expect(content).not.toContain("${MCP_AGENT_MAIL_TOKEN}");
+    expect(content).not.toContain("Authorization");
+    expect(content).not.toContain("Bearer");
+    expect(content).not.toContain("secret-token-123");
   });
 
   it("should not include Authorization header when token is absent", async () => {
