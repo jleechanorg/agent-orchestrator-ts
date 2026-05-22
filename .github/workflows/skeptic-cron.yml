@@ -92,7 +92,6 @@ jobs:
           TRIGGERED=0
           SKIPPED_DOCS=0
           SKIPPED_NOT_6GREEN=0
-          SKIPPED_GATE_NOT_PASSED=0
 
           for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
             PR_DATA=$(echo "$PR" | base64 -d)
@@ -103,69 +102,12 @@ jobs:
             echo ""
             echo "=== Evaluating PR #${PR_NUM}: ${PR_TITLE} ==="
 
-            # ----------------------------------------------------------------
-            # Pre-check: Verify Green Gate CI check passed for current SHA.
-            # Look for the green-gate-result comment marker OR the Skeptic Gate
-            # check run conclusion. If not passed, skip LLM trigger.
-            # ----------------------------------------------------------------
-            GATE_MARKER="green-gate-result-${PR_SHA}"
-            _GATE_COMMENTS_TMP=$(mktemp)
-            _GATE_COMMENTS_PAGE=1
-            _GATE_COMMENTS_FETCH_FAILED=false
-            while true; do
-              _PAGE_TMP=$(mktemp)
-              gh api "repos/${{ github.repository }}/issues/${PR_NUM}/comments?per_page=100&page=${_GATE_COMMENTS_PAGE}" > "$_PAGE_TMP" 2>/dev/null
-              _GATE_EXIT=$?
-              if [ "$_GATE_EXIT" -ne 0 ]; then
-                rm -f "$_PAGE_TMP"
-                _GATE_COMMENTS_FETCH_FAILED=true
-                break
-              fi
-              cat "$_PAGE_TMP" >> "$_GATE_COMMENTS_TMP"
-              _PAGE_COUNT=$(jq 'length' "$_PAGE_TMP" 2>/dev/null || echo 0)
-              rm -f "$_PAGE_TMP"
-              if [ "$_PAGE_COUNT" -lt 100 ]; then
-                break
-              fi
-              _GATE_COMMENTS_PAGE=$((_GATE_COMMENTS_PAGE + 1))
-            done
-            if [ "$_GATE_COMMENTS_FETCH_FAILED" = "true" ]; then
-              rm -f "$_GATE_COMMENTS_TMP"
-              echo "::error::Failed to fetch gate check comments for PR #${PR_NUM}" >&2
-              exit 1
-            fi
-            GATE_COMMENT=$(jq -sr --arg marker "$GATE_MARKER" \
-              '[.[][] | select(.user.login == "github-actions[bot]" and (.body | contains($marker)))] | sort_by(.created_at) | last // empty' "$_GATE_COMMENTS_TMP" || echo "")
-            rm -f "$_GATE_COMMENTS_TMP"
-
-            GATE_PASSED=false
-            if [ -n "$GATE_COMMENT" ] && echo "$GATE_COMMENT" | jq -e '.body' > /dev/null 2>&1; then
-              GATE_BODY=$(echo "$GATE_COMMENT" | jq -r '.body')
-              if echo "$GATE_BODY" | grep -q "Result: PASS"; then
-                GATE_PASSED=true
-                echo "  [PRE-CHECK] Skeptic Gate comment: PASS for SHA ${PR_SHA:0:7}"
-              else
-                echo "  [PRE-CHECK] Skeptic Gate comment found but not PASS for SHA ${PR_SHA:0:7}"
-              fi
-            fi
-
-            # Fallback: check the Green Gate check run status
-            if [ "$GATE_PASSED" = "false" ]; then
-              GATE_CHECK=$(gh api repos/${{ github.repository }}/commits/"$PR_SHA"/check-runs \
-                --jq '[.check_runs[] | select(.name == "Green Gate Orchestrator")] | last | .conclusion // "none"' 2>/dev/null || echo "none")
-              if [ "$GATE_CHECK" = "success" ]; then
-                GATE_PASSED=true
-                echo "  [PRE-CHECK] Green Gate check run: success for SHA ${PR_SHA:0:7}"
-              else
-                echo "  [PRE-CHECK] Green Gate check run: $GATE_CHECK for SHA ${PR_SHA:0:7}"
-              fi
-            fi
-
-            if [ "$GATE_PASSED" = "false" ]; then
-              echo "  [SKIP] Skeptic Gate not passed for current SHA — skipping LLM trigger"
-              SKIPPED_GATE_NOT_PASSED=$((SKIPPED_GATE_NOT_PASSED + 1))
-              continue
-            fi
+            # bd-2wdq: Removed Green Gate pre-check. The pre-check created a
+            # deadlock: Skeptic Gate CI (test.yml) polls for a VERDICT comment,
+            # but skeptic-cron only triggered `ao skeptic verify` after Green Gate
+            # passed — and Green Gate requires Skeptic Gate to pass first.
+            # Gates 1-5 below (CI, mergeable, CR approved, bugbot clean,
+            # comments resolved) are sufficient to decide whether to trigger.
 
             # (docs-only skip removed — skeptic-cron evaluates ALL PRs
             #  regardless of file types, per deterministic gate architecture)
@@ -385,12 +327,11 @@ jobs:
             fi
           done
 
-          echo ""
-          echo "=== Trigger summary ==="
-          echo "Triggered: $TRIGGERED"
-          echo "Skipped (Skeptic Gate not passed): $SKIPPED_GATE_NOT_PASSED"
-          echo "Skipped (docs-only): $SKIPPED_DOCS"
-          echo "Skipped (not 6-green): $SKIPPED_NOT_6GREEN"
+           echo ""
+           echo "=== Trigger summary ==="
+           echo "Triggered: $TRIGGERED"
+           echo "Skipped (docs-only): $SKIPPED_DOCS"
+           echo "Skipped (not 5-green): $SKIPPED_NOT_6GREEN"
 
       # ----------------------------------------------------------------
       # Step 3: Check 7-green conditions (gate 6 evidence + gate 7 skeptic)
