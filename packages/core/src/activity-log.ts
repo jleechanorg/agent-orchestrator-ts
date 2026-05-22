@@ -14,6 +14,12 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import type { ActivityState, ActivityLogEntry, ActivityDetection } from "./types.js";
 
+/** Default active window (ms) for activity log classification. */
+export const DEFAULT_ACTIVE_WINDOW_MS = 120_000; // 2 minutes
+
+/** Sentinel for indeterminate process probe results. */
+export const PROCESS_PROBE_INDETERMINATE = "indeterminate" as const;
+
 /**
  * Maximum age (ms) for `waiting_input`/`blocked` entries before they're
  * considered stale. If no new terminal output overwrites the entry within
