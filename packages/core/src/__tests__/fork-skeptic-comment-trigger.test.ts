@@ -137,7 +137,7 @@ describe("detectAndTriggerSkepticComment", () => {
       path: "/tmp/repo",
       defaultBranch: "main",
       sessionPrefix: "app",
-    } as Partial<ProjectConfig> as ProjectConfig;
+    };
 
     const session = makeSession({ id: "sess-1", pr: makePR() });
     const scm = makeMockSCM([
