@@ -2,8 +2,6 @@ import {
   setupMcpMailInWorkspace,
   isWaferModel,
   isZaiModel,
-  stripProviderPrefix,
-  isCustomProviderModel,
 } from "@jleechanorg/ao-plugin-agent-base";
 import {
   DEFAULT_READY_THRESHOLD_MS,
@@ -138,15 +136,7 @@ function createOpenCodeAgent(): Agent {
       }
 
       if (config.model) {
-        const modelArg = isCustomProviderModel(config.model)
-          ? stripProviderPrefix(config.model)
-          : config.model;
-        if (!modelArg) {
-          throw new Error(
-            `[ao-plugin-agent-opencode] Invalid model "${config.model}": provider prefix with no model name`,
-          );
-        }
-        parts.push("--model", shellEscape(modelArg));
+        parts.push("--model", shellEscape(config.model));
       }
 
       if (config.subagent) {

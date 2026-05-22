@@ -377,10 +377,9 @@ describe("getLaunchCommand", () => {
     expect(cmd).toBe("opencode run --format json --session 'ses_abc123' --prompt 'continue'");
   });
 
-  it("strips provider prefix from model", () => {
+  it("passes full provider-prefixed model to opencode", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "wafer.ai/GLM-5.1" }));
-    expect(cmd).toContain("--model 'GLM-5.1'");
-    expect(cmd).not.toContain("wafer.ai");
+    expect(cmd).toContain("--model 'wafer.ai/GLM-5.1'");
   });
 });
 
