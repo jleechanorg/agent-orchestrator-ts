@@ -531,3 +531,6 @@ export {
   type DaemonChildSweepResult,
   type AoOrphanProcess,
 } from "./daemon-children.js";
+
+// Upstream session header companion (#1981)
+export { deriveDisplayName, type DeriveDisplayNameInput } from "./upstream-session-header.js";

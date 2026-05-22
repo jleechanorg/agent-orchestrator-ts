@@ -95,6 +95,7 @@ import {
   type WorkerPromptArtifact,
 } from "./prompt-artifact-builder.js";
 import { AOWorkerLogger } from "./ao-worker-logger.js";
+import { deriveDisplayName } from "./upstream-session-header.js";
 
 const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -1326,6 +1327,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw err;
     }
 
+    // Derive display name via upstream companion module (#1981)
+    const displayName = deriveDisplayName({ issueTitle: resolvedIssue?.title, prompt: spawnConfig.prompt });
+
     // Write metadata and run post-launch setup — clean up on failure
     const session: Session = {
       id: sessionId,
@@ -1343,6 +1347,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       metadata: {
         ...(reusedOpenCodeSessionId ? { opencodeSessionId: reusedOpenCodeSessionId } : {}),
         ...(requestedTask ? { userPrompt: requestedTask, requestedTask } : {}),
+        ...(displayName ? { displayName } : {}),
         composedPromptPath,
       },
     };
@@ -1363,6 +1368,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         userPrompt: requestedTask,
         requestedTask,
         composedPromptPath,
+        ...(displayName ? { displayName } : {}),
       });
 
       if (plugins.agent.postLaunchSetup) {
@@ -1651,6 +1657,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       },
     });
 
+    // Derive display name via upstream companion module (#1981)
+    const orchestratorDisplayName = deriveDisplayName({ prompt: orchestratorConfig.systemPrompt });
+
     // Write metadata and run post-launch setup
     const session: Session = {
       id: sessionId,
@@ -1667,6 +1676,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       lastActivityAt: new Date(),
       metadata: {
         ...(reusableOpenCodeSessionId ? { opencodeSessionId: reusableOpenCodeSessionId } : {}),
+        ...(orchestratorDisplayName ? { displayName: orchestratorDisplayName } : {}),
       },
     };
 
@@ -1682,6 +1692,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         createdAt: new Date().toISOString(),
         runtimeHandle: JSON.stringify(handle),
         opencodeSessionId: reusableOpenCodeSessionId,
+        ...(orchestratorDisplayName ? { displayName: orchestratorDisplayName } : {}),
       });
 
       if (plugins.agent.postLaunchSetup) {
