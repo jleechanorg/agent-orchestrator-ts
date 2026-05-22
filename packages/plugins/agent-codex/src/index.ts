@@ -25,10 +25,17 @@ import { randomBytes } from "node:crypto";
 
 const execFileAsync = promisify(execFile);
 
-function normalizePermissionMode(mode: string | undefined): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
+function normalizePermissionMode(
+  mode: string | undefined,
+): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
   if (!mode) return undefined;
   if (mode === "skip") return "permissionless";
-  if (mode === "permissionless" || mode === "default" || mode === "auto-edit" || mode === "suggest") {
+  if (
+    mode === "permissionless" ||
+    mode === "default" ||
+    mode === "auto-edit" ||
+    mode === "suggest"
+  ) {
     return mode;
   }
   return undefined;
@@ -407,11 +414,7 @@ async function setupCodexWorkspace(workspacePath: string): Promise<void> {
   // 1. Write shared wrappers to ~/.ao/bin/
   await mkdir(AO_BIN_DIR, { recursive: true });
 
-  await atomicWriteFile(
-    join(AO_BIN_DIR, "ao-metadata-helper.sh"),
-    AO_METADATA_HELPER,
-    0o755,
-  );
+  await atomicWriteFile(join(AO_BIN_DIR, "ao-metadata-helper.sh"), AO_METADATA_HELPER, 0o755);
 
   // Only write wrappers if they don't exist or are outdated (check marker)
   const markerPath = join(AO_BIN_DIR, ".ao-version");
@@ -525,10 +528,7 @@ async function collectJsonlFiles(dir: string, depth = 0): Promise<string[]> {
  * entry matching the given workspace path. Reads only the first 4 KB
  * to avoid loading large rollout files into memory.
  */
-async function sessionFileMatchesCwd(
-  filePath: string,
-  workspacePath: string,
-): Promise<boolean> {
+async function sessionFileMatchesCwd(filePath: string, workspacePath: string): Promise<boolean> {
   try {
     // Read only the first 4 KB — session_meta is always in the first few lines.
     // Avoids loading large rollout files (100 MB+) into memory.
@@ -745,7 +745,8 @@ export async function resolveCodexBinary(options: { nodeExecPath?: string } = {}
     "/opt/hostedtoolcache/node/22.22.1/x64/bin/codex",
     "/opt/hostedtoolcache/node/22.20.0/x64/bin/codex",
     // npm exec fallback — returns the npm-resolved codex (respects package.json bin)
-    ...(process.env.PATH || "").split(":")
+    ...(process.env.PATH || "")
+      .split(":")
       .filter((p) => p.includes("node_modules") && p.includes(".bin"))
       .map((p) => join(p, "codex")),
   ];
@@ -809,7 +810,12 @@ const sessionFileCache = new Map<string, { path: string | null; expiry: number }
 
 function getSessionMetadataString(session: Session, key: string): string | null {
   const value = session.metadata?.[key];
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+
+  const agentValue = session.agentInfo?.metadata?.[key];
+  return typeof agentValue === "string" && agentValue.trim() ? agentValue.trim() : null;
 }
 
 /**
@@ -943,7 +949,10 @@ function createCodexAgent(): Agent {
       return "active";
     },
 
-    async getActivityState(session: Session, readyThresholdMs?: number): Promise<ActivityDetection | null> {
+    async getActivityState(
+      session: Session,
+      readyThresholdMs?: number,
+    ): Promise<ActivityDetection | null> {
       const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
 
       // Check if process is running first
