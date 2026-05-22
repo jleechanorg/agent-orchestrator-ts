@@ -90,7 +90,6 @@ jobs:
           SKEPTIC_CUSTOM_PROMPT: ${{ vars.SKEPTIC_CUSTOM_PROMPT || '' }}
         run: |
           TRIGGERED=0
-          SKIPPED_DOCS=0
           SKIPPED_NOT_6GREEN=0
 
           for PR in $(echo "$PR_JSON" | jq -r '.[] | @base64'); do
@@ -330,7 +329,6 @@ jobs:
            echo ""
            echo "=== Trigger summary ==="
            echo "Triggered: $TRIGGERED"
-           echo "Skipped (docs-only): $SKIPPED_DOCS"
            echo "Skipped (not 5-green): $SKIPPED_NOT_6GREEN"
 
       # ----------------------------------------------------------------
