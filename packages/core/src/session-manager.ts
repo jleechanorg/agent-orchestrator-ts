@@ -2540,7 +2540,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         ]);
       }
 
-      if (!runtimeAlive || processRunning !== true) {
+      if (!runtimeAlive || processRunning === false) {
         if (options?.skipRestore) {
           return normalized;
         }

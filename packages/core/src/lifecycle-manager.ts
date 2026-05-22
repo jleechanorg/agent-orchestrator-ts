@@ -674,7 +674,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (activity === "waiting_input") return { status: "needs_input", agentDead: false };
 
             const processAlive = await agent.isProcessRunning(session.runtimeHandle);
-            if (processAlive !== true) {
+            if (processAlive === false) {
               if (!scm) return { status: "killed", agentDead: true };
               agentDead = true;
             }
