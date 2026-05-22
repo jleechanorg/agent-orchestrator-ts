@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { detectAndTriggerSkepticComment } from "../fork-skeptic-comment-trigger.js";
-import type { Session, OrchestratorConfig, PluginRegistry, SCM, ProjectConfig } from "../types.js";
+import type { Session, OrchestratorConfig, PluginRegistry, SCM } from "../types.js";
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
