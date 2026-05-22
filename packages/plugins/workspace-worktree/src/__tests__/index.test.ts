@@ -242,48 +242,37 @@ describe("workspace.create()", () => {
     expect(info.path).toBe("/mock-home/.worktrees/myproject/session-1");
   });
 
-  it("handles branch already exists by adding worktree then checking out", async () => {
+  it("reuses an existing branch when it already matches the resolved base", async () => {
     const ws = create();
     const worktreePath = "/mock-home/.worktrees/myproject/session-1";
 
-    // Node.js execFile error format: command string + git stderr.
-    // worktreePath appears in the command portion but NOT in the path-collision format.
     const branchCollisionError = `Command failed: git worktree add -b feat/TEST-1 ${worktreePath} origin/main\nfatal: A branch named 'feat/TEST-1' already exists.`;
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitError(branchCollisionError); // worktree add -b fails with branch collision
     mockGitSuccess(""); // git worktree list --porcelain (ghost check — worktreePath not registered)
-    mockGitSuccess(""); // worktree add (without -b) succeeds
-    mockGitSuccess(""); // checkout succeeds
+    mockGitSuccess("base-sha"); // git rev-parse origin/main
+    mockGitSuccess(""); // git rev-parse --verify --quiet refs/heads/feat/TEST-1
+    mockGitSuccess("base-sha"); // git rev-parse refs/heads/feat/TEST-1 (matches base)
+    mockGitSuccess(""); // worktree add existing branch
 
     const info = await ws.create(makeCreateConfig());
 
-    // Third call: worktree add without -b
+    // Reuses existing branch via worktree add (no -B needed)
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
-      ["worktree", "add", "/mock-home/.worktrees/myproject/session-1", "origin/main"],
+      ["worktree", "add", "/mock-home/.worktrees/myproject/session-1", "feat/TEST-1"],
       { cwd: "/repo/path" },
     );
-
-    // Fourth call: checkout
-    expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["checkout", "feat/TEST-1"], {
-      cwd: "/mock-home/.worktrees/myproject/session-1",
-    });
 
     expect(info.branch).toBe("feat/TEST-1");
   });
 
   it("does NOT misclassify branch collision as ghost when worktreePath appears in command string", async () => {
-    // Regression: Node.js execFile includes the full command string in the error message.
-    // When branch collision occurs, worktreePath appears in the command but NOT in the
-    // path-collision format ('<path>' already exists). The code must NOT treat this as ghost.
     const ws = create();
     const worktreePath = "/mock-home/.worktrees/myproject/session-1";
 
-    // Realistic Node.js execFile error format for branch collision:
-    // - worktreePath appears in the command string (would trigger the old msg.includes(worktreePath) check)
-    // - git stderr says "branch named X already exists" (NOT path collision)
     const branchCollisionError =
       `Command failed: git worktree add -b feat/TEST-1 ${worktreePath} origin/main\n` +
       `fatal: A branch named 'feat/TEST-1' already exists.`;
@@ -291,35 +280,34 @@ describe("workspace.create()", () => {
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitError(branchCollisionError); // worktree add -b fails
-    // worktree list: path not registered (ghost check returns false for isRegistered)
-    // The NEW check: msg.includes(`'${worktreePath}' already exists`) → FALSE (no path-collision format)
-    // → isGhostWorktree stays false → branch-exists recovery path taken
     mockGitSuccess(""); // git worktree list --porcelain (worktree not registered)
-    mockGitSuccess(""); // worktree add (without -b) succeeds
-    mockGitSuccess(""); // checkout succeeds
+    mockGitSuccess("base-sha"); // git rev-parse origin/main
+    mockGitSuccess(""); // git rev-parse --verify --quiet refs/heads/feat/TEST-1
+    mockGitSuccess("base-sha"); // git rev-parse refs/heads/feat/TEST-1 (matches base)
+    mockGitSuccess(""); // worktree add existing branch
 
     const info = await ws.create(makeCreateConfig());
 
-    // Verify: we went through branch-exists recovery, NOT ghost recovery
-    // (ghost would use rmSync, branch-exists uses git worktree add without -b)
     expect(mockRmSync).not.toHaveBeenCalled();
     expect(info.branch).toBe("feat/TEST-1");
     expect(info.path).toBe(worktreePath);
   });
 
-  it("cleans up worktree on checkout failure", async () => {
+  it("cleans up worktree on retry failure", async () => {
     const ws = create();
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitError("already exists"); // worktree add -b fails
     mockGitSuccess(""); // worktree list --porcelain (ghost check)
-    mockGitSuccess(""); // worktree add (without -b)
-    mockGitError("checkout failed: conflict"); // checkout fails
+    mockGitSuccess("base-sha"); // git rev-parse origin/main
+    mockGitSuccess(""); // git rev-parse --verify --quiet refs/heads/feat/TEST-1
+    mockGitSuccess("stale-sha"); // git rev-parse refs/heads/feat/TEST-1 (stale — mismatch)
+    mockGitError("worktree add -B failed"); // worktree add -B fails
     mockGitSuccess(""); // worktree remove (cleanup)
 
     await expect(ws.create(makeCreateConfig())).rejects.toThrow(
-      'Failed to checkout branch "feat/TEST-1" in worktree: checkout failed: conflict',
+      'Failed to create worktree for branch "feat/TEST-1": worktree add -B failed',
     );
 
     // Verify cleanup was attempted
@@ -330,113 +318,78 @@ describe("workspace.create()", () => {
     );
   });
 
-  it("recovers checkout by removing stale checked-out worktree with no active tmux session", async () => {
+  it("force-resets stale session branch when base has advanced", async () => {
     const ws = create();
     const worktreePath = "/mock-home/.worktrees/myproject/wa-999";
-    const staleWorktreePath = "/mock-home/.worktrees/myproject/ao-999";
-    const callResults: Record<string, GitCallResult> = {
-      [`git,fetch,origin,--quiet,(cwd=/repo/path)`]: { stdout: "" },
-      [`git,branch,--list,origin/main,(cwd=/repo/path)`]: { stdout: "" },
-      [`git,worktree,add,-b,feat/TEST-1,${worktreePath},origin/main,(cwd=/repo/path)`]:
-        new Error("already exists"),
-      [`git,worktree,add,${worktreePath},origin/main,(cwd=/repo/path)`]: { stdout: "" },
-      "tmux,list-sessions,-F,#{session_name},": { stdout: "" },
-      [`git,worktree,remove,--force,--force,${staleWorktreePath},(cwd=/repo/path)`]: { stdout: "" },
-      [`git,worktree,list,--porcelain,(cwd=/repo/path)`]: { stdout: "" },
-      [`git,rev-parse,--path-format=absolute,--git-common-dir,(cwd=${worktreePath})`]: { stdout: "/repo/path/.git" },
-      [`git,worktree,lock,--reason,AO session active,${worktreePath},(cwd=/repo/path)`]: { stdout: "" },
-    };
 
-    mockExistsSync.mockImplementation((p: string) => {
-      if (String(p).endsWith(".git/info")) return true;
-      if (String(p) === staleWorktreePath) return false;
-      return true;
-    });
+    const branchCollisionError = `Command failed: git worktree add -b feat/TEST-1 ${worktreePath} origin/main\nfatal: A branch named 'feat/TEST-1' already exists.`;
 
-    let checkoutAttempts = 0;
-    mockExecFileAsync.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }) => {
-      if (cmd === "git" && args[0] === "checkout" && args[1] === "feat/TEST-1" && opts?.cwd === worktreePath) {
-        checkoutAttempts += 1;
-        if (checkoutAttempts === 1) {
-          return Promise.reject(new Error(`already exists, already checked out at '${staleWorktreePath}'`));
-        }
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
+    mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main
+    mockGitError(branchCollisionError); // worktree add -b fails
+    mockGitSuccess(""); // git worktree list --porcelain (ghost check)
+    mockGitSuccess("new-base-sha"); // git rev-parse origin/main
+    mockGitSuccess(""); // git rev-parse --verify --quiet refs/heads/feat/TEST-1
+    mockGitSuccess("old-sha"); // git rev-parse refs/heads/feat/TEST-1 (stale — mismatch!)
+    mockGitSuccess(""); // worktree add -B feat/TEST-1 (force reset to new base)
 
-      // key is used to look up call results in the mock map below
-      const key = [cmd, ...args, opts?.cwd ? `(cwd=${opts.cwd})` : ""].join(",");
-      const result = callResults[key];
-
-      if (result instanceof Error) return Promise.reject(result);
-      return Promise.resolve({ stdout: (result?.stdout ?? "") + "\n", stderr: result?.stderr ?? "" });
-    });
+    mockExistsSync.mockReturnValue(true);
 
     const info = await ws.create(makeCreateConfig({ sessionId: "wa-999" }));
 
     expect(info.branch).toBe("feat/TEST-1");
-    expect(checkoutAttempts).toBe(2);
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
-      "git",
-      ["worktree", "remove", "--force", "--force", staleWorktreePath],
-      { cwd: "/repo/path" },
+
+    // Verify -B flag was used to force-reset the stale branch
+    const addBCall = mockExecFileAsync.mock.calls.find(
+      (call) =>
+        Array.isArray(call[1]) &&
+        call[0] === "git" &&
+        call[1][0] === "worktree" &&
+        call[1][1] === "add" &&
+        call[1].includes("-B"),
+    );
+    expect(addBCall).toBeDefined();
+    expect(addBCall![1]).toEqual(
+      expect.arrayContaining(["worktree", "add", "-B", "feat/TEST-1"]),
     );
   });
 
-  it("reports retry checkout error when stale worktree removed but subsequent checkout fails", async () => {
+  it("reports error when stale branch reset via -B fails", async () => {
     const ws = create();
     const worktreePath = "/mock-home/.worktrees/myproject/session-retry";
-    const staleWorktreePath = "/mock-home/.worktrees/myproject/other-session";
 
-    let checkoutAttempts = 0;
-    mockExecFileAsync.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string }) => {
-      if (cmd === "git" && args[0] === "checkout" && args[1] === "feat/TEST-1" && opts?.cwd === worktreePath) {
-        checkoutAttempts++;
-        if (checkoutAttempts === 1) {
-          // First checkout: stale worktree reference
-          return Promise.reject(new Error(`already exists, already checked out at '${staleWorktreePath}'`));
-        }
-        // Second checkout: retry fails with different error
-        return Promise.reject(new Error("Permission denied"));
-      }
-      // Stale worktree removal succeeds
-      if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
-      // reuseExistingBranch path: worktree add succeeds (branch already exists)
-      if (cmd === "git" && args[0] === "worktree" && args[1] === "add" && args.includes("-b")) {
-        return Promise.reject(new Error("A branch named 'feat/TEST-1' already exists."));
-      }
-      if (cmd === "git" && args[0] === "worktree" && args[1] === "add" && !args.includes("-b")) {
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
-      // tmux list-sessions: no active session
-      if (cmd === "tmux") {
-        return Promise.resolve({ stdout: "\n", stderr: "" });
-      }
-      return Promise.resolve({ stdout: "\n", stderr: "" });
-    });
+    mockGitSuccess(""); // fetch
+    mockGitSuccess(""); // git branch --list origin/main
+    mockGitError("A branch named 'feat/TEST-1' already exists."); // worktree add -b fails
+    mockGitSuccess(""); // git worktree list --porcelain (ghost check)
+    mockGitSuccess("new-base-sha"); // git rev-parse origin/main
+    mockGitSuccess(""); // git rev-parse --verify --quiet refs/heads/feat/TEST-1
+    mockGitSuccess("old-sha"); // git rev-parse refs/heads/feat/TEST-1 (stale)
+    mockGitError("worktree add -B failed: Permission denied"); // worktree add -B fails
+    mockGitSuccess(""); // worktree remove (cleanup)
 
     await expect(ws.create(makeCreateConfig({ sessionId: "session-retry" }))).rejects.toThrow(
-      /Failed to checkout branch "feat\/TEST-1" in worktree: Permission denied/,
+      /Failed to create worktree for branch "feat\/TEST-1": worktree add -B failed: Permission denied/,
     );
   });
 
-  it("still throws on checkout failure even if cleanup fails", async () => {
+  it("still throws on retry failure even if cleanup fails", async () => {
     const ws = create();
 
-    // Ensure existsSync returns true so unlock path is skipped
     mockExistsSync.mockReturnValue(true);
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitError("already exists"); // worktree add -b fails
     mockGitSuccess(""); // worktree list --porcelain (ghost check)
-    mockGitSuccess(""); // worktree add (without -b)
-    mockGitError("checkout failed"); // checkout fails
+    mockGitSuccess("base-sha"); // git rev-parse origin/main
+    mockGitSuccess(""); // git rev-parse --verify --quiet refs/heads/feat/TEST-1
+    mockGitSuccess("stale-sha"); // git rev-parse refs/heads/feat/TEST-1 (stale)
+    mockGitError("worktree add -B failed"); // worktree add -B fails
     mockGitError("worktree remove failed"); // cleanup also fails
 
     await expect(ws.create(makeCreateConfig())).rejects.toThrow(
-      'Failed to checkout branch "feat/TEST-1" in worktree',
+      'Failed to create worktree for branch "feat/TEST-1"',
     );
   });
 
@@ -599,10 +552,11 @@ describe("workspace.create()", () => {
       `Command failed: git worktree add -b feat/TEST-1 ${worktreePath} HEAD\nfatal: A branch named 'feat/TEST-1' already exists.`,
     ); // worktree add -b fails with branch collision (NOT path collision)
     mockGitSuccess(""); // git worktree list --porcelain (ghost check — worktreePath not registered)
-    // Branch-exists recovery: worktree add (without -b) succeeds
-    mockGitSuccess(""); // worktree add
-    // checkout succeeds
-    mockGitSuccess(""); // checkout
+    // reuseExistingBranch: SHA comparison
+    mockGitSuccess("base-sha"); // git rev-parse HEAD (baseRef)
+    mockGitSuccess(""); // git rev-parse --verify --quiet refs/heads/feat/TEST-1
+    mockGitSuccess("base-sha"); // git rev-parse refs/heads/feat/TEST-1 (matches base)
+    mockGitSuccess(""); // worktree add existing branch
 
     const info = await ws.create(makeCreateConfig());
 
@@ -620,14 +574,13 @@ describe("workspace.create()", () => {
     );
     expect(listCall).toBeDefined();
 
-    // Verify: branch-exists recovery path was used (worktree add without -b)
+    // Verify: worktree add was called (reusing existing branch)
     const addCall = mockExecFileAsync.mock.calls.find(
       (call) =>
         Array.isArray(call[1]) &&
         call[0] === "git" &&
         call[1][0] === "worktree" &&
-        call[1][1] === "add" &&
-        !call[1].includes("-b"),
+        call[1][1] === "add",
     );
     expect(addCall).toBeDefined();
 
@@ -729,27 +682,26 @@ describe("workspace.create()", () => {
     mockGitError("already exists"); // worktree add -b fails with generic "already exists"
     // git worktree list --porcelain fails — but error is ambiguous, not a path collision
     mockGitError("fatal: detected dubious ownership");
-    // Branch exists recovery: worktree add (without -b) succeeds
-    mockGitSuccess(""); // worktree add (branch already exists — reuse it)
-    // checkout succeeds
-    mockGitSuccess(""); // checkout
+    // reuseExistingBranch: SHA comparison
+    mockGitSuccess("base-sha"); // git rev-parse origin/main
+    mockGitSuccess(""); // git rev-parse --verify --quiet refs/heads/feat/TEST-1
+    mockGitSuccess("base-sha"); // git rev-parse refs/heads/feat/TEST-1 (matches base)
+    mockGitSuccess(""); // worktree add existing branch
 
     const info = await ws.create(makeCreateConfig());
 
     expect(info.branch).toBe("feat/TEST-1");
     expect(info.path).toBe(worktreePath);
 
-    // Verify: worktree add (without -b) was called as fallback
+    // Verify: worktree add was called (reusing existing branch or force-resetting)
     const addCall = mockExecFileAsync.mock.calls.find(
       (call) =>
         Array.isArray(call[1]) &&
         call[0] === "git" &&
         call[1][0] === "worktree" &&
-        call[1][1] === "add" &&
-        !call[1].includes("-b"),
+        call[1][1] === "add",
     );
     expect(addCall).toBeDefined();
-    expect(addCall![1].slice(0, 3)).toEqual(["worktree", "add", worktreePath]);
 
     // Verify: no filesystem removal was attempted
     expect(mockRmSync).not.toHaveBeenCalled();
