@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { detectAndTriggerSkepticComment } from "../fork-skeptic-comment-trigger.js";
-import type { Session, OrchestratorConfig, PluginRegistry, SCM } from "../types.js";
+import type { Session, OrchestratorConfig, PluginRegistry, SCM, ProjectConfig } from "../types.js";
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -133,8 +133,11 @@ describe("detectAndTriggerSkepticComment", () => {
   it("falls back to default 'github' SCM when project.scm is not defined", async () => {
     config.projects["my-app"] = {
       name: "my-app",
-      scm: undefined,
-    } as any;
+      repo: "org/repo",
+      path: "/tmp/repo",
+      defaultBranch: "main",
+      sessionPrefix: "app",
+    } as Partial<ProjectConfig> as ProjectConfig;
 
     const session = makeSession({ id: "sess-1", pr: makePR() });
     const scm = makeMockSCM([
