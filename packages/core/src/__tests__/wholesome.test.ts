@@ -829,4 +829,13 @@ describe("wholesome — structural source-code assertions", () => {
       expect(workflow).not.toContain('--paginate');
     });
   });
+
+  describe("skeptic-cron trigger deadlock prevention (bd-2wdq)", () => {
+    it("does not require Green Gate before triggering skeptic evaluation", () => {
+      const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "skeptic-cron.yml"), "utf-8");
+      expect(workflow).not.toContain('GATE_PASSED');
+      expect(workflow).not.toContain('SKIPPED_GATE_NOT_PASSED');
+      expect(workflow).not.toContain('Skeptic Gate not passed');
+    });
+  });
 });
