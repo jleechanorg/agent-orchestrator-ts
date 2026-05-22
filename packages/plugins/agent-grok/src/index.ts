@@ -119,8 +119,12 @@ async function waitForGrokWorktreeReady(session: Session): Promise<void> {
 
   const startedAt = Date.now();
   while (Date.now() - startedAt < GROK_STARTUP_READY_TIMEOUT_MS) {
-    const output = await captureTmuxOutput(handle);
-    if (/Worktree ready:/i.test(output)) return;
+    try {
+      const output = await captureTmuxOutput(handle);
+      if (/Worktree ready:/i.test(output)) return;
+    } catch {
+      // Ignore tmux capture errors (pane may not be ready yet); continue polling
+    }
     await sleep(GROK_STARTUP_POLL_MS);
   }
 }
