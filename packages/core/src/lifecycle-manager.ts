@@ -776,6 +776,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
             if (batch.reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
             if (batch.reviewDecision === "approved" || batch.reviewDecision === "none") {
+              // orch-7kf: When batch reports CI pending, return "approved" (not "mergeable")
+              // to prevent the approved-and-green reaction from firing before CI completes.
+              if (batch.ciStatus === CI_STATUS.PENDING) {
+                if (batch.reviewDecision === "approved") return { status: "approved", agentDead };
+                return { status: "pr_open", agentDead };
+              }
               if (batch.mergeReadiness.mergeable) return { status: "mergeable", agentDead };
               if (!batch.mergeReadiness.noConflicts) return { status: "merge_conflicts", agentDead };
               if (batch.reviewDecision === "approved") return { status: "approved", agentDead };
