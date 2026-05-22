@@ -925,9 +925,10 @@ async function setupHookInWorkspace({
  * MCP mail server config:
  * - name: mcp-agent-mail
  * - url: http://127.0.0.1:8765/mcp/ (configurable via MCP_AGENT_MAIL_URL env var)
- * - headers: auth token - only added when MCP_AGENT_MAIL_TOKEN is set in environment.
- *   Claude Code reads MCP headers from settings.json literally, so when present the
- *   bearer token is serialized into the worktree for compatibility.
+ * - auth: passed via MCP_AGENT_MAIL_TOKEN env var at runtime, NOT serialized to disk.
+ *   session-manager.getMcpMailEnv() injects the token into spawned sessions,
+ *   and mcp-mail.ts reads it from process.env at request time.
+ *   Writing Bearer tokens to settings.json is a P0 security bug (orch-havc).
  * @internal Exported so the settings writer can be covered directly in unit tests.
  */
 export async function setupMcpMailInWorkspace(
@@ -984,22 +985,16 @@ export async function setupMcpMailInWorkspace(
       ? (rawMcpServers as Record<string, unknown>)
       : {};
 
-  // Always configure/update mcp-agent-mail to support token rotation and URL changes.
-  // Claude Code does not expand env vars in MCP headers from settings.json, so the
-  // configured bearer token must be written literally when one is provided.
+  // Always configure/update mcp-agent-mail to support URL changes.
+  // Auth token is NOT written to settings.json — it is passed via
+  // MCP_AGENT_MAIL_TOKEN env var through session-manager.getMcpMailEnv()
+  // and read at request time by mcp-mail.ts. Writing Bearer tokens to
+  // disk is a P0 security bug (orch-havc).
 
   // Add mcp-agent-mail server configuration
   const serverConfig: Record<string, unknown> = {
     url: mcpMailUrl,
   };
-
-  // Only add Authorization header if token is explicitly set in environment
-  const mcpMailToken = process.env.MCP_AGENT_MAIL_TOKEN;
-  if (mcpMailToken) {
-    serverConfig.headers = {
-      Authorization: `Bearer ${mcpMailToken}`,
-    };
-  }
 
   mcpServers["mcp-agent-mail"] = serverConfig;
   existingSettings["mcpServers"] = mcpServers;
