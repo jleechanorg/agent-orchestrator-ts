@@ -1878,6 +1878,10 @@ describe("check (single session)", () => {
     // Must return "approved" (not "mergeable") — prevents approved-and-green
     // reaction from firing while CI is still running
     expect(lm.getStates().get("app-1")).toBe("approved");
+    expect(mockSCM.getPRState).not.toHaveBeenCalled();
+    expect(mockSCM.getCISummary).not.toHaveBeenCalled();
+    expect(mockSCM.getReviewDecision).not.toHaveBeenCalled();
+    expect(mockSCM.getMergeability).not.toHaveBeenCalled();
   });
 
   it("skips fallback SCM calls when getBatchPRStatus throws a rate limit error (bd-att retry storm fix)", async () => {
