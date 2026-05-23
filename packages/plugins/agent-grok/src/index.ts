@@ -263,7 +263,7 @@ function createGrokAgent(): Agent {
             return PROCESS_PROBE_INDETERMINATE;
           }
         }
-        return false;
+        return PROCESS_PROBE_INDETERMINATE;
       } catch {
         return PROCESS_PROBE_INDETERMINATE;
       }

@@ -254,7 +254,7 @@ For the architectural detail of how the Windows pty-host, named-pipe protocol, a
 ## Shell
 
 - **Default shell on Windows is PowerShell**, not bash. Bash syntax (`&&` chains, `$VAR`, `2>/dev/null`, here-docs) won't work in `cmd.exe` and is only partially supported by PowerShell. When you need to run *anything* shellish from Node, prefer `execFile` with explicit args; if you must use a shell, route through `getShell()`.
-- **PowerShell call operator**: a launch command that begins with a quoted absolute path needs `& ` prepended on Windows (e.g. `& "C:\path\to\bin.exe" arg1`) or PowerShell parses the quoted path as a string expression. The `agent-codex` and `agent-kimicode` plugins do this in `formatLaunchCommand`.
+- **PowerShell call operator**: a launch command that begins with a quoted absolute path needs `&` prepended on Windows (e.g. `& "C:\path\to\bin.exe" arg1`) or PowerShell parses the quoted path as a string expression. The `agent-codex` and `agent-kimicode` plugins do this in `formatLaunchCommand`.
 - **No `/dev/null`** on Windows — use `NUL`, or just discard the stream in Node.
 - **Env vars in PowerShell**: `$env:NAME`, not `$NAME`. Line continuation is backtick (`` ` ``), not backslash.
 - **`.cmd` / `.bat` / `.exe` shims**: spawning npm-installed CLIs (e.g. `codex`, `where`) needs `shell: true` on Windows so `PATHEXT` is consulted; otherwise Node only finds extensionless executables. Pattern: `spawn(cmd, args, { shell: isWindows(), windowsHide: true })`.
@@ -290,7 +290,7 @@ When writing or modifying an agent plugin (`packages/plugins/agent-*`), these ar
 - **`detect()`** spawn options should be `{ shell: isWindows(), windowsHide: true }` so `.cmd` shims resolve via `PATHEXT` and no console window flashes.
 - **Stderr suppression** — the cursor plugin's `detect()` previously bled stderr to the user's console on Windows; it now uses `stdio: ['ignore', 'pipe', 'ignore']` for the probe. Match that pattern.
 - **`getCachedProcessList()`** (Claude Code) should return `""` on Windows — `ps -eo` doesn't exist.
-- **`formatLaunchCommand`**: when the binary is at a quoted absolute path, prepend `& ` on Windows so PowerShell parses it as a call.
+- **`formatLaunchCommand`**: when the binary is at a quoted absolute path, prepend `&` on Windows so PowerShell parses it as a call.
 - **`systemPromptFile`**: instead of `$(cat <file>)` shell substitution, read the file in Node and inline as `--append-system-prompt <content>`.
 - **Codex binary resolution**: prefer `.cmd` shims (npm) over `.exe` (Cargo) on Windows; use `where.exe` (not `which`).
 
@@ -336,7 +336,7 @@ Before saying "done" on any feature, verify each of these (or mark N/A with reas
 2. **Process spawning** — used `runtime-process` (Windows) or `runtime-tmux` (POSIX) abstractions? Shell-out used `shellEscape` + `getShell` or `execFile`? `windowsHide: true` and `shell: isWindows()` for `.cmd`/`.bat` resolution?
 3. **Process killing** — distinguished `EPERM` from `ESRCH`? No negative PIDs? Used `killProcessTree`? Guarded `pid > 0`? Cooperative kill before force-kill on Windows?
 4. **Paths** — used `pathsEqual` for comparison? `path.join` for construction? No `===`, no hardcoded `/` or `\`?
-5. **Shell** — no bash-isms (`&&` chains, `$(cat)`, `$VAR`, `/dev/null`)? `& ` prefix for quoted-path PowerShell calls? Routed through `getShell()` or used `execFile`?
+5. **Shell** — no bash-isms (`&&` chains, `$(cat)`, `$VAR`, `/dev/null`)? `&` prefix for quoted-path PowerShell calls? Routed through `getShell()` or used `execFile`?
 6. **Networking** — explicit `127.0.0.1` instead of `localhost`? Validated session IDs before constructing pipe paths?
 7. **Runtimes** — both `runtime-tmux` and `runtime-process` paths covered? `isProcessRunning` works for tmux TTY *and* PID signal-0 *with EPERM handling*?
 8. **Agent plugins** — `setupPathWrapperWorkspace` instead of bash hooks? `getActivityFallbackState` fallback in `getActivityState`?

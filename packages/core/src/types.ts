@@ -418,7 +418,7 @@ export interface Agent {
   getActivityState(session: Session, readyThresholdMs?: number): Promise<ActivityDetection | null>;
 
   /** Check if agent process is running (given runtime handle) */
-  isProcessRunning(handle: RuntimeHandle): Promise<boolean | ProcessProbeResult>;
+  isProcessRunning(handle: RuntimeHandle): Promise<ProcessProbeResult>;
 
   /** Extract information from agent's internal data (summary, cost, session ID) */
   getSessionInfo(session: Session): Promise<AgentSessionInfo | null>;

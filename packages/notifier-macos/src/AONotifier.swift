@@ -103,6 +103,10 @@ func printJsonObject(_ value: Any) {
 
 func openUrl(_ rawUrl: String?) {
   guard let rawUrl = rawUrl, let url = URL(string: rawUrl) else { return }
+  let scheme = url.scheme?.lowercased() ?? ""
+  let host = url.host?.lowercased() ?? ""
+  let isLocalhost = host == "localhost" || host == "127.0.0.1" || host == "::1"
+  guard scheme == "https" || (scheme == "http" && isLocalhost) else { return }
   NSWorkspace.shared.open(url)
 }
 
@@ -277,7 +281,14 @@ func sendNotification(_ payload: NotifyPayload) throws {
       intentIdentifiers: [],
       options: []
     )
-    center.setNotificationCategories([category])
+    let categorySemaphore = DispatchSemaphore(value: 0)
+    var existingCategories = Set<UNNotificationCategory>()
+    center.getNotificationCategories { categories in
+      existingCategories = categories
+      categorySemaphore.signal()
+    }
+    _ = categorySemaphore.wait(timeout: .now() + 2)
+    center.setNotificationCategories(existingCategories.union([category]))
     categoryId = id
   }
 

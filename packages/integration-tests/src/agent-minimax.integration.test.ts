@@ -63,7 +63,7 @@ describe.skipIf(!canRun)("agent-minimax (integration)", () => {
 
   let aliveRunning: boolean | "indeterminate" = false;
   let aliveActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
-  let exitedRunning: boolean | "indeterminate";
+  let exitedRunning: boolean | "indeterminate" = false;
   let exitedActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
   let fileCreated = false;
 

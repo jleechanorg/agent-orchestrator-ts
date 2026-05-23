@@ -96,7 +96,7 @@ describe.skipIf(!canRun)("agent-aider (integration)", () => {
   let aliveActivityState: ActivityDetection | null | undefined;
 
   // Observations captured after the agent exits
-  let exitedRunning: boolean | "indeterminate";
+  let exitedRunning: boolean | "indeterminate" = false;
   let exitedActivityState: ActivityDetection | null;
   let sessionInfo: AgentSessionInfo | null;
 

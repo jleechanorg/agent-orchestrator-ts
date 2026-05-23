@@ -69,7 +69,7 @@ describe.skipIf(!canRun)("agent-zai (integration)", () => {
   let aliveRunning: boolean | "indeterminate" = false;
   let aliveActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
   let aliveSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>> | null = null;
-  let exitedRunning: boolean | "indeterminate";
+  let exitedRunning: boolean | "indeterminate" = false;
   let exitedActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
   let exitedSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>> | null = null;
   let fileCreated = false;

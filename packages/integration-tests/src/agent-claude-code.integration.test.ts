@@ -186,7 +186,7 @@ describe.skipIf(!canRun)("agent-claude-code (integration)", () => {
   let aliveSessionInfo: AgentSessionInfo | null = null;
 
   // Observations captured after the agent exits
-  let exitedRunning: boolean | "indeterminate";
+  let exitedRunning: boolean | "indeterminate" = false;
   let exitedActivityState: ActivityDetection | null;
   let exitedSessionInfo: AgentSessionInfo | null;
 

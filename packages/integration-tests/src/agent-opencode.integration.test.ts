@@ -110,7 +110,7 @@ describe.skipIf(!canRun)("agent-opencode (integration)", () => {
 
   let aliveRunning: boolean | "indeterminate" = false;
   let aliveActivityState: ActivityDetection | null | undefined;
-  let exitedRunning: boolean | "indeterminate";
+  let exitedRunning: boolean | "indeterminate" = false;
   let exitedActivityState: ActivityDetection | null;
   let sessionInfo: AgentSessionInfo | null;
 
