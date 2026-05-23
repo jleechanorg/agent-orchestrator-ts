@@ -990,6 +990,18 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           if (detected.timestamp && detected.timestamp > session.lastActivityAt) {
             session.lastActivityAt = detected.timestamp;
           }
+        } else if (session.runtimeHandle) {
+          // Fallback to terminal output parsing for agents without JSONL state (e.g. antigravity)
+          const runtime = registry.get<Runtime>("runtime", session.runtimeHandle.runtimeName);
+          const terminalOutput = runtime ? await runtime.getOutput(session.runtimeHandle, 10) : "";
+          if (terminalOutput) {
+            const activity = plugins.agent.detectActivity(terminalOutput);
+            if (activity === "waiting_input" || activity === "idle") {
+              session.activity = "ready";
+            } else {
+              session.activity = activity;
+            }
+          }
         }
       } catch {
         // Can't detect activity — keep existing value
