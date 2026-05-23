@@ -95,6 +95,7 @@ import {
   type WorkerPromptArtifact,
 } from "./prompt-artifact-builder.js";
 import { AOWorkerLogger } from "./ao-worker-logger.js";
+import { deriveDisplayName } from "./upstream-session-header.js";
 
 const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -990,6 +991,18 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           if (detected.timestamp && detected.timestamp > session.lastActivityAt) {
             session.lastActivityAt = detected.timestamp;
           }
+        } else if (session.runtimeHandle) {
+          // Fallback to terminal output parsing for agents without JSONL state (e.g. antigravity)
+          const runtime = registry.get<Runtime>("runtime", session.runtimeHandle.runtimeName);
+          const terminalOutput = runtime ? await runtime.getOutput(session.runtimeHandle, 10) : "";
+          if (terminalOutput) {
+            const activity = plugins.agent.detectActivity(terminalOutput);
+            if (activity === "waiting_input" || activity === "idle") {
+              session.activity = "ready";
+            } else {
+              session.activity = activity;
+            }
+          }
         }
       } catch {
         // Can't detect activity — keep existing value
@@ -1314,6 +1327,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw err;
     }
 
+    // Derive display name via upstream companion module (#1981)
+    const displayName = deriveDisplayName({ issueTitle: resolvedIssue?.title, prompt: spawnConfig.prompt });
+
     // Write metadata and run post-launch setup — clean up on failure
     const session: Session = {
       id: sessionId,
@@ -1331,6 +1347,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       metadata: {
         ...(reusedOpenCodeSessionId ? { opencodeSessionId: reusedOpenCodeSessionId } : {}),
         ...(requestedTask ? { userPrompt: requestedTask, requestedTask } : {}),
+        ...(displayName ? { displayName } : {}),
         composedPromptPath,
       },
     };
@@ -1351,6 +1368,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         userPrompt: requestedTask,
         requestedTask,
         composedPromptPath,
+        ...(displayName ? { displayName } : {}),
       });
 
       if (plugins.agent.postLaunchSetup) {
@@ -1639,6 +1657,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       },
     });
 
+    // Derive display name via upstream companion module (#1981)
+    const orchestratorDisplayName = deriveDisplayName({ prompt: orchestratorConfig.systemPrompt });
+
     // Write metadata and run post-launch setup
     const session: Session = {
       id: sessionId,
@@ -1655,6 +1676,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       lastActivityAt: new Date(),
       metadata: {
         ...(reusableOpenCodeSessionId ? { opencodeSessionId: reusableOpenCodeSessionId } : {}),
+        ...(orchestratorDisplayName ? { displayName: orchestratorDisplayName } : {}),
       },
     };
 
@@ -1670,6 +1692,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         createdAt: new Date().toISOString(),
         runtimeHandle: JSON.stringify(handle),
         opencodeSessionId: reusableOpenCodeSessionId,
+        ...(orchestratorDisplayName ? { displayName: orchestratorDisplayName } : {}),
       });
 
       if (plugins.agent.postLaunchSetup) {
@@ -2427,7 +2450,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
         if (
           runtimeAlive &&
-          processRunning &&
+          processRunning === true &&
           foregroundReady &&
           (hasQueuedMessage(output) || isStable)
         ) {
@@ -2469,7 +2492,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         const foregroundReady =
           foregroundCommand === null || foregroundCommand === agentPlugin.processName;
 
-        if (runtimeAlive && foregroundReady && (processRunning || output.trim().length > 0)) {
+        if (runtimeAlive && foregroundReady && (processRunning === true || output.trim().length > 0)) {
           return;
         }
 
@@ -2540,7 +2563,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         ]);
       }
 
-      if (!runtimeAlive || !processRunning) {
+      if (!runtimeAlive || processRunning === false) {
         if (options?.skipRestore) {
           return normalized;
         }
@@ -2989,7 +3012,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     };
 
     if (plugins.agent.getRestoreCommand) {
-      const restoreCmd = await plugins.agent.getRestoreCommand(session, project);
+      const restoreCmd = await plugins.agent.getRestoreCommand(session, agentLaunchConfig.projectConfig);
       if (restoreCmd) {
         launchCommand = restoreCmd;
       } else {
