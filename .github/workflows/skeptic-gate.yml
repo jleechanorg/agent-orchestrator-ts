@@ -225,27 +225,31 @@ jobs:
                 map(. + {verdict: extract_verdict($VERDICT_RE)})
                 | map(. + {is_gh_bot: ((.user.login | ascii_downcase) == "github-actions[bot]")})
                 | map(select(
-                    (.body as $body
-                    | (
-                        ((.user.login | ascii_downcase) == ($author | ascii_downcase))
-                        or (
-                          (.is_gh_bot == true)
-                          and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
-                        )
-                      ))
-                    and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
+                    (((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                    or (
+                      (.is_gh_bot == true)
+                      and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
+                    ))
+                    and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                     and (.verdict != "")
-                    and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
-                    and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
+                    and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
+                    and (.body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
+                    and ((.updated_at | try fromdate // 0) >= (try $tu | fromdate // 0))
                     and ((.verdict != "PASS")
-                         or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i")))
-                             and ($body | test("<!--\\s*skeptic-gate-8a\\s*:\\s*PASS\\s*-->"; "i"))
-                             and ($body | test("<!--\\s*skeptic-gate-8b\\s*:\\s*PASS\\s*-->"; "i"))
-                             and ($body | test("<!--\\s*skeptic-gate-8c\\s*:\\s*PASS\\s*-->"; "i"))
-                             and ($body | test("<!--\\s*skeptic-gate-8d\\s*:\\s*PASS\\s*-->"; "i"))))
-                  ))
+                         or ((.body | test("<!--\\s*skeptic-gate-1\\s*:\\s*PASS\\s*-->"; "i"))
+                             and (.body | test("<!--\\s*skeptic-gate-2\\s*:\\s*PASS\\s*-->"; "i"))
+                             and (.body | test("<!--\\s*skeptic-gate-3\\s*:\\s*PASS\\s*-->"; "i"))
+                             and (.body | test("<!--\\s*skeptic-gate-4\\s*:\\s*PASS\\s*-->"; "i"))
+                             and (.body | test("<!--\\s*skeptic-gate-5\\s*:\\s*PASS\\s*-->"; "i"))
+                             and (.body | test("<!--\\s*skeptic-gate-6\\s*:\\s*PASS\\s*-->"; "i"))
+                             and (.body | test("<!--\\s*skeptic-gate-7\\s*:\\s*PASS\\s*-->"; "i"))
+                             and (.body | test("<!--\\s*skeptic-gate-8\\s*:\\s*PASS\\s*-->"; "i"))
+                             and (.body | test("<!--\\s*skeptic-gate-8a\\s*:\\s*PASS\\s*-->"; "i"))
+                             and (.body | test("<!--\\s*skeptic-gate-8b\\s*:\\s*PASS\\s*-->"; "i"))
+                             and (.body | test("<!--\\s*skeptic-gate-8c\\s*:\\s*PASS\\s*-->"; "i"))
+                             and (.body | test("<!--\\s*skeptic-gate-8d\\s*:\\s*PASS\\s*-->"; "i")) ))
+                ))
                 | last // empty' 2>/dev/null || echo "empty")
-            fi
 
             if ! echo "$VERDICT_JSON" | jq -e 'if . == null or (.body == null) then empty else .body end | length > 0' >/dev/null 2>&1; then
               echo "Attempt $i/$MAX_ATTEMPTS — no fresh VERDICT yet, sleeping ${INTERVAL}s..."
