@@ -1942,6 +1942,7 @@ describe("check (single session)", () => {
     await lm.check("app-1");
 
     expect(lm.getStates().get("app-1")).toBe("pr_open");
+    expect(mockSCM.getBatchPRStatus).toHaveBeenCalledTimes(1);
     expect(mockSCM.getPRState).not.toHaveBeenCalled();
     expect(mockSCM.getCISummary).not.toHaveBeenCalled();
     expect(mockSCM.getReviewDecision).not.toHaveBeenCalled();
