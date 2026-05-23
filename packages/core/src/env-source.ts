@@ -149,7 +149,11 @@ export function sourceEnvFile(
     const spawnResult = spawnSync(
       "bash",
       ["--noprofile", "--norc", "-i", "-c", `source "$1" > /dev/null 2>&1; env`, "--", expanded],
-      { timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] },
+      {
+        timeout: 10_000,
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
+      } as import("node:child_process").SpawnSyncOptions
     );
     // Guard against spawn failures (e.g. bash not found, timeout). Unlike
     // execFileSync, spawnSync never throws — errors are reported via .error.
