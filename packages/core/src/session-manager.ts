@@ -2896,6 +2896,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new SessionNotRestorableError(sessionId, "session is not in a terminal state");
     }
 
+    const restoredDisplayName = raw["displayName"];
+    const restoredDisplayNameUserSet =
+      raw["displayNameUserSet"] === "on" || raw["displayNameUserSet"] === "true"
+        ? true
+        : raw["displayNameUserSet"] === "off" || raw["displayNameUserSet"] === "false"
+          ? false
+          : undefined;
+
     if (fromArchive) {
       writeMetadata(sessionsDir, sessionId, {
         worktree: raw["worktree"] ?? "",
@@ -2917,6 +2925,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         userPrompt: raw["userPrompt"],
         requestedTask: raw["requestedTask"],
         composedPromptPath: raw["composedPromptPath"],
+        ...(restoredDisplayName ? { displayName: restoredDisplayName } : {}),
+        ...(restoredDisplayNameUserSet !== undefined
+          ? { displayNameUserSet: restoredDisplayNameUserSet }
+          : {}),
       });
     }
 
