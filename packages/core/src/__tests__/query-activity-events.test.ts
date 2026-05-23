@@ -127,7 +127,7 @@ describe("searchActivityEvents", () => {
     expect(results).toHaveLength(1);
     expect(capturedSql).toContain("LIKE");
     expect(capturedSql).toContain("ae.project_id = ?");
-    expect(capturedArgs).toEqual(["%spawn failed%", "%spawn failed%", "proj-1", 10]);
+    expect(capturedArgs).toEqual(["%spawn%", "%spawn%", "%failed%", "%failed%", "proj-1", 10]);
   });
 });
 

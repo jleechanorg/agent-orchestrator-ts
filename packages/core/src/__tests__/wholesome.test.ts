@@ -576,6 +576,8 @@ describe("wholesome — structural source-code assertions", () => {
       "7283a925e162c393643f7bb41f7a1b7d70755958", // test(core): lock batch fallback short-circuit in orch-7kf regression
       "011a32c505acb597914b22bfe0d2da81e80fdd39", // fix(core): pass merged launch config to agent restore command
       "7106a3dda15d401ae2fdb1087cafb4c605a3e50f", // fix(lifecycle): batch path CI-pending guard prevents premature approved-and-green (orch-7kf)
+      // PR #585: CR feedback commit without [agento] prefix
+      "51eaa8f78c6afa9e33a31bc01e434aec15380a51", // fix: address CodeRabbit CR feedback on PR #585
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
