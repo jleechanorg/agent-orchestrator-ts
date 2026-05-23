@@ -36,6 +36,48 @@ const antigravityOverrides: Partial<Agent> = {
     return parts.join(" ");
   },
 
+  getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
+    const sessionHome = `/Users/jleechan/.ao-sessions/${launchConfig.sessionId}`;
+    const fs = require("node:fs");
+    const path = require("node:path");
+    
+    const srcGemini = "/Users/jleechan/.gemini";
+    const destGemini = path.join(sessionHome, ".gemini");
+    
+    const copyRecursiveSync = (src: string, dest: string) => {
+      const exists = fs.existsSync(src);
+      const isDirectory = exists && fs.statSync(src).isDirectory();
+      if (isDirectory) {
+        fs.mkdirSync(dest, { recursive: true });
+        fs.readdirSync(src).forEach((childItemName: string) => {
+          if (childItemName === "tmp" || childItemName === "history" || childItemName === "antigravity-browser-profile") {
+            return;
+          }
+          copyRecursiveSync(path.join(src, childItemName), path.join(dest, childItemName));
+        });
+      } else {
+        try {
+          fs.copyFileSync(src, dest);
+        } catch {
+          // ignore
+        }
+      }
+    };
+    
+    try {
+      copyRecursiveSync(srcGemini, destGemini);
+    } catch {
+      // ignore
+    }
+    
+    return {
+      HOME: sessionHome,
+      // Clear these to prevent the spawned CLI from inheriting parent agent context
+      ANTIGRAVITY_PROJECT_ID: "",
+      ANTIGRAVITY_TRAJECTORY_ID: "",
+    };
+  },
+
   async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {
     return null;
   },
