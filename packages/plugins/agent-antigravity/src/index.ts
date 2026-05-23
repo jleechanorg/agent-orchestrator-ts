@@ -8,6 +8,9 @@ import {
   type ActivityDetection,
 } from "@jleechanorg/ao-core";
 import { execFileSync } from "node:child_process";
+import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
 
 export const manifest = {
   name: "antigravity",
@@ -37,10 +40,6 @@ const antigravityOverrides: Partial<Agent> = {
   },
 
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
-    const os = require("node:os");
-    const fs = require("node:fs");
-    const path = require("node:path");
-    
     const userHome = os.homedir();
     const sessionHome = path.join(userHome, ".ao-sessions", launchConfig.sessionId);
     
