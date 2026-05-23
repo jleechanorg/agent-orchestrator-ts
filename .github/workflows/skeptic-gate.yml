@@ -250,6 +250,7 @@ jobs:
                              and (.body | test("<!--\\s*skeptic-gate-8d\\s*:\\s*PASS\\s*-->"; "i")) ))
                 ))
                 | last // empty' 2>/dev/null || echo "empty")
+            fi
 
             if ! echo "$VERDICT_JSON" | jq -e 'if . == null or (.body == null) then empty else .body end | length > 0' >/dev/null 2>&1; then
               echo "Attempt $i/$MAX_ATTEMPTS — no fresh VERDICT yet, sleeping ${INTERVAL}s..."
