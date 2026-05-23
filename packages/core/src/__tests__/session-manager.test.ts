@@ -4810,7 +4810,7 @@ describe("restore", () => {
 
     const meta = readMetadataRaw(sessionsDir, "app-1");
     expect(meta!["displayName"]).toBe("Archived Display Name");
-    expect(meta!["displayNameUserSet"]).toBe("on");
+    expect(meta!["displayNameUserSet"]).toBe("true");
   });
 
   it("restores archived displayName metadata when user unset value is false", async () => {
