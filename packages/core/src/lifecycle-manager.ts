@@ -2058,6 +2058,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 );
                 effectiveReactionConfig = enriched.config;
                 ciMessageEnriched = enriched.enriched;
+              } else if (!reactionConfig.message) {
+                effectiveReactionConfig = {
+                  ...reactionConfig,
+                  message: "CI checks failed. Please review the pipeline logs.",
+                };
               }
             }
 

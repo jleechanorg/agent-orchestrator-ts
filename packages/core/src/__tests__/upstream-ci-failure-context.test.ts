@@ -6,6 +6,7 @@ import {
   getFailedCIChecks,
   makeCIFailureFingerprint,
   enrichCIFailureReaction,
+  withTimeout,
 } from "../upstream-ci-failure-context.js";
 import type { SCM, CICheck, PRInfo, ReactionConfig } from "../types.js";
 
@@ -326,5 +327,16 @@ describe("enrichCIFailureReaction", () => {
     const result = await enrichCIFailureReaction(mockSCM, mockPR, baseConfig, true);
     expect(result.enriched).toBe(true);
     expect(result.config.message).toContain("build → compile");
+  });
+
+  it("withTimeout rejects after specified duration", async () => {
+    const never = new Promise<string>(() => {});
+    await expect(withTimeout(never, 100)).rejects.toThrow("CI context timed out after 100ms");
+  });
+
+  it("withTimeout resolves when promise completes before timeout", async () => {
+    const fast = Promise.resolve("ok");
+    const result = await withTimeout(fast, 5_000);
+    expect(result).toBe("ok");
   });
 });

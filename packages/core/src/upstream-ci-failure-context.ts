@@ -66,6 +66,17 @@ function formatCIFailureChecksFallback(failedChecks: CICheck[]): string {
   return lines.join("\n");
 }
 
+const CI_CONTEXT_TIMEOUT_MS = 10_000;
+
+export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = CI_CONTEXT_TIMEOUT_MS): Promise<T> {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`CI context timed out after ${timeoutMs}ms`)), timeoutMs),
+    ),
+  ]);
+}
+
 export async function formatCIFailureMessage(
   scm: SCM,
   pr: PRInfo,
@@ -73,7 +84,7 @@ export async function formatCIFailureMessage(
 ): Promise<string> {
   if (scm.getCIFailureSummary) {
     try {
-      const summary = await scm.getCIFailureSummary(pr, failedChecks);
+      const summary = await withTimeout(scm.getCIFailureSummary(pr, failedChecks));
       if (summary?.failedJobs.length) {
         return formatCIFailureSummaryMessage(summary);
       }
@@ -93,7 +104,7 @@ export async function getFailedCIChecks(
   let checks: CICheck[] | undefined;
   if (options.allowFetch) {
     try {
-      checks = await scm.getCIChecks(pr);
+      checks = await withTimeout(scm.getCIChecks(pr));
     } catch {
       return null;
     }

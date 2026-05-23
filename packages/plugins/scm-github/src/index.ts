@@ -2358,24 +2358,28 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         const seenRuns = new Set<string>();
 
         for (const check of failedChecks) {
-          const runReference = extractActionRunReference(check);
-          if (!runReference) continue;
+          try {
+            const runReference = extractActionRunReference(check);
+            if (!runReference) continue;
 
-          const seenKey = `${runReference.runId}:${runReference.jobId ?? ""}`;
-          if (seenRuns.has(seenKey)) continue;
-          seenRuns.add(seenKey);
+            const seenKey = `${runReference.runId}:${runReference.jobId ?? ""}`;
+            if (seenRuns.has(seenKey)) continue;
+            seenRuns.add(seenKey);
 
-          const log = await getFailedJobLog(pr, runReference);
+            const log = await getFailedJobLog(pr, runReference);
 
-          const failedJob: CIFailureSummary["failedJobs"][number] = {
-            name: check.name,
-            runUrl: runReference.runUrl,
-          };
-          const failedStep = extractFailedStep(log);
-          if (failedStep) failedJob.failedStep = failedStep;
-          const logTail = tailLines(log, CI_FAILURE_LOG_TAIL_LINES);
-          if (logTail) failedJob.logTail = logTail;
-          failedJobs.push(failedJob);
+            const failedJob: CIFailureSummary["failedJobs"][number] = {
+              name: check.name,
+              runUrl: runReference.runUrl,
+            };
+            const failedStep = extractFailedStep(log);
+            if (failedStep) failedJob.failedStep = failedStep;
+            const logTail = tailLines(log, CI_FAILURE_LOG_TAIL_LINES);
+            if (logTail) failedJob.logTail = logTail;
+            failedJobs.push(failedJob);
+          } catch {
+            continue;
+          }
         }
 
         return failedJobs.length > 0 ? { failedJobs } : null;
