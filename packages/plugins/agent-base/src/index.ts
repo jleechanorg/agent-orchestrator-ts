@@ -1370,7 +1370,7 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
 function normalizePermissionMode(
   mode: string | undefined,
 ): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
-  if (!mode) return "permissionless";
+  if (mode === undefined) return "permissionless";
   if (mode === "skip") return "permissionless";
   if (
     mode === "permissionless" ||

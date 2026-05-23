@@ -228,6 +228,13 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--dangerously-skip-permissions");
   });
 
+  it("treats empty-string permissions as explicit value (not permissionless)", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({ permissions: "" as unknown as AgentLaunchConfig["permissions"] }),
+    );
+    expect(cmd).not.toContain("--dangerously-skip-permissions");
+  });
+
   it("treats legacy permissions=skip as permissionless", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "skip" as unknown as AgentLaunchConfig["permissions"] }),
