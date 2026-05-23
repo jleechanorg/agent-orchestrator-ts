@@ -43,17 +43,18 @@ echo ""
 
 # Step 1: Simulate git clone (already done by Docker COPY, but we cd into it)
 start_step "Step 1: Navigate to repository"
-cd /workspace/agent-orchestrator || fail_step "Repository not found"
+cd "$(git rev-parse --show-toplevel)" || fail_step "Repository not found"
 end_step "Step 1: Repository accessible"
 
 # Step 2: Create minimal test config (required by setup-extended.sh → start-all.sh)
 start_step "Step 2: Creating test config for setup"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
 mkdir -p "$HOME/.openclaw"
-cat > "$HOME/.openclaw/agent-orchestrator.yaml" << 'EOF'
+cat > "$HOME/.openclaw/agent-orchestrator.yaml" << EOF
 projects:
   onboarding-test:
     repo: test/onboarding-test
-    path: /workspace/agent-orchestrator
+    path: $REPO_ROOT
     defaultBranch: main
 EOF
 end_step "Step 2: Test config created"
@@ -80,7 +81,7 @@ fi
 start_step "Step 4: Verify ao command"
 if ! command -v ao &> /dev/null; then
   # pnpm install -g . may not create the bin link; create it manually
-  CLI_ENTRY="/workspace/agent-orchestrator/packages/cli/dist/index.js"
+  CLI_ENTRY="$(git rev-parse --show-toplevel)/packages/cli/dist/index.js"
   if [ -f "$CLI_ENTRY" ] && [ -d "$PNPM_HOME" ]; then
     chmod +x "$CLI_ENTRY"
     ln -sf "$CLI_ENTRY" "$PNPM_HOME/ao"
