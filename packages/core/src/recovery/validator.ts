@@ -82,7 +82,7 @@ export async function validateSession(
   const agentActivity: ActivityState | null = null;
   if (agent && runtimeHandle) {
     try {
-      agentProcessRunning = await agent.isProcessRunning(runtimeHandle);
+      agentProcessRunning = (await agent.isProcessRunning(runtimeHandle)) === true;
     } catch {
       agentProcessRunning = false;
     }

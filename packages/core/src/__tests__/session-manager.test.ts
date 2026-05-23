@@ -4790,6 +4790,98 @@ describe("restore", () => {
     expect(meta!["pr"]).toBe("https://github.com/org/my-app/pull/10");
   });
 
+  it("restores archived displayName metadata on session restore (on)", async () => {
+    const wsPath = join(tmpDir, "ws-app-archive-displayname-on");
+    mkdirSync(wsPath, { recursive: true });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-ARCHIVE",
+      status: "killed",
+      project: "my-app",
+      displayName: "Archived Display Name",
+      displayNameUserSet: "on",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+    deleteMetadata(sessionsDir, "app-1");
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.restore("app-1");
+
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta!["displayName"]).toBe("Archived Display Name");
+    expect(meta!["displayNameUserSet"]).toBe("true");
+  });
+
+  it("restores archived displayName metadata when user unset value is false", async () => {
+    const wsPath = join(tmpDir, "ws-app-archive-displayname-off");
+    mkdirSync(wsPath, { recursive: true });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-ARCHIVE-OFF",
+      status: "killed",
+      project: "my-app",
+      displayName: "Archived Display Name",
+      displayNameUserSet: "off",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+    deleteMetadata(sessionsDir, "app-1");
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.restore("app-1");
+
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta!["displayName"]).toBe("Archived Display Name");
+    expect(meta!["displayNameUserSet"]).toBe("false");
+  });
+
+  it("restores archived displayName metadata when user unset value is false string", async () => {
+    const wsPath = join(tmpDir, "ws-app-archive-displayname-string-false");
+    mkdirSync(wsPath, { recursive: true });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-ARCHIVE-FALSE",
+      status: "killed",
+      project: "my-app",
+      displayName: "Archived Display Name",
+      displayNameUserSet: "false",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+    deleteMetadata(sessionsDir, "app-1");
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.restore("app-1");
+
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta!["displayName"]).toBe("Archived Display Name");
+    expect(meta!["displayNameUserSet"]).toBe("false");
+  });
+
+  it("derives displayName when archive metadata has no displayName metadata", async () => {
+    const wsPath = join(tmpDir, "ws-app-archive-displayname-derived");
+    mkdirSync(wsPath, { recursive: true });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-ARCHIVE-DERIVED",
+      status: "killed",
+      project: "my-app",
+      requestedTask: "Restore prompt for display",
+      userPrompt: "# Restore prompt for display\nFollow-up details",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+    deleteMetadata(sessionsDir, "app-1");
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.restore("app-1");
+
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta!["displayName"]).toBe("Restore prompt for display");
+    expect(meta!["displayNameUserSet"]).toBeUndefined();
+  });
+
   it("restores from archive with multiple archived versions (picks latest)", async () => {
     const wsPath = join(tmpDir, "ws-app-1");
     mkdirSync(wsPath, { recursive: true });

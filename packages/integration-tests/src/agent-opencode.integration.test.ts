@@ -108,9 +108,9 @@ describe.skipIf(!canRun)("agent-opencode (integration)", () => {
   const sessionName = `${SESSION_PREFIX}${Date.now()}`;
   let tmpDir: string;
 
-  let aliveRunning = false;
+  let aliveRunning: boolean | "indeterminate" = false;
   let aliveActivityState: ActivityDetection | null | undefined;
-  let exitedRunning: boolean;
+  let exitedRunning: boolean | "indeterminate" = false;
   let exitedActivityState: ActivityDetection | null;
   let sessionInfo: AgentSessionInfo | null;
 

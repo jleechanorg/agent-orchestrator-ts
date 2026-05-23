@@ -1816,6 +1816,139 @@ describe("check (single session)", () => {
     expect(mockSCM.getMergeability).not.toHaveBeenCalled();
   });
 
+  // orch-7kf: batch path must also guard against CI pending — without this,
+  // the approved-and-green reaction fires prematurely when CR approves
+  // before all CI checks complete.
+  it("returns approved (not mergeable) when batch reports CI pending + review approved (orch-7kf)", async () => {
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn(),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+      getBatchPRStatus: vi.fn().mockResolvedValue({
+        state: "open",
+        ciStatus: "pending",
+        reviewDecision: "approved",
+        mergeReadiness: {
+          mergeable: true,
+          ciPassing: false,
+          approved: true,
+          noConflicts: true,
+          blockers: ["CI pending"],
+        },
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Must return "approved" (not "mergeable") — prevents approved-and-green
+    // reaction from firing while CI is still running
+    expect(lm.getStates().get("app-1")).toBe("approved");
+    expect(mockSCM.getBatchPRStatus).toHaveBeenCalledTimes(1);
+    expect(mockSCM.getPRState).not.toHaveBeenCalled();
+    expect(mockSCM.getCISummary).not.toHaveBeenCalled();
+    expect(mockSCM.getReviewDecision).not.toHaveBeenCalled();
+    expect(mockSCM.getMergeability).not.toHaveBeenCalled();
+  });
+
+  it("returns pr_open when batch reports CI pending + review none (orch-7kf)", async () => {
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn(),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+      getBatchPRStatus: vi.fn().mockResolvedValue({
+        state: "open",
+        ciStatus: "pending",
+        reviewDecision: "none",
+        mergeReadiness: {
+          mergeable: true,
+          ciPassing: false,
+          approved: false,
+          noConflicts: true,
+          blockers: ["CI pending", "Awaiting approvals"],
+        },
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("pr_open");
+    expect(mockSCM.getBatchPRStatus).toHaveBeenCalledTimes(1);
+    expect(mockSCM.getPRState).not.toHaveBeenCalled();
+    expect(mockSCM.getCISummary).not.toHaveBeenCalled();
+    expect(mockSCM.getReviewDecision).not.toHaveBeenCalled();
+    expect(mockSCM.getMergeability).not.toHaveBeenCalled();
+  });
+
   it("skips fallback SCM calls when getBatchPRStatus throws a rate limit error (bd-att retry storm fix)", async () => {
     const mockSCM: SCM = {
       name: "mock-scm",

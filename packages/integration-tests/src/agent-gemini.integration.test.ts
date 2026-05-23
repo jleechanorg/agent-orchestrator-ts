@@ -55,10 +55,10 @@ describe.skipIf(!canRun)("agent-gemini (integration)", () => {
   let tmpDir: string;
   let outputFile: string;
 
-  let aliveRunning = false;
+  let aliveRunning: boolean | "indeterminate" = false;
   let aliveActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
   let aliveSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>>;
-  let exitedRunning: boolean;
+  let exitedRunning: boolean | "indeterminate" = false;
   let exitedActivityState: Awaited<ReturnType<typeof agent.getActivityState>>;
   let exitedSessionInfo: Awaited<ReturnType<typeof agent.getSessionInfo>>;
   let fileCreated = false;

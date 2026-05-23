@@ -459,6 +459,7 @@ describe("skeptic chain integration", () => {
       botAuthor: string,
       triggerSha: string,
       triggerUpdated: string,
+      requestId: string | null = null,
       prAuthor = "pr-author",
     ): (typeof comments)[number] | null {
       const escapeRegexLiteral = (token: string): string =>
@@ -477,6 +478,10 @@ describe("skeptic chain integration", () => {
         const botLogin = botAuthor.toLowerCase();
         const prLogin = prAuthor.toLowerCase();
         const markerMatch = /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body);
+        const requestIdMatch = requestId === null ? true : new RegExp(
+          `<!--\\s*skeptic-request-id-${escapeRegexLiteral(requestId)}\\s*-->`,
+          "i",
+        ).test(c.body);
         const verdictMatch = c.body.match(/^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im);
         const verdictType = verdictMatch?.[1]?.toUpperCase();
         const timestampMatch = c.updatedAt >= triggerUpdated;
@@ -486,6 +491,7 @@ describe("skeptic chain integration", () => {
           // Correct: bot author is trusted even when == pr_author; gh-actions[bot] requires != pr_author
           (userLogin === botLogin || (userLogin === "github-actions[bot]" && userLogin !== prLogin)) &&
           markerMatch &&
+          requestIdMatch &&
           Boolean(verdictType) &&
           timestampMatch &&
           shaMatch &&
@@ -598,6 +604,86 @@ describe("skeptic chain integration", () => {
       expect(result!.body).toContain(`skeptic-gate-trigger-${TRIGGER_SHA}`);
     });
 
+    it("only matches request-bound verdict comments when request_id is supplied", () => {
+      const comments = [
+        {
+          id: 120,
+          body: [
+            "<!-- skeptic-agent-verdict -->",
+            `<!-- skeptic-request-id-expected-request -->`,
+            boundPassBody(TRIGGER_SHA),
+          ].join("\n"),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-03-28T12:05:00Z",
+        },
+        {
+          id: 121,
+          body: [
+            "<!-- skeptic-agent-verdict -->",
+            `<!-- skeptic-request-id-unexpected-request -->`,
+            `<!-- skeptic-head-sha-${TRIGGER_SHA} -->`,
+            "<!-- skeptic-gate-1:PASS -->",
+            "<!-- skeptic-gate-2:PASS -->",
+            "<!-- skeptic-gate-3:PASS -->",
+            "<!-- skeptic-gate-4:PASS -->",
+            "<!-- skeptic-gate-5:PASS -->",
+            "<!-- skeptic-gate-6:PASS -->",
+            "<!-- skeptic-gate-7:PASS -->",
+            "<!-- skeptic-gate-8:PASS -->",
+            "VERDICT: PASS",
+            `<!-- skeptic-gate-trigger-${TRIGGER_SHA} -->`,
+          ].join("\n"),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-03-28T12:05:00Z",
+        },
+      ];
+
+      const result = jqFilterMatch(
+        comments,
+        "jleechan2015",
+        TRIGGER_SHA,
+        TRIGGER_UPDATED,
+        "expected-request",
+        "other-author",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(120);
+    });
+
+    it("returns null when request_id is supplied but the verdict comment lacks that marker", () => {
+      const comments = [
+        {
+          id: 122,
+          body: boundPassBody(TRIGGER_SHA),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-03-28T12:05:00Z",
+        },
+        {
+          id: 123,
+          body: [
+            "<!-- skeptic-agent-verdict -->",
+            `<!-- skeptic-request-id-expected-request -->`,
+            boundPassBody(TRIGGER_SHA),
+          ].join("\n"),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-03-28T12:05:00Z",
+        },
+      ];
+
+      const result = jqFilterMatch(
+        comments,
+        "jleechan2015",
+        TRIGGER_SHA,
+        TRIGGER_UPDATED,
+        "expected-request",
+        "other-author",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(123);
+    });
+
     it("accepts a request-bound PASS when the bot author equals the PR author", () => {
       const comments = [
         {
@@ -613,7 +699,6 @@ describe("skeptic chain integration", () => {
         "jleechan2015",
         TRIGGER_SHA,
         TRIGGER_UPDATED,
-        "jleechan2015",
       );
 
       // Bot author is trusted unconditionally (new logic); gh-actions[bot] requires != pr_author
@@ -684,9 +769,9 @@ describe("skeptic chain integration", () => {
     });
 
     it("keeps the workflow jq filter aligned with head SHA and eight-gate PASS binding", () => {
-      expect(workflowSource).not.toContain("REQUEST_ID: $" + "{{ steps.post_trigger.outputs.request_id }}");
-      expect(workflowSource).not.toContain('--arg request "$REQUEST_ID"');
-      expect(workflowSource).not.toContain('skeptic-request-id-" + $request');
+      expect(workflowSource).toContain("REQUEST_ID: $" + "{{ steps.post_trigger.outputs.request_id }}");
+      expect(workflowSource).toContain('--arg req "$REQUEST_ID"');
+      expect(workflowSource).toContain('skeptic-request-id-" + $req');
       expect(workflowSource).toContain('skeptic-gate-trigger-" + $ts');
       expect(workflowSource).toContain('skeptic-head-sha-" + $ts');
       expect(workflowSource).toContain('skeptic-gate-" + ($gate | tostring)');
