@@ -6,7 +6,6 @@ import {
   type ProjectConfig,
   type Session,
   type ActivityDetection,
-  DEFAULT_READY_THRESHOLD_MS,
 } from "@jleechanorg/ao-core";
 import { execFileSync } from "node:child_process";
 
@@ -30,7 +29,7 @@ const antigravityConfig: AgentPluginConfig = {
 const antigravityOverrides: Partial<Agent> = {
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     const parts = ["agy", "--prompt-interactive", '""'];
-    const permissions = launchConfig.permissions;
+    const permissions = launchConfig.permissions ?? "permissionless";
     if (permissions === "permissionless" || permissions === "auto-edit" || permissions === "skip") {
       parts.push("--dangerously-skip-permissions");
     }
@@ -43,7 +42,7 @@ const antigravityOverrides: Partial<Agent> = {
 
   async getActivityState(
     session: Session,
-    readyThresholdMs?: number,
+    _readyThresholdMs?: number,
   ): Promise<ActivityDetection | null> {
     // For Antigravity, we rely on process checking and terminal-output activity classification
     const exitedAt = new Date();

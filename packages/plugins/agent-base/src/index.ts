@@ -1363,13 +1363,14 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
 
 /**
  * Normalize an agent permission mode string to a canonical value.
- * Maps the legacy "skip" alias to "permissionless"; returns undefined for
- * unrecognised or missing values.
+ * Maps the legacy "skip" alias to "permissionless"; defaults missing values
+ * to "permissionless" so AO workers launch without approval prompts unless a
+ * project explicitly requests a different mode.
  */
 function normalizePermissionMode(
   mode: string | undefined,
 ): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
-  if (!mode) return undefined;
+  if (!mode) return "permissionless";
   if (mode === "skip") return "permissionless";
   if (
     mode === "permissionless" ||
