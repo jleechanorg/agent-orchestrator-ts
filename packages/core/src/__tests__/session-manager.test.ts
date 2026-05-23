@@ -4859,6 +4859,29 @@ describe("restore", () => {
     expect(meta!["displayNameUserSet"]).toBe("false");
   });
 
+  it("derives displayName when archive metadata has no displayName metadata", async () => {
+    const wsPath = join(tmpDir, "ws-app-archive-displayname-derived");
+    mkdirSync(wsPath, { recursive: true });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-ARCHIVE-DERIVED",
+      status: "killed",
+      project: "my-app",
+      requestedTask: "Restore prompt for display",
+      userPrompt: "# Restore prompt for display\nFollow-up details",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+    deleteMetadata(sessionsDir, "app-1");
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.restore("app-1");
+
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta!["displayName"]).toBe("Restore prompt for display");
+    expect(meta!["displayNameUserSet"]).toBeUndefined();
+  });
+
   it("restores from archive with multiple archived versions (picks latest)", async () => {
     const wsPath = join(tmpDir, "ws-app-1");
     mkdirSync(wsPath, { recursive: true });

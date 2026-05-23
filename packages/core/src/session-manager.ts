@@ -2896,7 +2896,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new SessionNotRestorableError(sessionId, "session is not in a terminal state");
     }
 
-    const restoredDisplayName = raw["displayName"];
+    const restoredDisplayNameFromPrompt = deriveDisplayName({
+      prompt: raw["requestedTask"] ?? raw["userPrompt"],
+    });
+    const restoredDisplayName = raw["displayName"] ?? restoredDisplayNameFromPrompt;
     const restoredDisplayNameUserSet =
       raw["displayNameUserSet"] === "on" || raw["displayNameUserSet"] === "true"
         ? true
