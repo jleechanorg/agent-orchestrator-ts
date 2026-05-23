@@ -684,9 +684,9 @@ describe("skeptic chain integration", () => {
     });
 
     it("keeps the workflow jq filter aligned with head SHA and eight-gate PASS binding", () => {
-      expect(workflowSource).not.toContain("REQUEST_ID: $" + "{{ steps.post_trigger.outputs.request_id }}");
-      expect(workflowSource).not.toContain('--arg request "$REQUEST_ID"');
-      expect(workflowSource).not.toContain('skeptic-request-id-" + $request');
+      expect(workflowSource).toContain("REQUEST_ID: $" + "{{ steps.post_trigger.outputs.request_id }}");
+      expect(workflowSource).toContain('--arg req "$REQUEST_ID"');
+      expect(workflowSource).toContain('skeptic-request-id-" + $req');
       expect(workflowSource).toContain('skeptic-gate-trigger-" + $ts');
       expect(workflowSource).toContain('skeptic-head-sha-" + $ts');
       expect(workflowSource).toContain('skeptic-gate-" + ($gate | tostring)');

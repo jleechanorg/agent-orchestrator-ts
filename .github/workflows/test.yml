@@ -65,6 +65,7 @@ jobs:
           {
             echo "trigger_updated=$TRIGGER_UPDATED"
             echo "trigger_sha=$TRIGGER_SHA"
+            echo "request_id=$REQUEST_ID"
           } >> "$GITHUB_OUTPUT"
 
       - name: Poll for skeptic VERDICT
@@ -74,6 +75,7 @@ jobs:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
+          REQUEST_ID: ${{ steps.post_trigger.outputs.request_id }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
         timeout-minutes: 11  # headroom over POLL_TIMEOUT=10m below
         run: |
@@ -182,7 +184,7 @@ jobs:
             printf '%s\n' "$RAW_COMMENTS" > "$_VERDICT_TMP"
             VERDICT_JSON=$(jq -s --arg author "$SKEPTIC_BOT_AUTHOR" \
                 --arg pr_author "$PR_AUTHOR" \
-                --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" \
+                --arg tu "$TRIGGER_UPDATED" --arg ts "$TRIGGER_SHA" --arg req "$REQUEST_ID" \
                 'add
                 | map(. + {verdict: (try (.body | capture("(?:^|\\n)[ \\t]*(?:> ?)?(?:#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)\\b(?:\\*{1,2})?[ \\t]*(?:[-—:][^\\n]*)?" ; "i").verdict | ascii_upcase) catch "")})
                 | map(select(
@@ -197,6 +199,7 @@ jobs:
                       and ($body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
                       and (.verdict != "")
                       and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
+                      and ($body | test("<!--\\s*skeptic-request-id-" + $req + "\\s*-->"; "i"))
                       and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                       and ((.verdict != "PASS")
                            or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i")))

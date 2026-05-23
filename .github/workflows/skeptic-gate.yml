@@ -137,6 +137,7 @@ jobs:
           PR_NUM: ${{ steps.resolve.outputs.pr_num }}
           HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
           PR_AUTHOR: ${{ steps.resolve.outputs.pr_author }}
+          REQUEST_ID: ${{ steps.post_trigger.outputs.request_id }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
           TRIGGER_UPDATED: ${{ steps.post_trigger.outputs.trigger_updated }}
         run: |
@@ -217,7 +218,7 @@ jobs:
                 API_FAILURES=0
               fi
               VERDICT_JSON=$(echo "$VERDICT_RAW" | jq -s \
-                --arg tu "$TRIGGER_UPDATED" --arg ts "$HEAD_SHA" \
+                --arg tu "$TRIGGER_UPDATED" --arg ts "$HEAD_SHA" --arg req "$REQUEST_ID" \
                 --arg author "$SKEPTIC_BOT_AUTHOR" --arg pr_author "$PR_AUTHOR" \
                 --arg VERDICT_RE "(?:^|\\n)[ \\t]*(?:> ?)?(?:\\#{1,6}[ \\t]*)?(?:\\*{1,2})?VERDICT:[ \\t]*(?<verdict>PASS|FAIL|SKIPPED)(?:\\*{1,2})?" \
                 'add
@@ -234,6 +235,7 @@ jobs:
                     and (.verdict != "")
                     and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
                     and (.body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
+                    and (.body | test("<!--\\s*skeptic-request-id-" + $req + "\\s*-->"; "i"))
                     and ((.updated_at | try fromdate // 0) >= (try $tu | fromdate // 0))
                     and ((.verdict != "PASS")
                          or ((.body | test("<!--\\s*skeptic-gate-1\\s*:\\s*PASS\\s*-->"; "i"))
