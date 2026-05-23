@@ -4978,6 +4978,20 @@ describe("restore", () => {
     const wsPath = join(tmpDir, "ws-app-1");
     mkdirSync(wsPath, { recursive: true });
 
+    const configWithPermission = {
+      ...config,
+      projects: {
+        ...config.projects,
+        "my-app": {
+          ...config.projects["my-app"],
+          agentConfig: {
+            ...config.projects["my-app"]?.agentConfig,
+            permissions: "auto-edit" as const,
+          },
+        },
+      },
+    };
+
     const mockAgentWithRestore: Agent = {
       ...mockAgent,
       getRestoreCommand: vi.fn().mockResolvedValue("claude --resume abc123"),
@@ -5001,10 +5015,15 @@ describe("restore", () => {
       runtimeHandle: JSON.stringify(makeHandle("rt-old")),
     });
 
-    const sm = createSessionManager({ config, registry: registryWithAgentRestore });
+    const sm = createSessionManager({ config: configWithPermission, registry: registryWithAgentRestore });
     await sm.restore("app-1");
 
-    expect(mockAgentWithRestore.getRestoreCommand).toHaveBeenCalled();
+    expect(mockAgentWithRestore.getRestoreCommand).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        agentConfig: expect.objectContaining({ permissions: "auto-edit" }),
+      }),
+    );
     // Verify runtime.create was called with the restore command
     const createCall = (mockRuntime.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(createCall.launchCommand).toBe("claude --resume abc123");

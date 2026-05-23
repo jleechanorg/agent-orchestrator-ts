@@ -3001,7 +3001,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     };
 
     if (plugins.agent.getRestoreCommand) {
-      const restoreCmd = await plugins.agent.getRestoreCommand(session, project);
+      const restoreCmd = await plugins.agent.getRestoreCommand(session, agentLaunchConfig.projectConfig);
       if (restoreCmd) {
         launchCommand = restoreCmd;
       } else {
