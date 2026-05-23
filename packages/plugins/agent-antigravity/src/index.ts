@@ -37,11 +37,17 @@ const antigravityOverrides: Partial<Agent> = {
   },
 
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
-    const sessionHome = `/Users/jleechan/.ao-sessions/${launchConfig.sessionId}`;
+    const os = require("node:os");
     const fs = require("node:fs");
     const path = require("node:path");
     
-    const srcGemini = "/Users/jleechan/.gemini";
+    const userHome = os.homedir();
+    const sessionHome = path.join(userHome, ".ao-sessions", launchConfig.sessionId);
+    
+    // Ensure session directory exists
+    fs.mkdirSync(sessionHome, { recursive: true });
+    
+    const srcGemini = path.join(userHome, ".gemini");
     const destGemini = path.join(sessionHome, ".gemini");
     
     const copyRecursiveSync = (src: string, dest: string) => {
