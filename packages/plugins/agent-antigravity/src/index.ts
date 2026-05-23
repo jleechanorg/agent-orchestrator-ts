@@ -34,9 +34,6 @@ const antigravityOverrides: Partial<Agent> = {
     if (permissions === "permissionless" || permissions === "auto-edit" || permissions === "skip") {
       parts.push("--dangerously-skip-permissions");
     }
-    if (launchConfig.model) {
-      parts.push("--model", launchConfig.model);
-    }
     return parts.join(" ");
   },
 

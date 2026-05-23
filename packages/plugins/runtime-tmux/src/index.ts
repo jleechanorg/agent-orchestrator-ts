@@ -40,7 +40,7 @@ const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]+$/;
 function isGeminiAgent(handle: RuntimeHandle): boolean {
   const launchCommand =
     typeof handle.data?.launchCommand === "string" ? handle.data.launchCommand : "";
-  return launchCommand.toLowerCase().includes("gemini");
+  return launchCommand.toLowerCase().includes("gemini") || launchCommand.toLowerCase().includes("agy");
 }
 
 function assertValidSessionId(id: string): void {
