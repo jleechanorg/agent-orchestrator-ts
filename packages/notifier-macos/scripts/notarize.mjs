@@ -4,10 +4,10 @@
  * macOS notarization script for ao-notifier-macos.
  *
  * Requires: APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID env vars.
- * Usage: npm run notarize
+ * Usage: npm run notarize <path-to-app>
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 const { APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID } = process.env;
 
@@ -26,12 +26,22 @@ if (!appPath) {
 
 try {
   console.log(`notarize: Submitting ${appPath} for notarization...`);
-  execSync(
-    `xcrun notarytool submit "${appPath}" --apple-id "${APPLE_ID}" --password "${APPLE_APP_PASSWORD}" --team-id "${APPLE_TEAM_ID}" --wait`,
-    { stdio: "inherit" }
-  );
+  execFileSync("xcrun", [
+    "notarytool",
+    "submit",
+    appPath,
+    "--apple-id",
+    APPLE_ID,
+    "--password",
+    APPLE_APP_PASSWORD,
+    "--team-id",
+    APPLE_TEAM_ID,
+    "--wait",
+  ], { stdio: "inherit" });
+
   console.log("notarize: Stapling ticket...");
-  execSync(`xcrun stapler staple "${appPath}"`, { stdio: "inherit" });
+  execFileSync("xcrun", ["stapler", "staple", appPath], { stdio: "inherit" });
+
   console.log("notarize: Done.");
 } catch (err) {
   console.error("notarize: Failed", err.message);
