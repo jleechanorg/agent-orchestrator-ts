@@ -936,7 +936,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         data: {},
       };
     }
-    await enrichSessionWithRuntimeState(session, plugins, handleFromMetadata);
+    await enrichSessionWithRuntimeState(session, plugins, handleFromMetadata, sessionsDir);
   }
 
   /**
@@ -950,6 +950,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     session: Session,
     plugins: ReturnType<typeof resolvePlugins>,
     handleFromMetadata: boolean,
+    sessionsDir?: string,
   ): Promise<void> {
     // Skip all subprocess/IO work for sessions already known to be terminal.
     if (TERMINAL_SESSION_STATUSES.has(session.status)) {
@@ -973,6 +974,16 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         if (!alive) {
           session.status = "killed";
           session.activity = "exited";
+          if (sessionsDir) {
+            try {
+              updateMetadata(sessionsDir, session.id, {
+                status: "killed",
+                activity: "exited"
+              });
+            } catch {
+              // ignore write error
+            }
+          }
           return;
         }
       } catch {
@@ -2900,7 +2911,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     //    and isRestorable would reject it.
     const session = metadataToSession(sessionId, raw, projectId);
     const plugins = resolvePlugins(project, selection.agentName);
-    await enrichSessionWithRuntimeState(session, plugins, true);
+    await enrichSessionWithRuntimeState(session, plugins, true, sessionsDir);
 
     // 3. Validate restorability
     if (!isRestorable(session)) {

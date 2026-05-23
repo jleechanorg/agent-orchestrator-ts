@@ -10,7 +10,7 @@
  * and runtime injection attacks.
  */
 
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { expandHome } from "./paths.js";
 
@@ -146,13 +146,12 @@ export function sourceEnvFile(
     //   (b) bash does NOT implicitly source ~/.bashrc before the explicit source,
     //       preventing implicit startup-file leakage into the configured file's output.
     // Use `--norc` for the same reason — don't let bash's own rc file run first.
-    const output = execFileSync(
+    const spawnResult = spawnSync(
       "bash",
       ["--noprofile", "--norc", "-i", "-c", `source "$1" > /dev/null 2>&1; env`, "--", expanded],
-      { timeout: 10_000, stdio: ["pipe", "pipe", "pipe"] },
-    )
-      .toString()
-      .trim();
+      { timeout: 10_000, stdio: ["ignore", "pipe", "pipe"], detached: true } as any,
+    );
+    const output = (spawnResult.stdout || "").toString().trim();
 
     const newVars: Record<string, string> = {};
 
