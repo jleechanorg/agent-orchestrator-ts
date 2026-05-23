@@ -218,70 +218,54 @@ async function maybeRemoveStaleCheckedOutWorktree(
   }
 }
 
+async function refExists(repoPath: string, ref: string): Promise<boolean> {
+  try {
+    await git(repoPath, "rev-parse", "--verify", "--quiet", ref);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Reuse an existing branch by creating a worktree and checking it out.
- * Handles stale-checkout recovery and cleans up the worktree on failure.
- * Returns true on success; throws on checkout failure.
+ * Reuse an existing branch by creating a worktree.
+ * Compares the existing branch SHA with the resolved base — stale branches
+ * are force-reset with -B. Returns true on success; throws on failure.
  */
 async function reuseExistingBranch(
   repoPath: string,
   worktreePath: string,
   branch: string,
   baseRef: string,
-  worktreeBaseDir: string,
+  _worktreeBaseDir: string,
 ): Promise<boolean> {
-  await git(repoPath, "worktree", "add", worktreePath, baseRef);
-  let checkoutSucceeded = false;
+  // Branch already exists. It may be a stale session branch left behind
+  // from an earlier spawn, so compare it with the freshly-resolved base
+  // before reusing it.
+  const baseSha = await git(repoPath, "rev-parse", baseRef);
+  const branchRef = `refs/heads/${branch}`;
+  const existingBranchSha = (await refExists(repoPath, branchRef))
+    ? await git(repoPath, "rev-parse", branchRef)
+    : undefined;
+
   try {
-    await git(worktreePath, "checkout", branch);
-    checkoutSucceeded = true;
-  } catch (checkoutErr: unknown) {
-    const checkoutMsg =
-      checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
-    if (checkoutMsg.includes("already checked out") && checkoutMsg.includes("checked out at")) {
-      let retryErr: unknown;
-      try {
-        const removedStale = await maybeRemoveStaleCheckedOutWorktree(repoPath, checkoutMsg, worktreeBaseDir);
-        if (removedStale) {
-          try {
-            await git(worktreePath, "checkout", branch);
-            checkoutSucceeded = true;
-          } catch (e: unknown) {
-            // Capture retry failure — throw it rather than falling through to the original error.
-            retryErr = e;
-          }
-        }
-        // else: Non-AO worktree holds the branch lock — let the original error propagate.
-      } catch {
-        // Fall through to original error path.
-      }
-      if (retryErr !== undefined) {
-        const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-        // Worktree was created by `git worktree add` at line 233 but checkout retry failed.
-        // Clean up the orphaned worktree before propagating the error.
-        try {
-          await git(repoPath, "worktree", "remove", "--force", worktreePath);
-        } catch {
-          // Best-effort cleanup
-        }
-        throw Object.assign(
-          new Error(`Failed to checkout branch "${branch}" in worktree: ${retryMsg}`),
-          { cause: retryErr },
-        );
-      }
+    if (existingBranchSha === baseSha) {
+      await git(repoPath, "worktree", "add", worktreePath, branch);
+    } else {
+      await git(repoPath, "worktree", "add", "-B", branch, worktreePath, baseRef);
     }
-    if (!checkoutSucceeded) {
-      try {
-        await git(repoPath, "worktree", "remove", "--force", worktreePath);
-      } catch {
-        // Best-effort cleanup
-      }
-      throw new Error(`Failed to checkout branch "${branch}" in worktree: ${checkoutMsg}`, {
-        cause: checkoutErr,
-      });
+  } catch (retryErr: unknown) {
+    const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+    try {
+      await git(repoPath, "worktree", "remove", "--force", worktreePath);
+    } catch {
+      // Best-effort cleanup
     }
+    throw new Error(`Failed to create worktree for branch "${branch}": ${retryMsg}`, {
+      cause: retryErr,
+    });
   }
-  return checkoutSucceeded;
+  return true;
 }
 
 /** Only allow safe characters in path segments to prevent directory traversal */
