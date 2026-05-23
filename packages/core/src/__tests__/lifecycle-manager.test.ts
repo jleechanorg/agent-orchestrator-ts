@@ -1878,6 +1878,70 @@ describe("check (single session)", () => {
     // Must return "approved" (not "mergeable") — prevents approved-and-green
     // reaction from firing while CI is still running
     expect(lm.getStates().get("app-1")).toBe("approved");
+    expect(mockSCM.getBatchPRStatus).toHaveBeenCalledTimes(1);
+    expect(mockSCM.getPRState).not.toHaveBeenCalled();
+    expect(mockSCM.getCISummary).not.toHaveBeenCalled();
+    expect(mockSCM.getReviewDecision).not.toHaveBeenCalled();
+    expect(mockSCM.getMergeability).not.toHaveBeenCalled();
+  });
+
+  it("returns pr_open when batch reports CI pending + review none (orch-7kf)", async () => {
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn(),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn(),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn(),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+      getBatchPRStatus: vi.fn().mockResolvedValue({
+        state: "open",
+        ciStatus: "pending",
+        reviewDecision: "none",
+        mergeReadiness: {
+          mergeable: true,
+          ciPassing: false,
+          approved: false,
+          noConflicts: true,
+          blockers: ["CI pending", "Awaiting approvals"],
+        },
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("pr_open");
     expect(mockSCM.getPRState).not.toHaveBeenCalled();
     expect(mockSCM.getCISummary).not.toHaveBeenCalled();
     expect(mockSCM.getReviewDecision).not.toHaveBeenCalled();
