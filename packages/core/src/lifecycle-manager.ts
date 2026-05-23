@@ -2054,7 +2054,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 : null;
               if (ciScm) {
                 const enriched = await enrichCIFailureReaction(
-                  ciScm, session.pr, reactionConfig, false,
+                  ciScm, session.pr, reactionConfig, true,
                 );
                 effectiveReactionConfig = enriched.config;
                 ciMessageEnriched = enriched.enriched;
