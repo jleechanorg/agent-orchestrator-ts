@@ -112,8 +112,10 @@ func openUrl(_ rawUrl: String?) {
 
 func postCallback(_ rawUrl: String?) {
   guard let rawUrl = rawUrl, let url = URL(string: rawUrl) else { return }
-  let scheme = url.scheme ?? ""
-  guard scheme == "https" || (scheme == "http" && (url.host == "localhost" || url.host == "127.0.0.1")) else { return }
+  let scheme = url.scheme?.lowercased() ?? ""
+  let host = url.host?.lowercased() ?? ""
+  let isLocalhost = host == "localhost" || host == "127.0.0.1" || host == "::1"
+  guard scheme == "https" || (scheme == "http" && isLocalhost) else { return }
 
   var request = URLRequest(url: url)
   request.httpMethod = "POST"

@@ -37,6 +37,7 @@ Current core slot types:
 - `tracker`
 - `scm`
 - `notifier`
+- `poller`
 - `terminal`
 
 The manifest `slot` determines where AO registers the plugin and which config surface can reference it.

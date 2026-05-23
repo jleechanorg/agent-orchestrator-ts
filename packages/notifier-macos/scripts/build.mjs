@@ -2,7 +2,7 @@
 import { Buffer } from "node:buffer";
 import { execFileSync } from "node:child_process";
 import console from "node:console";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,8 @@ import zlib from "node:zlib";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(__dirname, "..");
+const pkgJson = JSON.parse(readFileSync(resolve(packageDir, "package.json"), "utf8"));
+const bundleVersion = pkgJson.version || "0.0.0";
 const distDir = resolve(packageDir, "dist");
 const appName = "AO Notifier.app";
 const appDir = resolve(distDir, appName);
@@ -112,9 +114,9 @@ function writeInfoPlist() {
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.6.0</string>
+  <string>${bundleVersion}</string>
   <key>CFBundleVersion</key>
-  <string>0.6.0</string>
+  <string>${bundleVersion}</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>LSMinimumSystemVersion</key>
