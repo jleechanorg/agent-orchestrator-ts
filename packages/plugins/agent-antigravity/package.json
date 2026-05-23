@@ -1,0 +1,42 @@
+{
+  "name": "@jleechanorg/ao-plugin-agent-antigravity",
+  "version": "0.1.0",
+  "description": "Agent plugin: Antigravity CLI (agy)",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jleechanorg/agent-orchestrator.git",
+    "directory": "packages/plugins/agent-antigravity"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@jleechanorg/ao-core": "workspace:*",
+    "@jleechanorg/ao-plugin-agent-base": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.7.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
