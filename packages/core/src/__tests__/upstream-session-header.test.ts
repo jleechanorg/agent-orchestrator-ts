@@ -3,7 +3,6 @@ import {
   deriveDisplayName,
   DISPLAY_NAME_MAX_LENGTH,
   MARKDOWN_HEADING_RE,
-  type DeriveDisplayNameInput,
 } from "../upstream-session-header.js";
 
 describe("deriveDisplayName", () => {
