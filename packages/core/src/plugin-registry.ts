@@ -38,6 +38,7 @@ export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pk
   { slot: "agent", name: "aider", pkg: "@jleechanorg/ao-plugin-agent-aider" },
   { slot: "agent", name: "opencode", pkg: "@jleechanorg/ao-plugin-agent-opencode" },
   { slot: "agent", name: "openw", pkg: "@jleechanorg/ao-plugin-agent-openw" },
+  { slot: "agent", name: "antigravity", pkg: "@jleechanorg/ao-plugin-agent-antigravity" },
   // Workspaces
   { slot: "workspace", name: "worktree", pkg: "@jleechanorg/ao-plugin-workspace-worktree" },
   { slot: "workspace", name: "clone", pkg: "@jleechanorg/ao-plugin-workspace-clone" },
