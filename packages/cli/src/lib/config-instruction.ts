@@ -126,7 +126,7 @@ notificationRouting:
 
 # ── Available plugins ───────────────────────────────────────────────
 #
-# Agent:     claude-code, aider, codex, opencode
+# Agent:     claude-code, aider, codex, opencode, grok
 # Runtime:   tmux, process
 # Workspace: worktree, clone
 # SCM:       github, gitlab

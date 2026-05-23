@@ -64,6 +64,22 @@ export { createEventBus, createEvent } from "./event-bus.js";
 export { createSessionManager } from "./session-manager.js";
 export type { SessionManagerDeps } from "./session-manager.js";
 
+// Activity log — terminal activity detection and recording
+export {
+  DEFAULT_ACTIVE_WINDOW_MS,
+  PROCESS_PROBE_INDETERMINATE,
+  readLastActivityEntry,
+  checkActivityLogState,
+  getActivityFallbackState,
+  recordTerminalActivity,
+} from "./activity-log.js";
+
+// Activity log threshold (defined in types.ts)
+export { DEFAULT_READY_THRESHOLD_MS } from "./types.js";
+
+// Agent workspace hooks — path wrapper workspace setup
+export { setupPathWrapperWorkspace } from "./agent-workspace-hooks.js";
+
 // Lifecycle manager — state machine + reaction engine
 export { createLifecycleManager } from "./lifecycle-manager.js";
 export type { LifecycleManagerDeps } from "./lifecycle-manager.js";

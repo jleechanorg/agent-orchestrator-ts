@@ -135,6 +135,12 @@ export interface ActivityLogEntry {
 /** Default threshold (ms) before a "ready" session becomes "idle". */
 export const DEFAULT_READY_THRESHOLD_MS = 300_000; // 5 minutes
 
+/**
+ * Process probe result — extends boolean with indeterminate state for agents
+ * where process liveness cannot be reliably determined.
+ */
+export type ProcessProbeResult = boolean | "indeterminate";
+
 /** Session status constants */
 export const SESSION_STATUS = {
   SPAWNING: "spawning" as const,
@@ -412,7 +418,7 @@ export interface Agent {
   getActivityState(session: Session, readyThresholdMs?: number): Promise<ActivityDetection | null>;
 
   /** Check if agent process is running (given runtime handle) */
-  isProcessRunning(handle: RuntimeHandle): Promise<boolean>;
+  isProcessRunning(handle: RuntimeHandle): Promise<ProcessProbeResult>;
 
   /** Extract information from agent's internal data (summary, cost, session ID) */
   getSessionInfo(session: Session): Promise<AgentSessionInfo | null>;
@@ -440,6 +446,12 @@ export interface Agent {
    * run git/gh commands. Without this, PRs created by agents never show up.
    */
   setupWorkspaceHooks?(workspacePath: string, config: WorkspaceHooksConfig): Promise<void>;
+
+  /**
+   * Optional: Record terminal activity for session state tracking.
+   * Used by agents with native activity log support (e.g. Grok).
+   */
+  recordActivity?(session: Session, terminalOutput: string): Promise<void>;
 }
 
 export interface AgentLaunchConfig {
@@ -476,6 +488,8 @@ export interface AgentLaunchConfig {
    * Use --subagent flag to select the subagent.
    */
   subagent?: string;
+  /** Workspace path for agents that need it at launch time */
+  workspacePath?: string;
 }
 
 export interface WorkspaceHooksConfig {

@@ -2439,7 +2439,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
         if (
           runtimeAlive &&
-          processRunning &&
+          processRunning === true &&
           foregroundReady &&
           (hasQueuedMessage(output) || isStable)
         ) {
@@ -2481,7 +2481,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         const foregroundReady =
           foregroundCommand === null || foregroundCommand === agentPlugin.processName;
 
-        if (runtimeAlive && foregroundReady && (processRunning || output.trim().length > 0)) {
+        if (runtimeAlive && foregroundReady && (processRunning === true || output.trim().length > 0)) {
           return;
         }
 
@@ -2552,7 +2552,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         ]);
       }
 
-      if (!runtimeAlive || !processRunning) {
+      if (!runtimeAlive || processRunning === false) {
         if (options?.skipRestore) {
           return normalized;
         }
