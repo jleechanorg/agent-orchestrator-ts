@@ -247,5 +247,3 @@ export function detect(): boolean {
 }
 
 export default { manifest, create, detect } satisfies PluginModule<Agent>;
-// Trigger fresh pull_request workflow run with correct [agento] title prefix
-
