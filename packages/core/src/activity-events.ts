@@ -286,9 +286,27 @@ function sanitizeData(data: Record<string, unknown>): string | undefined {
   return json;
 }
 
+const SENSITIVE_SUMMARY_PATTERNS = [
+  /Bearer\s+\S+/gi,
+  /ghp_[A-Za-z0-9]{20,}/g,
+  /gho_[A-Za-z0-9]{20,}/g,
+  /ghu_[A-Za-z0-9]{20,}/g,
+  /ghs_[A-Za-z0-9]{20,}/g,
+  /https?:\/\/[^\s@]{8,}@[^\s]+/gi,
+];
+
+function redactSummarySensitive(summary: string): string {
+  let redacted = summary;
+  for (const pattern of SENSITIVE_SUMMARY_PATTERNS) {
+    redacted = redacted.replace(pattern, "[redacted]");
+  }
+  return redacted;
+}
+
 function sanitizeSummary(summary: string): string {
-  if (summary.length <= 500) return summary;
-  return `${summary.slice(0, 497)}...`;
+  const redacted = redactSummarySensitive(summary);
+  if (redacted.length <= 500) return redacted;
+  return `${redacted.slice(0, 497)}...`;
 }
 
 export function recordActivityEvent(event: ActivityEventInput): void {

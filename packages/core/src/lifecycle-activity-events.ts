@@ -37,6 +37,7 @@ export function emitActivityTransition(
     sessionId,
     source: "lifecycle",
     kind: "activity.transition",
+    level: "info",
     summary: `${from} → ${to}`,
     data: { from, to },
   });

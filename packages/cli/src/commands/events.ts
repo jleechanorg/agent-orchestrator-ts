@@ -36,6 +36,28 @@ function toJsonOutput(ev: ActivityEvent): Record<string, unknown> {
   return { ...ev, data };
 }
 
+interface EventsListOptions {
+  project?: string;
+  session?: string;
+  type?: string;
+  logLevel?: string;
+  since?: string;
+  limit?: string;
+  json?: boolean;
+}
+
+interface EventsSearchOptions {
+  project?: string;
+  limit?: string;
+  json?: boolean;
+}
+
+function parseLimit(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw ?? String(fallback), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, 1000);
+}
+
 function parseSinceDuration(raw: string): Date | undefined {
   const match = raw.match(/^(\d+)(m|h|d)$/);
   if (!match) return undefined;
@@ -84,8 +106,8 @@ export function registerEvents(program: Command): void {
     .option("--since <duration>", "Show events from last N minutes/hours/days (e.g. 30m, 2h, 1d)")
     .option("-n, --limit <n>", "Max results", "50")
     .option("--json", "Output as JSON")
-    .action(async (opts: Record<string, string | undefined>) => {
-      const sinceRaw = opts["since"];
+    .action(async (opts: EventsListOptions) => {
+      const sinceRaw = opts.since;
       let since: Date | undefined;
       if (sinceRaw) {
         since = parseSinceDuration(sinceRaw);
@@ -93,25 +115,25 @@ export function registerEvents(program: Command): void {
           console.error(chalk.yellow(`Warning: unrecognised --since format "${sinceRaw}" (use e.g. 30m, 2h, 1d). No time filter applied.`));
         }
       }
-      const limit = parseInt(opts["limit"] ?? "50", 10);
+      const limit = parseLimit(opts.limit, 50);
 
       const results = queryActivityEvents({
-        projectId: opts["project"],
-        sessionId: opts["session"],
-        kind: opts["type"] as ActivityEventKind,
-        level: opts["logLevel"] as ActivityEventLevel,
+        projectId: opts.project,
+        sessionId: opts.session,
+        kind: opts.type as ActivityEventKind,
+        level: opts.logLevel as ActivityEventLevel,
         since,
         limit,
       });
 
-      if (opts["json"]) {
+      if (opts.json) {
         const envelope: JsonEnvelope = {
           version: 1,
           query: {
-            projectId: opts["project"] ?? null,
-            sessionId: opts["session"] ?? null,
-            kind: opts["type"] ?? null,
-            level: opts["logLevel"] ?? null,
+            projectId: opts.project ?? null,
+            sessionId: opts.session ?? null,
+            kind: opts.type ?? null,
+            level: opts.logLevel ?? null,
             since: sinceRaw ?? null,
             limit,
           },
@@ -144,15 +166,15 @@ export function registerEvents(program: Command): void {
     .option("-p, --project <id>", "Filter by project ID")
     .option("-n, --limit <n>", "Max results", "100")
     .option("--json", "Output as JSON")
-    .action(async (query: string, opts: Record<string, string | undefined>) => {
-      const limit = parseInt(opts["limit"] ?? "100", 10);
-      const results = searchActivityEvents(query, opts["project"], limit);
+    .action(async (query: string, opts: EventsSearchOptions) => {
+      const limit = parseLimit(opts.limit, 100);
+      const results = searchActivityEvents(query, opts.project, limit);
       const fallbackUsed = !isActivityEventsFtsEnabled();
 
-      if (opts["json"]) {
+      if (opts.json) {
         const envelope: JsonEnvelope = {
           version: 1,
-          query: { q: query, projectId: opts["project"] ?? null, limit },
+          query: { q: query, projectId: opts.project ?? null, limit },
           meta: jsonMeta(results.length, fallbackUsed),
           events: results.map(toJsonOutput),
         };

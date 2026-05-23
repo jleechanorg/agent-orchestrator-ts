@@ -2102,7 +2102,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
   }
 
-  async function kill(sessionId: SessionId, options?: { purgeOpenCode?: boolean }): Promise<void> {
+  async function kill(sessionId: SessionId, options?: { purgeOpenCode?: boolean; reason?: string }): Promise<void> {
     const { raw, sessionsDir, project, projectId } = requireSessionRecord(sessionId);
 
     const cleanupAgent = resolveSelectionForSession(project, sessionId, raw).agentName;
@@ -2171,7 +2171,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     // Archive metadata
-    emitKilled(projectId, sessionId, "manually_killed");
+    emitKilled(projectId, sessionId, options?.reason ?? "manually_killed");
     deleteMetadata(sessionsDir, sessionId, true);
     if (didPurgeOpenCodeSession) {
       markArchivedOpenCodeCleanup(sessionsDir, sessionId);

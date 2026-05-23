@@ -44,6 +44,7 @@ describe("lifecycle-activity-events companion hooks", () => {
       sessionId: "sess-1",
       source: "lifecycle",
       kind: "activity.transition",
+      level: "info",
       summary: "active → idle",
       data: { from: "active", to: "idle" },
     });

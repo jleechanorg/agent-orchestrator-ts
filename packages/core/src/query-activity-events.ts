@@ -121,14 +121,20 @@ export function searchActivityEvents(rawQuery: string, projectId?: string, limit
 
   try {
     if (!isActivityEventsFtsEnabled()) {
-      const likePattern = `%${escapeLike(tokens.join(" "))}%`;
-      const fallbackParams: unknown[] = [likePattern, likePattern];
+      const tokenConditions = tokens
+        .map(() => "(ae.summary LIKE ? ESCAPE '\\' OR ae.data LIKE ? ESCAPE '\\')")
+        .join(" AND ");
+      const fallbackParams: unknown[] = [];
+      for (const token of tokens) {
+        const likePattern = `%${escapeLike(token)}%`;
+        fallbackParams.push(likePattern, likePattern);
+      }
       if (projectId) fallbackParams.push(projectId);
       fallbackParams.push(clampedLimit);
       const rows = db
         .prepare(
           `SELECT ae.*, NULL AS rank FROM activity_events ae
-           WHERE (ae.summary LIKE ? ESCAPE '\\' OR ae.data LIKE ? ESCAPE '\\') ${projectFilter}
+           WHERE ${tokenConditions} ${projectFilter}
            ORDER BY ae.ts_epoch DESC
            LIMIT ?`,
         )
