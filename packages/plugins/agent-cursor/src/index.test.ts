@@ -190,7 +190,7 @@ describe("getLaunchCommand", () => {
 
   it("uses composer model value when it is a supported Cursor model", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ model: "composer-2" }));
-    expect(agentPart(cmd)).toBe("cursor-agent --model 'composer-2'");
+    expect(agentPart(cmd)).toBe("cursor-agent --force --model 'composer-2'");
   });
 
   it("falls back to default when composer model id is not in the supported allowlist", () => {
