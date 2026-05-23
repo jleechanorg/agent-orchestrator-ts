@@ -104,8 +104,9 @@ export async function getFailedCIChecks(
 }
 
 export function makeCIFailureFingerprint(failedChecks: CICheck[]): string {
-  return failedChecks
+  return [...failedChecks]
     .map((c) => `${c.name}:${c.status}:${c.conclusion ?? ""}`)
+    .sort((a, b) => a.localeCompare(b))
     .join("|");
 }
 
@@ -121,15 +122,22 @@ export async function enrichCIFailureReaction(
       config: {
         ...reactionConfig,
         message:
+          reactionConfig.message ??
           "CI is failing on your PR. Run `gh pr checks` to see the failures, fix them, and push.",
       },
       enriched: false,
     };
   }
 
-  const message = await formatCIFailureMessage(scm, pr, failedChecks);
+  const ciMessage = await formatCIFailureMessage(scm, pr, failedChecks);
+  const baseMessage = reactionConfig.message;
+  const mergedMessage = baseMessage
+    ? (baseMessage.includes("{{context}}")
+      ? baseMessage.replace(/\{\{context\}\}/g, () => ciMessage)
+      : `${baseMessage}\n\n${ciMessage}`)
+    : ciMessage;
   return {
-    config: { ...reactionConfig, message },
+    config: { ...reactionConfig, message: mergedMessage },
     enriched: true,
   };
 }

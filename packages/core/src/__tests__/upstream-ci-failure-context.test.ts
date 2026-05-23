@@ -216,6 +216,18 @@ describe("makeCIFailureFingerprint", () => {
     expect(fp).toBe("build:failed:FAILURE|test:failed:");
   });
 
+  it("produces stable fingerprint regardless of input order", () => {
+    const checksA = [
+      makeCheck({ name: "build", status: "failed" }),
+      makeCheck({ name: "test", status: "failed" }),
+    ];
+    const checksB = [
+      makeCheck({ name: "test", status: "failed" }),
+      makeCheck({ name: "build", status: "failed" }),
+    ];
+    expect(makeCIFailureFingerprint(checksA)).toBe(makeCIFailureFingerprint(checksB));
+  });
+
   it("returns empty string for empty array", () => {
     expect(makeCIFailureFingerprint([])).toBe("");
   });
@@ -230,15 +242,26 @@ describe("enrichCIFailureReaction", () => {
     escalateAfter: 2,
   };
 
-  it("returns fallback message when no failed checks found", async () => {
+  it("preserves existing message when no failed checks found", async () => {
     const mockSCM = {
       getCIChecks: vi.fn().mockRejectedValue(new Error("unavailable")),
     } as unknown as SCM;
 
     const result = await enrichCIFailureReaction(mockSCM, mockPR, baseConfig, true);
     expect(result.enriched).toBe(false);
-    expect(result.config.message).toContain("Run `gh pr checks`");
+    expect(result.config.message).toBe("CI failed");
     expect(result.config.action).toBe("send-to-agent");
+  });
+
+  it("uses default message when no failed checks and no existing message", async () => {
+    const mockSCM = {
+      getCIChecks: vi.fn().mockRejectedValue(new Error("unavailable")),
+    } as unknown as SCM;
+    const configNoMessage: ReactionConfig = { auto: true, action: "send-to-agent" };
+
+    const result = await enrichCIFailureReaction(mockSCM, mockPR, configNoMessage, true);
+    expect(result.enriched).toBe(false);
+    expect(result.config.message).toContain("Run `gh pr checks`");
   });
 
   it("enriches message with failed check details", async () => {
@@ -250,6 +273,7 @@ describe("enrichCIFailureReaction", () => {
 
     const result = await enrichCIFailureReaction(mockSCM, mockPR, baseConfig, true);
     expect(result.enriched).toBe(true);
+    expect(result.config.message).toContain("CI failed");
     expect(result.config.message).toContain("build");
     expect(result.config.action).toBe("send-to-agent");
   });
@@ -263,6 +287,27 @@ describe("enrichCIFailureReaction", () => {
     expect(result.config.retries).toBe(2);
     expect(result.config.escalateAfter).toBe(2);
     expect(result.config.auto).toBe(true);
+    expect(result.config.message).toBe("CI failed");
+  });
+
+  it("merges CI context into {{context}} template when present", async () => {
+    const templateConfig: ReactionConfig = {
+      auto: true,
+      action: "send-to-agent",
+      message: "Agent needs help. {{context}} Please fix ASAP.",
+    };
+    const mockSCM = {
+      getCIChecks: vi.fn().mockResolvedValue([
+        makeCheck({ name: "build", status: "failed", conclusion: "FAILURE" }),
+      ]),
+    } as unknown as SCM;
+
+    const result = await enrichCIFailureReaction(mockSCM, mockPR, templateConfig, true);
+    expect(result.enriched).toBe(true);
+    expect(result.config.message).toContain("Agent needs help.");
+    expect(result.config.message).toContain("build");
+    expect(result.config.message).toContain("Please fix ASAP.");
+    expect(result.config.message).not.toContain("{{context}}");
   });
 
   it("uses summary enrichment when available", async () => {
