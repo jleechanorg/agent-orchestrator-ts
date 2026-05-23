@@ -15,10 +15,12 @@ export interface DetectedAgent {
 /** Known agent plugins — package name mapping. */
 const AGENT_PLUGINS: Array<{ name: string; pkg: string }> = [
   { name: "claude-code", pkg: "@jleechanorg/ao-plugin-agent-claude-code" },
+  { name: "antigravity", pkg: "@jleechanorg/ao-plugin-agent-antigravity" },
   { name: "cursor", pkg: "@jleechanorg/ao-plugin-agent-cursor" },
   { name: "aider", pkg: "@jleechanorg/ao-plugin-agent-aider" },
   { name: "codex", pkg: "@jleechanorg/ao-plugin-agent-codex" },
   { name: "opencode", pkg: "@jleechanorg/ao-plugin-agent-opencode" },
+  { name: "grok", pkg: "@jleechanorg/ao-plugin-agent-grok" },
 ];
 
 /**

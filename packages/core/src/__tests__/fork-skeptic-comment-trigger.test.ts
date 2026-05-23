@@ -130,6 +130,44 @@ describe("detectAndTriggerSkepticComment", () => {
     expect(mockTrigger).not.toHaveBeenCalled();
   });
 
+  it("falls back to default 'github' SCM when project.scm is not defined", async () => {
+    config.projects["my-app"] = {
+      name: "my-app",
+      repo: "org/repo",
+      path: "/tmp/repo",
+      defaultBranch: "main",
+      sessionPrefix: "app",
+    };
+
+    const session = makeSession({ id: "sess-1", pr: makePR() });
+    const scm = makeMockSCM([
+      { id: 1, user: { login: "jleechan2015" }, body: "/skeptic" },
+    ]);
+
+    registry = {
+      get: vi.fn().mockImplementation((type, name) => {
+        if (type === "scm" && name === "github") {
+          return scm;
+        }
+        return null;
+      }),
+    } as unknown as PluginRegistry;
+
+    await detectAndTriggerSkepticComment(
+      session,
+      processedCommentIds,
+      failedCommentIds,
+      lastSkepticSha,
+      "test-corr",
+      config,
+      registry,
+      mockTrigger,
+    );
+
+    expect(registry.get).toHaveBeenCalledWith("scm", "github");
+    expect(mockTrigger).toHaveBeenCalledTimes(1);
+  });
+
   it("skips bot-authored comments", async () => {
     const session = makeSession({ pr: makePR() });
     const scm = makeMockSCM([
@@ -275,6 +313,7 @@ describe("detectAndTriggerSkepticComment", () => {
       detectAndTriggerSkepticComment(
         session,
         processedCommentIds,
+        failedCommentIds,
         lastSkepticSha,
         "test-corr",
         config,

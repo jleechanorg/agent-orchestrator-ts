@@ -6,8 +6,10 @@ import aiderPlugin from "@jleechanorg/ao-plugin-agent-aider";
 import opencodePlugin from "@jleechanorg/ao-plugin-agent-opencode";
 import minimaxPlugin from "@jleechanorg/ao-plugin-agent-minimax";
 import geminiPlugin from "@jleechanorg/ao-plugin-agent-gemini";
+import antigravityPlugin from "@jleechanorg/ao-plugin-agent-antigravity";
 import waferPlugin from "@jleechanorg/ao-plugin-agent-wafer";
 import openwPlugin from "@jleechanorg/ao-plugin-agent-openw";
+import grokPlugin from "@jleechanorg/ao-plugin-agent-grok";
 import githubSCMPlugin from "@jleechanorg/ao-plugin-scm-github";
 
 const agentPlugins: Record<string, { create(): Agent }> = {
@@ -18,8 +20,10 @@ const agentPlugins: Record<string, { create(): Agent }> = {
   opencode: opencodePlugin,
   minimax: minimaxPlugin,
   gemini: geminiPlugin,
+  antigravity: antigravityPlugin,
   wafer: waferPlugin,
   openw: openwPlugin,
+  grok: grokPlugin,
 };
 
 const scmPlugins: Record<string, { create(config?: Record<string, unknown>): SCM }> = {

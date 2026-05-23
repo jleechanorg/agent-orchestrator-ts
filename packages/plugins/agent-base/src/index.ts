@@ -664,7 +664,7 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
   // But also check the last 20 lines for active spinner indicators: agents like
   // Claude Code render ❯ at the bottom while still thinking/using tools above
   // (orch-jtc7: false-idle between tool calls).
-  if (/^[❯>$#]\s*$/.test(lastLine)) {
+  if (/^[❯>$#]\s*$/.test(lastLine) || (lines.length >= 3 && /^[❯>$#]\s*$/.test(lines[lines.length - 3]?.trim() ?? ""))) {
     const windowStart = Math.max(0, lines.length - 20);
     const window = lines.slice(windowStart, lines.length);
     if (window.some((l) => ACTIVE_SPINNER_RE.test(l))) return "active";

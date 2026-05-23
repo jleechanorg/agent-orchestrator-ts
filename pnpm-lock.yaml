@@ -122,6 +122,9 @@ importers:
       '@jleechanorg/ao-plugin-agent-aider':
         specifier: workspace:*
         version: link:../plugins/agent-aider
+      '@jleechanorg/ao-plugin-agent-antigravity':
+        specifier: workspace:*
+        version: link:../plugins/agent-antigravity
       '@jleechanorg/ao-plugin-agent-claude-code':
         specifier: workspace:*
         version: link:../plugins/agent-claude-code
@@ -134,6 +137,9 @@ importers:
       '@jleechanorg/ao-plugin-agent-gemini':
         specifier: workspace:*
         version: link:../plugins/agent-gemini
+      '@jleechanorg/ao-plugin-agent-grok':
+        specifier: workspace:*
+        version: link:../plugins/agent-grok
       '@jleechanorg/ao-plugin-agent-minimax':
         specifier: workspace:*
         version: link:../plugins/agent-minimax
@@ -355,6 +361,8 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@25.2.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.3)
 
+  packages/notifier-macos: {}
+
   packages/plugins/agent-aider:
     dependencies:
       '@jleechanorg/ao-core':
@@ -373,6 +381,22 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@25.2.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.3)
+
+  packages/plugins/agent-antigravity:
+    dependencies:
+      '@jleechanorg/ao-core':
+        specifier: workspace:*
+        version: link:../../core
+      '@jleechanorg/ao-plugin-agent-base':
+        specifier: workspace:*
+        version: link:../agent-base
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
 
   packages/plugins/agent-base:
     dependencies:
@@ -459,6 +483,28 @@ importers:
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@25.2.3)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.3)
+
+  packages/plugins/agent-grok:
+    dependencies:
+      '@jleechanorg/ao-core':
+        specifier: workspace:*
+        version: link:../../core
+      which:
+        specifier: ^6.0.1
+        version: 6.0.1
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.3
+        version: 25.2.3
+      '@types/which':
+        specifier: ^3.0.4
+        version: 3.0.4
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -2391,6 +2437,9 @@ packages:
 
   '@types/stack-utils@2.0.3':
     resolution: {integrity: sha512-9aEbYZ3TbYMznPdcdr3SmIrLXwC/AKZXQeCf9Pgao5CKb8CyHuEX5jzWPTkvregvhRJHcpRO6BFoGW9ycaOkYw==}
+
+  '@types/which@3.0.4':
+    resolution: {integrity: sha512-liyfuo/106JdlgSchJzXEQCVArk0CvevqPote8F8HgWgJ3dRCcTHgJIsLDuee0kxk/mhbInzIZk3QWSZJ8R+2w==}
 
   '@types/wrap-ansi@3.0.0':
     resolution: {integrity: sha512-ltIpx+kM7g/MLRZfkbL7EsCEjfzCcScLpkg37eXEtx5kmrAKBkTJwd1GIAjDSL8wTpM6Hzn5YO4pSb91BEwu1g==}
@@ -7049,6 +7098,8 @@ snapshots:
       csstype: 3.2.3
 
   '@types/stack-utils@2.0.3': {}
+
+  '@types/which@3.0.4': {}
 
   '@types/wrap-ansi@3.0.0': {}
 

@@ -1,8 +1,15 @@
-import { setupMcpMailInWorkspace, isWaferModel, isZaiModel, stripProviderPrefix, isCustomProviderModel, } from "@jleechanorg/ao-plugin-agent-base";
+import { setupMcpMailInWorkspace, isWaferModel, isZaiModel, } from "@jleechanorg/ao-plugin-agent-base";
 import { DEFAULT_READY_THRESHOLD_MS, shellEscape, asValidOpenCodeSessionId, } from "@jleechanorg/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
+/**
+ * Escapes a string for safe use inside double-quoted shell strings.
+ * Escapes: " $ ` \
+ */
+function escapeForDoubleQuotes(str) {
+    return str.replace(/(["`$\\])/g, "\\$1");
+}
 function parseUpdatedTimestamp(updated) {
     if (typeof updated === "number") {
         if (!Number.isFinite(updated))
@@ -44,80 +51,6 @@ function parseSessionList(raw) {
         return asValidOpenCodeSessionId(record["id"]) !== undefined;
     });
 }
-/**
- * Parse JSON stream lines from `opencode run --format json` output.
- * Each line is a JSON object. We look for objects containing a session ID field.
- * OpenCode emits `sessionID` (camelCase) in its JSON stream; we also check
- * `session_id` (snake_case) and `id` for forward compatibility.
- */
-function buildSessionIdCaptureScript() {
-    const script = `
-let buffer = '';
-let captured = null;
-const extract = obj => {
-  if (!obj || captured) return;
-  for (const key of ['sessionID', 'session_id', 'id']) {
-    const val = obj[key];
-    if (typeof val === 'string' && /^ses_[A-Za-z0-9_-]+$/.test(val)) {
-      captured = val;
-      return;
-    }
-  }
-};
-process.stdin.on('data', chunk => {
-  buffer += chunk;
-  const lines = buffer.split('\\n');
-  buffer = lines.pop() || '';
-  for (const line of lines) {
-    if (captured) continue;
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try { extract(JSON.parse(trimmed)); } catch {}
-  }
-}).on('end', () => {
-  if (buffer.trim()) {
-    try { extract(JSON.parse(buffer.trim())); } catch {}
-  }
-  if (captured) {
-    process.stdout.write(captured);
-    process.exit(0);
-  }
-  process.exit(1);
-});
-  `.trim();
-    return script.replace(/\n/g, " ").replace(/\s+/g, " ");
-}
-function buildSessionLookupScript() {
-    const script = `
-let input = '';
-process.stdin.on('data', c => input += c).on('end', () => {
-  const title = process.argv[1];
-  let rows;
-  try { rows = JSON.parse(input); } catch { process.exit(1); }
-  if (!Array.isArray(rows)) process.exit(1);
-  const isValidId = id => /^ses_[A-Za-z0-9_-]+$/.test(id);
-  const timestamp = value => {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string') {
-      const parsed = Date.parse(value);
-      return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
-    }
-    return Number.NEGATIVE_INFINITY;
-  };
-  const matches = rows
-    .filter(r => r && r.title === title && typeof r.id === 'string' && isValidId(r.id))
-    .sort((a, b) => {
-      const ta = timestamp(a.updated);
-      const tb = timestamp(b.updated);
-      if (ta === tb) return 0;
-      return tb - ta;
-    });
-  if (matches.length === 0) process.exit(1);
-  process.stdout.write(matches[0].id);
-});
-  `.trim();
-    return script.replace(/\n/g, " ").replace(/\s+/g, " ");
-}
 // =============================================================================
 // Terminal output patterns (hoisted to avoid repeated allocation)
 // =============================================================================
@@ -156,71 +89,64 @@ function createOpenCodeAgent() {
         processName: "opencode",
         supportsSystemPromptFile: true,
         getLaunchCommand(config) {
-            const options = [];
-            const sharedOptions = [];
+            const parts = ["opencode", "run", "--format", "json"];
             const existingSessionId = asValidOpenCodeSessionId(config.projectConfig.agentConfig?.opencodeSessionId);
+            const isResuming = !!existingSessionId;
             if (existingSessionId) {
-                options.push("--session", shellEscape(existingSessionId));
+                parts.push("--session", shellEscape(existingSessionId));
             }
-            // Select specific OpenCode subagent if configured
-            if (config.subagent) {
-                sharedOptions.push("--agent", shellEscape(config.subagent));
-            }
-            let promptValue;
-            if (config.prompt) {
-                if (config.systemPromptFile) {
-                    promptValue = `"$(cat ${shellEscape(config.systemPromptFile)}; printf '\\n\\n'; printf %s ${shellEscape(config.prompt)})"`;
-                }
-                else if (config.systemPrompt) {
-                    promptValue = shellEscape(`${config.systemPrompt}\n\n${config.prompt}`);
-                }
-                else {
-                    promptValue = shellEscape(config.prompt);
-                }
-            }
-            else if (config.systemPromptFile) {
-                promptValue = `"$(cat ${shellEscape(config.systemPromptFile)})"`;
-            }
-            else if (config.systemPrompt) {
-                promptValue = shellEscape(config.systemPrompt);
+            else {
+                parts.push("--title", shellEscape(`AO:${config.sessionId}`));
             }
             if (config.model) {
-                // Strip provider prefix (wafer.ai/, z.ai/) — routing is handled by
-                // OPENAI_BASE_URL in getEnvironment(), not by the model name.
-                // Guard: reject provider-only prefixes that would produce an empty model string.
-                const modelArg = isCustomProviderModel(config.model)
-                    ? stripProviderPrefix(config.model)
-                    : config.model;
-                if (!modelArg) {
-                    throw new Error(`[ao-plugin-agent-opencode] Invalid model "${config.model}": provider prefix with no model name`);
+                parts.push("--model", shellEscape(config.model));
+            }
+            if (config.subagent) {
+                parts.push("--agent", shellEscape(config.subagent));
+            }
+            let combinedPrompt = "";
+            if (config.systemPromptFile) {
+                combinedPrompt = `$(cat ${shellEscape(config.systemPromptFile)})`;
+                if (config.prompt) {
+                    combinedPrompt = `"${combinedPrompt}\n\n${escapeForDoubleQuotes(config.prompt)}"`;
                 }
-                sharedOptions.push("--model", shellEscape(modelArg));
+                else {
+                    combinedPrompt = `"${combinedPrompt}"`;
+                }
             }
-            if (!existingSessionId) {
-                const runOptions = [
-                    "--format",
-                    "json",
-                    "--title",
-                    shellEscape(`AO:${config.sessionId}`),
-                    ...sharedOptions,
-                ];
-                const captureScript = buildSessionIdCaptureScript();
-                const fallbackScript = buildSessionLookupScript();
-                const runCommand = ["opencode", "run", ...runOptions, shellEscape(".")].join(" ");
-                const resumeOptions = [...(promptValue ? ["--prompt", promptValue] : []), ...sharedOptions];
-                const resumeOptionsSuffix = resumeOptions.length > 0 ? ` ${resumeOptions.join(" ")}` : "";
-                const missingSessionError = shellEscape(`failed to discover OpenCode session ID for AO:${config.sessionId}`);
-                return [
-                    `SES_ID=$(${runCommand} | node -e ${shellEscape(captureScript)})`,
-                    `if [ -z "$SES_ID" ]; then SES_ID=$(opencode session list --format json | node -e ${shellEscape(fallbackScript)} ${shellEscape(`AO:${config.sessionId}`)}); fi`,
-                    `[ -n "$SES_ID" ] && exec opencode --session "$SES_ID"${resumeOptionsSuffix}; echo ${missingSessionError} >&2; exit 1`,
-                ].join("; ");
+            else if (config.systemPrompt) {
+                combinedPrompt = config.systemPrompt;
+                if (config.prompt) {
+                    combinedPrompt = `${config.systemPrompt}\n\n${config.prompt}`;
+                }
             }
-            if (promptValue) {
-                options.push("--prompt", promptValue);
+            else if (config.prompt) {
+                combinedPrompt = config.prompt;
             }
-            options.push(...sharedOptions);
-            return ["opencode", ...options].join(" ");
+            if (isResuming) {
+                if (combinedPrompt) {
+                    if (config.systemPromptFile) {
+                        parts.push("--prompt", combinedPrompt);
+                    }
+                    else {
+                        parts.push("--prompt", shellEscape(combinedPrompt));
+                    }
+                }
+            }
+            else {
+                if (combinedPrompt) {
+                    if (config.systemPromptFile) {
+                        parts.push(combinedPrompt);
+                    }
+                    else {
+                        parts.push(shellEscape(combinedPrompt));
+                    }
+                }
+                else {
+                    parts.push(shellEscape("."));
+                }
+            }
+            return parts.join(" ");
         },
         getEnvironment(config) {
             const env = {};
@@ -372,12 +298,50 @@ function createOpenCodeAgent() {
         },
     };
 }
+function buildSessionIdCaptureScript() {
+    const script = `
+let buffer = '';
+let captured = null;
+const extract = obj => {
+  if (!obj || captured) return;
+  for (const key of ['sessionID', 'session_id', 'id']) {
+    const val = obj[key];
+    if (typeof val === 'string' && /^ses_[A-Za-z0-9_-]+$/.test(val)) {
+      captured = val;
+      return;
+    }
+  }
+};
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  const lines = buffer.split('\\n');
+  buffer = lines.pop() || '';
+  for (const line of lines) {
+    if (captured) continue;
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try { extract(JSON.parse(trimmed)); } catch {}
+  }
+}).on('end', () => {
+  if (buffer.trim()) {
+    try { extract(JSON.parse(buffer.trim())); } catch {}
+  }
+  if (captured) {
+    process.stdout.write(captured);
+    process.exit(0);
+  }
+  process.exit(1);
+});
+  `.trim();
+    return script.replace(/\n/g, " ").replace(/\s+/g, " ");
+}
 // =============================================================================
 // Plugin Export
 // =============================================================================
 export function create() {
     return createOpenCodeAgent();
 }
+export { buildSessionIdCaptureScript };
 export function detect() {
     try {
         execFileSync("opencode", ["version"], { stdio: "ignore" });
