@@ -699,7 +699,6 @@ describe("skeptic chain integration", () => {
         "jleechan2015",
         TRIGGER_SHA,
         TRIGGER_UPDATED,
-        "jleechan2015",
       );
 
       // Bot author is trusted unconditionally (new logic); gh-actions[bot] requires != pr_author
