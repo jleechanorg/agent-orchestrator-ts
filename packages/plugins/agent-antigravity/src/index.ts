@@ -28,6 +28,18 @@ const antigravityConfig: AgentPluginConfig = {
 };
 
 const antigravityOverrides: Partial<Agent> = {
+  getLaunchCommand(launchConfig: AgentLaunchConfig): string {
+    const parts = ["agy", "--prompt-interactive", '""'];
+    const permissions = launchConfig.permissions;
+    if (permissions === "permissionless" || permissions === "auto-edit" || permissions === "skip") {
+      parts.push("--dangerously-skip-permissions");
+    }
+    if (launchConfig.model) {
+      parts.push("--model", launchConfig.model);
+    }
+    return parts.join(" ");
+  },
+
   async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {
     return null;
   },
