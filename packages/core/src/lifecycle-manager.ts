@@ -79,6 +79,7 @@ import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate, type MergeGateResult } from "./merge-gate.js";
 import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
 import { isGhRateLimitError } from "./gh-rate-limit.js";
+import { enrichCIFailureReaction } from "./upstream-ci-failure-context.js";
 import { sweepOrphanTmuxSessions, DEFAULT_TMUX_SWEEPER_CONFIG } from "./tmux-session-sweeper.js";
 import {
   maybeWarnBackfillDisabledWithOpenPRs,
@@ -1789,7 +1790,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     const { status: determinedStatus, agentDead } = await determineStatus(session);
     let newStatus: SessionStatus = determinedStatus;
-    let transitionReaction: { key: string; result: ReactionResult | null } | undefined;
+    let transitionReaction: { key: string; result: ReactionResult | null; messageEnriched?: boolean } | undefined;
 
     // bd-kki: check if PR is merged before recording "killed" status.
     // If the SCM call fails (transient error), the session stays in its previous
@@ -2038,9 +2039,31 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               );
             }
 
+            // Enrich CI failure reaction with failed job/step/log details from SCM.
+            // Upstream commit 3fb23cfb4 — companion module: upstream-ci-failure-context.ts
+            let ciMessageEnriched = false;
+            let effectiveReactionConfig = reactionConfig;
+            if (
+              reactionKey === "ci-failed" &&
+              session.pr &&
+              reactionConfig.action === "send-to-agent"
+            ) {
+              const ciProject = config.projects[session.projectId];
+              const ciScm = ciProject?.scm?.plugin
+                ? registry.get<SCM>("scm", ciProject.scm.plugin)
+                : null;
+              if (ciScm) {
+                const enriched = await enrichCIFailureReaction(
+                  ciScm, session.pr, reactionConfig, false,
+                );
+                effectiveReactionConfig = enriched.config;
+                ciMessageEnriched = enriched.enriched;
+              }
+            }
+
             // auto: false skips automated agent actions but still allows notifications
             if (
-              (reactionConfig.auto !== false || reactionConfig.action === "notify") &&
+              (effectiveReactionConfig.auto !== false || effectiveReactionConfig.action === "notify") &&
               !skipForDead &&
               skipVerdictGate
             ) {
@@ -2049,13 +2072,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 session.id,
                 session.projectId,
                 reactionKey,
-                reactionConfig,
+                effectiveReactionConfig,
                 session,
                 correlationId,
                 false, // isPeriodic: transition-driven, not a periodic nudge
                 agentDead,
               );
-              transitionReaction = { key: reactionKey, result: reactionResult };
+              transitionReaction = { key: reactionKey, result: reactionResult, messageEnriched: ciMessageEnriched || undefined };
               // Seed stuck retry cooldown from the initial transition nudge (bd-sbr.2)
               if (reactionKey === "agent-stuck") {
                 const key = `stuck-retry-${session.id}`;

@@ -84,6 +84,16 @@ export { setupPathWrapperWorkspace } from "./agent-workspace-hooks.js";
 export { createLifecycleManager } from "./lifecycle-manager.js";
 export type { LifecycleManagerDeps } from "./lifecycle-manager.js";
 
+// CI failure context — upstream commit 3fb23cfb4 companion module
+export {
+  enrichCIFailureReaction,
+  formatCIFailureMessage,
+  getFailedCIChecks,
+  makeCIFailureFingerprint,
+  isFailedCICheck,
+  escapeMarkdownCodeFenceClosers,
+} from "./upstream-ci-failure-context.js";
+
 // Failure budget tracker — tracks retry attempts and routes on exhaustion
 export { FailureBudgetTracker, routeExhaustedBudget } from "./failure-budget.js";
 export type { BudgetExhaustedDeps } from "./failure-budget.js";
