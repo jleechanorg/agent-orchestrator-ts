@@ -40,6 +40,9 @@ const antigravityOverrides: Partial<Agent> = {
   },
 
   getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
+    const baseAgent = createAgentPlugin(antigravityConfig);
+    const baseEnv = baseAgent.getEnvironment(launchConfig);
+
     const userHome = os.homedir();
     const sessionHome = path.join(userHome, ".ao-sessions", launchConfig.sessionId);
     
@@ -76,6 +79,7 @@ const antigravityOverrides: Partial<Agent> = {
     }
     
     return {
+      ...baseEnv,
       HOME: sessionHome,
       // Clear these to prevent the spawned CLI from inheriting parent agent context
       ANTIGRAVITY_PROJECT_ID: "",
