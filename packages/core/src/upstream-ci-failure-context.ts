@@ -116,7 +116,16 @@ export async function enrichCIFailureReaction(
   allowFetch: boolean,
 ): Promise<{ config: ReactionConfig; enriched: boolean }> {
   const failedChecks = await getFailedCIChecks(scm, pr, { allowFetch });
-  if (!failedChecks) return { config: reactionConfig, enriched: false };
+  if (!failedChecks) {
+    return {
+      config: {
+        ...reactionConfig,
+        message:
+          "CI is failing on your PR. Run `gh pr checks` to see the failures, fix them, and push.",
+      },
+      enriched: false,
+    };
+  }
 
   const message = await formatCIFailureMessage(scm, pr, failedChecks);
   return {
