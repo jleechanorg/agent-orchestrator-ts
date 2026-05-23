@@ -12,12 +12,12 @@ const mainWf = readFileSync(MAIN_WF_PATH, "utf-8");
 describe("skeptic-cron workflow alignment", () => {
   it("main workflow should use the same fail-closed merge guard as reusable workflow", () => {
     // Extract the normalization block from reusable workflow
-    const reusableMatch = reusableWf.match(/_AUTO_MERGE_NORM="[^"]+"/);
+    const reusableMatch = reusableWf.match(/_AUTO_MERGE_NORM=".*"/);
     expect(reusableMatch).not.toBeNull();
-    const reusableBlock = reusableMatch![0];
+    const reusableLine = reusableMatch![0];
 
     // Check for normalization logic in main workflow
-    expect(mainWf).toContain(reusableBlock);
+    expect(mainWf).toContain(reusableLine);
     expect(mainWf).toMatch(/SKIP_MERGE=true/);
     expect(mainWf).toMatch(/sed 's\/\^\[\[:space:\]\]\*\/\/;s\/\[\[:space:\]\]\*\$\/\/'/);
   });
