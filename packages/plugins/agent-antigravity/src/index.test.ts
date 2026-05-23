@@ -2,19 +2,18 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
 import path from "node:path";
 
-// Hoisted mocks for os and fs
 const {
   mockHomedir,
   mockMkdirSync,
   mockExistsSync,
-  mockStatSync,
+  mockLstatSync,
   mockReaddirSync,
   mockCopyFileSync,
 } = vi.hoisted(() => ({
   mockHomedir: vi.fn(() => "/mock/home"),
   mockMkdirSync: vi.fn(),
   mockExistsSync: vi.fn(() => false),
-  mockStatSync: vi.fn(),
+  mockLstatSync: vi.fn(),
   mockReaddirSync: vi.fn(() => []),
   mockCopyFileSync: vi.fn(),
 }));
@@ -30,13 +29,13 @@ vi.mock("node:fs", () => ({
   default: {
     mkdirSync: mockMkdirSync,
     existsSync: mockExistsSync,
-    statSync: mockStatSync,
+    lstatSync: mockLstatSync,
     readdirSync: mockReaddirSync,
     copyFileSync: mockCopyFileSync,
   },
   mkdirSync: mockMkdirSync,
   existsSync: mockExistsSync,
-  statSync: mockStatSync,
+  lstatSync: mockLstatSync,
   readdirSync: mockReaddirSync,
   copyFileSync: mockCopyFileSync,
 }));
@@ -93,8 +92,7 @@ describe("antigravity getEnvironment", () => {
     expect(env.HOME).toBe(path.join("/Users/mockuser", ".ao-sessions", "sess-1"));
     expect(env.ANTIGRAVITY_PROJECT_ID).toBe("");
     expect(env.ANTIGRAVITY_TRAJECTORY_ID).toBe("");
-    
-    // Asserts session directory creation
+
     expect(mockMkdirSync).toHaveBeenCalledWith(
       path.join("/Users/mockuser", ".ao-sessions", "sess-1"),
       { recursive: true }
@@ -104,8 +102,7 @@ describe("antigravity getEnvironment", () => {
   it("performs recursive copy of .gemini directory and skips tmp, history, and browser profile", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");
-    
-    // Simulate .gemini exists
+
     mockExistsSync.mockImplementation((filepath) => {
       if (typeof filepath === "string" && filepath.includes(".gemini")) {
         return true;
@@ -113,17 +110,16 @@ describe("antigravity getEnvironment", () => {
       return false;
     });
 
-    mockStatSync.mockImplementation((filepath) => {
-      // If it ends with a known file, it's a file, otherwise it's a directory
+    mockLstatSync.mockImplementation((filepath) => {
       const isFile = typeof filepath === "string" && (filepath.endsWith(".json") || filepath.endsWith(".config"));
       return {
+        isSymbolicLink: () => false,
         isDirectory: () => !isFile,
       };
     });
 
     mockReaddirSync.mockImplementation((dirpath) => {
       if (typeof dirpath === "string" && dirpath.endsWith(".gemini")) {
-        // Return files and folders, including folders to skip
         return ["settings.json", "tmp", "history", "antigravity-browser-profile", "valid-subdir"];
       }
       if (typeof dirpath === "string" && dirpath.endsWith("valid-subdir")) {
@@ -135,7 +131,6 @@ describe("antigravity getEnvironment", () => {
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env).toBeDefined();
 
-    // Verify copying was called for allowed items
     expect(mockCopyFileSync).toHaveBeenCalledWith(
       path.join("/Users/mockuser", ".gemini", "settings.json"),
       path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini", "settings.json")
@@ -146,7 +141,6 @@ describe("antigravity getEnvironment", () => {
       path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini", "valid-subdir", "config.json")
     );
 
-    // Verify copy was skipped for tmp, history, and browser profile
     const allCopiedDests = mockCopyFileSync.mock.calls.map((call) => call[1] as string);
     const hasTmp = allCopiedDests.some((dest) => dest.includes("tmp"));
     const hasHistory = allCopiedDests.some((dest) => dest.includes("history"));
@@ -155,5 +149,42 @@ describe("antigravity getEnvironment", () => {
     expect(hasTmp).toBe(false);
     expect(hasHistory).toBe(false);
     expect(hasProfile).toBe(false);
+  });
+
+  it("skips symlinks during recursive copy", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.includes(".gemini")) return true;
+      return false;
+    });
+
+    mockLstatSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.endsWith("symlink-dir")) {
+        return { isSymbolicLink: () => true, isDirectory: () => false };
+      }
+      const isFile = typeof filepath === "string" && filepath.endsWith(".json");
+      return { isSymbolicLink: () => false, isDirectory: () => !isFile };
+    });
+
+    mockReaddirSync.mockImplementation((dirpath) => {
+      if (typeof dirpath === "string" && dirpath.endsWith(".gemini")) {
+        return ["settings.json", "symlink-dir"];
+      }
+      return [];
+    });
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    expect(mockCopyFileSync).toHaveBeenCalledWith(
+      path.join("/Users/mockuser", ".gemini", "settings.json"),
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini", "settings.json")
+    );
+
+    const allCopiedSrcs = mockCopyFileSync.mock.calls.map((call) => call[0] as string);
+    const hasSymlink = allCopiedSrcs.some((src) => src.includes("symlink-dir"));
+    expect(hasSymlink).toBe(false);
   });
 });

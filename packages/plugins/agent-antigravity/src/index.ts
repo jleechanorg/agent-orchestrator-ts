@@ -54,7 +54,9 @@ const antigravityOverrides: Partial<Agent> = {
     
     const copyRecursiveSync = (src: string, dest: string) => {
       const exists = fs.existsSync(src);
-      const isDirectory = exists && fs.statSync(src).isDirectory();
+      const stats = exists ? fs.lstatSync(src) : null;
+      if (stats?.isSymbolicLink()) return;
+      const isDirectory = stats?.isDirectory() ?? false;
       if (isDirectory) {
         fs.mkdirSync(dest, { recursive: true });
         fs.readdirSync(src).forEach((childItemName: string) => {
@@ -66,16 +68,16 @@ const antigravityOverrides: Partial<Agent> = {
       } else {
         try {
           fs.copyFileSync(src, dest);
-        } catch {
-          // ignore
+        } catch (err) {
+          console.debug(`[antigravity] Failed to copy ${src}: ${(err as Error).message}`);
         }
       }
     };
     
     try {
       copyRecursiveSync(srcGemini, destGemini);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.debug(`[antigravity] Failed to copy .gemini directory: ${(err as Error).message}`);
     }
     
     return {
