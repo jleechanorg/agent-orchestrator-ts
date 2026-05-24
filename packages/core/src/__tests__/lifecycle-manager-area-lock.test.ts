@@ -7,15 +7,9 @@ import { randomUUID } from "node:crypto";
 
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import * as worktreeGit from "../utils/worktree-git.js";
-import { writeMetadata } from "../metadata.js";
 import type {
   OrchestratorConfig,
-  PluginRegistry,
-  SessionManager,
   Session,
-  SCM,
-  AreaLock,
-  EventBus,
 } from "../types.js";
 
 vi.mock("../utils/worktree-git.js", () => ({
@@ -81,7 +75,7 @@ describe("LifecycleManager - Area Lock Reservation", () => {
     };
 
     mockRegistry = {
-      get: vi.fn((slot, name) => {
+      get: vi.fn((slot, _name) => {
         if (slot === "lock") return mockLock;
         if (slot === "agent") return mockAgent;
         return null;
@@ -133,7 +127,7 @@ describe("LifecycleManager - Area Lock Reservation", () => {
       getCISummary: vi.fn().mockResolvedValue("pending"),
       getReviewDecision: vi.fn().mockResolvedValue(null),
     };
-    mockRegistry.get.mockImplementation((slot, name) => {
+    mockRegistry.get.mockImplementation((slot, _name) => {
       if (slot === "scm") return mockScm;
       if (slot === "lock") return mockLock;
       if (slot === "agent") return mockAgent;

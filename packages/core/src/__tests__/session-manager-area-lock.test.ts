@@ -6,19 +6,11 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
 import { createSessionManager } from "../session-manager.js";
-import { validateConfig } from "../config.js";
 import * as worktreeGit from "../utils/worktree-git.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir } from "../paths.js";
 import type {
   OrchestratorConfig,
-  PluginRegistry,
-  SessionManager,
-  Runtime,
-  Agent,
-  Workspace,
-  SCM,
-  AreaLock,
 } from "../types.js";
 
 vi.mock("../utils/worktree-git.js", () => ({
@@ -93,7 +85,7 @@ describe("SessionManager - Area Lock", () => {
     };
 
     mockRegistry = {
-      get: vi.fn((slot, name) => {
+      get: vi.fn((slot, _name) => {
         if (slot === "runtime") return mockRuntime;
         if (slot === "agent") return mockAgent;
         if (slot === "workspace") return mockWorkspace;
@@ -177,7 +169,7 @@ describe("SessionManager - Area Lock", () => {
       checkoutPR: vi.fn().mockResolvedValue(true),
       getPRState: vi.fn().mockResolvedValue("open"),
     };
-    mockRegistry.get.mockImplementation((slot, name) => {
+    mockRegistry.get.mockImplementation((slot, _name) => {
       if (slot === "scm") return mockScm;
       if (slot === "lock") return mockLock;
       if (slot === "runtime") return mockRuntime;
