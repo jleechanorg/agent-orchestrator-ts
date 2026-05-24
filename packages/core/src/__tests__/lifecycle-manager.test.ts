@@ -2098,7 +2098,7 @@ describe("reactions", () => {
 
     expect(mockSessionManager.send).toHaveBeenCalledWith(
       "app-1",
-      "CI is failing on your PR. Run `gh pr checks` to see the failures, fix them, and push.",
+      "CI is failing. Fix it.",
     );
   });
 
@@ -2388,7 +2388,7 @@ describe("reactions", () => {
     // send-to-agent reaction should have been executed (enrichment fails → fallback message)
     expect(mockSessionManager.send).toHaveBeenCalledWith(
       "app-1",
-      "CI is failing on your PR. Run `gh pr checks` to see the failures, fix them, and push.",
+      "Fix CI",
     );
     // Notifier should NOT have been called — the reaction is handling it
     expect(mockNotifier.notify).not.toHaveBeenCalled();
