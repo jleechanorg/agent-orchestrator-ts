@@ -25,6 +25,7 @@ import { execFile } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
+import { emitSpawnStarted, emitSpawnFailed, emitSpawned, emitKilled } from "./session-activity-events.js";
 import {
   isIssueNotFoundError,
   isRestorable,
@@ -1022,6 +1023,16 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
   // Define methods as local functions so `this` is not needed
   async function spawn(spawnConfig: SessionSpawnConfig): Promise<Session> {
+    emitSpawnStarted(spawnConfig.projectId, spawnConfig.agent);
+    try {
+      return await _spawnInner(spawnConfig);
+    } catch (err) {
+      emitSpawnFailed(spawnConfig.projectId, err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
+  async function _spawnInner(spawnConfig: SessionSpawnConfig): Promise<Session> {
     const project = config.projects[spawnConfig.projectId];
     if (!project) {
       throw new Error(`Unknown project: ${spawnConfig.projectId}`);
@@ -1438,6 +1449,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         },
       );
     }
+
+    emitSpawned(spawnConfig.projectId, sessionId, plugins.agent.name, session.branch ?? undefined);
 
     return session;
   }
@@ -2089,7 +2102,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
   }
 
-  async function kill(sessionId: SessionId, options?: { purgeOpenCode?: boolean }): Promise<void> {
+  async function kill(sessionId: SessionId, options?: { purgeOpenCode?: boolean; reason?: string }): Promise<void> {
     const { raw, sessionsDir, project, projectId } = requireSessionRecord(sessionId);
 
     const cleanupAgent = resolveSelectionForSession(project, sessionId, raw).agentName;
@@ -2158,6 +2171,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     // Archive metadata
+    emitKilled(projectId, sessionId, options?.reason ?? "killed");
     deleteMetadata(sessionsDir, sessionId, true);
     if (didPurgeOpenCodeSession) {
       markArchivedOpenCodeCleanup(sessionsDir, sessionId);

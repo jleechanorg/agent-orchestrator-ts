@@ -210,6 +210,7 @@ export {
   generateInstanceId,
   generateSessionPrefix,
   getProjectBaseDir,
+  getAoBaseDir,
   getSessionsDir,
   getWorktreesDir,
   getFeedbackReportsDir,
@@ -534,3 +535,32 @@ export {
 
 // Upstream session header companion (#1981)
 export { deriveDisplayName, type DeriveDisplayNameInput } from "./upstream-session-header.js";
+
+// Activity event logging — structured diagnostic event trail (upstream #1528)
+export { recordActivityEvent, droppedEventCount } from "./activity-events.js";
+export { isActivityEventsFtsEnabled } from "./events-db.js";
+export type {
+  ActivityEventInput,
+  ActivityEventKind,
+  ActivityEventSource,
+  ActivityEventLevel,
+  ActivityEvent,
+} from "./activity-events.js";
+export {
+  queryActivityEvents,
+  searchActivityEvents,
+  getActivityEventStats,
+} from "./query-activity-events.js";
+export type { ActivityEventFilter, ActivityEventStats } from "./query-activity-events.js";
+
+// Companion hooks for session-manager and lifecycle-manager activity events
+export {
+  emitSpawnStarted,
+  emitSpawnFailed,
+  emitSpawned,
+  emitKilled,
+} from "./session-activity-events.js";
+export {
+  emitLifecycleTransition,
+  emitActivityTransition,
+} from "./lifecycle-activity-events.js";

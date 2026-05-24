@@ -97,6 +97,8 @@ jobs:
 
       - name: Ensure base branch ref is available
         run: |
+          # Re-establish auth header in case the self-hosted runner cleaned it up
+          git config --local "http.https://github.com/.extraheader" "Authorization: basic $(echo -n "x-access-token:${{ github.token }}" | base64)" 2>/dev/null || true
           git fetch origin ${{ needs.pr-context.outputs.base_ref }}:${{ needs.pr-context.outputs.base_ref }}
           git branch main origin/main || true
 

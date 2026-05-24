@@ -1040,6 +1040,7 @@ export type EventPriority = "urgent" | "action" | "warning" | "info";
 /** All orchestrator event types */
 export type EventType =
   // Session lifecycle
+  | "session.spawn_started"
   | "session.spawned"
   | "session.working"
   | "session.exited"
