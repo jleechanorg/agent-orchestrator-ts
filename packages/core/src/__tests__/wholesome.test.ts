@@ -580,6 +580,8 @@ describe("wholesome — structural source-code assertions", () => {
       "51eaa8f78c6afa9e33a31bc01e434aec15380a51", // fix: address CodeRabbit CR feedback on PR #585
       // PR #585: trivial test comment to trigger fresh CR formal review
       "1df0ad412b073a0513a8f3e43311969447eae85f", // test: clarify FTS integration test bypasses openDb/initFts
+      // PR #585: add SKIP_SHA for clarify-FTS commit
+      "899449dc748cdc888255d2561b599e4be91b3014", // test: add PR #585 clarify-FTS commit SHA to wholesome SKIP_SHAS
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
