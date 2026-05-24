@@ -10,7 +10,7 @@
  * and runtime injection attacks.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncOptions } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { expandHome } from "./paths.js";
 
@@ -149,7 +149,7 @@ export function sourceEnvFile(
     const spawnResult = spawnSync(
       "bash",
       ["--noprofile", "--norc", "-i", "-c", `source "$1" > /dev/null 2>&1; env`, "--", expanded],
-      { timeout: 10_000, stdio: ["ignore", "pipe", "pipe"], detached: true } as any,
+      { timeout: 10_000, stdio: ["ignore", "pipe", "pipe"], detached: true } as SpawnSyncOptions,
     );
     const output = (spawnResult.stdout || "").toString().trim();
 

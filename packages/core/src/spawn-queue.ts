@@ -8,7 +8,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
-  TERMINAL_STATUSES,
   isTerminalSession,
   type ProjectConfig,
   type Session,
