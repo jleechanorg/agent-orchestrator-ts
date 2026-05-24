@@ -1,7 +1,6 @@
 #!/bin/bash
 # Integration test: Fresh developer onboarding experience
 # Measures time and verifies each step of the onboarding flow
-# Triggering CI re-run
 
 set -e
 

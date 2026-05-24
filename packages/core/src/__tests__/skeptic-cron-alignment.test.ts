@@ -11,15 +11,17 @@ const mainWf = readFileSync(MAIN_WF_PATH, "utf-8");
 
 describe("skeptic-cron workflow alignment", () => {
   it("main workflow should use the same fail-closed merge guard as reusable workflow", () => {
-    // Extract the normalization block from reusable workflow
-    const reusableMatch = reusableWf.match(/_AUTO_MERGE_NORM=".*"/);
-    expect(reusableMatch).not.toBeNull();
-    const reusableLine = reusableMatch![0];
+    const normPattern = /_AUTO_MERGE_NORM=.*\btr\b.*\bsed\b/;
+    const reusableMatch = reusableWf.match(normPattern);
+    expect(reusableMatch, "reusable workflow must contain _AUTO_MERGE_NORM assignment with tr+sed pipeline").not.toBeNull();
+    const reusableLine = reusableMatch![0].trimEnd();
 
-    // Check for normalization logic in main workflow
-    expect(mainWf).toContain(reusableLine);
+    const mainMatch = mainWf.match(normPattern);
+    expect(mainMatch, "main workflow must contain _AUTO_MERGE_NORM assignment with tr+sed pipeline").not.toBeNull();
+    const mainLine = mainMatch![0].trimEnd();
+
+    expect(mainLine).toBe(reusableLine);
     expect(mainWf).toMatch(/SKIP_MERGE=true/);
-    expect(mainWf).toMatch(/sed 's\/\^\[\[:space:\]\]\*\/\/;s\/\[\[:space:\]\]\*\$\/\/'/);
   });
 
   it("main workflow should use empty default fallback for SKEPTIC_CRON_AUTO_MERGE env var", () => {
