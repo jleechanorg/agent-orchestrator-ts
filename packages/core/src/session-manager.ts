@@ -2171,7 +2171,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     // Archive metadata
-    emitKilled(projectId, sessionId, options?.reason ?? "manually_killed");
+    emitKilled(projectId, sessionId, options?.reason ?? "killed");
     deleteMetadata(sessionsDir, sessionId, true);
     if (didPurgeOpenCodeSession) {
       markArchivedOpenCodeCleanup(sessionsDir, sessionId);

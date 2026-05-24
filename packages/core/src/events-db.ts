@@ -52,7 +52,7 @@ function initSchema(db: BetterSqlite3Database): void {
   `);
 }
 
-function initFts(db: BetterSqlite3Database): void {
+function initFts(db: BetterSqlite3Database, rebuild = false): void {
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS activity_events_fts USING fts5(
       summary, data,
@@ -84,7 +84,9 @@ function initFts(db: BetterSqlite3Database): void {
     END;
   `);
 
-  db.exec("INSERT INTO activity_events_fts(activity_events_fts) VALUES('rebuild')");
+  if (rebuild) {
+    db.exec("INSERT INTO activity_events_fts(activity_events_fts) VALUES('rebuild')");
+  }
 }
 
 function pruneOldEvents(db: BetterSqlite3Database, cutoff: number): void {
@@ -109,12 +111,9 @@ function openDb(): BetterSqlite3Database {
 
   const version = db.pragma("user_version", { simple: true }) as number;
   initSchema(db);
-  if (version < 1) {
-    db.pragma("user_version = 1");
-  }
 
   try {
-    initFts(db);
+    initFts(db, version < 1);
     _ftsEnabled = true;
   } catch (err) {
     _ftsEnabled = false;
@@ -123,6 +122,10 @@ function openDb(): BetterSqlite3Database {
         err instanceof Error ? err.message : String(err)
       }\n`,
     );
+  }
+
+  if (version < 1) {
+    db.pragma("user_version = 1");
   }
 
   const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;

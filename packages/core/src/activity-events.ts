@@ -198,22 +198,25 @@ function redactCredentialUrls(input: string): string {
     }
 
     let cursor = proto + 3;
+    let redacted = false;
     while (cursor < result.length) {
       const ch = result.charCodeAt(cursor);
       if (ch <= 0x20 || ch === 0x2f) break;
       if (ch === 0x40) {
-        const before = result.slice(0, proto + 3).toLowerCase();
-        const suffix = result.slice(cursor);
-        result = before + "[redacted]" + suffix;
+        const before = result.slice(0, proto + 3);
+        const suffix = result.slice(cursor + 1);
+        result = before + "[redacted]@" + suffix;
         offset = proto + 3 + "[redacted]".length + 1;
+        redacted = true;
         break;
       }
       cursor++;
     }
     if (
-      cursor >= result.length ||
-      result.charCodeAt(cursor) <= 0x20 ||
-      result.charCodeAt(cursor) === 0x2f
+      !redacted &&
+      (cursor >= result.length ||
+        result.charCodeAt(cursor) <= 0x20 ||
+        result.charCodeAt(cursor) === 0x2f)
     ) {
       offset = proto + 3;
     }
@@ -288,10 +291,13 @@ function sanitizeData(data: Record<string, unknown>): string | undefined {
 
 const SENSITIVE_SUMMARY_PATTERNS = [
   /Bearer\s+\S+/gi,
-  /ghp_[A-Za-z0-9]{20,}/g,
-  /gho_[A-Za-z0-9]{20,}/g,
-  /ghu_[A-Za-z0-9]{20,}/g,
-  /ghs_[A-Za-z0-9]{20,}/g,
+  /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+  /\bsk-(?:ant-)?(?:proj-|svcacct-)?[A-Za-z0-9_-]{16,}\b/g,
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+  /\b([A-Z][A-Z0-9_]*(?:TOKEN|PASSWORD|SECRET|AUTHORIZATION|COOKIE|API_KEY|APIKEY)[A-Z0-9_]*)=([^\s"'`]{6,})/g,
   /https?:\/\/[^\s@]{8,}@[^\s]+/gi,
 ];
 
@@ -310,18 +316,23 @@ function sanitizeSummary(summary: string): string {
 }
 
 export function recordActivityEvent(event: ActivityEventInput): void {
+  const db = getDb();
+  if (!db) {
+    _droppedEventCount++;
+    return;
+  }
+
+  const now = Date.now();
+  const ts = new Date(now).toISOString();
+  const summary = sanitizeSummary(event.summary);
+  let data: string | undefined;
   try {
-    const db = getDb();
-    if (!db) {
-      _droppedEventCount++;
-      return;
-    }
+    data = event.data ? sanitizeData(event.data) : undefined;
+  } catch {
+    data = undefined;
+  }
 
-    const now = Date.now();
-    const ts = new Date(now).toISOString();
-    const summary = sanitizeSummary(event.summary);
-    const data = event.data ? sanitizeData(event.data) : undefined;
-
+  try {
     db.prepare(
       `INSERT INTO activity_events
         (ts_epoch, ts, project_id, session_id, source, type, log_level, summary, data)
@@ -337,11 +348,17 @@ export function recordActivityEvent(event: ActivityEventInput): void {
       summary,
       data ?? null,
     );
-    if (now - _lastPruneMs >= PRUNE_INTERVAL_MS) {
-      _lastPruneMs = now;
-      pruneOldEvents(db, now - RETENTION_MS);
-    }
   } catch {
     _droppedEventCount++;
+    return;
+  }
+
+  if (now - _lastPruneMs >= PRUNE_INTERVAL_MS) {
+    _lastPruneMs = now;
+    try {
+      pruneOldEvents(db, now - RETENTION_MS);
+    } catch {
+      // Prune failure does not affect the persisted event
+    }
   }
 }

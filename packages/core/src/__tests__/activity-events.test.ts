@@ -141,7 +141,7 @@ describe("recordActivityEvent", () => {
     });
     const parsed = JSON.parse(capture.data as string);
     expect(parsed["request"]["headers"]["authorization"]).toBe("[redacted]");
-    expect(parsed["request"]["headers"]["url"]).toBe("https://[redacted]@example.com/path");
+    expect(parsed["request"]["headers"]["url"]).toBe("HTTPS://[redacted]@example.com/path");
   });
 
   it("preserves error messages that mention sensitive words in values", () => {
