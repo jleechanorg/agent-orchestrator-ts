@@ -70,9 +70,9 @@ function openMemoryDb(): any {
 }
 
 if (!Database) {
-  console.warn("events-fts-integration: better-sqlite3 unavailable — integration tests skipped");
+  console.warn("events-fts-integration: better-sqlite3 unavailable — integration tests marked as todo");
 }
-const itIfAvailable = Database ? it : it.skip;
+const itIfAvailable = Database ? it : it.todo;
 
 describe("FTS5 integration (real SQLite)", () => {
   let db: ReturnType<typeof openMemoryDb>;
