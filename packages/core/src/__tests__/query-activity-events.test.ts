@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { BetterSqlite3Database } from "../events-db.js";
 
 vi.mock("../events-db.js", () => ({
   getDb: vi.fn(),
   isActivityEventsFtsEnabled: vi.fn(() => true),
 }));
 vi.mock("../activity-events.js", async (importOriginal) => {
-  const mod = await (importOriginal as () => Promise<any>)();
+  const mod = await (importOriginal as () => Promise<typeof import("../activity-events.js")>)();
   return { ...mod, droppedEventCount: () => 0 };
 });
 
@@ -43,7 +44,7 @@ describe("queryActivityEvents", () => {
   });
 
   it("maps rows to ActivityEvent shape", () => {
-    vi.mocked(eventsDb.getDb).mockReturnValue(makeDb() as any);
+    vi.mocked(eventsDb.getDb).mockReturnValue(makeDb() as unknown as BetterSqlite3Database);
     const results = queryActivityEvents();
     expect(results).toHaveLength(1);
     expect(results[0]!.kind).toBe("lifecycle.transition");
@@ -58,7 +59,7 @@ describe("queryActivityEvents", () => {
         return { all: () => [] };
       },
     };
-    vi.mocked(eventsDb.getDb).mockReturnValue(captureDb as any);
+    vi.mocked(eventsDb.getDb).mockReturnValue(captureDb as unknown as BetterSqlite3Database);
     queryActivityEvents({ limit: 9999 });
     expect(capturedSql).toContain("LIMIT ?");
   });
@@ -71,7 +72,7 @@ describe("queryActivityEvents", () => {
         },
       }),
     };
-    vi.mocked(eventsDb.getDb).mockReturnValue(badDb as any);
+    vi.mocked(eventsDb.getDb).mockReturnValue(badDb as unknown as BetterSqlite3Database);
     expect(queryActivityEvents()).toEqual([]);
   });
 });
@@ -80,7 +81,7 @@ describe("searchActivityEvents", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("returns [] for empty query", () => {
-    vi.mocked(eventsDb.getDb).mockReturnValue(makeDb() as any);
+    vi.mocked(eventsDb.getDb).mockReturnValue(makeDb() as unknown as BetterSqlite3Database);
     expect(searchActivityEvents("")).toEqual([]);
     expect(searchActivityEvents("   ")).toEqual([]);
   });
@@ -95,7 +96,7 @@ describe("searchActivityEvents", () => {
         },
       }),
     };
-    vi.mocked(eventsDb.getDb).mockReturnValue(captureDb as any);
+    vi.mocked(eventsDb.getDb).mockReturnValue(captureDb as unknown as BetterSqlite3Database);
     searchActivityEvents("spawn; DROP TABLE activity_events--");
     expect(capturedFtsQuery).toBe('"spawn" AND "DROP" AND "TABLE" AND "activity_events"');
   });
@@ -119,7 +120,7 @@ describe("searchActivityEvents", () => {
         };
       },
     };
-    vi.mocked(eventsDb.getDb).mockReturnValue(captureDb as any);
+    vi.mocked(eventsDb.getDb).mockReturnValue(captureDb as unknown as BetterSqlite3Database);
     vi.mocked(eventsDb.isActivityEventsFtsEnabled).mockReturnValueOnce(false);
 
     const results = searchActivityEvents("spawn failed", "proj-1", 10);
@@ -160,7 +161,7 @@ describe("getActivityEventStats", () => {
         },
       }),
     };
-    vi.mocked(eventsDb.getDb).mockReturnValue(stubDb as any);
+    vi.mocked(eventsDb.getDb).mockReturnValue(stubDb as unknown as BetterSqlite3Database);
     const stats = getActivityEventStats();
     expect(stats).not.toBeNull();
     expect(stats!.total).toBe(5);

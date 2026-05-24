@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createRequire } from "node:module";
+import type { BetterSqlite3Database } from "../events-db.js";
 
-let Database: (new (path: string) => any) | null = null;
+let Database: (new (path: string) => BetterSqlite3Database) | null = null;
 try {
   const require = createRequire(import.meta.url);
-  Database = require("better-sqlite3") as new (path: string) => any;
+  Database = require("better-sqlite3") as new (path: string) => BetterSqlite3Database;
 } catch {
   // better-sqlite3 unavailable — integration tests will be skipped
 }
@@ -20,9 +21,9 @@ import * as eventsDb from "../events-db.js";
 import { recordActivityEvent } from "../activity-events.js";
 import { searchActivityEvents, queryActivityEvents } from "../query-activity-events.js";
 
-function openMemoryDb(): any {
+function openMemoryDb(): BetterSqlite3Database {
   if (!Database) throw new Error("better-sqlite3 not available");
-  const db = new (Database as any)(":memory:");
+  const db = new Database(":memory:");
   db.exec(`
     CREATE TABLE IF NOT EXISTS activity_events (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,7 +84,7 @@ describe("FTS5 integration (real SQLite)", () => {
     vi.clearAllMocks();
     if (!Database) return;
     db = openMemoryDb();
-    vi.mocked(eventsDb.getDb).mockReturnValue(db as any);
+    vi.mocked(eventsDb.getDb).mockReturnValue(db);
   });
 
   itIfAvailable("inserts and FTS-searches events end-to-end", () => {

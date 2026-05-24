@@ -13,7 +13,7 @@ import { getAoBaseDir } from "./paths.js";
 
 const _require = createRequire(import.meta.url);
 
-type BetterSqlite3Database = {
+export type BetterSqlite3Database = {
   pragma(source: string, options?: { simple?: boolean }): unknown;
   exec(source: string): void;
   prepare(source: string): { run(...args: unknown[]): unknown; all(...args: unknown[]): unknown[] };

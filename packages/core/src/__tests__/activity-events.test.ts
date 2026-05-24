@@ -6,11 +6,16 @@ interface MockPrepareResult {
 }
 
 interface MockDb {
+  pragma: (source: string, options?: { simple?: boolean }) => unknown;
+  exec: (source: string) => void;
   prepare: (sql: string) => MockPrepareResult;
+  close: () => void;
 }
 
 function createCaptureDb(capture: { summary?: unknown; data?: unknown }): MockDb {
   return {
+    pragma: () => undefined,
+    exec: () => {},
     prepare: (_sql: string) => ({
       run: (...args: unknown[]) => {
         capture.summary = args[7];
@@ -18,12 +23,15 @@ function createCaptureDb(capture: { summary?: unknown; data?: unknown }): MockDb
       },
       all: () => [],
     }),
+    close: () => {},
   };
 }
 
 vi.mock("../events-db.js", () => {
   const rows: unknown[] = [];
   const mockDb: MockDb = {
+    pragma: () => undefined,
+    exec: () => {},
     prepare: (sql: string) => ({
       run: (..._args: unknown[]) => {
         if (sql.includes("INSERT INTO activity_events")) {
@@ -32,6 +40,7 @@ vi.mock("../events-db.js", () => {
       },
       all: () => [],
     }),
+    close: () => {},
   };
   return {
     getDb: vi.fn(() => mockDb),
@@ -76,9 +85,12 @@ describe("recordActivityEvent", () => {
 
   it("never throws even if prepare throws", () => {
     const badDb: MockDb = {
+      pragma: () => undefined,
+      exec: () => {},
       prepare: () => {
         throw new Error("disk full");
       },
+      close: () => {},
     };
     vi.mocked(eventsDb.getDb).mockReturnValueOnce(badDb);
     expect(() =>
