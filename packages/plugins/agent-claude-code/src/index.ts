@@ -648,7 +648,7 @@ function classifyTerminalOutput(terminalOutput: string): ActivityState {
   if (/\(Y\)es.*\(N\)o/i.test(tail)) return "waiting_input";
   if (/bypass\s+all\s+future\s+permissions/i.test(tail)) return "waiting_input";
 
-  if (/\b\w+ing…/.test(wideTail)) return "active";
+  if (/\b\w+ing(?:\u2026|\.\.\.)/.test(wideTail)) return "active";
   if (/\bGerminating/i.test(wideTail)) return "active";
   if (/\b(?:Thinking|Working)\s*(?:…|\.\.\.)/i.test(wideTail)) return "active";
   if (/\bReading\s+file/i.test(wideTail)) return "active";
