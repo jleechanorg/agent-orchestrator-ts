@@ -10,7 +10,7 @@ import {
 } from "../upstream-ci-failure-context.js";
 import type { SCM, CICheck, PRInfo, ReactionConfig } from "../types.js";
 
-const mockPR: PRInfo = { owner: "org", repo: "repo", number: 42, headBranch: "feat", baseBranch: "main" };
+const mockPR: PRInfo = { owner: "org", repo: "repo", number: 42, branch: "feat", baseBranch: "main", url: "https://github.com/org/repo/pull/42", title: "Test PR", isDraft: false };
 
 function makeCheck(overrides: Partial<CICheck> = {}): CICheck {
   return {
@@ -26,11 +26,11 @@ describe("isFailedCICheck", () => {
   });
 
   it("returns true for conclusion=FAILURE", () => {
-    expect(isFailedCICheck(makeCheck({ status: "completed", conclusion: "FAILURE" }))).toBe(true);
+    expect(isFailedCICheck(makeCheck({ status: "passed", conclusion: "FAILURE" }))).toBe(true);
   });
 
   it("returns true for conclusion=failure (case-insensitive)", () => {
-    expect(isFailedCICheck(makeCheck({ status: "completed", conclusion: "failure" }))).toBe(true);
+    expect(isFailedCICheck(makeCheck({ status: "passed", conclusion: "failure" }))).toBe(true);
   });
 
   it("returns false for passing check", () => {
@@ -163,6 +163,28 @@ describe("formatCIFailureMessage", () => {
     const result = await formatCIFailureMessage(mockSCM, mockPR, [makeCheck()]);
     expect(result).toContain("Failed: deploy");
     expect(result).not.toContain("→");
+  });
+
+  it("includes both summary and fallback for partial enrichment", async () => {
+    const summary = {
+      failedJobs: [
+        { name: "build", failedStep: "compile", runUrl: "https://github.com/runs/1" },
+      ],
+    };
+    const mockSCM = {
+      getCIFailureSummary: vi.fn().mockResolvedValue(summary),
+    } as unknown as SCM;
+    const checks = [
+      makeCheck({ name: "build", status: "failed" }),
+      makeCheck({ name: "lint", status: "failed", url: "https://github.com/runs/2" }),
+    ];
+
+    const result = await formatCIFailureMessage(mockSCM, mockPR, checks);
+    expect(result).toContain("CI is failing on your PR");
+    expect(result).toContain("build → compile");
+    expect(result).toContain("Additional failing checks");
+    expect(result).toContain("lint");
+    expect(result).toContain("https://github.com/runs/2");
   });
 });
 

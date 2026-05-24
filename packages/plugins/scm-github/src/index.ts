@@ -32,6 +32,7 @@ import {
   type MergeReadiness,
   type BatchPRStatus,
   logAoAction,
+  isFailedCICheck,
 } from "@jleechanorg/ao-core";
 import {
   getWebhookHeader,
@@ -881,10 +882,6 @@ function mapRawCheckStateToStatus(rawState: string | undefined): CICheck["status
 }
 
 const CI_FAILURE_LOG_TAIL_LINES = 120;
-
-function isFailedCheck(check: CICheck): boolean {
-  return check.status === "failed" || check.conclusion?.toUpperCase() === "FAILURE";
-}
 
 function isDecimalId(value: string): boolean {
   return value.length > 0 && [...value].every((char) => char >= "0" && char <= "9");
@@ -2348,44 +2345,47 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       pr: PRInfo,
       providedFailedChecks?: CICheck[],
     ): Promise<CIFailureSummary | null> {
-      try {
-        const failedChecks = (providedFailedChecks ?? (await this.getCIChecks(pr))).filter(
-          isFailedCheck,
-        );
-        if (failedChecks.length === 0) return null;
-
-        const failedJobs: CIFailureSummary["failedJobs"] = [];
-        const seenRuns = new Set<string>();
-
-        for (const check of failedChecks) {
-          try {
-            const runReference = extractActionRunReference(check);
-            if (!runReference) continue;
-
-            const seenKey = `${runReference.runId}:${runReference.jobId ?? ""}`;
-            if (seenRuns.has(seenKey)) continue;
-            seenRuns.add(seenKey);
-
-            const log = await getFailedJobLog(pr, runReference);
-
-            const failedJob: CIFailureSummary["failedJobs"][number] = {
-              name: check.name,
-              runUrl: runReference.runUrl,
-            };
-            const failedStep = extractFailedStep(log);
-            if (failedStep) failedJob.failedStep = failedStep;
-            const logTail = tailLines(log, CI_FAILURE_LOG_TAIL_LINES);
-            if (logTail) failedJob.logTail = logTail;
-            failedJobs.push(failedJob);
-          } catch {
-            continue;
-          }
+      let failedChecks: CICheck[];
+      if (providedFailedChecks) {
+        failedChecks = providedFailedChecks.filter(isFailedCICheck);
+      } else {
+        try {
+          failedChecks = (await this.getCIChecks(pr)).filter(isFailedCICheck);
+        } catch {
+          return null;
         }
-
-        return failedJobs.length > 0 ? { failedJobs } : null;
-      } catch {
-        return null;
       }
+      if (failedChecks.length === 0) return null;
+
+      const failedJobs: CIFailureSummary["failedJobs"] = [];
+      const seenRuns = new Set<string>();
+
+      for (const check of failedChecks) {
+        try {
+          const runReference = extractActionRunReference(check);
+          if (!runReference) continue;
+
+          const seenKey = `${runReference.runId}:${runReference.jobId ?? ""}`;
+          if (seenRuns.has(seenKey)) continue;
+          seenRuns.add(seenKey);
+
+          const log = await getFailedJobLog(pr, runReference);
+
+          const failedJob: CIFailureSummary["failedJobs"][number] = {
+            name: check.name,
+            runUrl: runReference.runUrl,
+          };
+          const failedStep = extractFailedStep(log);
+          if (failedStep) failedJob.failedStep = failedStep;
+          const logTail = tailLines(log, CI_FAILURE_LOG_TAIL_LINES);
+          if (logTail) failedJob.logTail = logTail;
+          failedJobs.push(failedJob);
+        } catch {
+          continue;
+        }
+      }
+
+      return failedJobs.length > 0 ? { failedJobs } : null;
     },
 
     async getReviews(pr: PRInfo): Promise<Review[]> {

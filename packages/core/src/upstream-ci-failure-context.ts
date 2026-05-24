@@ -16,12 +16,6 @@
 
 import type { SCM, CICheck, CIFailureSummary, PRInfo, ReactionConfig } from "./types.js";
 
-export type TransitionReaction = {
-  key: string;
-  result: { success: boolean; action?: string } | null;
-  messageEnriched?: boolean;
-};
-
 export function isFailedCICheck(check: CICheck): boolean {
   return check.status === "failed" || check.conclusion?.toUpperCase() === "FAILURE";
 }
@@ -86,7 +80,14 @@ export async function formatCIFailureMessage(
     try {
       const summary = await withTimeout(scm.getCIFailureSummary(pr, failedChecks));
       if (summary?.failedJobs.length) {
-        return formatCIFailureSummaryMessage(summary);
+        const enrichedNames = new Set(summary.failedJobs.map((j) => j.name));
+        const remaining = failedChecks.filter((c) => !enrichedNames.has(c.name));
+        if (remaining.length === 0) {
+          return formatCIFailureSummaryMessage(summary);
+        }
+        const summaryPart = formatCIFailureSummaryMessage(summary);
+        const fallbackPart = formatCIFailureChecksFallback(remaining);
+        return `${summaryPart}\n\n---\n\nAdditional failing checks:\n\n${fallbackPart}`;
       }
     } catch {
       // Fall back to check names when summary enrichment fails.
