@@ -1371,6 +1371,7 @@ function normalizePermissionMode(
   mode: string | undefined,
 ): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
   if (mode === undefined) return "permissionless";
+  if (mode === "") return undefined;
   if (mode === "skip") return "permissionless";
   if (
     mode === "permissionless" ||
