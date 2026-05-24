@@ -43,6 +43,40 @@ function isGeminiAgent(handle: RuntimeHandle): boolean {
   return launchCommand.toLowerCase().includes("gemini") || launchCommand.toLowerCase().includes("agy");
 }
 
+/**
+ * Poll until the agy/Gemini CLI shows its ready prompt (the "> " input line
+ * surrounded by "────" delimiters), or until the timeout expires.
+ *
+ * Root cause (orch-f3ok): agy takes ~2-3s to render its splash screen before
+ * accepting input. The AO lifecycle manager calls sendMessage() immediately
+ * after create() returns. Because AGENT_ALIVE_PATTERNS only covers Claude Code
+ * and codex spinners, isAgentAliveInPane() returns true (conservative fallback)
+ * while agy is still mid-splash — send-keys fires into an unready terminal and
+ * the keystrokes are lost.
+ *
+ * Fix: create() calls this for agy sessions to block until the CLI is ready.
+ */
+async function waitForGeminiReady(sessionName: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  const pollInterval = 300;
+  // agy's input line is always preceded by a "────" separator. We detect readiness
+  // by looking for that separator followed by ">" on the next non-empty line.
+  const readyPattern = /─{10,}[\s\S]*?\n\s*>\s*(\n|$)/;
+  while (Date.now() < deadline) {
+    await sleep(pollInterval);
+    let paneOutput: string;
+    try {
+      paneOutput = await tmux("capture-pane", "-t", sessionName, "-p", "-S", "-20");
+    } catch {
+      return; // Session died — let the caller handle it
+    }
+    if (readyPattern.test(paneOutput)) {
+      return;
+    }
+  }
+  // Timed out — proceed anyway; the Enter-retry loop in doSendWithRetry will recover.
+}
+
 function assertValidSessionId(id: string): void {
   if (!SAFE_SESSION_ID.test(id)) {
     throw new Error(`Invalid session ID "${id}": must match ${SAFE_SESSION_ID}`);
@@ -247,6 +281,16 @@ export function create(): Runtime {
         throw new Error(`Failed to configure session "${sessionName}": ${msg}`, {
           cause: err,
         });
+      }
+
+      // Wait for agy/Gemini to reach its ready prompt before returning the handle
+      // (orch-f3ok). Without this, the lifecycle manager calls sendMessage()
+      // immediately and the initial task keystrokes land during the splash screen
+      // render — where they are swallowed. All other agents start synchronously
+      // or accept stdin before their first output, so only Gemini needs this gate.
+      const launchCmdLower = config.launchCommand.toLowerCase();
+      if (launchCmdLower.includes("agy") || launchCmdLower.includes("gemini")) {
+        await waitForGeminiReady(sessionName);
       }
 
       return {
