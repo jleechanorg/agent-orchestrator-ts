@@ -56,7 +56,7 @@ function isGeminiAgent(handle: RuntimeHandle): boolean {
  *
  * Fix: create() calls this for agy sessions to block until the CLI is ready.
  */
-async function waitForGeminiReady(sessionName: string, timeoutMs = 10_000): Promise<void> {
+async function waitForGeminiReady(sessionName: string, timeoutMs = 10_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   const pollInterval = 300;
   // agy's input line is always preceded by a "────" separator. We detect readiness
@@ -68,13 +68,13 @@ async function waitForGeminiReady(sessionName: string, timeoutMs = 10_000): Prom
     try {
       paneOutput = await tmux("capture-pane", "-t", sessionName, "-p", "-S", "-20");
     } catch {
-      return; // Session died — let the caller handle it
+      return false; // Session died — let the caller handle it
     }
     if (readyPattern.test(paneOutput)) {
-      return;
+      return true;
     }
   }
-  // Timed out — proceed anyway; the Enter-retry loop in doSendWithRetry will recover.
+  return false; // Timed out — Enter-retry loop in doSendWithRetry will recover
 }
 
 function assertValidSessionId(id: string): void {
@@ -162,6 +162,9 @@ async function sendContent(sessionId: string, content: string, forGemini = false
  */
 async function doSendWithRetry(handle: RuntimeHandle, message: string): Promise<void> {
   const forGemini = isGeminiAgent(handle);
+  // When waitForGeminiReady timed out, geminiReady is false — apply Enter-retry
+  // even for short messages so the first sendMessage call isn't silently dropped.
+  const geminiTimedOut = forGemini && handle.data?.geminiReady === false;
 
   // Clear any partial input — but NOT for Gemini (C-u interferes with prompt delivery)
   if (!forGemini) {
@@ -185,12 +188,12 @@ async function doSendWithRetry(handle: RuntimeHandle, message: string): Promise<
   await sleep(delayMs);
   await tmux("send-keys", "-t", handle.id, "Enter");
 
-  // Enter retry (bd-orch2v3, bd-qhf): for long messages, check if the agent
-  // started responding. Only the LAST 5 NON-EMPTY LINES are checked for agent
-  // activity — stale activity tokens in old scrollback must not mask the
-  // current state. If the pane still ends with the pasted message tail and
-  // shows no recent agent activity, Enter was swallowed — retry up to 3 times.
-  if (isLong) {
+  // Enter retry (bd-orch2v3, bd-qhf): for long messages OR short Gemini messages
+  // where the ready-poll timed out, check if the agent started responding.
+  // Only the LAST 5 NON-EMPTY LINES are checked for agent activity — stale
+  // activity tokens in old scrollback must not mask the current state.
+  // If the pane shows no recent agent activity, Enter was swallowed — retry up to 3x.
+  if (isLong || geminiTimedOut) {
     const messageTail = message.slice(-80).trim();
     // Guard: if trimmed tail is empty (e.g. 80+ trailing whitespace), skip
     // the retry check — every string endsWith("") so the check would always fail.
@@ -289,9 +292,10 @@ export function create(): Runtime {
       // render — where they are swallowed. All other agents start synchronously
       // or accept stdin before their first output, so only Gemini needs this gate.
       const launchCmdLower = config.launchCommand.toLowerCase();
-      if (launchCmdLower.includes("agy") || launchCmdLower.includes("gemini")) {
-        await waitForGeminiReady(sessionName);
-      }
+      const isGeminiLaunch = launchCmdLower.includes("agy") || launchCmdLower.includes("gemini");
+      // false = timed out or session died before ready; doSendWithRetry uses this
+      // to apply Enter-retry even for short messages on the first sendMessage call.
+      const geminiReady = isGeminiLaunch ? await waitForGeminiReady(sessionName) : true;
 
       return {
         id: sessionName,
@@ -301,6 +305,7 @@ export function create(): Runtime {
           workspacePath: config.workspacePath,
           // Store launchCommand so restartAgentCli() can re-launch after a crash (bd-tln)
           launchCommand: config.launchCommand,
+          geminiReady,
         },
       };
     },
