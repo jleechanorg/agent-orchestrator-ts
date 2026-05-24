@@ -291,8 +291,11 @@ describe("sourceEnvFile — real exports", () => {
     sourceEnvFile("~/.bashrc");
     const lastCall = mockSpawnSync.mock.lastCall;
     expect(lastCall).not.toBeUndefined();
-    const [cmd, args] = lastCall as [string, string[]];
+    if (!lastCall) throw new Error("lastCall is undefined");
+    const [cmd, args] = lastCall;
     expect(cmd).toBe("bash");
+    expect(args).toBeDefined();
+    if (!args) throw new Error("args is undefined");
     expect(args).toContain("--noprofile");
     expect(args).toContain("--norc");
     expect(args).toContain("-i");
@@ -308,9 +311,13 @@ describe("sourceEnvFile — real exports", () => {
     setSpawnSuccess(Buffer.from("MINIMAX_API_KEY=sk-cp-test"));
     sourceEnvFile("~/.bashrc");
     const lastCall = mockSpawnSync.mock.lastCall;
-    const [, args] = lastCall as [string, string[]];
+    expect(lastCall).not.toBeUndefined();
+    if (!lastCall) throw new Error("lastCall is undefined");
+    const [, args] = lastCall;
     // Must use `--noprofile --norc` to prevent implicit bashrc sourcing,
     // `-i` so interactive-guard bashrc exports are NOT skipped, and `;` separator.
+    expect(args).toBeDefined();
+    if (!args) throw new Error("args is undefined");
     expect(args).toContain("--noprofile");
     expect(args).toContain("--norc");
     expect(args).toContain("-i");
