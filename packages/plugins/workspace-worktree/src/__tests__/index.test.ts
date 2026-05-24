@@ -154,6 +154,7 @@ describe("create() factory", () => {
     // Mock: fetch, for-each-ref (unambiguous), worktree add
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
 
     const info = await ws.create(makeCreateConfig());
@@ -166,6 +167,7 @@ describe("create() factory", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
 
     const info = await ws.create(makeCreateConfig());
@@ -178,6 +180,7 @@ describe("create() factory", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
 
     const info = await ws.create(makeCreateConfig());
@@ -192,6 +195,7 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
 
     await ws.create(makeCreateConfig());
@@ -221,6 +225,7 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
 
     await ws.create(makeCreateConfig());
@@ -235,6 +240,7 @@ describe("workspace.create()", () => {
 
     mockGitError("Could not resolve host"); // fetch fails
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add succeeds
 
     const info = await ws.create(makeCreateConfig());
@@ -250,6 +256,7 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError(branchCollisionError); // worktree add -b fails with branch collision
     mockGitSuccess(""); // git worktree list --porcelain (ghost check — worktreePath not registered)
     mockGitSuccess("base-sha"); // git rev-parse origin/main
@@ -279,6 +286,7 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError(branchCollisionError); // worktree add -b fails
     mockGitSuccess(""); // git worktree list --porcelain (worktree not registered)
     mockGitSuccess("base-sha"); // git rev-parse origin/main
@@ -298,6 +306,7 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError("already exists"); // worktree add -b fails
     mockGitSuccess(""); // worktree list --porcelain (ghost check)
     mockGitSuccess("base-sha"); // git rev-parse origin/main
@@ -326,6 +335,7 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError(branchCollisionError); // worktree add -b fails
     mockGitSuccess(""); // git worktree list --porcelain (ghost check)
     mockGitSuccess("new-base-sha"); // git rev-parse origin/main
@@ -359,6 +369,7 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError("A branch named 'feat/TEST-1' already exists."); // worktree add -b fails
     mockGitSuccess(""); // git worktree list --porcelain (ghost check)
     mockGitSuccess("new-base-sha"); // git rev-parse origin/main
@@ -379,6 +390,7 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError("already exists"); // worktree add -b fails
     mockGitSuccess(""); // worktree list --porcelain (ghost check)
     mockGitSuccess("base-sha"); // git rev-parse origin/main
@@ -397,6 +409,7 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError("fatal: invalid reference"); // worktree add fails with other error
 
     await expect(ws.create(makeCreateConfig())).rejects.toThrow(
@@ -412,6 +425,8 @@ describe("workspace.create()", () => {
     // git branch --list origin/main returns the local branch → ambiguous
     mockGitSuccess("  origin/main");
     // git branch -m origin/main backup/origin/main succeeds (rename)
+    mockGitSuccess("");
+    // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess("");
     // git worktree add -b now succeeds
     mockGitSuccess("");
@@ -434,7 +449,8 @@ describe("workspace.create()", () => {
       (call) =>
         Array.isArray(call[1]) &&
         call[0] === "git" &&
-        call[1][0] === "worktree",
+        call[1][0] === "worktree" &&
+        call[1][1] === "add",
     );
     expect(worktreeCall).toBeDefined();
     expect(worktreeCall![1].slice(0, 4)).toEqual(["worktree", "add", "-b", "feat/TEST-1"]);
@@ -457,6 +473,8 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     // git branch --list origin/main returns empty → no local conflict
+    mockGitSuccess("");
+    // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess("");
     // git worktree add -b succeeds
     mockGitSuccess("");
@@ -525,6 +543,7 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
 
     const info = await ws.create(makeCreateConfig());
@@ -547,6 +566,7 @@ describe("workspace.create()", () => {
     // format. This should NOT trigger ghost detection.
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError(
       `Command failed: git worktree add -b feat/TEST-1 ${worktreePath} HEAD\nfatal: A branch named 'feat/TEST-1' already exists.`,
     ); // worktree add -b fails with branch collision (NOT path collision)
@@ -596,6 +616,7 @@ describe("workspace.create()", () => {
     // This is different from "branch already exists" error.
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError(`fatal: '${worktreePath}' already exists`); // worktree add -b fails with path
     // git worktree list returns empty — git doesn't know about this worktree (it's a ghost)
     mockGitSuccess(""); // git worktree list (returns nothing — ghost worktree not registered)
@@ -627,9 +648,9 @@ describe("workspace.create()", () => {
     // Verify: ghost worktree was removed via filesystem (not git, since git doesn't know about it)
     expect(mockRmSync).toHaveBeenCalledWith(worktreePath, { recursive: true, force: true });
 
-    // Verify: we retried worktree add -b after cleanup (retry is the 6th call: fetch, branch, add-fail, list, tmux, add-retry)
+    // Verify: we retried worktree add -b after cleanup (retry is the 7th call: fetch, branch, prune, add-fail, list, tmux, add-retry)
     expect(mockExecFileAsync).toHaveBeenNthCalledWith(
-      6,
+      7,
       "git",
       ["worktree", "add", "-b", "feat/TEST-1", worktreePath, "origin/main"],
       { cwd: "/repo/path" },
@@ -643,6 +664,7 @@ describe("workspace.create()", () => {
     // git worktree add -b fails with path already exists
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError(`fatal: '${worktreePath}' already exists`); // worktree add -b fails with path
     // git worktree list --porcelain fails (e.g., repo corruption)
     // Since error is path-collision, not branch-collision, we cannot safely fall through.
@@ -660,6 +682,7 @@ describe("workspace.create()", () => {
     // git worktree add -b fails with path already exists
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError(`fatal: '${worktreePath}' already exists`); // worktree add -b fails with path
     // git worktree list shows the path IS registered in git (not a ghost)
     mockGitSuccess(`worktree ${worktreePath}`); // worktree list --porcelain returns registered path
@@ -678,6 +701,7 @@ describe("workspace.create()", () => {
     // git worktree add -b fails with an error that doesn't match path-collision format
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError("already exists"); // worktree add -b fails with generic "already exists"
     // git worktree list --porcelain fails — but error is ambiguous, not a path collision
     mockGitError("fatal: detected dubious ownership");
@@ -713,6 +737,7 @@ describe("workspace.create()", () => {
     // git worktree add -b fails with path already exists
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitError(`fatal: '${worktreePath}' already exists`); // worktree add -b fails
     mockGitSuccess(""); // git worktree list (returns empty — ghost? but...)
     // BUT tmux finds an active session → preserve worktree
@@ -756,6 +781,7 @@ describe("workspace.create()", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
 
     await ws.create(
@@ -1278,6 +1304,7 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
     const ws = create();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
     // git rev-parse --git-common-dir falls back to "<worktreePath>/.git" via catch
 
@@ -1296,6 +1323,7 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
 
     await ws.create(makeCreateConfig());
@@ -1310,6 +1338,7 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
 
     await ws.create(makeCreateConfig());
@@ -1332,8 +1361,9 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
 
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
+    mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
-    // No fourth mock → git rev-parse --git-common-dir throws → fallback fires
+    // No fifth mock → git rev-parse --git-common-dir throws → fallback fires
 
     // Simulate .git being a FILE (linked worktree)
     mockLstatSync.mockReturnValue({ isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false });
