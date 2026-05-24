@@ -298,6 +298,24 @@ describe("enrichCIFailureReaction", () => {
     expect(result.config.message).toContain("Run `gh pr checks`");
   });
 
+  it("strips {{context}} placeholder with fallback when enrichment unavailable", async () => {
+    const mockSCM = {
+      getCIChecks: vi.fn().mockRejectedValue(new Error("unavailable")),
+    } as unknown as SCM;
+    const templateConfig: ReactionConfig = {
+      auto: true,
+      action: "send-to-agent",
+      message: "Agent needs help. {{context}} Please fix ASAP.",
+    };
+
+    const result = await enrichCIFailureReaction(mockSCM, mockPR, templateConfig, true);
+    expect(result.enriched).toBe(false);
+    expect(result.config.message).toContain("Agent needs help.");
+    expect(result.config.message).toContain("Run `gh pr checks`");
+    expect(result.config.message).toContain("Please fix ASAP.");
+    expect(result.config.message).not.toContain("{{context}}");
+  });
+
   it("enriches message with failed check details", async () => {
     const mockSCM = {
       getCIChecks: vi.fn().mockResolvedValue([
