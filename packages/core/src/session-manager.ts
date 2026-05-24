@@ -1215,6 +1215,16 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     const cleanupFailedSpawn = async (): Promise<void> => {
+      if (lockReservedAtSpawn && plugins.lock) {
+        try {
+          const prNumber = parsePrNumber(spawnConfig.issueId);
+          if (prNumber !== undefined) {
+            await plugins.lock.release(prNumber, workspacePath);
+          }
+        } catch {
+          /* best effort */
+        }
+      }
       if (
         plugins.workspace &&
         workspacePath &&
@@ -2841,8 +2851,37 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new Error(`Session ${sessionId} has no workspace to check out PR #${pr.number}`);
     }
 
-    // Release locks for the session's PREVIOUS PR if it's changing
+    // Defer old-lock release until after checkout + new reservation succeed
     const oldPrNumber = parsePrNumber(raw["pr"]);
+
+    const branchChanged = await scm.checkoutPR(pr, workspacePath);
+
+    // Reserve locks for the new PR before releasing old locks
+    if (plugins.lock) {
+      try {
+        const changedFiles = await getWorkspaceChangedFiles(
+          workspacePath,
+          pr.baseBranch ?? project.defaultBranch,
+          execFileAsync,
+        );
+        if (changedFiles.length > 0) {
+          await plugins.lock.reserve(
+            pr.number,
+            changedFiles,
+            selection.agentName,
+            pr.branch,
+            workspacePath,
+          );
+          updateMetadata(sessionsDir, sessionId, { lockReserved: "true" });
+        }
+      } catch (err) {
+        console.warn(
+          `[session-manager] Failed to reserve domain locks for claimed PR #${pr.number}: ${err}`,
+        );
+      }
+    }
+
+    // Release locks for the session's PREVIOUS PR now that new reservation succeeded
     if (oldPrNumber !== undefined && oldPrNumber !== pr.number && plugins.lock) {
       try {
         await plugins.lock.release(oldPrNumber, workspacePath);
@@ -2850,8 +2889,6 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         console.warn(`[session-manager] Failed to release old domain locks during claimPR: ${err}`);
       }
     }
-
-    const branchChanged = await scm.checkoutPR(pr, workspacePath);
 
     for (const previousSessionId of takenOverFrom) {
       const previousRaw = readMetadataRaw(sessionsDir, previousSessionId);
@@ -2875,31 +2912,6 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         prAutoDetect: "off",
         ...(PR_TRACKING_STATUSES.has(previousRaw["status"] ?? "") ? { status: "working" } : {}),
       });
-    }
-
-    // Reserve locks for the new PR
-    if (plugins.lock) {
-      try {
-        const changedFiles = await getWorkspaceChangedFiles(
-          workspacePath,
-          pr.baseBranch ?? project.defaultBranch,
-          execFileAsync,
-        );
-        if (changedFiles.length > 0) {
-          await plugins.lock.reserve(
-            pr.number,
-            changedFiles,
-            selection.agentName,
-            pr.branch,
-            workspacePath,
-          );
-          updateMetadata(sessionsDir, sessionId, { lockReserved: "true" });
-        }
-      } catch (err) {
-        console.warn(
-          `[session-manager] Failed to reserve domain locks for claimed PR #${pr.number}: ${err}`,
-        );
-      }
     }
 
     let githubAssigned = false;

@@ -189,4 +189,59 @@ describe("SessionManager - Area Lock", () => {
     const raw = readMetadataRaw(sessionsDir, "app-claim");
     expect(raw.lockReserved).toBe("true");
   });
+  it("releases lock on spawn failure after reservation", async () => {
+    // Simulate reserve succeeding but runtime creation failing
+    mockRuntime.create.mockRejectedValue(new Error("runtime creation failed"));
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await expect(
+      sm.spawn({ projectId: "my-app", issueId: "456" })
+    ).rejects.toThrow(/runtime creation failed/);
+
+    // Lock should have been reserved then released on cleanup
+    expect(mockLock.reserve).toHaveBeenCalledWith(456, ["file1.ts"], "mock-agent", "feat/456", expect.any(String));
+    expect(mockLock.release).toHaveBeenCalledWith(456, expect.any(String));
+  });
+
+  it("reserves new lock before releasing old lock in claimPR", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const wsPath = join(tmpDir, "ws-order");
+    mkdirSync(wsPath, { recursive: true });
+    writeMetadata(sessionsDir, "app-order", {
+      id: "app-order",
+      projectId: "my-app",
+      pr: "https://github.com/org/repo/pull/111",
+      worktree: wsPath,
+    });
+
+    const callOrder: string[] = [];
+    const mockScm = {
+      resolvePR: vi.fn().mockResolvedValue({
+        number: 222,
+        url: "https://github.com/org/repo/pull/222",
+        branch: "feat/new",
+        baseBranch: "main",
+      }),
+      checkoutPR: vi.fn().mockImplementation(async () => { callOrder.push("checkout"); return true; }),
+      getPRState: vi.fn().mockResolvedValue("open"),
+    };
+    mockLock.reserve.mockImplementation(async () => { callOrder.push("reserve"); return []; });
+    mockLock.release.mockImplementation(async () => { callOrder.push("release"); return []; });
+    mockRegistry.get.mockImplementation((slot, _name) => {
+      if (slot === "scm") return mockScm;
+      if (slot === "lock") return mockLock;
+      if (slot === "runtime") return mockRuntime;
+      if (slot === "agent") return mockAgent;
+      if (slot === "workspace") return mockWorkspace;
+      return null;
+    });
+
+    await sm.claimPR("app-order", "222");
+
+    // Order must be: checkout → reserve → release (not release before checkout)
+    expect(callOrder).toEqual(["checkout", "reserve", "release"]);
+  });
+
 });
