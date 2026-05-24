@@ -883,6 +883,46 @@ describe("runtime.sendMessage()", () => {
     );
     expect(sendKeysCalls.length).toBe(1);
   });
+
+  it("forces Enter retry on first attempt when geminiTimedOut even if agentStarted is true", async () => {
+    const runtime = create();
+    const handle = makeHandle("msg-gemini-timedout", 1000, "gemini --yolo");
+    // Simulate geminiReady = false (ready poll timed out)
+    handle.data!.geminiReady = false;
+    const shortMessage = "do the task";
+
+    // Pre-flight isAgentAliveInPane → agent alive
+    mockTmuxSuccess("✻ Thinking...");
+    // NO C-u for gemini
+    // Direct send-keys -l
+    mockTmuxSuccess();
+    // Enter (initial)
+    mockTmuxSuccess();
+    // Enter retry loop — attempt 0: capture-pane shows splash output that
+    // does NOT end with our message tail, so agentStarted=true.
+    // But because geminiTimedOut && attempt===0, Enter is forced anyway.
+    mockTmuxSuccess("Welcome to Gemini\n────\n> ");
+    // Forced Enter retry
+    mockTmuxSuccess();
+    // Attempt 1: capture-pane shows agent actually started now
+    mockTmuxSuccess("✻ Processing your request");
+    // Post-send isAgentAliveInPane → still alive
+    mockTmuxSuccess("✻ working");
+
+    await runtime.sendMessage(handle, shortMessage);
+
+    const calls = mockExecFileCustom.mock.calls;
+    const callArgs = calls.map((c) => c[1]);
+    const sendKeysEnterCalls = callArgs.filter(
+      (args) => args[0] === "send-keys" && args.includes("Enter") && !args.includes("-l"),
+    );
+
+    // Should have 2 Enter calls: initial + forced retry on first attempt
+    expect(sendKeysEnterCalls).toHaveLength(2);
+
+    // geminiReady should be set to true after agent actually started on attempt 1
+    expect(handle.data!.geminiReady).toBe(true);
+  });
 });
 
 describe("runtime.getOutput()", () => {

@@ -216,7 +216,12 @@ async function doSendWithRetry(handle: RuntimeHandle, message: string): Promise<
         AGENT_ALIVE_PATTERNS.some((p) => p.test(line)),
       );
       const agentStarted = hasRecentActivity || !trimmedOutput.endsWith(messageTail);
-      if (agentStarted && !hasQueuedMessage) {
+      // Force the first Enter-retry when geminiTimedOut: the agentStarted
+      // heuristic is unreliable during splash rendering because the pane
+      // shows the splash screen (not our message), so !endsWith(messageTail)
+      // is true even though Enter hasn't actually been processed yet.
+      const forceRetry = geminiTimedOut && attempt === 0;
+      if (agentStarted && !hasQueuedMessage && !forceRetry) {
         // Agent responded — clear the timedOut flag so subsequent short
         // messages don't get unnecessary Enter-retry treatment.
         if (handle.data) handle.data.geminiReady = true;
