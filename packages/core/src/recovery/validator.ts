@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import {
+  isProcessProbeIndeterminate,
   TERMINAL_STATUSES as TERMINAL_STATUSES_SET,
   type OrchestratorConfig,
   type PluginRegistry,
@@ -79,12 +80,16 @@ export async function validateSession(
   }
 
   let agentProcessRunning = false;
+  let processProbeSucceeded = false;
   const agentActivity: ActivityState | null = null;
   if (agent && runtimeHandle) {
     try {
-      agentProcessRunning = (await agent.isProcessRunning(runtimeHandle)) === true;
+      const processProbe = await agent.isProcessRunning(runtimeHandle);
+      agentProcessRunning = processProbe === true;
+      processProbeSucceeded = !isProcessProbeIndeterminate(processProbe);
     } catch {
       agentProcessRunning = false;
+      processProbeSucceeded = false;
     }
   }
 

@@ -30,6 +30,7 @@ import {
   PR_STATE,
   CI_STATUS,
   TERMINAL_STATUSES,
+  isProcessProbeIndeterminate,
   type LifecycleManager,
   type SessionManager,
   type SessionId,
@@ -780,6 +781,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (activity === "waiting_input") return { status: "needs_input", agentDead: false };
 
             const processAlive = await agent.isProcessRunning(session.runtimeHandle);
+            if (isProcessProbeIndeterminate(processAlive)) {
+              observer.recordOperation({
+                metric: "lifecycle_poll",
+                operation: "lifecycle.process_probe_indeterminate",
+                outcome: "info",
+                correlationId: createCorrelationId("probe-indeterminate"),
+                projectId: session.projectId,
+                sessionId: session.id,
+                data: { agentName, reason: "probe_indeterminate" },
+                level: "warn",
+              });
+              return { status: session.status, agentDead: false };
+            }
             if (processAlive === false) {
               if (!scm) return { status: "killed", agentDead: true };
               agentDead = true;
