@@ -1217,6 +1217,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const cleanupFailedSpawn = async (): Promise<void> => {
       if (
         plugins.workspace &&
+        workspacePath &&
         shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
       ) {
         try {

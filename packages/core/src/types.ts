@@ -1972,6 +1972,8 @@ export interface SessionMetadata {
   composedPromptPath?: string;
   displayName?: string;
   displayNameUserSet?: boolean | "on" | "off";
+  /** Whether domain locks have been reserved for this session's PR (bd-lock) */
+  lockReserved?: string;
 }
 
 // =============================================================================
