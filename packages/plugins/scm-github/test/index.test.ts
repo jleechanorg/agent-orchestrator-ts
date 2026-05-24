@@ -19,7 +19,7 @@ vi.mock("node:child_process", () => {
 
 import { create, manifest, ghRestFallback } from "../src/index.js";
 import { _resetGhCache } from "../src/gh-cache.js";
-import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig } from "@jleechanorg/ao-core";
+import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig, CICheck, CIFailureSummary } from "@jleechanorg/ao-core";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -3114,6 +3114,142 @@ describe("scm-github plugin", () => {
         (c) => c[0] === "gh" && Array.isArray(c[1]) && (c[1] as string[]).includes("merge"),
       );
       expect(mergeCalls).toHaveLength(2);
+    });
+  });
+
+  // ---- CI Failure Context (getCIFailureSummary, getFailedJobLog) -----------
+
+  describe("getCIFailureSummary", () => {
+    let prevGithubToken: string | undefined;
+
+    beforeEach(() => {
+      prevGithubToken = process.env["GITHUB_TOKEN"];
+      process.env["GITHUB_TOKEN"] = "fake-env-token-for-tests";
+      _resetGhCache();
+    });
+
+    afterEach(() => {
+      if (prevGithubToken === undefined) delete process.env["GITHUB_TOKEN"];
+      else process.env["GITHUB_TOKEN"] = prevGithubToken;
+    });
+
+    const failedCheck = (overrides: Partial<CICheck> = {}): CICheck => ({
+      name: "build",
+      status: "failed",
+      conclusion: "FAILURE",
+      url: "https://github.com/acme/repo/actions/runs/12345/jobs/67890",
+      ...overrides,
+    });
+
+    it("returns null when no failed checks provided", async () => {
+      const result = await scm.getCIFailureSummary!(pr, []);
+      expect(result).toBeNull();
+    });
+
+    it("returns null when checks have no Action run URLs", async () => {
+      const checks = [
+        failedCheck({ url: undefined }),
+        failedCheck({ url: "https://example.com/not-actions" }),
+      ];
+      const result = await scm.getCIFailureSummary!(pr, checks);
+      expect(result).toBeNull();
+    });
+
+    it("extracts failed job with log tail and failed step", async () => {
+      // gh run view --log-failed
+      const logOutput = [
+        "2026-01-01T00:00:00Z\tBuild\tstep-1\trunning...",
+        "2026-01-01T00:00:01Z\tBuild\tRun tests\t##[error]test failed",
+        "2026-01-01T00:00:02Z\tBuild\tRun tests\texit code 1",
+      ].join("\n");
+      ghMock.mockResolvedValueOnce({ stdout: logOutput });
+
+      const result = await scm.getCIFailureSummary!(pr, [failedCheck()]);
+      expect(result).not.toBeNull();
+      expect(result!.failedJobs).toHaveLength(1);
+      expect(result!.failedJobs[0].name).toBe("build");
+      expect(result!.failedJobs[0].runUrl).toBe(
+        "https://github.com/acme/repo/actions/runs/12345/jobs/67890",
+      );
+      expect(result!.failedJobs[0].failedStep).toBe("Run tests");
+      expect(result!.failedJobs[0].logTail).toContain("exit code 1");
+    });
+
+    it("deduplicates checks pointing to same run+job", async () => {
+      const logOutput = "2026-01-01T00:00:00Z\tBuild\tstep-1\tdone\n";
+      ghMock.mockResolvedValueOnce({ stdout: logOutput });
+
+      const checks = [
+        failedCheck({ name: "build (ubuntu)" }),
+        failedCheck({ name: "build (macos)", url: "https://github.com/acme/repo/actions/runs/12345/jobs/67890" }),
+      ];
+      const result = await scm.getCIFailureSummary!(pr, checks);
+      // Same runId:jobId → only one entry
+      expect(result!.failedJobs).toHaveLength(1);
+    });
+
+    it("continues on individual log fetch failures (partial enrichment)", async () => {
+      // First check's log fetch fails (both primary and API fallback fail)
+      ghMock.mockRejectedValueOnce(new Error("log unavailable"));
+      ghMock.mockRejectedValueOnce(new Error("api log unavailable"));
+      // Second check's log fetch succeeds
+      const logOutput = "2026-01-01T00:00:00Z\tDeploy\tDeploy step\tfailed\n";
+      ghMock.mockResolvedValueOnce({ stdout: logOutput });
+
+      const checks = [
+        failedCheck({ name: "build", url: "https://github.com/acme/repo/actions/runs/111/jobs/222" }),
+        failedCheck({ name: "deploy", url: "https://github.com/acme/repo/actions/runs/333/jobs/444" }),
+      ];
+      const result = await scm.getCIFailureSummary!(pr, checks);
+      expect(result).not.toBeNull();
+      expect(result!.failedJobs).toHaveLength(1);
+      expect(result!.failedJobs[0].name).toBe("deploy");
+    });
+
+    it("falls back to gh api for job-specific logs when gh run view --log-failed fails", async () => {
+      // gh run view --log-failed fails
+      ghMock.mockRejectedValueOnce(new Error("run view failed"));
+      // gh api repos/.../actions/jobs/67890/logs succeeds
+      const apiLog = "npm test\nFAIL src/foo.test.ts\n";
+      ghMock.mockResolvedValueOnce({ stdout: apiLog });
+
+      const result = await scm.getCIFailureSummary!(pr, [failedCheck()]);
+      expect(result!.failedJobs).toHaveLength(1);
+      expect(result!.failedJobs[0].logTail).toContain("FAIL src/foo.test.ts");
+    });
+
+    it("returns null when all log fetches fail", async () => {
+      ghMock.mockRejectedValueOnce(new Error("fail 1"));
+      ghMock.mockRejectedValueOnce(new Error("fail 2")); // api fallback also fails
+      ghMock.mockRejectedValueOnce(new Error("fail 3"));
+
+      const result = await scm.getCIFailureSummary!(pr, [failedCheck()]);
+      expect(result).toBeNull();
+    });
+
+    it("handles check with run URL but no job ID", async () => {
+      const logOutput = "2026-01-01T00:00:00Z\tTest\tstep-1\tdone\n";
+      ghMock.mockResolvedValueOnce({ stdout: logOutput });
+
+      const checks = [failedCheck({ url: "https://github.com/acme/repo/actions/runs/999" })];
+      const result = await scm.getCIFailureSummary!(pr, checks);
+      expect(result).not.toBeNull();
+      expect(result!.failedJobs).toHaveLength(1);
+    });
+
+    it("fetches failed checks itself when none provided", async () => {
+      // getCIChecks call
+      mockGh([
+        { name: "build", state: "FAILURE", link: "https://github.com/acme/repo/actions/runs/123/jobs/456", startedAt: "", completedAt: "" },
+        { name: "lint", state: "SUCCESS", link: "", startedAt: "", completedAt: "" },
+      ]);
+      // getFailedJobLog call
+      ghMock.mockResolvedValueOnce({ stdout: "2026-01-01T00:00:00Z\tBuild\tRun\t##[error]\n" });
+
+      const result = await scm.getCIFailureSummary!(pr);
+      expect(result).not.toBeNull();
+      expect(result!.failedJobs).toHaveLength(1);
+      expect(result!.failedJobs[0].name).toBe("build");
     });
   });
 });

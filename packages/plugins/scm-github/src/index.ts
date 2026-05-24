@@ -904,7 +904,7 @@ function extractActionRunReference(
   const runId = actionsIndex >= 0 ? pathParts[actionsIndex + 2] : undefined;
   if (!runId || !isDecimalId(runId)) return null;
 
-  const jobIndex = pathParts.findIndex((part, index) => index > actionsIndex && part === "job");
+  const jobIndex = pathParts.findIndex((part, index) => index > actionsIndex && (part === "job" || part === "jobs"));
   const jobId = jobIndex >= 0 ? pathParts[jobIndex + 1] : undefined;
 
   return {
@@ -924,8 +924,15 @@ function extractFailedStep(log: string): string | undefined {
   let lastStep: string | undefined;
   for (const line of log.split(/\r?\n/)) {
     const parts = line.split("\t");
-    const step = parts.length >= 3 ? parts[1]?.trim() : undefined;
-    if (step) lastStep = step;
+    if (parts.length >= 4) {
+      // Run-wide log format: TIMESTAMP\tJOB_NAME\tSTEP_NAME\tLOG_LINE
+      const step = parts[2]?.trim();
+      if (step) lastStep = step;
+    } else if (parts.length === 3) {
+      // Job-specific log format: TIMESTAMP\tSTEP_NAME\tLOG_LINE
+      const step = parts[1]?.trim();
+      if (step) lastStep = step;
+    }
   }
   return lastStep;
 }
