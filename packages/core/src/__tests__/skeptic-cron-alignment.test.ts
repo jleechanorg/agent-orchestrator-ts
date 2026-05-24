@@ -1,3 +1,10 @@
+/**
+ * skeptic-cron-alignment.test.ts
+ * 
+ * TDD Red-phase evidence:
+ * - Red Evidence Log: https://gist.githubusercontent.com/jleechan2015/de187ca5ebede188300a0248b42f5cf0/raw/red.log
+ * - Green Evidence Cast: https://gist.githubusercontent.com/jleechan2015/de187ca5ebede188300a0248b42f5cf0/raw/green.cast
+ */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
