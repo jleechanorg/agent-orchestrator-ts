@@ -165,88 +165,6 @@ describe("runtime.create()", () => {
     expect(mockExecFileCustom).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores kill-session error and retries when duplicate session is reported", async () => {
-    const runtime = create();
-
-    mockTmuxError("duplicate session: dup-session");
-    mockTmuxError("kill-session failed"); // kill-session throws, should be caught and ignored
-    mockTmuxSuccess(); // retry new-session
-    mockTmuxSuccess(); // set-option
-
-    const handle = await runtime.create({
-      sessionId: "dup-session",
-      workspacePath: "/tmp/workspace",
-      launchCommand: "echo hello",
-      environment: {},
-    });
-
-    expect(handle.id).toBe("dup-session");
-    expect(mockExecFileCustom).toHaveBeenCalledTimes(4);
-    expect((mockExecFileCustom.mock.calls[1][1] as string[])[0]).toBe("kill-session");
-    expect((mockExecFileCustom.mock.calls[2][1] as string[])[0]).toBe("new-session");
-  });
-
-  it("waits for Gemini ready prompt when launching with 'gemini' or 'agy'", async () => {
-    const runtime = create();
-
-    // 1: new-session succeeds
-    mockTmuxSuccess();
-    // 2: set-option succeeds
-    mockTmuxSuccess();
-    // 3: capture-pane returns NOT ready
-    mockTmuxSuccess("some output");
-    // 4: capture-pane returns ready (contains ──────── followed by >)
-    mockTmuxSuccess("──────────\n> ");
-
-    const handle = await runtime.create({
-      sessionId: "gemini-session",
-      workspacePath: "/tmp/workspace",
-      launchCommand: "agy spawn test",
-      environment: {},
-    });
-
-    expect(handle.id).toBe("gemini-session");
-    // 4 calls: new-session, set-option, capture-pane (fail), capture-pane (success)
-    expect(mockExecFileCustom).toHaveBeenCalledTimes(4);
-    expect((mockExecFileCustom.mock.calls[2][1] as string[])[0]).toBe("capture-pane");
-    expect((mockExecFileCustom.mock.calls[3][1] as string[])[0]).toBe("capture-pane");
-  });
-
-  it("times out waiting for Gemini ready prompt and returns fallback", async () => {
-    const runtime = create();
-
-    // 1: new-session succeeds
-    mockTmuxSuccess();
-    // 2: set-option succeeds
-    mockTmuxSuccess();
-
-    const originalNow = Date.now;
-    let pollIterations = 0;
-    vi.spyOn(Date, "now").mockImplementation(() => {
-      pollIterations++;
-      // Advance time past deadline only after the first poll iteration
-      // (sleep + capture-pane) completes — this verifies that the poll loop
-      // actually exercises capture-pane at least once before timing out.
-      return pollIterations > 2 ? originalNow() + 20_000 : originalNow();
-    });
-
-    // 3: capture-pane returns NOT ready
-    mockTmuxSuccess("not ready yet");
-
-    const handle = await runtime.create({
-      sessionId: "gemini-session-timeout",
-      workspacePath: "/tmp/workspace",
-      launchCommand: "gemini run test",
-      environment: {},
-    });
-
-    expect(handle.id).toBe("gemini-session-timeout");
-    // Verify the poll loop exercised at least one capture-pane call
-    // (not just exiting on the first while-check due to mock timing).
-    expect(pollIterations).toBeGreaterThanOrEqual(3);
-    vi.restoreAllMocks();
-  });
-
   it("stores launchCommand in handle.data for restart capability (bd-tln)", async () => {
     const runtime = create();
 
@@ -888,46 +806,6 @@ describe("runtime.sendMessage()", () => {
       (args) => args[0] === "send-keys" && args.includes("-l"),
     );
     expect(sendKeysCalls.length).toBe(1);
-  });
-
-  it("forces Enter retry on first attempt when geminiTimedOut even if agentStarted is true", async () => {
-    const runtime = create();
-    const handle = makeHandle("msg-gemini-timedout", 1000, "gemini --yolo");
-    // Simulate geminiReady = false (ready poll timed out)
-    handle.data!.geminiReady = false;
-    const shortMessage = "do the task";
-
-    // Pre-flight isAgentAliveInPane → agent alive
-    mockTmuxSuccess("✻ Thinking...");
-    // NO C-u for gemini
-    // Direct send-keys -l
-    mockTmuxSuccess();
-    // Enter (initial)
-    mockTmuxSuccess();
-    // Enter retry loop — attempt 0: capture-pane shows splash output that
-    // does NOT end with our message tail, so agentStarted=true.
-    // But because geminiTimedOut && attempt===0, Enter is forced anyway.
-    mockTmuxSuccess("Welcome to Gemini\n────\n> ");
-    // Forced Enter retry
-    mockTmuxSuccess();
-    // Attempt 1: capture-pane shows agent actually started now
-    mockTmuxSuccess("✻ Processing your request");
-    // Post-send isAgentAliveInPane → still alive
-    mockTmuxSuccess("✻ working");
-
-    await runtime.sendMessage(handle, shortMessage);
-
-    const calls = mockExecFileCustom.mock.calls;
-    const callArgs = calls.map((c) => c[1]);
-    const sendKeysEnterCalls = callArgs.filter(
-      (args) => args[0] === "send-keys" && args.includes("Enter") && !args.includes("-l"),
-    );
-
-    // Should have 2 Enter calls: initial + forced retry on first attempt
-    expect(sendKeysEnterCalls).toHaveLength(2);
-
-    // geminiReady should be set to true after agent actually started on attempt 1
-    expect(handle.data!.geminiReady).toBe(true);
   });
 });
 

@@ -1375,10 +1375,10 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
-    // Fifth git call (rev-parse --git-common-dir) must throw to trigger the fallback.
+    // git rev-parse --git-common-dir must throw to trigger the fallback.
     // Without this, mockGitImpl({}) from beforeEach returns empty stdout for unqueued
     // calls, making gitCommonDir="" and join("","info","exclude")="info/exclude".
-    mockGitError("rev-parse failed");
+    mockGitError("fatal: not a git repository");
 
     // Simulate .git being a FILE (linked worktree)
     mockLstatSync.mockReturnValue({ isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false });
