@@ -4,6 +4,10 @@
 
 set -e
 
+# Ensure non-interactive execution
+export CI=true
+export NONINTERACTIVE=true
+
 # Ensure pnpm global bin is in PATH (setup.sh installs ao via pnpm install -g)
 export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
 export PATH="$PNPM_HOME:$PATH"
