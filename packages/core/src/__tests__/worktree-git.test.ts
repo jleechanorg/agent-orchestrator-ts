@@ -76,10 +76,29 @@ describe("getWorkspaceChangedFiles", () => {
     );
   });
 
-  it("returns empty array if both local and origin branches fail", async () => {
+  it("falls back to HEAD~1 if both local and origin branches fail", async () => {
     gitMock
       .mockRejectedValueOnce(new Error("fail1"))
-      .mockRejectedValueOnce(new Error("fail2"));
+      .mockRejectedValueOnce(new Error("fail2"))
+      .mockResolvedValueOnce(makeResponse("fallback-file.ts\n"));
+
+    const result = await getWorkspaceChangedFiles("/tmp/ws", "main");
+
+    expect(result).toEqual(["fallback-file.ts"]);
+    expect(gitMock).toHaveBeenCalledTimes(3);
+    expect(gitMock).toHaveBeenNthCalledWith(
+      3,
+      "git",
+      ["diff", "--name-only", "HEAD~1"],
+      expect.objectContaining({ cwd: "/tmp/ws" }),
+    );
+  });
+
+  it("returns empty array if all three strategies fail", async () => {
+    gitMock
+      .mockRejectedValueOnce(new Error("fail1"))
+      .mockRejectedValueOnce(new Error("fail2"))
+      .mockRejectedValueOnce(new Error("fail3"));
 
     const result = await getWorkspaceChangedFiles("/tmp/ws", "main");
 

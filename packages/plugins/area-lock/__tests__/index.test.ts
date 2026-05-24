@@ -1,18 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { CheckResult, LockEntry } from "../src/index.js";
 
-// Mock child_process so tests don't need the real CLI
 const mockExecFile = vi.fn();
 
 vi.mock("node:child_process", () => ({
-  execFile: (...args: unknown[]) => {
-    const cb = args[args.length - 1] as (...a: unknown[]) => void;
-    return mockExecFile(...args, cb);
+  execFile: (
+    _cmd: string,
+    _args: string[],
+    _opts: unknown,
+    cb: (err: Error | null, result: { stdout: string; stderr: string }) => void,
+  ) => {
+    return mockExecFile(_cmd, _args, _opts, cb);
   },
 }));
 
 function mockCliResponse(stdout: string) {
-  mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
+  mockExecFile.mockImplementation((
+    _cmd: string,
+    _args: string[],
+    _opts: unknown,
+    cb: (err: Error | null, result: { stdout: string; stderr: string }) => void,
+  ) => {
     cb(null, { stdout, stderr: "" });
   });
 }

@@ -126,29 +126,31 @@ export async function getWorkspaceChangedFiles(
   execFn?: ExecFileFn,
 ): Promise<string[]> {
   const exec = execFn ?? execFileAsync;
+  const parseLines = (stdout: string) =>
+    stdout.split("\n").map((f) => f.trim()).filter((f) => f.length > 0);
+
+  // 1. Diff against base branch
   try {
-    const { stdout } = await exec(
-      "git",
-      ["diff", "--name-only", `${baseBranch}...HEAD`],
-      { cwd: workspacePath, timeout: 10_000 },
-    );
-    return stdout
-      .split("\n")
-      .map((f) => f.trim())
-      .filter((f) => f.length > 0);
-  } catch {
-    try {
-      const { stdout } = await exec(
-        "git",
-        ["diff", "--name-only", `origin/${baseBranch}...HEAD`],
-        { cwd: workspacePath, timeout: 10_000 },
-      );
-      return stdout
-        .split("\n")
-        .map((f) => f.trim())
-        .filter((f) => f.length > 0);
-    } catch {
-      return [];
+    const { stdout } = await exec("git", ["diff", "--name-only", `${baseBranch}...HEAD`], { cwd: workspacePath, timeout: 10_000 });
+    return parseLines(stdout);
+  } catch { /* base branch not available locally */ }
+
+  // 2. Diff against origin/base branch
+  try {
+    const { stdout } = await exec("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], { cwd: workspacePath, timeout: 10_000 });
+    return parseLines(stdout);
+  } catch { /* origin/base not fetched */ }
+
+  // 3. Diff HEAD against its first parent — works in worktrees even without base ref
+  try {
+    const { stdout } = await exec("git", ["diff", "--name-only", "HEAD~1"], { cwd: workspacePath, timeout: 10_000 });
+    const files = parseLines(stdout);
+    if (files.length > 0) {
+      console.warn(`[worktree-git] Falling back to HEAD~1 diff for ${workspacePath}; base branch "${baseBranch}" not resolvable`);
+      return files;
     }
-  }
+  } catch { /* single-commit branch or shallow clone */ }
+
+  console.warn(`[worktree-git] Could not resolve changed files for ${workspacePath}; base="${baseBranch}"`);
+  return [];
 }

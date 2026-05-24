@@ -149,7 +149,7 @@ export const manifest = {
   displayName: "Area Lock",
 };
 
-const areaLockPlugin: PluginModule<AreaLock> = {
+export default {
   manifest,
   create(config?: Record<string, unknown>): AreaLock {
     const projectRoot = (config?.projectRoot as string) ?? process.cwd();
@@ -173,6 +173,4 @@ const areaLockPlugin: PluginModule<AreaLock> = {
       return false;
     }
   },
-};
-
-export default areaLockPlugin;
+} satisfies PluginModule<AreaLock>;

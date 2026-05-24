@@ -6360,7 +6360,7 @@ describe("SessionManager Domain Lock Integration", () => {
     };
 
     const customExecFileAsync = vi.fn().mockResolvedValue({ stdout: "src/new.ts\n", stderr: "" });
-    const mockSCM: any = {
+    const mockSCM: Partial<SCM> & { name: string } = {
       name: "mock-scm",
       resolvePR: vi.fn().mockResolvedValue({
         number: 789,

@@ -1250,6 +1250,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
             throw new Error(`Spawn blocked: Domain lock is held by active sessions/PRs: ${holders}`);
           }
 
+          // spawnConfig.issueId may be a PR URL (from --claim-pr), an issue URL,
+          // or a bare string. parsePrNumber extracts a numeric ID from URLs;
+          // non-numeric bare IDs (e.g. "INT-9999") skip spawn-time reservation —
+          // the lock is reserved later when the lifecycle-manager detects the PR.
           const prNumber = parsePrNumber(spawnConfig.issueId);
           if (prNumber !== undefined && !isNaN(prNumber)) {
             await plugins.lock.reserve(prNumber, changedFiles, selection.agentName, branch, workspacePath);
@@ -2201,6 +2205,23 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     const worktree = raw["worktree"];
+
+    // Release domain locks BEFORE destroying the workspace path.
+    // The lock release CLI needs the workspace path as cwd.
+    const prNumber = parsePrNumber(raw["pr"]);
+    if (prNumber !== undefined) {
+      const lockName = project?.lock?.plugin ?? config.defaults.lock ?? "area-lock";
+      const lock = registry.get<AreaLock>("lock", lockName);
+      if (lock) {
+        try {
+          const workspacePath = worktree || project?.path;
+          await lock.release(prNumber, workspacePath);
+        } catch (err) {
+          console.error(`[session-manager] Failed to release domain locks for PR #${prNumber}: ${err}`);
+        }
+      }
+    }
+
     if (worktree && shouldDestroyWorkspacePath(project, projectId, worktree)) {
       const workspacePlugin = project
         ? resolvePlugins(project).workspace
@@ -2231,21 +2252,6 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           didPurgeOpenCodeSession = true;
         } catch {
           void 0;
-        }
-      }
-    }
-
-    // Release domain locks associated with the PR
-    const prNumber = parsePrNumber(raw["pr"]);
-    if (prNumber !== undefined) {
-      const lockName = project?.lock?.plugin ?? config.defaults.lock ?? "area-lock";
-      const lock = registry.get<AreaLock>("lock", lockName);
-      if (lock) {
-        try {
-          const workspacePath = worktree || project?.path;
-          await lock.release(prNumber, workspacePath);
-        } catch (err) {
-          console.error(`[session-manager] Failed to release domain locks for PR #${prNumber}: ${err}`);
         }
       }
     }

@@ -734,13 +734,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           const lock = registry.get<AreaLock>("lock", lockName);
           if (lock && session.workspacePath && session.branch) {
             try {
-              const changedFiles = await getWorkspaceChangedFiles(session.workspacePath, detectedPR.baseBranch ?? project.defaultBranch);
-              if (changedFiles.length > 0) {
-                const agentName = session.metadata["agent"] ?? "worker";
-                await lock.reserve(detectedPR.number, changedFiles, agentName, session.branch, session.workspacePath);
-                // Mark lock as reserved to avoid re-reserving on subsequent polls
-                session.metadata["lockReserved"] = "true";
-                updateMetadata(sessionsDir, session.id, { lockReserved: "true" });
+              const baseBranch = detectedPR.baseBranch ?? project.defaultBranch;
+              if (!baseBranch) {
+                console.warn(`[lifecycle-manager] Skipping lock reservation for PR #${detectedPR.number}: no base branch resolved`);
+              } else {
+                const changedFiles = await getWorkspaceChangedFiles(session.workspacePath, baseBranch);
+                if (changedFiles.length > 0) {
+                  const agentName = session.metadata["agent"] ?? "worker";
+                  await lock.reserve(detectedPR.number, changedFiles, agentName, session.branch, session.workspacePath);
+                  // Mark lock as reserved to avoid re-reserving on subsequent polls
+                  session.metadata["lockReserved"] = "true";
+                  updateMetadata(sessionsDir, session.id, { lockReserved: "true" });
+                }
               }
             } catch (err) {
               console.error(`[lifecycle-manager] Failed to reserve domain locks for PR #${detectedPR.number}: ${err}`);
@@ -785,21 +790,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       const lockReserved = session.metadata["lockReserved"] === "true";
       if (lock && !lockReserved) {
         try {
-          const changedFiles = await getWorkspaceChangedFiles(session.workspacePath, project.defaultBranch);
-          if (changedFiles.length > 0) {
-            const agentName = session.metadata["agent"] ?? "worker";
-            await lock.reserve(session.pr.number, changedFiles, agentName, session.branch, session.workspacePath);
-            // Mark lock as reserved to avoid re-reserving on subsequent polls
-            session.metadata["lockReserved"] = "true";
-            const sessionsDir = getSessionsDir(config.configPath, project.path);
-            updateMetadata(sessionsDir, session.id, { lockReserved: "true" });
+          const baseBranch = session.pr.baseBranch ?? project.defaultBranch;
+          if (!baseBranch) {
+            console.warn(`[lifecycle-manager] Skipping lock reservation for PR #${session.pr.number}: no base branch resolved`);
+          } else {
+            const changedFiles = await getWorkspaceChangedFiles(session.workspacePath, baseBranch);
+            if (changedFiles.length > 0) {
+              const agentName = session.metadata["agent"] ?? "worker";
+              await lock.reserve(session.pr.number, changedFiles, agentName, session.branch, session.workspacePath);
+              // Mark lock as reserved to avoid re-reserving on subsequent polls
+              session.metadata["lockReserved"] = "true";
+              const sessionsDir = getSessionsDir(config.configPath, project.path);
+              updateMetadata(sessionsDir, session.id, { lockReserved: "true" });
+            }
           }
         } catch (err) {
           console.error(`[lifecycle-manager] Failed to reserve domain locks for PR #${session.pr.number}: ${err}`);
         }
       }
     }
-
     // 4. Check PR state if PR exists
     if (session.pr && scm) {
       try {
