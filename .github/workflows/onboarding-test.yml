@@ -63,23 +63,23 @@ jobs:
             done
             # All explicit candidates exhausted — use Python to bind an ephemeral port
             RESERVED_PORTS_FILE="$RESERVED_PORTS_FILE" python3 -c "
-import socket, os
-reserved = set()
-rf = os.environ.get('RESERVED_PORTS_FILE', '')
-if rf and os.path.exists(rf):
-    reserved = set(open(rf).read().split())
-for _ in range(20):
-    s = socket.socket()
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-    s.bind(('', 0))
-    p = str(s.getsockname()[1])
-    s.close()
-    if p not in reserved:
-        if rf:
-            open(rf, 'a').write(p + '\n')
-        print(p)
-        break
-"
+          import socket, os
+          reserved = set()
+          rf = os.environ.get('RESERVED_PORTS_FILE', '')
+          if rf and os.path.exists(rf):
+              reserved = set(open(rf).read().split())
+          for _ in range(20):
+              s = socket.socket()
+              s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+              s.bind(('', 0))
+              p = str(s.getsockname()[1])
+              s.close()
+              if p not in reserved:
+                  if rf:
+                      open(rf, 'a').write(p + '\n')
+                  print(p)
+                  break
+          "
           }
           echo "dashboard=$(pick_free_port 9000 19000 29000)" >> "$GITHUB_OUTPUT"
           echo "ws=$(pick_free_port 9001 19001 29001)" >> "$GITHUB_OUTPUT"
