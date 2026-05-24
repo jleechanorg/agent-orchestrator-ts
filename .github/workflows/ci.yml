@@ -14,12 +14,7 @@ concurrency:
 jobs:
   lint:
     name: Lint
-    # SECURITY: Fork-aware runner selection — do not simplify. See PR #273.
-    # Falls back to ubuntu-latest when SELF_HOSTED_DISABLED var is set (runner offline) or via fallback var.
-    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
-              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-                  && 'ubuntu-latest'
-                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -32,11 +27,7 @@ jobs:
 
   typecheck:
     name: Typecheck
-    # SECURITY: Fork-aware runner selection — do not simplify. See PR #273.
-    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
-              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-                  && 'ubuntu-latest'
-                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -69,11 +60,7 @@ jobs:
   test:
     name: Test
     timeout-minutes: 60
-    # SECURITY: Fork-aware runner selection — do not simplify. See PR #273.
-    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
-              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-                  && 'ubuntu-latest'
-                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     permissions:
       contents: read    # needed for git history and gh pr view in wholesome tests
       pull-requests: read
@@ -201,11 +188,7 @@ jobs:
 
   builtin-plugin-deps:
     name: Builtin Plugin Deps
-    # SECURITY: Fork-aware runner selection — do not simplify. See PR #273.
-    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
-              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-                  && 'ubuntu-latest'
-                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -219,11 +202,7 @@ jobs:
 
   test-web:
     name: Test (Web)
-    # SECURITY: Fork-aware runner selection — do not simplify. See PR #273.
-    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
-              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
-                  && 'ubuntu-latest'
-                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
