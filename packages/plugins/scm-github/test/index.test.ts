@@ -19,7 +19,7 @@ vi.mock("node:child_process", () => {
 
 import { create, manifest, ghRestFallback } from "../src/index.js";
 import { _resetGhCache } from "../src/gh-cache.js";
-import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig, CICheck, CIFailureSummary } from "@jleechanorg/ao-core";
+import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig, CICheck } from "@jleechanorg/ao-core";
 
 // ---------------------------------------------------------------------------
 // Fixtures
