@@ -32,7 +32,9 @@ import {
   constants,
 } from "node:fs";
 import { join, dirname } from "node:path";
-import { VALID_PR_STATES, type SessionId, type SessionMetadata, type PRState } from "./types.js";
+import { VALID_PR_STATES, type SessionId, type SessionMetadata, type PRState, type CanonicalSessionLifecycle } from "./types.js";
+import { parseCanonicalLifecycle } from "./lifecycle-state.js";
+import { validateStatus } from "./utils/validation.js";
 import { atomicWriteFileSync } from "./atomic-write.js";
 import { parseKeyValueContent } from "./key-value.js";
 
@@ -336,4 +338,16 @@ export function reserveSessionId(dataDir: string, sessionId: SessionId): boolean
   } catch {
     return false;
   }
+}
+
+export function readCanonicalLifecycle(
+  dataDir: string,
+  sessionId: SessionId,
+): CanonicalSessionLifecycle | undefined {
+  const raw = readMetadataRaw(dataDir, sessionId);
+  if (!raw) return undefined;
+  return parseCanonicalLifecycle(raw, {
+    sessionId,
+    status: validateStatus(raw["status"]),
+  });
 }

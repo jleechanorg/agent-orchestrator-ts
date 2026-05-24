@@ -1,4 +1,4 @@
-import { VALID_PR_STATES, type PRState, type RuntimeHandle, type Session, type SessionId, type SessionStatus } from "../types.js";
+import { VALID_PR_STATES, type PRState, type RuntimeHandle, type Session, type SessionId, type SessionKind, type SessionStatus, type ActivitySignal } from "../types.js";
 import { parsePrFromUrl } from "./pr.js";
 import { safeJsonParse, validateStatus } from "./validation.js";
 
@@ -6,7 +6,9 @@ interface SessionFromMetadataOptions {
   projectId?: string;
   workspacePathFallback?: string;
   status?: SessionStatus;
+  sessionKind?: SessionKind;
   activity?: Session["activity"];
+  activitySignal?: ActivitySignal;
   runtimeHandle?: RuntimeHandle | null;
   createdAt?: Date;
   lastActivityAt?: Date;

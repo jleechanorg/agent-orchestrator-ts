@@ -52,6 +52,7 @@ import {
   type PluginRegistry,
   type RuntimeHandle,
   type Issue,
+  type CanonicalSessionLifecycle,
   isOrchestratorSession,
   PR_STATE,
   TERMINAL_STATUSES,
@@ -75,6 +76,8 @@ import {
   deriveLegacyStatus,
   parseCanonicalLifecycle,
 } from "./lifecycle-state.js";
+import { createActivitySignal } from "./activity-signal.js";
+import { validateStatus } from "./utils/validation.js";
 import {
   getSessionsDir,
   getWorktreesDir,
@@ -1057,11 +1060,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       );
       if (allAlreadyPersisted) return;
 
-      if (Object.keys(metadataUpdates).length > 0) {
+      if (Object.keys(metadataUpdates).length > 0 && sessionsDir) {
         try {
           updateMetadata(sessionsDir, session.id, metadataUpdates);
-          session.metadata = applyMetadataUpdates(session.metadata, metadataUpdates);
-          invalidateCache();
+          session.metadata = applyMetadataUpdatesToRaw(session.metadata, metadataUpdates);
         } catch {
           // Persisting agent metadata is best-effort; keep live agent info.
         }
@@ -1115,7 +1117,6 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           // agents that recover restore metadata from persisted local files.
           if (plugins.agent && canDiscoverSessionInfoAfterRuntimeExit(plugins.agent)) {
             await persistAgentSessionInfo({ skipIfNativeRestoreMetadataPresent: true });
-          }
           }
           return;
         }
@@ -1653,15 +1654,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       projectId: orchestratorConfig.projectId,
       project,
       sessionId,
-      branch,
-      worktreeDir: getProjectWorktreesDir(orchestratorConfig.projectId),
+      branch: "main",
+      worktreeDir: getWorktreesDir(config.configPath, project.path),
     } satisfies WorkspaceCreateConfig;
 
     let workspacePath: string;
     let adoptedManagedWorkspace = false;
     try {
-      const adoptedInfo = await plugins.workspace.findManagedWorkspace?.(workspaceConfig);
-      const wsInfo = adoptedInfo ?? (await plugins.workspace.create(workspaceConfig));
+      const adoptedInfo = await plugins.workspace?.findManagedWorkspace?.(workspaceConfig);
+      const wsInfo = adoptedInfo ?? (await plugins.workspace!.create(workspaceConfig));
       workspacePath = wsInfo.path;
       adoptedManagedWorkspace = adoptedInfo !== undefined && adoptedInfo !== null;
     } catch (err) {
@@ -1681,9 +1682,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           await plugins.workspace!.destroy(workspacePath);
         } catch {
           /* best effort */
-        }
       }
-      }
+    }
     }
 
     // Write system prompt to a file to avoid shell/tmux truncation.

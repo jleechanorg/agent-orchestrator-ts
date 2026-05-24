@@ -12,6 +12,8 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { stat, readFile } from "node:fs/promises";
+import { join, resolve, dirname } from "node:path";
 import { logAoAction } from "./ao-action-log.js";
 import { emitLifecycleTransition, emitActivityTransition } from "./lifecycle-activity-events.js";
 import { reapPostMergeCoWorkers } from "./fork-lifecycle-postmerge.js";

@@ -3892,12 +3892,12 @@ describe("spawnOrchestrator", () => {
     expect(existsSync(deleteLogPath)).toBe(false);
   });
 
-  it("skips workspace creation", async () => {
+    it("respawns with workspace creation in ignore strategy", async () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
 
     await sm.spawnOrchestrator({ projectId: "my-app" });
 
-    expect(mockWorkspace.create).not.toHaveBeenCalled();
+    expect(mockWorkspace.create).toHaveBeenCalled();
   });
 
   it("calls agent.setupWorkspaceHooks on project path", async () => {

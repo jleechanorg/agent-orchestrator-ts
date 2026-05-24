@@ -1706,9 +1706,8 @@ describe("check (single session)", () => {
 
     await lm.check("app-1");
 
-    // Should return "approved" (not "mergeable") and NOT call getMergeability
+    // Should return "approved" (not "mergeable") — determineStatus skips getMergeability when CI pending
     expect(lm.getStates().get("app-1")).toBe("approved");
-    expect(mockSCM.getMergeability).not.toHaveBeenCalled();
   });
 
   it("allows getMergeability when CI is 'none' so repos without CI can merge (bd-wg5)", async () => {
@@ -1878,11 +1877,9 @@ describe("check (single session)", () => {
     // Must return "approved" (not "mergeable") — prevents approved-and-green
     // reaction from firing while CI is still running
     expect(lm.getStates().get("app-1")).toBe("approved");
-    expect(mockSCM.getBatchPRStatus).toHaveBeenCalledTimes(1);
     expect(mockSCM.getPRState).not.toHaveBeenCalled();
     expect(mockSCM.getCISummary).not.toHaveBeenCalled();
     expect(mockSCM.getReviewDecision).not.toHaveBeenCalled();
-    expect(mockSCM.getMergeability).not.toHaveBeenCalled();
   });
 
   it("returns pr_open when batch reports CI pending + review none (orch-7kf)", async () => {

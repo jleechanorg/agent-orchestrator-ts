@@ -22,10 +22,105 @@
 /** Unique session identifier, e.g. "my-app-1", "backend-12" */
 export type SessionId = string;
 
+export type SessionKind = "worker" | "orchestrator";
+
+export type CanonicalSessionState =
+  | "not_started"
+  | "working"
+  | "idle"
+  | "needs_input"
+  | "stuck"
+  | "detecting"
+  | "done"
+  | "terminated";
+
+export type CanonicalSessionReason =
+  | "spawn_requested"
+  | "agent_acknowledged"
+  | "task_in_progress"
+  | "pr_created"
+  | "pr_closed_waiting_decision"
+  | "merged_waiting_decision"
+  | "fixing_ci"
+  | "resolving_review_comments"
+  | "awaiting_user_input"
+  | "awaiting_external_review"
+  | "research_complete"
+  | "runtime_lost"
+  | "process_exited"
+  | "process_missing"
+  | "manually_killed"
+  | "manual_kill_requested"
+  | "pr_merged"
+  | "pr_merged_cleanup"
+  | "auto_cleanup"
+  | "error_in_process"
+  | "probe_failure";
+
+export type CanonicalPRState = "none" | "open" | "merged" | "closed";
+
+export type CanonicalPRReason =
+  | "not_created"
+  | "in_progress"
+  | "ci_failing"
+  | "review_pending"
+  | "changes_requested"
+  | "approved"
+  | "merge_ready"
+  | "merged"
+  | "closed_unmerged"
+  | "cleared_on_restore";
+
+export type CanonicalRuntimeState = "unknown" | "alive" | "exited" | "missing" | "probe_failed";
+
+export type CanonicalRuntimeReason =
+  | "spawn_incomplete"
+  | "process_running"
+  | "process_missing"
+  | "tmux_missing"
+  | "manual_kill_requested"
+  | "pr_merged_cleanup"
+  | "auto_cleanup"
+  | "probe_error";
+
+export interface SessionStateRecord {
+  kind: SessionKind;
+  state: CanonicalSessionState;
+  reason: CanonicalSessionReason;
+  startedAt: string | null;
+  completedAt: string | null;
+  terminatedAt: string | null;
+  lastTransitionAt: string;
+}
+
+export interface PRStateRecord {
+  state: CanonicalPRState;
+  reason: CanonicalPRReason;
+  number: number | null;
+  url: string | null;
+  lastObservedAt: string | null;
+}
+
+export interface RuntimeStateRecord {
+  state: CanonicalRuntimeState;
+  reason: CanonicalRuntimeReason;
+  lastObservedAt: string | null;
+  handle: RuntimeHandle | null;
+  tmuxName: string | null;
+}
+
+export interface CanonicalSessionLifecycle {
+  version: 2;
+  session: SessionStateRecord;
+  pr: PRStateRecord;
+  runtime: RuntimeStateRecord;
+}
+
 /** Session lifecycle states */
 export type SessionStatus =
   | "spawning"
   | "working"
+  | "detecting"
   | "pr_open"
   | "ci_failed"
   | "review_pending"
@@ -199,21 +294,32 @@ export function isRestorable(session: {
 }
 
 /** A running agent session */
+export type ActivitySignalState = "valid" | "stale" | "null" | "unavailable" | "probe_failure";
+
+export type ActivitySignalSource = "native" | "terminal" | "hook" | "runtime" | "none";
+
+export interface ActivitySignal {
+  state: ActivitySignalState;
+  activity: ActivityState | null;
+  timestamp?: Date;
+  source: ActivitySignalSource;
+  detail?: string;
+}
+
 export interface Session {
-  /** Unique session ID, e.g. "my-app-3" */
   id: SessionId;
 
-  /** Globally unique tmux session name (includes namespace hash, e.g. "a3b4c5d6-my-app-3") */
   tmuxName?: string;
 
-  /** Which project this session belongs to */
   projectId: string;
 
-  /** Current lifecycle status */
   status: SessionStatus;
 
-  /** Activity state from agent plugin (null = not yet determined) */
   activity: ActivityState | null;
+
+  activitySignal?: ActivitySignal;
+
+  lifecycle?: CanonicalSessionLifecycle;
 
   /** Git branch name */
   branch: string | null;
@@ -558,6 +664,7 @@ export interface WorkspaceCreateConfig {
   project: ProjectConfig;
   sessionId: SessionId;
   branch: string;
+  worktreeDir?: string;
 }
 
 export interface WorkspaceInfo {
