@@ -578,6 +578,8 @@ describe("wholesome — structural source-code assertions", () => {
       "7106a3dda15d401ae2fdb1087cafb4c605a3e50f", // fix(lifecycle): batch path CI-pending guard prevents premature approved-and-green (orch-7kf)
       // PR #585: CR feedback commit without [agento] prefix
       "51eaa8f78c6afa9e33a31bc01e434aec15380a51", // fix: address CodeRabbit CR feedback on PR #585
+      // PR #585: trivial test comment to trigger fresh CR formal review
+      "1df0ad412b073a0513a8f3e43311969447eae85f", // test: clarify FTS integration test bypasses openDb/initFts
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
