@@ -122,6 +122,28 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.trimEnd();
 }
 
+/**
+ * Clean up stale/orphaned worktree metadata and directory.
+ */
+async function cleanupStaleWorktree(repoPath: string, worktreePath: string): Promise<void> {
+  try {
+    await git(repoPath, "worktree", "prune");
+  } catch {
+    // Best effort
+  }
+
+  if (existsSync(worktreePath)) {
+    try {
+      const files = readdirSync(worktreePath);
+      if (files.length === 0) {
+        rmSync(worktreePath, { recursive: true, force: true });
+      }
+    } catch {
+      // Best effort
+    }
+  }
+}
+
 /** Timeout for tmux queries (5 seconds) */
 const TMUX_TIMEOUT = 5_000;
 
@@ -361,6 +383,9 @@ export function create(config?: Record<string, unknown>): Workspace {
       // bd-1483: Disambiguate before git worktree add — local branch may shadow
       // the remote-tracking ref, causing "ambiguous object name" error.
       await disambiguateBaseRef(repoPath, baseRef);
+
+      // Clean up stale/orphaned worktree metadata and directory
+      await cleanupStaleWorktree(repoPath, worktreePath);
 
       // bd-206: Clean up any stale locked worktree entry at this path before creating.
       // This handles the case where the directory was deleted but git still holds
@@ -724,12 +749,8 @@ export function create(config?: Record<string, unknown>): Workspace {
         // Best-effort — entry may not exist or may already be unlocked
       }
 
-      // Prune stale worktree entries
-      try {
-        await git(repoPath, "worktree", "prune");
-      } catch {
-        // Best effort
-      }
+      // Clean up stale/orphaned worktree metadata and directory
+      await cleanupStaleWorktree(repoPath, workspacePath);
 
       // Fetch latest
       try {

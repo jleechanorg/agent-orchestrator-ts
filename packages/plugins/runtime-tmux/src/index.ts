@@ -213,6 +213,13 @@ export function create(): Runtime {
           ? writeLaunchScript(launchCmd)
           : withKeepAliveShell(launchCmd);
 
+      // Kill any pre-existing stale/orphaned session with the same name
+      try {
+        await tmux("kill-session", "-t", sessionName);
+      } catch {
+        // Ignore errors if the session does not exist
+      }
+
       await tmux(
         "new-session",
         "-d",
