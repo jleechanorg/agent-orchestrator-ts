@@ -63,12 +63,15 @@ function formatCIFailureChecksFallback(failedChecks: CICheck[]): string {
 const CI_CONTEXT_TIMEOUT_MS = 10_000;
 
 export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = CI_CONTEXT_TIMEOUT_MS): Promise<T> {
-  return await Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`CI context timed out after ${timeoutMs}ms`)), timeoutMs),
-    ),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`CI context timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 export async function formatCIFailureMessage(
@@ -80,8 +83,24 @@ export async function formatCIFailureMessage(
     try {
       const summary = await withTimeout(scm.getCIFailureSummary(pr, failedChecks));
       if (summary?.failedJobs.length) {
-        const enrichedNames = new Set(summary.failedJobs.map((j) => j.name));
-        const remaining = failedChecks.filter((c) => !enrichedNames.has(c.name));
+        const enrichedNames = summary.failedJobs.map((j) => j.name);
+        const enrichedNameCounts = new Map<string, number>();
+        for (const n of enrichedNames) enrichedNameCounts.set(n, (enrichedNameCounts.get(n) ?? 0) + 1);
+        const remaining: CICheck[] = [];
+        const seenEnriched = new Map<string, number>();
+        for (const c of failedChecks) {
+          const enrichedCount = enrichedNameCounts.get(c.name) ?? 0;
+          if (enrichedCount > 0) {
+            const alreadyKept = seenEnriched.get(c.name) ?? 0;
+            if (alreadyKept < enrichedCount) {
+              seenEnriched.set(c.name, alreadyKept + 1);
+            } else {
+              remaining.push(c);
+            }
+          } else {
+            remaining.push(c);
+          }
+        }
         if (remaining.length === 0) {
           return formatCIFailureSummaryMessage(summary);
         }
