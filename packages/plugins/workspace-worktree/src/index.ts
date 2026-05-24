@@ -126,12 +126,8 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
  * Clean up stale/orphaned worktree metadata and directory.
  */
 async function cleanupStaleWorktree(repoPath: string, worktreePath: string): Promise<void> {
-  try {
-    await git(repoPath, "worktree", "prune");
-  } catch {
-    // Best effort
-  }
-
+  // Delete the empty directory first — git worktree prune only removes metadata
+  // for paths that no longer exist on disk, so the dir must be gone before prune.
   if (existsSync(worktreePath)) {
     try {
       const files = readdirSync(worktreePath);
@@ -141,6 +137,12 @@ async function cleanupStaleWorktree(repoPath: string, worktreePath: string): Pro
     } catch {
       // Best effort
     }
+  }
+
+  try {
+    await git(repoPath, "worktree", "prune");
+  } catch {
+    // Best effort
   }
 }
 
