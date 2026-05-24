@@ -117,6 +117,10 @@ export async function restartAgentCli(handle: RuntimeHandle): Promise<void> {
     );
   }
 
+  // Reset geminiReady so doSendWithRetry applies Enter-retry on the next
+  // sendMessage after restart — the agent goes through splash again.
+  if (handle.data) handle.data.geminiReady = false;
+
   // Cancel any partially-pasted text / in-progress command
   await tmux("send-keys", "-t", handle.id, "C-c");
   await sleep(200);
