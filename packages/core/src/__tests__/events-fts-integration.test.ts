@@ -9,6 +9,8 @@ try {
   // better-sqlite3 unavailable — integration tests will be skipped
 }
 
+// This test suite mocks events-db.js and hand-builds its own in-memory SQLite schema,
+// intentionally bypassing openDb()/initFts() to test the FTS query layer in isolation.
 vi.mock("../events-db.js", () => ({
   getDb: vi.fn(),
   isActivityEventsFtsEnabled: vi.fn(() => true),
