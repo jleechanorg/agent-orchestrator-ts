@@ -1375,7 +1375,7 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
     mockGitSuccess(""); // worktree add
-    // No fifth mock → git rev-parse --git-common-dir throws → fallback fires
+    mockGitError("rev-parse failed"); // git rev-parse --git-common-dir throws → fallback fires
 
     // Simulate .git being a FILE (linked worktree)
     mockLstatSync.mockReturnValue({ isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false });
