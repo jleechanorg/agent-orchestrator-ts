@@ -1062,7 +1062,6 @@ export interface CheckResult {
 }
 
 export interface AreaLock {
-  readonly name: string;
   reserve(
     prNumber: number,
     changedFiles: string[],
@@ -1390,6 +1389,7 @@ export interface DefaultPlugins {
   runtime: string;
   agent: string;
   workspace: string;
+  lock: string;
   notifiers: string[];
   /** Merged before role/project overrides (permissions, model, etc.). */
   agentConfig?: AgentSpecificConfig;
@@ -1483,6 +1483,11 @@ export interface RecordedOutcome {
   recordedAt: string;
 }
 
+export interface LockConfig {
+  plugin?: string;
+  config?: Record<string, unknown>;
+}
+
 export interface ProjectConfig {
   /** Display name */
   name: string;
@@ -1522,6 +1527,9 @@ export interface ProjectConfig {
 
   /** SCM configuration (usually inferred from repo) */
   scm?: SCMConfig;
+
+  /** Domain lock configuration */
+  lock?: LockConfig;
 
   /** Files/dirs to symlink into workspaces */
   symlinks?: string[];
@@ -1916,29 +1924,6 @@ export interface PluginModule<T = unknown> {
 
   /** Optional: detect whether this plugin's runtime/binary is available on the system. */
   detect?(): boolean;
-}
-
-// =============================================================================
-// LOCK PLUGIN CONTRACT
-// =============================================================================
-
-export interface LockEntry {
-  domain: string;
-  pr_number: number;
-  agent: string;
-  branch: string;
-  timestamp: string;
-}
-
-export interface CheckResult {
-  status: "free" | "held";
-  held_by: LockEntry[];
-}
-
-export interface AreaLock {
-  reserve(prNumber: number, changedFiles: string[], agent: string, branch: string, runtimeProjectRoot?: string): Promise<LockEntry[]>;
-  release(prNumber: number, runtimeProjectRoot?: string): Promise<LockEntry[]>;
-  check(changedFiles: string[], runtimeProjectRoot?: string): Promise<CheckResult>;
 }
 
 // =============================================================================

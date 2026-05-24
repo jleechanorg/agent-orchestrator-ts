@@ -730,7 +730,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           updateMetadata(sessionsDir, session.id, { pr: detectedPR.url });
 
           // Reserve domain locks for this newly detected PR
-          const lock = registry.get<AreaLock>("lock", "area-lock");
+          const lockName = project.lock?.plugin ?? config.defaults?.lock ?? "area-lock";
+          const lock = registry.get<AreaLock>("lock", lockName);
           if (lock && session.workspacePath && session.branch) {
             try {
               const changedFiles = await getWorkspaceChangedFiles(session.workspacePath, detectedPR.baseBranch ?? project.defaultBranch);
@@ -779,7 +780,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     //      This handles sessions where PR metadata was written by the agent or loaded from disk
     //      and bypassed the auto-detect path above.
     if (session.pr && session.workspacePath && session.branch) {
-      const lock = registry.get<AreaLock>("lock", "area-lock");
+      const lockName = project.lock?.plugin ?? config.defaults?.lock ?? "area-lock";
+      const lock = registry.get<AreaLock>("lock", lockName);
       const lockReserved = session.metadata["lockReserved"] === "true";
       if (lock && !lockReserved) {
         try {

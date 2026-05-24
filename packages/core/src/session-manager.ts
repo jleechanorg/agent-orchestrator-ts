@@ -835,7 +835,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       ? registry.get<Tracker>("tracker", project.tracker.plugin)
       : null;
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
-    const lock = registry.get<AreaLock>("lock", "area-lock");
+    const lockName = project.lock?.plugin ?? config.defaults.lock ?? "area-lock";
+    const lock = registry.get<AreaLock>("lock", lockName);
 
     return { runtime, agent, workspace, tracker, scm, lock };
   }
@@ -1248,7 +1249,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
             throw new Error(`Spawn blocked: Domain lock is held by active sessions/PRs: ${holders}`);
           }
 
-          const prNumber = spawnConfig.issueId ? parseInt(spawnConfig.issueId, 10) : undefined;
+          const prNumber = parsePrNumber(spawnConfig.issueId);
           if (prNumber !== undefined && !isNaN(prNumber)) {
             await plugins.lock.reserve(prNumber, changedFiles, selection.agentName, branch, workspacePath);
             lockReservedAtSpawn = true;
@@ -2236,7 +2237,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // Release domain locks associated with the PR
     const prNumber = parsePrNumber(raw["pr"]);
     if (prNumber !== undefined) {
-      const lock = registry.get<AreaLock>("lock", "area-lock");
+      const lockName = project?.lock?.plugin ?? config.defaults.lock ?? "area-lock";
+      const lock = registry.get<AreaLock>("lock", lockName);
       if (lock) {
         try {
           const workspacePath = worktree || project?.path;
@@ -2793,10 +2795,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new Error(`Session ${sessionId} is an orchestrator session and cannot claim PRs`);
     }
 
-    const plugins = resolvePlugins(
-      project,
-      resolveSelectionForSession(project, sessionId, raw).agentName,
-    );
+    const selection = resolveSelectionForSession(project, sessionId, raw);
+    const plugins = resolvePlugins(project, selection.agentName);
     const scm = plugins.scm;
     if (!scm?.resolvePR || !scm.checkoutPR) {
       throw new Error(
@@ -2834,17 +2834,65 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new Error(`Session ${sessionId} has no workspace to check out PR #${pr.number}`);
     }
 
+    // Release locks for the session's PREVIOUS PR if it's changing
+    const oldPrNumber = parsePrNumber(raw["pr"]);
+    if (oldPrNumber !== undefined && oldPrNumber !== pr.number && plugins.lock) {
+      try {
+        await plugins.lock.release(oldPrNumber, workspacePath);
+      } catch (err) {
+        console.warn(`[session-manager] Failed to release old domain locks during claimPR: ${err}`);
+      }
+    }
+
     const branchChanged = await scm.checkoutPR(pr, workspacePath);
 
     for (const previousSessionId of takenOverFrom) {
       const previousRaw = readMetadataRaw(sessionsDir, previousSessionId);
       if (!previousRaw) continue;
 
+      // Release locks for the previous session if it had a PR
+      const prevPrNumber = parsePrNumber(previousRaw["pr"]);
+      if (prevPrNumber !== undefined && plugins.lock) {
+        try {
+          const prevWorkspace = previousRaw["worktree"] || workspacePath;
+          await plugins.lock.release(prevPrNumber, prevWorkspace);
+        } catch (err) {
+          console.warn(
+            `[session-manager] Failed to release taken-over domain locks for PR #${prevPrNumber} during claimPR: ${err}`,
+          );
+        }
+      }
+
       updateMetadata(sessionsDir, previousSessionId, {
         pr: "",
         prAutoDetect: "off",
         ...(PR_TRACKING_STATUSES.has(previousRaw["status"] ?? "") ? { status: "working" } : {}),
       });
+    }
+
+    // Reserve locks for the new PR
+    if (plugins.lock) {
+      try {
+        const changedFiles = await getWorkspaceChangedFiles(
+          workspacePath,
+          pr.baseBranch ?? project.defaultBranch,
+          execFileAsync,
+        );
+        if (changedFiles.length > 0) {
+          await plugins.lock.reserve(
+            pr.number,
+            changedFiles,
+            selection.agentName,
+            pr.branch,
+            workspacePath,
+          );
+          updateMetadata(sessionsDir, sessionId, { lockReserved: "true" });
+        }
+      } catch (err) {
+        console.warn(
+          `[session-manager] Failed to reserve domain locks for claimed PR #${pr.number}: ${err}`,
+        );
+      }
     }
 
     let githubAssigned = false;
