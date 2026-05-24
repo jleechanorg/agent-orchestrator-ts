@@ -2047,7 +2047,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               reactionKey === "ci-failed" &&
               session.pr &&
               reactionConfig.action === "send-to-agent" &&
-              reactionConfig.auto !== false
+              reactionConfig.auto !== false &&
+              !skipForDead
             ) {
               const ciProject = config.projects[session.projectId];
               const ciScm = ciProject?.scm?.plugin
