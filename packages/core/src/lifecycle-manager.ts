@@ -2036,7 +2036,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       : undefined;
     if (task) {
       sessionCurrentTask.set(session.id, task);
-    } else if (newStatus === "merged" || newStatus === "killed") {
+    } else if (TERMINAL_STATUSES.has(newStatus)) {
       sessionCurrentTask.delete(session.id);
     }
 
