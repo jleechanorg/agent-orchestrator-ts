@@ -1022,11 +1022,11 @@ function createClaudeCodeAgent(): Agent {
             return { state: "blocked", timestamp };
           }
 
-          if (entry.lastType && NOISE_JSONL_TYPES.has(entry.lastType)) {
-            // Noise entries (bookkeeping) don't count as activity; if the session
-            // just started, use the creation timestamp as a baseline.
-            staleNativeState = { state: "idle", timestamp: session.createdAt ?? entry.modifiedAt };
-          } else {
+        if (entry.lastType && NOISE_JSONL_TYPES.has(entry.lastType)) {
+          // Noise entries (bookkeeping) don't count as activity; use the entry's
+          // modification time as the idle timestamp.
+          staleNativeState = { state: "idle", timestamp: entry.modifiedAt };
+        } else {
             const activeWindowMs = Math.min(DEFAULT_NATIVE_ACTIVE_WINDOW_MS, threshold);
             switch (entry.lastType) {
               case "user":
