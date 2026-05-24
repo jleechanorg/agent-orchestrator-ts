@@ -223,6 +223,18 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--dangerously-skip-permissions");
   });
 
+  it("defaults missing permissions to --dangerously-skip-permissions", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig());
+    expect(cmd).toContain("--dangerously-skip-permissions");
+  });
+
+  it("treats empty-string permissions as explicit value (not permissionless)", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({ permissions: "" as unknown as AgentLaunchConfig["permissions"] }),
+    );
+    expect(cmd).not.toContain("--dangerously-skip-permissions");
+  });
+
   it("treats legacy permissions=skip as permissionless", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "skip" as unknown as AgentLaunchConfig["permissions"] }),
@@ -254,7 +266,7 @@ describe("getLaunchCommand", () => {
 
   it("does not include -p flag (prompt delivered post-launch)", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "Fix the bug" }));
-    expect(cmd).not.toContain("-p");
+    expect(cmd.split(/\s+/)).not.toContain("-p");
     expect(cmd).not.toContain("Fix the bug");
   });
 
@@ -291,7 +303,7 @@ describe("getLaunchCommand", () => {
   it("omits optional flags when not provided", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
     expect(cmd).not.toContain("--model");
-    expect(cmd).not.toContain("-p");
+    expect(cmd.split(/\s+/)).not.toContain("-p");
   });
 
   it("includes --append-system-prompt alongside omitted -p", () => {
@@ -745,7 +757,9 @@ describe("getSessionInfo", () => {
         sessionPrefix: "test",
       });
 
-      expect(command).toBe("env -u ANTHROPIC_BASE_URL claude --resume 'persisted-uuid' --strict-mcp-config '/mock/home/.claude/mcp-strict.json'");
+      expect(command).toBe(
+        "env -u ANTHROPIC_BASE_URL claude --resume 'persisted-uuid' --dangerously-skip-permissions --strict-mcp-config '/mock/home/.claude/mcp-strict.json'",
+      );
       expect(mockReaddir).not.toHaveBeenCalled();
     });
   });

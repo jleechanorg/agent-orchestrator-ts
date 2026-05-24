@@ -21,7 +21,7 @@ import { constants } from "node:fs";
 const execFileAsync = promisify(execFile);
 
 function normalizePermissionMode(mode: string | undefined): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
-  if (!mode) return undefined;
+  if (mode === undefined) return "permissionless";
   if (mode === "skip") return "permissionless";
   if (mode === "permissionless" || mode === "default" || mode === "auto-edit" || mode === "suggest") {
     return mode;

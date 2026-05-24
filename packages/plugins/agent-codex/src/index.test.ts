@@ -233,7 +233,12 @@ describe("getLaunchCommand", () => {
   const agent = create();
 
   it("generates base command", () => {
-    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex' -c check_for_update_on_startup=false");
+    expect(agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }))).toBe("'codex' -c check_for_update_on_startup=false");
+  });
+
+  it("defaults missing permissions to permissionless mode", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig());
+    expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
   });
 
   it("includes bypass flag when permissions=permissionless", () => {
@@ -328,7 +333,7 @@ describe("getLaunchCommand", () => {
   });
 
   it("omits optional flags when not provided", () => {
-    const cmd = agent.getLaunchCommand(makeLaunchConfig());
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
     expect(cmd).not.toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(cmd).not.toContain("--ask-for-approval");
     expect(cmd).not.toContain("--model");
@@ -1545,13 +1550,13 @@ describe("postLaunchSetup", () => {
     });
 
     // Before postLaunchSetup, binary is "codex"
-    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex' -c check_for_update_on_startup=false");
+    expect(agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }))).toBe("'codex' -c check_for_update_on_startup=false");
 
     // After postLaunchSetup resolves the binary
     await agent.postLaunchSetup!(makeSession({ workspacePath: "/workspace/test" }));
 
     // Now getLaunchCommand should use the resolved binary
-    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'/opt/bin/codex' -c check_for_update_on_startup=false");
+    expect(agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }))).toBe("'/opt/bin/codex' -c check_for_update_on_startup=false");
   });
 });
 

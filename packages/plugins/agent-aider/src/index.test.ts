@@ -112,7 +112,12 @@ describe("getLaunchCommand", () => {
   const agent = create();
 
   it("generates base command", () => {
-    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("aider");
+    expect(agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }))).toBe("aider");
+  });
+
+  it("defaults missing permissions to permissionless mode", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig());
+    expect(cmd).toContain("--yes");
   });
 
   it("includes --yes when permissions=permissionless", () => {
@@ -155,7 +160,7 @@ describe("getLaunchCommand", () => {
   });
 
   it("omits optional flags when not provided", () => {
-    const cmd = agent.getLaunchCommand(makeLaunchConfig());
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
     expect(cmd).not.toContain("--yes");
     expect(cmd).not.toContain("--model");
     expect(cmd).not.toContain("--message");

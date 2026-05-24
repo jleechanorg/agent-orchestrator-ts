@@ -228,9 +228,9 @@ describe("wholesome — structural source-code assertions", () => {
     it("PR title has correct format: [agento] <type>: <description>", () => {
       const title = getPRTitle();
       if (!shouldEnforcePRTitlePrefix(title)) return;
-      // "[agento] " followed by conventional-commit type + optional scope + colon
+      // "[agento] " followed by optional "[antig] " tag and conventional-commit type + optional scope + colon
       // Scope format: (scope-name) — supports issue refs like (skeptic-cron)
-      expect(title).toMatch(/^\[agento\] [a-z]+(\([^)]+\))?: /);
+      expect(title).toMatch(/^\[agento\] (\[antig\] )?[a-z]+(\([^)]+\))?: /);
     });
   });
 

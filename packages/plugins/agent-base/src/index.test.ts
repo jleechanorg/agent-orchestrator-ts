@@ -171,6 +171,61 @@ describe("createAgentPlugin factory", () => {
     expect(cmd).toContain("--skip-permissions");
   });
 
+  it("should default missing permissions to permissionless mode", () => {
+    const config = {
+      name: "test-agent",
+      description: "Test agent plugin",
+      processName: "test-process",
+      command: "test",
+      configDir: ".test",
+      permissionlessFlag: "--skip-permissions",
+    };
+
+    const agent = createAgentPlugin(config);
+
+    const launchConfig: AgentLaunchConfig = {
+      sessionId: "test-session",
+      projectConfig: {
+        name: "test-project",
+        repo: "owner/repo",
+        path: "/workspace/repo",
+        defaultBranch: "main",
+        sessionPrefix: "test",
+      },
+    };
+
+    const cmd = agent.getLaunchCommand(launchConfig);
+    expect(cmd).toContain("--skip-permissions");
+  });
+
+  it("should treat empty string permissions as explicit value (not permissionless)", () => {
+    const config = {
+      name: "test-agent",
+      description: "Test agent plugin",
+      processName: "test-process",
+      command: "test",
+      configDir: ".test",
+      permissionlessFlag: "--skip-permissions",
+    };
+
+    const agent = createAgentPlugin(config);
+
+    const launchConfig: AgentLaunchConfig = {
+      sessionId: "test-session",
+      permissions: "",
+      projectConfig: {
+        name: "test-project",
+        repo: "owner/repo",
+        path: "/workspace/repo",
+        defaultBranch: "main",
+        sessionPrefix: "test",
+      },
+    };
+
+    const cmd = agent.getLaunchCommand(launchConfig);
+    expect(cmd).not.toContain("--skip-permissions");
+  });
+
   it("should set AO_SESSION in environment", () => {
     const config = {
       name: "test-agent",

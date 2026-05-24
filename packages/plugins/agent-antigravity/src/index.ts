@@ -8,6 +8,9 @@ import {
   type ActivityDetection,
 } from "@jleechanorg/ao-core";
 import { execFileSync } from "node:child_process";
+import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
 
 export const manifest = {
   name: "antigravity",
@@ -29,11 +32,61 @@ const antigravityConfig: AgentPluginConfig = {
 const antigravityOverrides: Partial<Agent> = {
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     const parts = ["agy", "--prompt-interactive", '""'];
-    const permissions = launchConfig.permissions;
+    const permissions = launchConfig.permissions ?? "permissionless";
     if (permissions === "permissionless" || permissions === "auto-edit" || permissions === "skip") {
       parts.push("--dangerously-skip-permissions");
     }
     return parts.join(" ");
+  },
+
+  getEnvironment(launchConfig: AgentLaunchConfig): Record<string, string> {
+    const baseAgent = createAgentPlugin(antigravityConfig);
+    const baseEnv = baseAgent.getEnvironment(launchConfig);
+
+    const userHome = os.homedir();
+    const sessionHome = path.join(userHome, ".ao-sessions", launchConfig.sessionId);
+    
+    // Ensure session directory exists
+    fs.mkdirSync(sessionHome, { recursive: true });
+    
+    const srcGemini = path.join(userHome, ".gemini");
+    const destGemini = path.join(sessionHome, ".gemini");
+    
+    const copyRecursiveSync = (src: string, dest: string) => {
+      const exists = fs.existsSync(src);
+      const stats = exists ? fs.lstatSync(src) : null;
+      if (stats?.isSymbolicLink()) return;
+      const isDirectory = stats?.isDirectory() ?? false;
+      if (isDirectory) {
+        fs.mkdirSync(dest, { recursive: true });
+        fs.readdirSync(src).forEach((childItemName: string) => {
+          if (childItemName === "tmp" || childItemName === "history" || childItemName === "antigravity-browser-profile") {
+            return;
+          }
+          copyRecursiveSync(path.join(src, childItemName), path.join(dest, childItemName));
+        });
+      } else {
+        try {
+          fs.copyFileSync(src, dest);
+        } catch (err) {
+          console.debug(`[antigravity] Failed to copy ${src}: ${(err as Error).message}`);
+        }
+      }
+    };
+    
+    try {
+      copyRecursiveSync(srcGemini, destGemini);
+    } catch (err) {
+      console.debug(`[antigravity] Failed to copy .gemini directory: ${(err as Error).message}`);
+    }
+    
+    return {
+      ...baseEnv,
+      HOME: sessionHome,
+      // Clear these to prevent the spawned CLI from inheriting parent agent context
+      ANTIGRAVITY_PROJECT_ID: "",
+      ANTIGRAVITY_TRAJECTORY_ID: "",
+    };
   },
 
   async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {
