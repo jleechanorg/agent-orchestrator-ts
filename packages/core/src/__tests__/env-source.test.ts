@@ -33,6 +33,10 @@ const mockReadFileSync = vi.hoisted(() => vi.fn<typeof import("node:fs").readFil
 
 vi.mock("node:child_process", () => ({
   execFileSync: mockExecFileSync,
+  spawnSync: vi.fn((...args: any[]) => {
+    const res = mockExecFileSync(...args);
+    return { stdout: res } as any;
+  }),
 }));
 
 vi.mock("node:fs", () => ({

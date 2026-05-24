@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -78,6 +78,30 @@ describe("workspace-worktree (integration)", () => {
     expect(createdInfo.sessionId).toBe("session-1");
     expect(createdInfo.projectId).toBe("inttest");
     expect(existsSync(createdInfo.path)).toBe(true);
+  });
+
+  it("cleans up stale empty worktree directory and metadata on create", async () => {
+    // Determine a target worktree path that does not exist yet
+    const targetSessionId = `session-stale-${Date.now()}`;
+    const targetPath = join(worktreeBaseDir, "inttest", targetSessionId);
+
+    // Create an empty directory at the targetPath on disk manually (simulating a stale folder)
+    mkdirSync(targetPath, { recursive: true });
+    expect(existsSync(targetPath)).toBe(true);
+
+    // Call create - it should prune/delete the empty folder and successfully create the worktree
+    const info = await workspace.create({
+      projectId: "inttest",
+      sessionId: targetSessionId,
+      project,
+      branch: `feat/stale-wt-${Date.now()}`,
+    });
+
+    expect(existsSync(info.path)).toBe(true);
+    expect(existsSync(join(info.path, "README.md"))).toBe(true);
+
+    // Clean up
+    await workspace.destroy(info.path);
   });
 
   it("worktree is on the correct branch", async () => {

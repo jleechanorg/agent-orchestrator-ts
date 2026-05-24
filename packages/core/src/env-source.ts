@@ -10,7 +10,7 @@
  * and runtime injection attacks.
  */
 
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { expandHome } from "./paths.js";
 
@@ -138,7 +138,7 @@ export function sourceEnvFile(
     }
 
     // Shell dotfiles: source through bash, capture env output, diff against snapshot.
-    // Use execFileSync to avoid shell injection — no shell interpolation.
+    // Use spawnSync to avoid shell injection — no shell interpolation.
     // Use `;` not `&&` so `env` runs even if sourced file exits non-zero
     // (e.g. bashrc with `set -e` or a failing command at the end).
     // Use `-i --noprofile` (interactive, no implicit profile sourcing) so:
@@ -146,13 +146,19 @@ export function sourceEnvFile(
     //   (b) bash does NOT implicitly source ~/.bashrc before the explicit source,
     //       preventing implicit startup-file leakage into the configured file's output.
     // Use `--norc` for the same reason — don't let bash's own rc file run first.
-    const output = execFileSync(
+    const spawnResult = spawnSync(
       "bash",
       ["--noprofile", "--norc", "-i", "-c", `source "$1" > /dev/null 2>&1; env`, "--", expanded],
-      { timeout: 10_000, stdio: ["pipe", "pipe", "pipe"] },
-    )
-      .toString()
-      .trim();
+      { timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    // Guard against spawn failures (e.g. bash not found, timeout). Unlike
+    // execFileSync, spawnSync never throws — errors are reported via .error.
+    // Note: we do NOT gate on spawnResult.status because we use `;` so `env`
+    // always runs (and exits 0) even when the sourced file exits non-zero.
+    if (spawnResult.error) {
+      return {};
+    }
+    const output = (spawnResult.stdout || "").toString().trim();
 
     const newVars: Record<string, string> = {};
 

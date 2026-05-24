@@ -446,32 +446,57 @@ describe("Origin File Management", () => {
     }).not.toThrow();
   });
 
-  it("call with different config path throws hash collision error", () => {
+  it("call with different config path throws hash collision error when stored config path exists", () => {
     // First config
     validateAndStoreOrigin(configPath, projectPath);
 
-    // Create second config that would have same hash (simulate collision)
-    // This is hard to simulate naturally, so we'll manually edit .origin
+    // Create a real other config file that exists on disk
+    const otherConfigPath = join(tmpDir, "other-config.yaml");
+    writeFileSync(otherConfigPath, "projects: {}");
+
+    // Manually write the real other config path into .origin to simulate collision
     const originPath = getOriginFilePath(configPath, projectPath);
-    writeFileSync(originPath, "/fake/other/config/path");
+    writeFileSync(originPath, realpathSync(otherConfigPath));
 
     expect(() => {
       validateAndStoreOrigin(configPath, projectPath);
     }).toThrow(/Hash collision detected/);
   });
 
+  it("allows new config to take over if stored config path no longer exists", () => {
+    validateAndStoreOrigin(configPath, projectPath);
+
+    // Write a non-existent path into .origin
+    const originPath = getOriginFilePath(configPath, projectPath);
+    const nonExistentPath = join(tmpDir, "does-not-exist.yaml");
+    writeFileSync(originPath, nonExistentPath);
+
+    expect(() => {
+      validateAndStoreOrigin(configPath, projectPath);
+    }).not.toThrow();
+
+    // Verify it overwrote the .origin with the correct resolvedConfigPath
+    const content = readFileSync(originPath, "utf-8").trim();
+    expect(content).toBe(realpathSync(configPath));
+  });
+
   it("error message includes both config paths", () => {
     validateAndStoreOrigin(configPath, projectPath);
 
+    // Create a real other config file that exists on disk
+    const otherConfigPath = join(tmpDir, "other-config.yaml");
+    writeFileSync(otherConfigPath, "projects: {}");
+
     const originPath = getOriginFilePath(configPath, projectPath);
-    writeFileSync(originPath, "/fake/other/path");
+    const resolvedOther = realpathSync(otherConfigPath);
+    writeFileSync(originPath, resolvedOther);
 
     try {
       validateAndStoreOrigin(configPath, projectPath);
       expect.fail("Should have thrown");
     } catch (err) {
       const message = (err as Error).message;
-      expect(message).toContain("/fake/other/path");
+      expect(message).toContain(resolvedOther);
       expect(message).toContain(realpathSync(configPath));
     }
   });

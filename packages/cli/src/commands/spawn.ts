@@ -9,6 +9,7 @@ import {
   getSiblings,
   formatPlanTree,
   TERMINAL_STATUSES,
+  isTerminalSession,
   enqueueSpawnRequest,
   resolveSpawnQueueConfig,
   expandHome,
@@ -120,7 +121,7 @@ async function spawnSession(
     const sm = await getSessionManager(config);
 
     const listedSessions = await sm.list(projectId);
-    const activeSessions = listedSessions.filter((session) => !TERMINAL_STATUSES.has(session.status));
+    const activeSessions = listedSessions.filter((session) => !isTerminalSession(session));
     const queueConfig = resolveSpawnQueueConfig(config.projects[projectId]);
 
     // Validate and sanitize prompt before any branch (strip newlines to prevent metadata injection)
@@ -364,7 +365,7 @@ export function registerSpawn(program: Command): void {
                 try {
                   // Storm prevention: check cap before each decomposed spawn.
                   const currentSessions = await sm.list(projectId);
-                  const currentActive = currentSessions.filter((s) => !TERMINAL_STATUSES.has(s.status));
+                  const currentActive = currentSessions.filter((s) => !isTerminalSession(s));
                   if (currentActive.length >= queueCfg.maxActiveSessions) {
                     if (queueCfg.enabled) {
                       const queued = enqueueSpawnRequest(config.configPath, projectId, leafSpawnConfig);
@@ -484,7 +485,7 @@ export function registerBatchSpawn(program: Command): void {
 
       try {
         const activeSessions = (await sm.list(projectId)).filter(
-          (session) => !TERMINAL_STATUSES.has(session.status),
+          (session) => !isTerminalSession(session),
         );
         const queueConfig = resolveSpawnQueueConfig(config.projects[projectId]);
         // Storm prevention: hard cap applies regardless of queue.enabled.

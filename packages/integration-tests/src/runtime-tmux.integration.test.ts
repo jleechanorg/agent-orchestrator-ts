@@ -37,6 +37,34 @@ describe.skipIf(!tmuxOk)("runtime-tmux (integration)", () => {
     expect(handle.runtimeName).toBe("tmux");
   });
 
+  it("kills stale pre-existing session on collision during create", async () => {
+    const collisionSessionId = `${SESSION_PREFIX}collision-${Date.now()}`;
+
+    // Create first session manually/via plugin
+    const handle1 = await runtime.create({
+      sessionId: collisionSessionId,
+      workspacePath: "/tmp",
+      launchCommand: "cat",
+      environment: { AO_TEST: "1" },
+    });
+
+    expect(await runtime.isAlive(handle1)).toBe(true);
+
+    // Create second session with exact same name - should kill the first and succeed
+    const handle2 = await runtime.create({
+      sessionId: collisionSessionId,
+      workspacePath: "/tmp",
+      launchCommand: "cat",
+      environment: { AO_TEST: "2" },
+    });
+
+    expect(handle2.id).toBe(collisionSessionId);
+    expect(await runtime.isAlive(handle2)).toBe(true);
+
+    // Clean up
+    await runtime.destroy(handle2);
+  });
+
   it("isAlive returns true for running session", async () => {
     expect(await runtime.isAlive(handle)).toBe(true);
   });

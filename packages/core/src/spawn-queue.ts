@@ -8,7 +8,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
-  TERMINAL_STATUSES,
+  isTerminalSession,
   type ProjectConfig,
   type Session,
   type SessionManager,
@@ -139,7 +139,7 @@ export function resolveSpawnQueueConfig(project?: ProjectConfig): SpawnQueueConf
 }
 
 export function countActiveSessions(sessions: Session[]): number {
-  return sessions.filter((session) => !TERMINAL_STATUSES.has(session.status)).length;
+  return sessions.filter((session) => !isTerminalSession(session)).length;
 }
 
 export function hasSpawnCapacity(activeSessions: Session[], project?: ProjectConfig): boolean {

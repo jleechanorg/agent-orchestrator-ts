@@ -90,7 +90,8 @@ describe("runtime.create()", () => {
   it("calls new-session with correct args", async () => {
     const runtime = create();
 
-    // 1: new-session, 2: send-keys (launch command)
+    // 0: kill-session (pre-create stale-session cleanup — always attempted), 1: new-session, 2: set-option
+    mockTmuxError("no session: test-session");
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -125,6 +126,8 @@ describe("runtime.create()", () => {
   it("stores launchCommand in handle.data for restart capability (bd-tln)", async () => {
     const runtime = create();
 
+    // 0: kill-session (pre-create cleanup), 1: new-session, 2: set-option
+    mockTmuxError("no session: launch-store-test");
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -141,6 +144,8 @@ describe("runtime.create()", () => {
   it("includes -e KEY=VALUE flags for environment variables", async () => {
     const runtime = create();
 
+    // 0: kill-session (pre-create cleanup), 1: new-session, 2: set-option
+    mockTmuxError("no session: env-session");
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -151,8 +156,8 @@ describe("runtime.create()", () => {
       environment: { AO_SESSION: "env-session", FOO: "bar" },
     });
 
-    // First call: new-session with env args
-    const firstCallArgs = mockExecFileCustom.mock.calls[0];
+    // Second call (index 1): new-session with env args (first call is kill-session)
+    const firstCallArgs = mockExecFileCustom.mock.calls[1];
     const args = firstCallArgs[1] as string[];
     expect(args).toContain("-e");
     expect(args).toContain("AO_SESSION=env-session");
@@ -163,6 +168,8 @@ expect(args.at(-1)).toBe('bash\nexec "${SHELL:-/bin/bash}" -i');
   it("sends launch command via send-keys", async () => {
     const runtime = create();
 
+    // 0: kill-session (pre-create cleanup), 1: new-session, 2: set-option
+    mockTmuxError("no session: launch-test");
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -193,6 +200,8 @@ expect(args.at(-1)).toBe('bash\nexec "${SHELL:-/bin/bash}" -i');
 it("appends an interactive shell tail so the tmux pane survives agent exit (regression for #1756)", async () => {
     const runtime = create();
 
+    // 0: kill-session (pre-create cleanup), 1: new-session, 2: set-option
+    mockTmuxError("no session: keep-alive");
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -203,7 +212,8 @@ it("appends an interactive shell tail so the tmux pane survives agent exit (regr
       environment: {},
     });
 
-    const finalArg = (mockExecFileCustom.mock.calls[0][1] as string[]).at(-1)!;
+    // calls[1] is new-session (calls[0] is kill-session pre-create cleanup)
+    const finalArg = (mockExecFileCustom.mock.calls[1][1] as string[]).at(-1)!;
     expect(finalArg).toContain("claude --session abc");
     expect(finalArg).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i\s*$/);
   });
@@ -212,7 +222,8 @@ it("appends an interactive shell tail so the tmux pane survives agent exit (regr
     const runtime = create();
     const longCommand = "x".repeat(250);
 
-    // 1: new-session (with bash invocation as initial command), 2: set-option
+    // 0: kill-session (pre-create cleanup), 1: new-session (with bash as initial command), 2: set-option
+    mockTmuxError("no session: launch-long");
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -235,8 +246,9 @@ it("appends an interactive shell tail so the tmux pane survives agent exit (regr
       .calls[0];
     expect(writeCall[1]).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);
 
+    // NthCalledWith(2) because call 1 is kill-session (pre-create cleanup)
     expect(mockExecFileCustom).toHaveBeenNthCalledWith(
-      1,
+      2,
       "tmux",
       [
         "new-session",
@@ -254,11 +266,13 @@ it("appends an interactive shell tail so the tmux pane survives agent exit (regr
   it("surfaces tmux new-session failures", async () => {
     const runtime = create();
 
+    // 0: kill-session (pre-create cleanup — ignored)
+    mockTmuxError("no session: fail-session");
     // 1: new-session succeeds
     mockTmuxSuccess();
-    // 2: send-keys fails
+    // 2: set-option fails
     mockTmuxError("send-keys failed");
-    // 3: kill-session (cleanup attempt)
+    // 3: kill-session (cleanup attempt after set-option failure)
     mockTmuxSuccess();
 
     await expect(
@@ -307,6 +321,8 @@ it("appends an interactive shell tail so the tmux pane survives agent exit (regr
   it("accepts valid session IDs with hyphens and underscores", async () => {
     const runtime = create();
 
+    // 0: kill-session (pre-create cleanup), 1: new-session, 2: set-option
+    mockTmuxError("no session: valid-session_123");
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -323,6 +339,8 @@ it("appends an interactive shell tail so the tmux pane survives agent exit (regr
   it("handles no environment (undefined)", async () => {
     const runtime = create();
 
+    // 0: kill-session (pre-create cleanup), 1: new-session, 2: set-option
+    mockTmuxError("no session: no-env");
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -332,8 +350,8 @@ it("appends an interactive shell tail so the tmux pane survives agent exit (regr
       launchCommand: "echo hi",
     } as any);
 
-    // First call should not contain -e flags
-    const firstCallArgs = mockExecFileCustom.mock.calls[0][1] as string[];
+    // calls[1] is new-session (calls[0] is kill-session pre-create cleanup)
+    const firstCallArgs = mockExecFileCustom.mock.calls[1][1] as string[];
 expect(firstCallArgs).toEqual([
       "new-session",
       "-d",

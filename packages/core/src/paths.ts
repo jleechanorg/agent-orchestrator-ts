@@ -199,13 +199,17 @@ export function validateAndStoreOrigin(configPath: string, projectPath: string):
   if (existsSync(originPath)) {
     const stored = readFileSync(originPath, "utf-8").trim();
     if (stored !== resolvedConfigPath) {
-      throw new Error(
-        `Hash collision detected!\n` +
-          `Directory: ${getProjectBaseDir(configPath, projectPath)}\n` +
-          `Expected config: ${resolvedConfigPath}\n` +
-          `Actual config: ${stored}\n` +
-          `This is a rare hash collision. Please move one of the configs to a different directory.`,
-      );
+      if (!existsSync(stored)) {
+        writeFileSync(originPath, resolvedConfigPath, "utf-8");
+      } else {
+        throw new Error(
+          `Hash collision detected!\n` +
+            `Directory: ${getProjectBaseDir(configPath, projectPath)}\n` +
+            `Expected config: ${resolvedConfigPath}\n` +
+            `Actual config: ${stored}\n` +
+            `This is a rare hash collision. Please move one of the configs to a different directory.`,
+        );
+      }
     }
   } else {
     // Create project base directory and .origin file
