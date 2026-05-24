@@ -647,7 +647,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Try JSONL-based activity detection first (reads agent's session files directly)
         const activityState = await agent.getActivityState(session, config.readyThresholdMs);
         if (activityState) {
-          const prevActivity = activityStateCache.get(session.id);
+          // Seed from persisted session.activity on first poll (cache miss) so
+          // transitions that occurred while lifecycle-manager was down are not dropped.
+          const prevActivity = activityStateCache.get(session.id) ?? session.activity ?? undefined;
           activityStateCache.set(session.id, activityState.state);
           if (prevActivity !== undefined && prevActivity !== activityState.state) {
             emitActivityTransition(session.projectId, session.id, prevActivity, activityState.state);

@@ -35,7 +35,7 @@ import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata } from "../metadata.js";
 import { getSessionsDir } from "../paths.js";
 import { isPRMerged } from "../fork-lifecycle-kki-override.js";
-import { emitLifecycleTransition } from "../lifecycle-activity-events.js";
+import { emitLifecycleTransition, emitActivityTransition } from "../lifecycle-activity-events.js";
 import type {
   OrchestratorConfig,
   PluginRegistry,
@@ -91,6 +91,7 @@ function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
 beforeEach(() => {
   vi.mocked(isPRMerged).mockResolvedValue(false);
   vi.mocked(emitLifecycleTransition).mockReset();
+  vi.mocked(emitActivityTransition).mockReset();
 
   tmpDir = join(tmpdir(), `ao-test-terminal-emit-${randomUUID()}`);
   mkdirSync(tmpDir, { recursive: true });
@@ -212,6 +213,46 @@ describe("terminal-state promotion emits lifecycle.transition (activity log)", (
       "app-1",
       "killed",
       "merged",
+    );
+  });
+});
+
+describe("activity first-poll seeds from session.activity (cache miss)", () => {
+  it("emits activity.transition on first poll when session.activity differs from detected state", async () => {
+    // Regression: activityStateCache starts empty on startup; first poll must seed
+    // prevActivity from session.activity so transitions occurring while the
+    // lifecycle-manager was down are not silently dropped.
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "idle", timestamp: new Date() });
+
+    const session = makeSession({
+      status: "working",
+      activity: "active", // persisted state from before restart
+    });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: tmpDir,
+      branch: "feat/test",
+      status: "working",
+      project: "my-app",
+    });
+
+    // Fresh lifecycle manager — activityStateCache is empty
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    // Transition from persisted "active" to detected "idle" must be emitted
+    expect(emitActivityTransition).toHaveBeenCalledWith(
+      "my-app",
+      "app-1",
+      "active",
+      "idle",
     );
   });
 });
