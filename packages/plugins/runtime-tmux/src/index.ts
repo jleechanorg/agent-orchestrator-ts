@@ -68,7 +68,9 @@ async function waitForGeminiReady(sessionName: string, timeoutMs = 10_000): Prom
     try {
       paneOutput = await tmux("capture-pane", "-t", sessionName, "-p", "-S", "-20");
     } catch {
-      return false; // Session died — let the caller handle it
+      // Transient capture error — keep polling until deadline. A single
+      // failure doesn't prove the session died (tmux may be briefly busy).
+      continue;
     }
     if (readyPattern.test(paneOutput)) {
       return true;

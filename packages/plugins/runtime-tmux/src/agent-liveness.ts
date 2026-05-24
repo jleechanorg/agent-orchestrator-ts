@@ -69,6 +69,11 @@ export async function isAgentAliveInPane(sessionName: string): Promise<boolean> 
     return false;
   }
 
+  // Gemini CLI ready prompt: a ">" preceded by "────" separator. The fish
+  // shell prompt pattern (/(?:^|\s)>\s*$/) would match this as "dead",
+  // causing a false restart loop. Detect and skip.
+  const isGeminiReadyPrompt = /─{10,}/.test(paneOutput);
+
   // Step 1: Check the last non-empty line for shell prompt patterns FIRST.
   // A shell prompt on the last line means the agent has exited — even if stale
   // activity tokens appear earlier in the buffer.
@@ -77,6 +82,11 @@ export async function isAgentAliveInPane(sessionName: string): Promise<boolean> 
     const lastLine = lines[lines.length - 1] ?? "";
     for (const pattern of SHELL_PROMPT_PATTERNS) {
       if (pattern.test(lastLine)) {
+        // Fish-style ">" on the last line is Gemini's ready prompt, not a
+        // dead shell — skip it so the agent isn't falsely restarted.
+        if (pattern === SHELL_PROMPT_PATTERNS[3] && isGeminiReadyPrompt) {
+          continue;
+        }
         return false;
       }
     }
