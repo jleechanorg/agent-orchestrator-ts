@@ -217,6 +217,9 @@ async function doSendWithRetry(handle: RuntimeHandle, message: string): Promise<
       );
       const agentStarted = hasRecentActivity || !trimmedOutput.endsWith(messageTail);
       if (agentStarted && !hasQueuedMessage) {
+        // Agent responded — clear the timedOut flag so subsequent short
+        // messages don't get unnecessary Enter-retry treatment.
+        if (handle.data) handle.data.geminiReady = true;
         break;
       }
       // Enter was swallowed — send it again
