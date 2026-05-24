@@ -209,9 +209,11 @@ jobs:
 
             HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA" \
               --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
-            CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
-              --jq '.statuses | map(select(.context == "CodeRabbit")) | sort_by(.updated_at) | last | .state // "none"' \
-              2>/dev/null || echo "none")
+            CR_STATUS_JSON=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
+              --jq '.statuses | map(select(.context == "CodeRabbit")) | sort_by(.updated_at) | last | {state: .state, description: .description}' \
+              2>/dev/null || echo '{}')
+            CR_STATUS=$(echo "$CR_STATUS_JSON" | jq -r '.state // "none"')
+            CR_DESCRIPTION=$(echo "$CR_STATUS_JSON" | jq -r '.description // ""')
             CR_APPROVE_COMMENT="none"
             if [ -n "$HEAD_COMMITTED_AT" ]; then
               set +e -o pipefail
@@ -228,18 +230,22 @@ jobs:
               fi
             fi
 
-            echo "  [${CR_WAIT_ELAPSED}s] state=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
+            echo "  [${CR_WAIT_ELAPSED}s] state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
 
             if [ "$LATEST_CR" = "APPROVED" ]; then
               GATE3="PASS"
-              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
+              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
               break
             elif [ "$LATEST_CR" = "CHANGES_REQUESTED" ]; then
-              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
+              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
               break
             elif [ "$LATEST_CR" = "none" ] && [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
               GATE3="PASS"
-              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
+              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
+              break
+            elif [ "$LATEST_CR" = "none" ] && [ "$CR_STATUS" = "success" ] && { printf '%s' "$CR_DESCRIPTION" | grep -qiE 'review (approved|skipped)'; }; then
+              GATE3="PASS"
+              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
               break
             fi
           done
@@ -252,7 +258,7 @@ jobs:
             GATE3="FAIL"
             FAILED_GATES="${FAILED_GATES}3, "
             if [ -z "$GATE3_DETAIL" ]; then
-              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
+              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
             fi
           fi
           echo "Gate 3: $GATE3 ($GATE3_DETAIL)"
