@@ -219,7 +219,7 @@ jobs:
               set +e -o pipefail
               CR_APPROVE_PIPELINE=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
                 --paginate 2>/dev/null \
-                | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$|changes approved\\."; "i")))] | sort_by(.created_at) | last | if . then .created_at else "none" end' 2>&1)
+                | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$|\\bchanges approved\\."; "i")))] | sort_by(.created_at) | last | if . then .created_at else "none" end' 2>&1)
               CR_APPROVE_EXIT=$?
               set -e +o pipefail
               if [ "$CR_APPROVE_EXIT" -eq 0 ]; then
@@ -299,7 +299,7 @@ jobs:
                       isResolved
                       comments(first: 50) {
                         pageInfo { hasNextPage }
-                        nodes { author { login } body }
+                        nodes { author { login __typename } body }
                       }
                     }
                   }
@@ -314,7 +314,7 @@ jobs:
                [ "$(echo "$GQL_RESULT" | jq -r '[.data.repository.pullRequest.reviewThreads.nodes[].comments.pageInfo.hasNextPage | select(. == true)] | length')" -gt 0 ]; then
             UNRESOLVED="__TRUNCATED__"
           else
-            UNRESOLVED=$(echo "$GQL_RESULT" | jq -r "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and ((.author.login | ascii_downcase | endswith(\"[bot]\")) | not) and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length")
+            UNRESOLVED=$(echo "$GQL_RESULT" | jq -r "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author != null and .author.__typename != \"Bot\" and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length")
           fi
 
           # Gate 5: Inline comments resolved
