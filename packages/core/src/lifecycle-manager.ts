@@ -1779,6 +1779,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       states.set(session.id, terminalStatus);
       if (terminalStatus !== oldStatus) {
         updateSessionMetadata(session, { status: terminalStatus });
+        emitLifecycleTransition(session.projectId, session.id, oldStatus, terminalStatus);
       }
       await reconcileTerminalSessionExit(session, terminalStatus);
       return;

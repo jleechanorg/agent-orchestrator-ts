@@ -43,6 +43,20 @@ describe("lifecycle-activity-events companion hooks", () => {
     });
   });
 
+  it("emitLifecycleTransition records terminal promotion (killed → merged)", () => {
+    emitLifecycleTransition("proj-1", "sess-1", "killed", "merged");
+    expect(recordActivityEvent).toHaveBeenCalledOnce();
+    expect(recordActivityEvent).toHaveBeenCalledWith({
+      projectId: "proj-1",
+      sessionId: "sess-1",
+      source: "lifecycle",
+      kind: "lifecycle.transition",
+      level: "info",
+      summary: "killed → merged",
+      data: { from: "killed", to: "merged" },
+    });
+  });
+
   it("emitActivityTransition records activity.transition", () => {
     emitActivityTransition("proj-1", "sess-1", "active", "idle");
     expect(recordActivityEvent).toHaveBeenCalledOnce();
