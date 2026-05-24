@@ -2040,13 +2040,14 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             }
 
             // Enrich CI failure reaction with failed job/step/log details from SCM.
-            // Upstream commit 3fb23cfb4 — companion module: upstream-ci-failure-context.ts
+            // Only enrich when the reaction will actually execute (auto !== false or action=notify).
             let ciMessageEnriched = false;
             let effectiveReactionConfig = reactionConfig;
             if (
               reactionKey === "ci-failed" &&
               session.pr &&
-              reactionConfig.action === "send-to-agent"
+              reactionConfig.action === "send-to-agent" &&
+              reactionConfig.auto !== false
             ) {
               const ciProject = config.projects[session.projectId];
               const ciScm = ciProject?.scm?.plugin

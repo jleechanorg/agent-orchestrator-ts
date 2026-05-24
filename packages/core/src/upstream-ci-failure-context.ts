@@ -23,7 +23,7 @@ export function isFailedCICheck(check: CICheck): boolean {
 export function escapeMarkdownCodeFenceClosers(logTail: string): string {
   return logTail
     .split(/\r?\n/)
-    .map((line) => (line.startsWith("```") ? `\u200B${line}` : line))
+    .map((line) => (/^ {0,3}```/.test(line) ? `\u200B${line}` : line))
     .join("\n");
 }
 

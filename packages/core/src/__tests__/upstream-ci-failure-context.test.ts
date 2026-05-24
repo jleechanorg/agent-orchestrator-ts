@@ -64,6 +64,17 @@ describe("escapeMarkdownCodeFenceClosers", () => {
     const result = escapeMarkdownCodeFenceClosers(input);
     expect(result).toContain("\u200B```");
   });
+
+  it("escapes indented fence closers (up to 3 leading spaces)", () => {
+    const input = "log output\n ```\n  ```\n   ```\n    ```";
+    const result = escapeMarkdownCodeFenceClosers(input);
+    expect(result).toContain("\u200B ```");
+    expect(result).toContain("\u200B  ```");
+    expect(result).toContain("\u200B   ```");
+    // 4+ leading spaces is NOT a valid Markdown fence closer
+    expect(result).not.toContain("\u200B    ```");
+    expect(result).toContain("    ```");
+  });
 });
 
 describe("formatCIFailureMessage", () => {
