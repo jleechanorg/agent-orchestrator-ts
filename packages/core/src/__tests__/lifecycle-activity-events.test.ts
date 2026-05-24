@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   emitLifecycleTransition,
   emitActivityTransition,
@@ -11,8 +11,13 @@ vi.mock("../activity-events.js", () => ({
 import { recordActivityEvent } from "../activity-events.js";
 
 describe("lifecycle-activity-events companion hooks", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("emitLifecycleTransition records lifecycle.transition", () => {
     emitLifecycleTransition("proj-1", "sess-1", "spawning", "working");
+    expect(recordActivityEvent).toHaveBeenCalledOnce();
     expect(recordActivityEvent).toHaveBeenCalledWith({
       projectId: "proj-1",
       sessionId: "sess-1",
@@ -26,6 +31,7 @@ describe("lifecycle-activity-events companion hooks", () => {
 
   it("emitLifecycleTransition uses warn level for ci_failed", () => {
     emitLifecycleTransition("proj-1", "sess-1", "working", "ci_failed");
+    expect(recordActivityEvent).toHaveBeenCalledOnce();
     expect(recordActivityEvent).toHaveBeenCalledWith({
       projectId: "proj-1",
       sessionId: "sess-1",
@@ -39,6 +45,7 @@ describe("lifecycle-activity-events companion hooks", () => {
 
   it("emitActivityTransition records activity.transition", () => {
     emitActivityTransition("proj-1", "sess-1", "active", "idle");
+    expect(recordActivityEvent).toHaveBeenCalledOnce();
     expect(recordActivityEvent).toHaveBeenCalledWith({
       projectId: "proj-1",
       sessionId: "sess-1",
