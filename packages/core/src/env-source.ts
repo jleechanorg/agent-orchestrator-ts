@@ -159,7 +159,8 @@ export function sourceEnvFile(
     // execFileSync, spawnSync never throws — errors are reported via .error.
     // Note: we do NOT gate on spawnResult.status because we use `;` so `env`
     // always runs (and exits 0) even when the sourced file exits non-zero.
-    if (spawnResult.error) {
+    // But we should gate on signal !== null (e.g. killed by OS).
+    if (spawnResult.error || spawnResult.signal !== null) {
       return {};
     }
     const output = (spawnResult.stdout || "").toString().trim();
