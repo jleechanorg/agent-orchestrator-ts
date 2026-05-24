@@ -171,96 +171,53 @@ jobs:
           # decisive review exists (LATEST_CR == "none"). A decisive
           # CHANGES_REQUESTED blocks the fallback — a stale approval comment
           # must never override a newer CHANGES_REQUESTED review.
-          #
-          # Wait/retry loop: CodeRabbit reviews are asynchronous and often
-          # arrive after CI completes. Poll for up to 5 minutes (30s intervals)
-          # to avoid a race condition where the gate evaluates before CodeRabbit
-          # has submitted its review.
           # ----------------------------------------------------------------
-          echo "Waiting for CodeRabbit review to register..."
-          CR_WAIT_MAX=300
-          CR_WAIT_INTERVAL=30
-          CR_WAIT_ELAPSED=0
-          GATE3="FAIL"
-          GATE3_DETAIL=""
-          while [ $CR_WAIT_ELAPSED -lt $CR_WAIT_MAX ]; do
-            if [ $CR_WAIT_ELAPSED -eq 0 ]; then
-              sleep 10
-              CR_WAIT_ELAPSED=10
-            else
-              sleep $CR_WAIT_INTERVAL
-              CR_WAIT_ELAPSED=$((CR_WAIT_ELAPSED + CR_WAIT_INTERVAL))
-            fi
+          set +e -o pipefail
+          LATEST_CR_PIPELINE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
+            --paginate 2>/dev/null \
+            | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and (.state == "APPROVED" or .state == "CHANGES_REQUESTED"))] | sort_by(.submitted_at) | last | {state: (.state // "none"), submitted_at: (.submitted_at // "")}' 2>&1)
+          LATEST_CR_EXIT=$?
+          set -e +o pipefail
+          if [ $LATEST_CR_EXIT -ne 0 ]; then
+            LATEST_CR="none"
+            LATEST_CR_AT=""
+          else
+            LATEST_CR=$(echo "$LATEST_CR_PIPELINE" | jq -r '.state // "none"')
+            LATEST_CR="${LATEST_CR:-none}"
+            LATEST_CR_AT=$(echo "$LATEST_CR_PIPELINE" | jq -r '.submitted_at // ""')
+          fi
 
+          HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA" \
+            --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
+          CR_STATUS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
+            --jq '.statuses | map(select(.context == "CodeRabbit")) | sort_by(.updated_at) | last | .state // "none"' \
+            2>/dev/null || echo "none")
+          CR_APPROVE_COMMENT="none"
+          if [ -n "$HEAD_COMMITTED_AT" ]; then
             set +e -o pipefail
-            LATEST_CR_PIPELINE=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM"/reviews \
+            CR_APPROVE_PIPELINE=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate 2>/dev/null \
-              | jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and (.state == "APPROVED" or .state == "CHANGES_REQUESTED"))] | sort_by(.submitted_at) | last | {state: (.state // "none"), submitted_at: (.submitted_at // "")}' 2>&1)
-            LATEST_CR_EXIT=$?
+              | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$|changes approved\\."; "i")))] | sort_by(.created_at) | last | if . then .created_at else "none" end' 2>&1)
+            CR_APPROVE_EXIT=$?
             set -e +o pipefail
-            if [ $LATEST_CR_EXIT -ne 0 ]; then
-              LATEST_CR="none"
-              LATEST_CR_AT=""
-            else
-              LATEST_CR=$(echo "$LATEST_CR_PIPELINE" | jq -r '.state // "none"')
-              LATEST_CR="${LATEST_CR:-none}"
-              LATEST_CR_AT=$(echo "$LATEST_CR_PIPELINE" | jq -r '.submitted_at // ""')
-            fi
-
-            HEAD_COMMITTED_AT=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA" \
-              --jq '.commit.committer.date // ""' 2>/dev/null || echo "")
-            CR_STATUS_JSON=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
-              --jq '.statuses | map(select(.context == "CodeRabbit")) | sort_by(.updated_at) | last | {state: .state, description: .description}' \
-              2>/dev/null || echo '{}')
-            CR_STATUS=$(echo "$CR_STATUS_JSON" | jq -r '.state // "none"')
-            CR_DESCRIPTION=$(echo "$CR_STATUS_JSON" | jq -r '.description // ""')
-            CR_APPROVE_COMMENT="none"
-            if [ -n "$HEAD_COMMITTED_AT" ]; then
-              set +e -o pipefail
-              CR_APPROVE_PIPELINE=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
-                --paginate 2>/dev/null \
-                | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$|^.*changes approved\\.$"; "i")))] | sort_by(.created_at) | last | if . then .created_at else "none" end' 2>&1)
-              CR_APPROVE_EXIT=$?
-              set -e +o pipefail
-              if [ "$CR_APPROVE_EXIT" -eq 0 ]; then
-                CR_APPROVE_AT="${CR_APPROVE_PIPELINE%$'\n'}"
-                if [ "$CR_APPROVE_AT" != "none" ] && { [ -z "$LATEST_CR_AT" ] || [ "$CR_APPROVE_AT" \> "$LATEST_CR_AT" ]; }; then
-                  CR_APPROVE_COMMENT="APPROVED"
-                fi
+            if [ "$CR_APPROVE_EXIT" -eq 0 ]; then
+              CR_APPROVE_AT="${CR_APPROVE_PIPELINE%$'\n'}"
+              # Only accept the approval comment if it's newer than the latest
+              # CHANGES_REQUESTED review — prevents stale approvals from
+              # overriding a newer CHANGES_REQUESTED.
+              if [ "$CR_APPROVE_AT" != "none" ] && { [ -z "$LATEST_CR_AT" ] || [ "$CR_APPROVE_AT" \> "$LATEST_CR_AT" ]; }; then
+                CR_APPROVE_COMMENT="APPROVED"
               fi
             fi
-
-            echo "  [${CR_WAIT_ELAPSED}s] state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
-
-            if [ "$LATEST_CR" = "APPROVED" ]; then
-              GATE3="PASS"
-              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
-              break
-            elif [ "$LATEST_CR" = "CHANGES_REQUESTED" ]; then
-              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
-              break
-            elif [ "$LATEST_CR" = "none" ] && [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; then
-              GATE3="PASS"
-              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
-              break
-            elif [ "$LATEST_CR" = "none" ] && [ "$CR_STATUS" = "success" ] && { printf '%s' "$CR_DESCRIPTION" | grep -qiE 'review (approved|skipped)'; }; then
-              GATE3="PASS"
-              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
-              break
-            fi
-          done
-
-          if [ $CR_WAIT_ELAPSED -ge $CR_WAIT_MAX ] && [ "$GATE3" != "PASS" ]; then
-            echo "TIMEOUT: CodeRabbit review not received after ${CR_WAIT_MAX}s"
           fi
 
-          if [ "$GATE3" != "PASS" ]; then
+          if [ "$LATEST_CR" = "APPROVED" ] || { [ "$LATEST_CR" = "none" ] && [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; }; then
+            GATE3="PASS"
+          else
             GATE3="FAIL"
             FAILED_GATES="${FAILED_GATES}3, "
-            if [ -z "$GATE3_DETAIL" ]; then
-              GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS desc=$CR_DESCRIPTION comment=$CR_APPROVE_COMMENT"
-            fi
           fi
+          GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
           echo "Gate 3: $GATE3 ($GATE3_DETAIL)"
           GATE_ROWS="${GATE_ROWS}| 3. CR approved | ${GATE3} | ${GATE3_DETAIL} |\n"
 
@@ -299,7 +256,7 @@ jobs:
                       isResolved
                       comments(first: 50) {
                         pageInfo { hasNextPage }
-                        nodes { author { login __typename } body }
+                        nodes { author { login } body }
                       }
                     }
                   }
@@ -314,20 +271,16 @@ jobs:
                [ "$(echo "$GQL_RESULT" | jq -r '[.data.repository.pullRequest.reviewThreads.nodes[].comments.pageInfo.hasNextPage | select(. == true)] | length')" -gt 0 ]; then
             UNRESOLVED="__TRUNCATED__"
           else
-            UNRESOLVED=$(echo "$GQL_RESULT" | jq -r "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author != null and .author.__typename != \"Bot\" and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length")
+            UNRESOLVED=$(echo "$GQL_RESULT" | jq -r "[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .comments.nodes[] | select(.author.login != null and (.author.login | ascii_downcase) != (\"$PR_AUTHOR\" | ascii_downcase) and (.body | test(\"^\\\\s*(nit:|nitpick)\"; \"i\") | not))] | length")
           fi
 
           # Gate 5: Inline comments resolved
-          # If CR has APPROVED or skipped review, non-nit unresolved comments
-          # are non-blocking (CR has already signed off or had no concerns).
-          # Without a decisive CR signal, unresolved comments remain a hard
-          # failure (fail-closed).
+          # If CR has APPROVED, non-nit unresolved comments are non-blocking (CR
+          # has already signed off despite the noise). Without CR APPROVED, unresolved
+          # comments remain a hard failure (fail-closed).
           if [ "$LATEST_CR" = "APPROVED" ]; then
             GATE5="PASS"
             GATE5_DETAIL="${UNRESOLVED:-N/A} unresolved (CR approved — non-blocking)"
-          elif [ "$LATEST_CR" = "none" ] && [ "$CR_STATUS" = "success" ] && { printf '%s' "$CR_DESCRIPTION" | grep -qiE 'review (approved|skipped)'; }; then
-            GATE5="PASS"
-            GATE5_DETAIL="${UNRESOLVED:-N/A} unresolved (CR skipped/approved — non-blocking)"
           elif [ "$UNRESOLVED" = "__GQL_ERROR__" ] || [ "$UNRESOLVED" = "__TRUNCATED__" ]; then
             GATE5="FAIL"
             GATE5_DETAIL="$UNRESOLVED (fail-closed)"

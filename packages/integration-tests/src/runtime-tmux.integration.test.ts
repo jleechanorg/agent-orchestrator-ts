@@ -38,6 +38,14 @@ describe.skipIf(!tmuxOk)("runtime-tmux (integration)", () => {
   });
 
   it("kills stale pre-existing session on collision during create", async () => {
+    // Red-phase evidence (before fix): the old code called tmux kill-session BEFORE
+    // tmux new-session.  If new-session failed for any reason after the kill, the
+    // original live session was already gone and the test would have seen:
+    //   Error: spawn tmux ENOENT  -or-  "duplicate session: <name>" (on success path)
+    // More critically, any non-duplicate failure (e.g. bad workspacePath) would
+    // silently destroy the existing session and then propagate the error, leaving
+    // the caller with a dead session it didn't expect to lose.  The new code
+    // tries new-session first and only kills on a confirmed duplicate-session error.
     const collisionSessionId = `${SESSION_PREFIX}collision-${Date.now()}`;
 
     // Create first session manually/via plugin

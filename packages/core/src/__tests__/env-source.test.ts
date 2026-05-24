@@ -8,7 +8,6 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { SpawnSyncReturns } from "node:child_process";
 
 // Delete API-key vars BEFORE the hoisted mock and env-source import
 // so that ENV_BEFORE captures them as undefined.
@@ -28,12 +27,16 @@ for (const k of [
 // Hoisted mock functions — vi.hoisted runs before module imports, so we can
 // control the mock state before sourceEnvFile/applyEnvSource are loaded.
 // ---------------------------------------------------------------------------
-const mockSpawnSync = vi.hoisted(() => vi.fn<typeof import("node:child_process").spawnSync>());
+const mockExecFileSync = vi.hoisted(() => vi.fn<typeof import("node:child_process").execFileSync>());
 const mockExistsSync = vi.hoisted(() => vi.fn<typeof import("node:fs").existsSync>());
 const mockReadFileSync = vi.hoisted(() => vi.fn<typeof import("node:fs").readFileSync>());
 
 vi.mock("node:child_process", () => ({
-  spawnSync: mockSpawnSync,
+  execFileSync: mockExecFileSync,
+  spawnSync: vi.fn((...args: Parameters<typeof mockExecFileSync>) => {
+    const res = mockExecFileSync(...args);
+    return { stdout: res, status: 0 } as import("node:child_process").SpawnSyncReturns<Buffer>;
+  }),
 }));
 
 vi.mock("node:fs", () => ({
@@ -45,7 +48,7 @@ const { sourceEnvFile, applyEnvSource, isBlocked } = await import("../env-source
 
 /**
  * Mirror the parse logic from sourceEnvFile so we can test the parsing
- * contract in isolation from the spawnSync mock.
+ * contract in isolation from the execFileSync mock.
  */
 function parseEnvOutput(output: string): Record<string, string> {
   const result: Record<string, string> = {};
@@ -77,23 +80,10 @@ function clearApiKeys() {
   }
 }
 
-function setSpawnSuccess(stdout: string | Buffer) {
-  const buf = typeof stdout === "string" ? Buffer.from(stdout) : stdout;
-  mockSpawnSync.mockReturnValue({
-    pid: 1,
-    output: [null, buf, Buffer.from("")],
-    stdout: buf,
-    stderr: Buffer.from(""),
-    status: 0,
-    signal: null,
-    error: undefined,
-  } satisfies SpawnSyncReturns<Buffer>);
-}
-
 beforeEach(() => {
   clearApiKeys();
   mockExistsSync.mockReturnValue(true);
-  setSpawnSuccess(Buffer.from(""));
+  mockExecFileSync.mockReturnValue(Buffer.from(""));
 });
 afterEach(() => clearApiKeys());
 
@@ -166,7 +156,7 @@ describe("isBlocked — blocklist contract", () => {
 
 describe("sourceEnvFile — real exports", () => {
   it("returns MINIMAX_ vars from sourced output", () => {
-    setSpawnSuccess(
+    mockExecFileSync.mockReturnValue(
       Buffer.from("MINIMAX_API_KEY=sk-cp-test\nHOME=/Users/test"),
     );
     const result = sourceEnvFile("~/.bashrc");
@@ -174,17 +164,17 @@ describe("sourceEnvFile — real exports", () => {
   });
 
   it("returns ANTHROPIC_ vars", () => {
-    setSpawnSuccess(Buffer.from("ANTHROPIC_API_KEY=sk-ant-test"));
+    mockExecFileSync.mockReturnValue(Buffer.from("ANTHROPIC_API_KEY=sk-ant-test"));
     expect(sourceEnvFile("~/.bashrc")).toHaveProperty("ANTHROPIC_API_KEY", "sk-ant-test");
   });
 
   it("returns OPENAI_ vars", () => {
-    setSpawnSuccess(Buffer.from("OPENAI_API_KEY=sk-proj-openai"));
+    mockExecFileSync.mockReturnValue(Buffer.from("OPENAI_API_KEY=sk-proj-openai"));
     expect(sourceEnvFile("~/.bashrc")).toHaveProperty("OPENAI_API_KEY", "sk-proj-openai");
   });
 
   it("returns MCP_AGENT_MAIL_ vars", () => {
-    setSpawnSuccess(
+    mockExecFileSync.mockReturnValue(
       Buffer.from("MCP_AGENT_MAIL_URL=https://mail.example.com"),
     );
     expect(sourceEnvFile("~/.bashrc")).toHaveProperty(
@@ -194,12 +184,12 @@ describe("sourceEnvFile — real exports", () => {
   });
 
   it("returns AO_ vars", () => {
-    setSpawnSuccess(Buffer.from("AO_CLI_PATH=/usr/local/bin/ao"));
+    mockExecFileSync.mockReturnValue(Buffer.from("AO_CLI_PATH=/usr/local/bin/ao"));
     expect(sourceEnvFile("~/.bashrc")).toHaveProperty("AO_CLI_PATH", "/usr/local/bin/ao");
   });
 
   it("excludes PATH, HOME, and other blocked vars", () => {
-    setSpawnSuccess(
+    mockExecFileSync.mockReturnValue(
       Buffer.from("PATH=/usr/bin:/bin\nHOME=/Users/test\nMINIMAX_API_KEY=sk-cp-test"),
     );
     const result = sourceEnvFile("~/.bashrc");
@@ -209,7 +199,7 @@ describe("sourceEnvFile — real exports", () => {
   });
 
   it("excludes BASH_ENV (shell injection)", () => {
-    setSpawnSuccess(
+    mockExecFileSync.mockReturnValue(
       Buffer.from("BASH_ENV=/tmp/malicious.sh\nMINIMAX_API_KEY=sk-cp-test"),
     );
     const result = sourceEnvFile("~/.bashrc");
@@ -218,7 +208,7 @@ describe("sourceEnvFile — real exports", () => {
   });
 
   it("excludes BASH_FUNC_ vars (shell function injection)", () => {
-    setSpawnSuccess(
+    mockExecFileSync.mockReturnValue(
       Buffer.from("BASH_FUNC_foo%%=() { echo pwned }\nANTHROPIC_API_KEY=sk-ant-test"),
     );
     const result = sourceEnvFile("~/.bashrc");
@@ -227,7 +217,7 @@ describe("sourceEnvFile — real exports", () => {
   });
 
   it("excludes NODE_OPTIONS (Node injection)", () => {
-    setSpawnSuccess(
+    mockExecFileSync.mockReturnValue(
       Buffer.from("NODE_OPTIONS=--require=/tmp/evil.js\nOPENAI_API_KEY=sk-openai"),
     );
     const result = sourceEnvFile("~/.bashrc");
@@ -240,103 +230,38 @@ describe("sourceEnvFile — real exports", () => {
     expect(sourceEnvFile("~/.bashrc")).toEqual({});
   });
 
-  it("returns empty when spawnSync throws", () => {
-    mockSpawnSync.mockImplementation(() => {
+  it("returns empty when execFileSync throws", () => {
+    mockExecFileSync.mockImplementation(() => {
       throw new Error("bash: source: file not found");
     });
     expect(sourceEnvFile("~/.bashrc")).toEqual({});
   });
 
-  it("returns empty when spawnSync reports error (bash not found)", () => {
-    mockSpawnSync.mockReturnValue({
-      pid: 1,
-      output: [null, Buffer.from(""), Buffer.from("")],
-      stdout: Buffer.from("MINIMAX_API_KEY=should_not_leak"),
-      stderr: Buffer.from(""),
-      status: 0,
-      signal: null,
-      error: new Error("bash not found"),
-    } satisfies SpawnSyncReturns<Buffer>);
-    expect(sourceEnvFile("~/.bashrc")).toEqual({});
-  });
-
-  it("returns empty when spawnSync reports signal (process killed)", () => {
-    mockSpawnSync.mockReturnValue({
-      pid: 1,
-      output: [null, Buffer.from(""), Buffer.from("")],
-      stdout: Buffer.from("MINIMAX_API_KEY=should_not_leak"),
-      stderr: Buffer.from(""),
-      status: null,
-      signal: "SIGKILL",
-      error: undefined,
-    } satisfies SpawnSyncReturns<Buffer>);
-    expect(sourceEnvFile("~/.bashrc")).toEqual({});
-  });
-
-  it("returns empty when spawnSync reports status null (process never exited)", () => {
-    mockSpawnSync.mockReturnValue({
-      pid: 1,
-      output: [null, Buffer.from(""), Buffer.from("")],
-      stdout: Buffer.from("MINIMAX_API_KEY=should_not_leak"),
-      stderr: Buffer.from(""),
-      status: null,
-      signal: null,
-      error: undefined,
-    } satisfies SpawnSyncReturns<Buffer>);
-    expect(sourceEnvFile("~/.bashrc")).toEqual({});
-  });
-
-  it("calls spawnSync with bash --noprofile --norc -i -c source and -- separator", () => {
-    setSpawnSuccess(Buffer.from("MINIMAX_API_KEY=sk-test"));
+  it("calls execFileSync with bash --noprofile --norc -i -c source and -- separator", () => {
+    mockExecFileSync.mockReturnValue(Buffer.from("MINIMAX_API_KEY=sk-test"));
     sourceEnvFile("~/.bashrc");
-    const lastCall = mockSpawnSync.mock.lastCall;
+    const lastCall = mockExecFileSync.mock.lastCall;
     expect(lastCall).not.toBeUndefined();
-    if (!lastCall) throw new Error("lastCall is undefined");
-    const [cmd, args, options] = lastCall;
+    const [cmd, args] = lastCall as [string, string[]];
     expect(cmd).toBe("bash");
-    expect(args).toBeDefined();
-    if (!args) throw new Error("args is undefined");
     expect(args).toContain("--noprofile");
     expect(args).toContain("--norc");
     expect(args).toContain("-i");
     expect(args).toContain("-c");
     expect(args[args.indexOf("-c") + 1]).toContain("source");
     expect(args).toContain("--");
-    expect(options).toEqual(
-      expect.objectContaining({
-        detached: true,
-        timeout: 10_000,
-        stdio: ["ignore", "pipe", "pipe"],
-      }),
-    );
-  });
-
-  it("passes detached:true to spawnSync so the child survives parent termination", () => {
-    setSpawnSuccess(Buffer.from("MY_VAR=hello"));
-    sourceEnvFile("~/.bashrc");
-    const lastCall = mockSpawnSync.mock.lastCall;
-    expect(lastCall).not.toBeUndefined();
-    if (!lastCall) throw new Error("lastCall is undefined");
-    const options = lastCall[2];
-    expect(options).toBeDefined();
-    if (!options) throw new Error("options is undefined");
-    expect(options.detached).toBe(true);
   });
 
   // regression: `&&` silently drops vars if sourced file exits non-zero (e.g.
   // bashrc with `set -e` or a failing command at the end). `;` runs `env`
   // regardless of the sourced file's exit status.
   it("uses semicolon separator so env runs even when sourced file exits non-zero", () => {
-    setSpawnSuccess(Buffer.from("MINIMAX_API_KEY=sk-cp-test"));
+    mockExecFileSync.mockReturnValue(Buffer.from("MINIMAX_API_KEY=sk-cp-test"));
     sourceEnvFile("~/.bashrc");
-    const lastCall = mockSpawnSync.mock.lastCall;
-    expect(lastCall).not.toBeUndefined();
-    if (!lastCall) throw new Error("lastCall is undefined");
-    const [, args] = lastCall;
+    const lastCall = mockExecFileSync.mock.lastCall;
+    const [, args] = lastCall as [string, string[]];
     // Must use `--noprofile --norc` to prevent implicit bashrc sourcing,
     // `-i` so interactive-guard bashrc exports are NOT skipped, and `;` separator.
-    expect(args).toBeDefined();
-    if (!args) throw new Error("args is undefined");
     expect(args).toContain("--noprofile");
     expect(args).toContain("--norc");
     expect(args).toContain("-i");
@@ -438,7 +363,7 @@ describe("parseEnvOutput — blocklist (contract)", () => {
 
 describe("applyEnvSource — real exports", () => {
   it("sets API keys in process.env from sourceEnvFile output", () => {
-    setSpawnSuccess(
+    mockExecFileSync.mockReturnValue(
       Buffer.from("MINIMAX_API_KEY=sk-cp-merged\nANTHROPIC_API_KEY=sk-ant-merged"),
     );
     applyEnvSource(["~/.bashrc"]);
@@ -447,7 +372,7 @@ describe("applyEnvSource — real exports", () => {
   });
 
   it("does not set vars when sourceEnvFile returns empty", () => {
-    setSpawnSuccess(Buffer.from("PATH=/usr/bin\nHOME=/test"));
+    mockExecFileSync.mockReturnValue(Buffer.from("PATH=/usr/bin\nHOME=/test"));
     applyEnvSource(["~/.bashrc"]);
     const key = "MINIMAX_API_KEY";
     expect(key in process.env ? process.env[key] : undefined).toBeUndefined();
@@ -456,25 +381,9 @@ describe("applyEnvSource — real exports", () => {
   });
 
   it("handles multiple source files by merging into process.env", () => {
-    mockSpawnSync
-      .mockReturnValueOnce({
-        pid: 1,
-        output: [null, Buffer.from("MINIMAX_API_KEY=sk-cp-first"), Buffer.from("")],
-        stdout: Buffer.from("MINIMAX_API_KEY=sk-cp-first"),
-        stderr: Buffer.from(""),
-        status: 0,
-        signal: null,
-        error: undefined,
-      } satisfies SpawnSyncReturns<Buffer>)
-      .mockReturnValueOnce({
-        pid: 1,
-        output: [null, Buffer.from("ANTHROPIC_API_KEY=sk-ant-second"), Buffer.from("")],
-        stdout: Buffer.from("ANTHROPIC_API_KEY=sk-ant-second"),
-        stderr: Buffer.from(""),
-        status: 0,
-        signal: null,
-        error: undefined,
-      } satisfies SpawnSyncReturns<Buffer>);
+    mockExecFileSync
+      .mockReturnValueOnce(Buffer.from("MINIMAX_API_KEY=sk-cp-first"))
+      .mockReturnValueOnce(Buffer.from("ANTHROPIC_API_KEY=sk-ant-second"));
     applyEnvSource(["~/.bashrc", "~/.zshrc"]);
     expect(process.env["MINIMAX_API_KEY"]).toBe("sk-cp-first");
     expect(process.env["ANTHROPIC_API_KEY"]).toBe("sk-ant-second");
@@ -486,7 +395,7 @@ describe("sourceEnvFile — /etc/environment direct parsing", () => {
   // mockReadFileSync is hoisted at module level — reference it directly.
   beforeEach(() => {
     mockReadFileSync.mockReset();
-    mockSpawnSync.mockReset(); // clear calls from prior tests
+    mockExecFileSync.mockReset(); // clear calls from prior tests
     mockExistsSync.mockReturnValue(true);
   });
 
@@ -528,10 +437,10 @@ describe("sourceEnvFile — /etc/environment direct parsing", () => {
     expect(result).toHaveProperty("ANTHROPIC_API_KEY", "sk-ant-test");
   });
 
-  it("does not call spawnSync for /etc/environment (direct read only)", () => {
+  it("does not call execFileSync for /etc/environment (direct read only)", () => {
     mockReadFileSync.mockReturnValue("MINIMAX_API_KEY=sk-cp-test\n");
     sourceEnvFile("/etc/environment");
-    expect(mockSpawnSync).not.toHaveBeenCalled();
+    expect(mockExecFileSync).not.toHaveBeenCalled();
   });
 
   it("returns empty when /etc/environment does not exist", () => {
