@@ -1,8 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  utimesSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { toClaudeProjectPath, create } from "../index.js";
+import { toClaudeProjectPath, create, resetWarnedReaddirPaths } from "../index.js";
 import type { Session, RuntimeHandle } from "@jleechanorg/ao-core";
 
 // Mock homedir() so getActivityState looks in our temp dir
@@ -39,7 +48,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 }
 
 function writeJsonl(
-  entries: Array<{ type: string; [key: string]: unknown }>,
+  entries: Array<{ type: string; subtype?: string; level?: string; [key: string]: unknown }>,
   ageMs = 0,
   filename = "session-abc.jsonl",
 ): void {
@@ -50,6 +59,21 @@ function writeJsonl(
     const past = new Date(Date.now() - ageMs);
     utimesSync(filePath, past, past);
   }
+}
+
+function writeActivityLog(state: string): void {
+  const aoDir = join(workspacePath, ".ao");
+  mkdirSync(aoDir, { recursive: true });
+  const logPath = join(aoDir, "activity.jsonl");
+  const entry = JSON.stringify({
+    ts: new Date().toISOString(),
+    state,
+    source: "terminal",
+  });
+  const existing = existsSync(logPath)
+    ? readFileSync(logPath, "utf-8")
+    : "";
+  writeFileSync(logPath, existing + entry + "\n");
 }
 
 // =============================================================================
@@ -94,7 +118,11 @@ describe("Claude Code Activity Detection", () => {
     const agent = create();
 
     beforeEach(() => {
-      _fakeHome = mkdtempSync(join(tmpdir(), "ao-activity-test-"));
+      // realpathSync because /var/folders/... is a symlink to /private/var/folders/...
+      // on macOS. resolveWorkspaceForClaude resolves symlinks before slugifying (so the
+      // slug matches what Claude wrote), so the test setup must do the same — otherwise
+      // the test JSONL lives under one slug and the code looks under another.
+      _fakeHome = realpathSync(mkdtempSync(join(tmpdir(), "ao-activity-test-")));
       workspacePath = join(_fakeHome, "workspace");
       mkdirSync(workspacePath, { recursive: true });
 
@@ -105,6 +133,9 @@ describe("Claude Code Activity Detection", () => {
 
       // Mock isProcessRunning to always return true (we test exited separately)
       vi.spyOn(agent, "isProcessRunning").mockResolvedValue(true);
+
+      // Reset module-level warn dedupe so each test starts fresh.
+      resetWarnedReaddirPaths();
     });
 
     afterEach(() => {
@@ -145,8 +176,96 @@ describe("Claude Code Activity Detection", () => {
       expect(await agent.getActivityState(makeSession({ workspacePath: null }))).toBeNull();
     });
 
-    it("returns null when project directory does not exist", async () => {
-      // Point to a workspace whose project dir doesn't exist
+    it("logs a warning when ~/.claude/projects/<dir> is unreadable (EACCES)", async () => {
+      const { chmodSync } = await import("node:fs");
+      chmodSync(projectDir, 0o000);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const result = await agent.getActivityState(makeSession());
+        expect(result).toBeNull();
+        expect(warn).toHaveBeenCalledOnce();
+        expect(warn.mock.calls[0]?.[0]).toMatch(/failed to read.*(?:EACCES|EPERM)/);
+      } finally {
+        chmodSync(projectDir, 0o755);
+        warn.mockRestore();
+      }
+    });
+
+    it("only warns ONCE per path across multiple polls (no log flood)", async () => {
+      const { chmodSync } = await import("node:fs");
+      chmodSync(projectDir, 0o000);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await agent.getActivityState(makeSession());
+        await agent.getActivityState(makeSession());
+        await agent.getActivityState(makeSession());
+        expect(warn).toHaveBeenCalledOnce();
+      } finally {
+        chmodSync(projectDir, 0o755);
+        warn.mockRestore();
+      }
+    });
+
+    it("does NOT log when project dir simply doesn't exist (ENOENT is normal)", async () => {
+      const badPath = join(_fakeHome, "this-workspace-never-existed");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await agent.getActivityState(makeSession({ workspacePath: badPath }));
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("prefers UUID-named JSONL when session.metadata.claudeSessionUuid is set", async () => {
+      const myUuid = "aaa-111";
+      writeJsonl([{ type: "progress", status: "doing other work" }], 0, "bbb-222.jsonl");
+      writeJsonl(
+        [{ type: "assistant", message: { content: "my session" } }],
+        10_000,
+        `${myUuid}.jsonl`,
+      );
+
+      const session = makeSession({ metadata: { claudeSessionUuid: myUuid } });
+      const result = await agent.getActivityState(session);
+      expect(result?.state).toBe("ready");
+    });
+
+    it("prefers UUID-named JSONL when session.agentInfo.metadata.claudeSessionUuid is set", async () => {
+      const myUuid = "ccc-333";
+      writeJsonl([{ type: "progress", status: "doing other work" }], 0, "ddd-444.jsonl");
+      writeJsonl(
+        [{ type: "assistant", message: { content: "my session" } }],
+        10_000,
+        `${myUuid}.jsonl`,
+      );
+
+      const session = makeSession({ metadata: {}, agentInfo: { name: "claude-code", plugin: "agent-claude-code", metadata: { claudeSessionUuid: myUuid } } });
+      const result = await agent.getActivityState(session);
+      expect(result?.state).toBe("ready");
+    });
+
+    it("falls back to newest-mtime when UUID-named file doesn't exist yet", async () => {
+      writeJsonl([{ type: "user", message: { content: "hi" } }], 0, "actual-session.jsonl");
+
+      const session = makeSession({ metadata: { claudeSessionUuid: "uuid-that-doesnt-exist" } });
+      const result = await agent.getActivityState(session);
+      expect(result?.state).toBe("active");
+    });
+
+    it("resolves symlinked workspace paths so slugs match what Claude wrote", async () => {
+      const { symlinkSync } = await import("node:fs");
+      const target = workspacePath;
+      const link = join(_fakeHome, "symlinked-workspace");
+      symlinkSync(target, link);
+
+      writeJsonl([{ type: "assistant", message: { content: "Done!" } }]);
+
+      const result = await agent.getActivityState(makeSession({ workspacePath: link }));
+      expect(result?.state).toBe("ready");
+    });
+
+    it("returns null when project directory does not exist and AO activity is unavailable", async () => {
       const badPath = join(_fakeHome, "nonexistent-workspace");
       expect(await agent.getActivityState(makeSession({ workspacePath: badPath }))).toBeNull();
     });
@@ -176,19 +295,77 @@ describe("Claude Code Activity Detection", () => {
         expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
       });
 
-      it("returns 'active' for recent 'file-history-snapshot' (bookkeeping)", async () => {
+      it("returns 'blocked' for 'system' api_error (level: error)", async () => {
+        writeJsonl([
+          {
+            type: "system",
+            subtype: "api_error",
+            level: "error",
+            cause: { code: "ConnectionRefused" },
+          },
+        ]);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("blocked");
+      });
+
+      it("returns 'ready' for non-error 'system' subtypes (compact_boundary)", async () => {
+        writeJsonl([{ type: "system", subtype: "compact_boundary", level: "info" }]);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
+      });
+
+      it("requires BOTH api_error subtype AND error level for 'blocked'", async () => {
+        writeJsonl([{ type: "system", subtype: "future_diagnostic", level: "error" }]);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
+      });
+
+      it("returns 'ready' for recent 'file-history-snapshot' (bookkeeping)", async () => {
         writeJsonl([{ type: "file-history-snapshot" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
       });
 
-      it("returns 'active' for recent 'queue-operation' (bookkeeping)", async () => {
+      it("returns 'ready' for recent 'queue-operation' (bookkeeping)", async () => {
         writeJsonl([{ type: "queue-operation" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
       });
 
-      it("returns 'active' for recent 'pr-link' (bookkeeping)", async () => {
-        writeJsonl([{ type: "pr-link" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
+      it("returns 'idle' (not 'ready') for recent 'pr-link' — re-snapshot noise", async () => {
+        writeJsonl([
+          {
+            type: "pr-link",
+            prNumber: 1911,
+            prUrl: "https://github.com/owner/repo/pull/1911",
+          },
+        ]);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
+      });
+
+      it("returns 'ready' for recent 'attachment' (bookkeeping)", async () => {
+        writeJsonl([{ type: "attachment", attachment: { type: "skill_listing" } }]);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
+      });
+
+      it("returns 'idle' (not 'ready') for recent permission-mode noise — dormant session", async () => {
+        writeJsonl([{ type: "permission-mode", permissionMode: "bypassPermissions" }]);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
+      });
+
+      it("returns 'idle' (not 'ready') for recent ai-title noise — dormant session", async () => {
+        writeJsonl([{ type: "ai-title", title: "Fix login bug" }]);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
+      });
+
+      it("returns 'idle' for agent-color / agent-name / custom-title noise", async () => {
+        writeJsonl([{ type: "agent-color", color: "#fff" }]);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
+        writeJsonl([{ type: "agent-name", name: "ao-161" }]);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
+        writeJsonl([{ type: "custom-title", title: "x" }]);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
+      });
+
+      it("noise last entry yields to AO JSONL when AO has actionable state", async () => {
+        writeJsonl([{ type: "permission-mode" }]);
+        writeActivityLog("waiting_input");
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("waiting_input");
       });
     });
 
@@ -197,29 +374,14 @@ describe("Claude Code Activity Detection", () => {
     // -----------------------------------------------------------------------
 
     describe("agent interface spec types", () => {
-      it("returns 'active' for recent 'tool_use' entry", async () => {
-        writeJsonl([{ type: "tool_use" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
-      });
-
-      it("returns 'waiting_input' for 'permission_request'", async () => {
-        writeJsonl([{ type: "permission_request" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("waiting_input");
-      });
-
-      it("returns 'blocked' for 'error'", async () => {
-        writeJsonl([{ type: "error" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("blocked");
-      });
-
       it("returns 'ready' for recent 'summary' entry", async () => {
         writeJsonl([{ type: "summary", summary: "Implemented login feature" }]);
         expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
       });
 
-      it("returns 'ready' for recent 'result' entry", async () => {
-        writeJsonl([{ type: "result" }]);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
+      it("unknown types fall through to default branch — fresh → active", async () => {
+        writeJsonl([{ type: "some-future-claude-type" }]);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
       });
     });
 
@@ -267,11 +429,25 @@ describe("Claude Code Activity Detection", () => {
       });
 
       it("custom threshold applies to active types too", async () => {
-        // 2 minutes old
-        writeJsonl([{ type: "user" }], 120_000);
+        // 90 seconds old — past 30s native active window, within 300s threshold → ready
+        writeJsonl([{ type: "user" }], 90_000);
 
         expect((await agent.getActivityState(makeSession(), 60_000))?.state).toBe("idle");
-        expect((await agent.getActivityState(makeSession(), 300_000))?.state).toBe("active");
+        expect((await agent.getActivityState(makeSession(), 300_000))?.state).toBe("ready");
+      });
+
+      it("native active window: progress goes active→ready→idle", async () => {
+        // Recent entry (< 30s) → active
+        writeJsonl([{ type: "progress" }], 10_000);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("active");
+
+        // Past active window (30s) but under threshold → ready
+        writeJsonl([{ type: "progress" }], 60_000);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("ready");
+
+        // Past threshold → idle
+        writeJsonl([{ type: "progress" }], 400_000);
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
       });
     });
 

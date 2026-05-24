@@ -123,7 +123,7 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
     input: prompt,
     encoding: "utf-8",
     timeout: LLM_EVAL_TIMEOUT_MS,
-    maxBuffer: 1 << 20, // 1 MB — prevent stderr maxBuffer overflow
+    maxBuffer: 10 * 1024 * 1024, // 10 MB â€” prevent stderr maxBuffer overflow
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
@@ -203,7 +203,7 @@ function makeClaudeExecOptions(
     input: prompt,
     encoding: "utf-8",
     timeout: LLM_EVAL_TIMEOUT_MS,
-    maxBuffer: 1 << 20,
+    maxBuffer: 10 * 1024 * 1024,
     stdio: ["pipe", "pipe", "ignore"],
     cwd: "/tmp",
     env: {
@@ -375,7 +375,7 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
           input: prompt,
           encoding: "utf-8",
           timeout: LLM_EVAL_TIMEOUT_MS,
-          maxBuffer: 1 << 20,
+          maxBuffer: 10 * 1024 * 1024,
           stdio: ["pipe", "pipe", "ignore"],
         },
       );

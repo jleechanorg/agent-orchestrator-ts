@@ -86,6 +86,53 @@ describe("readLastJsonlEntry", () => {
     const result = await readLastJsonlEntry(path);
     expect(result!.modifiedAt).toBeInstanceOf(Date);
   });
+
+  it("reads subtype and level from JSONL entry", async () => {
+    const path = setup('{"type":"assistant","subtype":"text","level":"info"}\n');
+    const result = await readLastJsonlEntry(path);
+    expect(result).not.toBeNull();
+    expect(result!.lastSubtype).toBe("text");
+    expect(result!.lastLevel).toBe("info");
+  });
+
+  it("returns null subtype/level when entry lacks those fields", async () => {
+    const path = setup('{"type":"assistant"}\n');
+    const result = await readLastJsonlEntry(path);
+    expect(result).not.toBeNull();
+    expect(result!.lastSubtype).toBeNull();
+    expect(result!.lastLevel).toBeNull();
+  });
+
+  it("reads payloadType from nested payload object", async () => {
+    const path = setup('{"type":"system","payload":{"type":"api_error"}}\n');
+    const result = await readLastJsonlEntry(path);
+    expect(result).not.toBeNull();
+    expect(result!.payloadType).toBe("api_error");
+  });
+
+  it("returns null payloadType when payload has no type field", async () => {
+    const path = setup('{"type":"system","payload":{"data":"x"}}\n');
+    const result = await readLastJsonlEntry(path);
+    expect(result).not.toBeNull();
+    expect(result!.payloadType).toBeNull();
+  });
+
+  it("returns null payloadType when payload is not an object", async () => {
+    const path = setup('{"type":"system","payload":"string-payload"}\n');
+    const result = await readLastJsonlEntry(path);
+    expect(result).not.toBeNull();
+    expect(result!.payloadType).toBeNull();
+  });
+
+  it("returns all new fields as null for entry without type field", async () => {
+    const path = setup('{"message":"no type"}\n');
+    const result = await readLastJsonlEntry(path);
+    expect(result).not.toBeNull();
+    expect(result!.lastType).toBeNull();
+    expect(result!.payloadType).toBeNull();
+    expect(result!.lastSubtype).toBeNull();
+    expect(result!.lastLevel).toBeNull();
+  });
 });
 
 describe("readLastJsonEntry", () => {

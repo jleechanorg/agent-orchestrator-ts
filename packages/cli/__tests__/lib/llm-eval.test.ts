@@ -512,7 +512,7 @@ describe("tryGeminiPrint", () => {
         input: "evaluate this",
         encoding: "utf-8",
         timeout: 300_000,
-        maxBuffer: 1 << 20,
+        maxBuffer: 10 * 1024 * 1024,
       }),
     );
   });

@@ -74,8 +74,8 @@ export {
   recordTerminalActivity,
 } from "./activity-log.js";
 
-// Activity log threshold (defined in types.ts)
-export { DEFAULT_READY_THRESHOLD_MS } from "./types.js";
+// Activity log thresholds (defined in types.ts)
+export { DEFAULT_NATIVE_ACTIVE_WINDOW_MS, DEFAULT_READY_THRESHOLD_MS } from "./types.js";
 
 // Agent workspace hooks — path wrapper workspace setup
 export { setupPathWrapperWorkspace } from "./agent-workspace-hooks.js";
@@ -535,7 +535,6 @@ export {
 
 // Upstream session header companion (#1981)
 export { deriveDisplayName, type DeriveDisplayNameInput } from "./upstream-session-header.js";
-
 // Activity event logging — structured diagnostic event trail (upstream #1528)
 export { recordActivityEvent, droppedEventCount } from "./activity-events.js";
 export { isActivityEventsFtsEnabled } from "./events-db.js";

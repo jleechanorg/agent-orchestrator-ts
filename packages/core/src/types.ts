@@ -134,6 +134,8 @@ export interface ActivityLogEntry {
 
 /** Default threshold (ms) before a "ready" session becomes "idle". */
 export const DEFAULT_READY_THRESHOLD_MS = 300_000; // 5 minutes
+/** Default active window (ms) for native JSONL decay (active→ready transition). */
+export const DEFAULT_NATIVE_ACTIVE_WINDOW_MS = 30_000; // 30 seconds
 
 /**
  * Process probe result — extends boolean with indeterminate state for agents

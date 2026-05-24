@@ -9,7 +9,12 @@ import {
 import {
   shellEscape,
   readLastJsonlEntry,
+  readLastActivityEntry,
+  checkActivityLogState,
+  getActivityFallbackState,
   DEFAULT_READY_THRESHOLD_MS,
+  DEFAULT_NATIVE_ACTIVE_WINDOW_MS,
+  DEFAULT_ACTIVE_WINDOW_MS,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
@@ -23,7 +28,7 @@ import {
   type WorkspaceHooksConfig,
 } from "@jleechanorg/ao-core";
 import { execFile, execFileSync } from "node:child_process";
-import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
+import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat, realpath } from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -39,6 +44,8 @@ function normalizePermissionMode(mode: string | undefined): "permissionless" | "
   }
   return undefined;
 }
+
+export { resolveWorkspaceForClaude };
 
 // =============================================================================
 // Metadata Updater Hook Script
@@ -267,24 +274,57 @@ export const manifest = {
  * Exported for testing purposes.
  */
 export function toClaudeProjectPath(workspacePath: string): string {
-  // Handle Windows drive letters (C:\Users\... → C-Users-...)
   const normalized = workspacePath.replace(/\\/g, "/").replace(/:/g, "");
   return normalized.replace(/[^a-zA-Z0-9-]/g, "-");
 }
 
-/** Find the most recently modified .jsonl session file in a directory */
-async function findLatestSessionFile(projectDir: string): Promise<string | null> {
+async function resolveWorkspaceForClaude(workspacePath: string): Promise<string> {
+  try {
+    return await realpath(workspacePath);
+  } catch {
+    return workspacePath;
+  }
+}
+
+const warnedReaddirPaths = new Set<string>();
+
+export function resetWarnedReaddirPaths(): void {
+  warnedReaddirPaths.clear();
+}
+
+async function findLatestSessionFile(
+  projectDir: string,
+  preferredUuid?: string,
+): Promise<string | null> {
+  if (preferredUuid) {
+    const preferred = join(projectDir, `${preferredUuid}.jsonl`);
+    try {
+      await stat(preferred);
+      return preferred;
+    } catch {
+      // Fall through to newest-mtime
+    }
+  }
+
   let entries: string[];
   try {
     entries = await readdir(projectDir);
-  } catch {
+  } catch (err: unknown) {
+    if (err instanceof Error && "code" in err && err.code !== "ENOENT") {
+      if (!warnedReaddirPaths.has(projectDir)) {
+        warnedReaddirPaths.add(projectDir);
+        const code = (err as NodeJS.ErrnoException).code;
+        console.warn(
+          `[claude-code] failed to read ${projectDir} (${code}): ${(err as Error).message}. Session activity will fall back to AO JSONL only. (This warning is shown once per path for the process lifetime.)`,
+        );
+      }
+    }
     return null;
   }
 
   const jsonlFiles = entries.filter((f) => f.endsWith(".jsonl") && !f.startsWith("agent-"));
   if (jsonlFiles.length === 0) return null;
 
-  // Sort by mtime descending
   const withStats = await Promise.all(
     jsonlFiles.map(async (f) => {
       const fullPath = join(projectDir, f);
@@ -530,9 +570,10 @@ async function findClaudeProcess(handle: RuntimeHandle): Promise<number | null> 
       if (!psOut) return null;
 
       const ttySet = new Set(ttys.map((t) => t.replace(/^\/dev\//, "")));
-      // Match "claude" as a word boundary — prevents false positives on
-      // names like "claude-code" or paths that merely contain the substring.
-      const processRe = /(?:^|\/)claude(?:\s|$)/;
+      // Match "claude" (and variants like claude.exe, claude-code) as a command,
+      // or "claude-code/cli.js" for npm shims.
+      // Prevents false positives on project directory names like "my-claude-project".
+      const processRe = /(?:^|\/)(?:claude(?:[-.][\w-]+)*|claude-code\/cli\.js)(?:\s|$)/;
       for (const line of psOut.split("\n")) {
         const cols = line.trimStart().split(/\s+/);
         if (cols.length < 3 || !ttySet.has(cols[1] ?? "")) continue;
@@ -567,49 +608,55 @@ async function findClaudeProcess(handle: RuntimeHandle): Promise<number | null> 
   }
 }
 
+const NOISE_JSONL_TYPES: ReadonlySet<string> = new Set([
+  "permission-mode",
+  "ai-title",
+  "agent-color",
+  "agent-name",
+  "custom-title",
+  "pr-link",
+]);
+
 // =============================================================================
 // Terminal Output Patterns for detectActivity
 // =============================================================================
 
-/**
- * Unicode spinner characters emitted by Claude Code while actively processing.
- * Presence in the terminal window means the agent is mid-work even if the
- * prompt glyph (❯) is also visible at the bottom (orch-jtc7: false-idle fix).
- */
 const ACTIVE_SPINNER_RE = /[✻✶✳✽✾⠁⠂⠄⠈⠐⠠⡀⢀⣀]/;
 
-/** Classify Claude Code's activity state from terminal output (pure, sync). */
 function classifyTerminalOutput(terminalOutput: string): ActivityState {
-  // Empty output — can't determine state
   if (!terminalOutput.trim()) return "idle";
 
   const lines = terminalOutput.trim().split("\n");
   const lastLine = lines[lines.length - 1]?.trim() ?? "";
 
-  // Check the last line FIRST — if the prompt is visible, the agent MAY be idle.
-  // But also check the last 20 lines for active spinner indicators: Claude Code
-  // renders ❯ at the bottom while still thinking/using tools above
-  // (orch-jtc7: false-idle between tool calls).
   if (/^[❯>$#]\s*$/.test(lastLine)) {
-    const windowStart = Math.max(0, lines.length - 20);
-    const window = lines.slice(windowStart, lines.length);
-    if (window.some((l) => ACTIVE_SPINNER_RE.test(l))) return "active";
+    // Only check the line immediately above the prompt for a spinner.
+    // Scanning too far back (e.g. 20 lines) lets stale spinner characters
+    // from earlier in the turn keep the session marked "active".
+    const previousLine = lines[lines.length - 2]?.trim() ?? "";
+    if (ACTIVE_SPINNER_RE.test(previousLine)) return "active";
     return "idle";
   }
 
-  // Check the bottom of the buffer for permission prompts BEFORE checking
-  // full-buffer active indicators. Historical "Thinking"/"Reading" text in
-  // the buffer must not override a current permission prompt at the bottom.
+  const wideTail = lines.slice(-12).join("\n");
+
+  if (/Unable to connect to API/i.test(wideTail)) return "blocked";
+  if (/Retrying in \d+s.*attempt \d+\/\d+/i.test(wideTail)) return "blocked";
+
   const tail = lines.slice(-5).join("\n");
   if (/Do you want to proceed\?/i.test(tail)) return "waiting_input";
   if (/\(Y\)es.*\(N\)o/i.test(tail)) return "waiting_input";
-  if (/bypass.*permissions/i.test(tail)) return "waiting_input";
+  if (/bypass\s+all\s+future\s+permissions/i.test(tail)) return "waiting_input";
 
-  // Everything else is "active" — the agent is processing, waiting for
-  // output, or showing content. Specific patterns (e.g. "esc to interrupt",
-  // "Thinking", "Reading") all map to "active" so no need to check them
-  // individually.
-  return "active";
+  if (/\b\w+ing…/.test(wideTail)) return "active";
+  if (/\bGerminating/i.test(wideTail)) return "active";
+  if (/\b(?:Thinking|Working)\s*(?:…|\.\.\.)/i.test(wideTail)) return "active";
+  if (/\bReading\s+file/i.test(wideTail)) return "active";
+  if (/\bWriting\s+to\b/i.test(wideTail)) return "active";
+  if (/\bSearching\s+codebase/i.test(wideTail)) return "active";
+  if (/Press\s+up\s+to\s+edit\s+queued/i.test(wideTail)) return "active";
+
+  return "idle";
 }
 
 // =============================================================================
@@ -941,68 +988,97 @@ function createClaudeCodeAgent(): Agent {
     ): Promise<ActivityDetection | null> {
       const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
 
-      // Check if process is running first
       const exitedAt = new Date();
       if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
       const running = await this.isProcessRunning(session.runtimeHandle);
       if (!running) return { state: "exited", timestamp: exitedAt };
 
-      // Process is running - check JSONL session file for activity
-      if (!session.workspacePath) {
-        // No workspace path — cannot determine activity without it
-        return null;
-      }
+      if (!session.workspacePath) return null;
 
-      const projectPath = toClaudeProjectPath(session.workspacePath);
+      const projectPath = toClaudeProjectPath(await resolveWorkspaceForClaude(session.workspacePath));
       const projectDir = join(homedir(), ".claude", "projects", projectPath);
 
-      const sessionFile = await findLatestSessionFile(projectDir);
-      if (!sessionFile) {
-        // No session file found — cannot determine activity
-        return null;
+      const rawUuid = session.metadata?.["claudeSessionUuid"] ?? session.agentInfo?.metadata?.["claudeSessionUuid"];
+      const preferredUuid =
+        typeof rawUuid === "string" && rawUuid.trim() ? rawUuid.trim() : undefined;
+      const sessionFile = await findLatestSessionFile(projectDir, preferredUuid);
+      let staleNativeState: ActivityDetection | null = null;
+      if (sessionFile) {
+        const entry = await readLastJsonlEntry(sessionFile);
+        if (entry) {
+          const ageMs = Date.now() - entry.modifiedAt.getTime();
+          const timestamp = entry.modifiedAt;
+          const _isStaleEntry = session.createdAt && entry.modifiedAt < session.createdAt;
+
+          if (entry.lastType === "permission_request") {
+            return { state: "waiting_input", timestamp };
+          }
+
+          if (entry.lastType === "error") {
+            return { state: "blocked", timestamp };
+          }
+
+          if (entry.lastType === "system" && entry.lastSubtype === "api_error" && entry.lastLevel === "error") {
+            return { state: "blocked", timestamp };
+          }
+
+          if (entry.lastType && NOISE_JSONL_TYPES.has(entry.lastType)) {
+            // Noise entries (bookkeeping) don't count as activity; if the session
+            // just started, use the creation timestamp as a baseline.
+            staleNativeState = { state: "idle", timestamp: session.createdAt ?? entry.modifiedAt };
+          } else {
+            const activeWindowMs = Math.min(DEFAULT_NATIVE_ACTIVE_WINDOW_MS, threshold);
+            switch (entry.lastType) {
+              case "user":
+              case "progress":
+                if (ageMs <= activeWindowMs) return { state: "active", timestamp };
+                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+
+              case "system":
+                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+
+              case "assistant":
+              case "summary":
+              case "result":
+                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+
+              case "file-history-snapshot":
+              case "attachment":
+              case "queue-operation":
+              case "last-prompt":
+                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+
+              default:
+                if (ageMs <= activeWindowMs) return { state: "active", timestamp };
+                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+            }
+          }
+        }
       }
 
-      const entry = await readLastJsonlEntry(sessionFile);
-      if (!entry) {
-        // Empty file or read error — cannot determine activity
-        return null;
-      }
+      const activityResult = await readLastActivityEntry(session.workspacePath);
+      const activityState = checkActivityLogState(activityResult);
+      if (activityState) return activityState;
 
-      const ageMs = Date.now() - entry.modifiedAt.getTime();
-      const timestamp = entry.modifiedAt;
+      if (staleNativeState) return staleNativeState;
 
-      switch (entry.lastType) {
-        case "user":
-        case "tool_use":
-        case "progress":
-          return { state: ageMs > threshold ? "idle" : "active", timestamp };
+      const activeWindowMs = Math.min(DEFAULT_ACTIVE_WINDOW_MS, threshold);
+      const fallback = getActivityFallbackState(activityResult, activeWindowMs, threshold);
+      if (fallback) return fallback;
 
-        case "assistant":
-        case "system":
-        case "summary":
-        case "result":
-          return { state: ageMs > threshold ? "idle" : "ready", timestamp };
-
-        case "permission_request":
-          return { state: "waiting_input", timestamp };
-
-        case "error":
-          return { state: "blocked", timestamp };
-
-        default:
-          return { state: ageMs > threshold ? "idle" : "active", timestamp };
-      }
+      return null;
     },
 
     async getSessionInfo(session: Session): Promise<AgentSessionInfo | null> {
       if (!session.workspacePath) return null;
 
-      // Build the Claude project directory path
-      const projectPath = toClaudeProjectPath(session.workspacePath);
+      const projectPath = toClaudeProjectPath(await resolveWorkspaceForClaude(session.workspacePath));
       const projectDir = join(homedir(), ".claude", "projects", projectPath);
 
-      // Find the latest session JSONL file
-      const sessionFile = await findLatestSessionFile(projectDir);
+      const rawUuid = session.metadata?.["claudeSessionUuid"] ?? session.agentInfo?.metadata?.["claudeSessionUuid"];
+      const preferredUuid =
+        typeof rawUuid === "string" && rawUuid.trim() ? rawUuid.trim() : undefined;
+      const sessionFile = await findLatestSessionFile(projectDir, preferredUuid);
       if (!sessionFile) return null;
 
       // Parse only the tail — summaries are always near the end, files can be 100MB+
@@ -1023,19 +1099,19 @@ function createClaudeCodeAgent(): Agent {
     },
 
     async getRestoreCommand(session: Session, project: ProjectConfig): Promise<string | null> {
-      let sessionUuid = session.agentInfo?.metadata?.["claudeSessionUuid"]?.trim();
+      let sessionUuid: string | undefined = session.metadata?.["claudeSessionUuid"]?.trim();
+      if (!sessionUuid) {
+        sessionUuid = session.agentInfo?.metadata?.["claudeSessionUuid"]?.trim();
+      }
       if (!sessionUuid) {
         if (!session.workspacePath) return null;
 
-        // Find Claude's project directory for this workspace
-        const projectPath = toClaudeProjectPath(session.workspacePath);
+        const projectPath = toClaudeProjectPath(await resolveWorkspaceForClaude(session.workspacePath));
         const projectDir = join(homedir(), ".claude", "projects", projectPath);
 
-        // Find the latest session JSONL file
         const sessionFile = await findLatestSessionFile(projectDir);
         if (!sessionFile) return null;
 
-        // Extract session UUID from filename (e.g. "abc123-def456.jsonl" → "abc123-def456")
         sessionUuid = basename(sessionFile, ".jsonl");
       }
       if (!sessionUuid) return null;

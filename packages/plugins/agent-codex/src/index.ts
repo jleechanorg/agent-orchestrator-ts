@@ -1,7 +1,12 @@
 import { setupMcpMailInWorkspace } from "@jleechanorg/ao-plugin-agent-base";
 import {
   DEFAULT_READY_THRESHOLD_MS,
+  DEFAULT_ACTIVE_WINDOW_MS,
   shellEscape,
+  readLastJsonlEntry,
+  readLastActivityEntry,
+  checkActivityLogState,
+  getActivityFallbackState,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
@@ -478,6 +483,15 @@ interface CodexJsonlLine {
     cached_tokens?: number;
     reasoning_tokens?: number;
   };
+  // Payload-wrapped format (newer Codex versions)
+  payload?: {
+    id?: string;
+    cwd?: string;
+    model?: string;
+    model_provider?: string;
+    type?: string;
+    [key: string]: unknown;
+  };
 }
 
 /**
@@ -523,6 +537,11 @@ async function collectJsonlFiles(dir: string, depth = 0): Promise<string[]> {
   return results;
 }
 
+function toComparablePath(p: string): string {
+  const slash = p.replace(/\\/g, "/");
+  return slash.replace(/^([a-zA-Z]):/, (_, d: string) => d.toLowerCase() + ":");
+}
+
 /**
  * Check if the first few lines of a JSONL file contain a session_meta
  * entry matching the given workspace path. Reads only the first 4 KB
@@ -552,11 +571,13 @@ async function sessionFileMatchesCwd(filePath: string, workspacePath: string): P
           typeof parsed === "object" &&
           parsed !== null &&
           !Array.isArray(parsed) &&
-          (parsed as CodexJsonlLine).type === "session_meta" &&
-          typeof (parsed as CodexJsonlLine).cwd === "string" &&
-          toComparablePath((parsed as CodexJsonlLine).cwd!) === comparableWorkspace
+          (parsed as CodexJsonlLine).type === "session_meta"
         ) {
-          return true;
+          const entry = parsed as CodexJsonlLine;
+          const cwd = entry.cwd ?? entry.payload?.cwd;
+          if (typeof cwd === "string" && toComparablePath(cwd) === comparableWorkspace) {
+            return true;
+          }
         }
       } catch {
         // Skip malformed lines
@@ -638,6 +659,8 @@ interface CodexSessionData {
   threadId: string | null;
   inputTokens: number;
   outputTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
 }
 
 /**
@@ -650,7 +673,14 @@ async function streamCodexSessionData(filePath: string): Promise<CodexSessionDat
   let rl: ReturnType<typeof createInterface> | null = null;
 
   try {
-    const data: CodexSessionData = { model: null, threadId: null, inputTokens: 0, outputTokens: 0 };
+    const data: CodexSessionData = {
+      model: null,
+      threadId: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    };
     stream = createReadStream(filePath, { encoding: "utf-8" });
     rl = createInterface({
       input: stream,
@@ -665,8 +695,27 @@ async function streamCodexSessionData(filePath: string): Promise<CodexSessionDat
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
         const entry = parsed as CodexJsonlLine;
 
-        if (entry.type === "session_meta" && typeof entry.model === "string") {
-          data.model = entry.model;
+        if (entry.type === "session_meta") {
+          if (typeof entry.model === "string") {
+            data.model = entry.model;
+          } else if (typeof entry.payload?.model === "string") {
+            data.model = entry.payload.model;
+          }
+          if (entry.payload?.id && !data.threadId) {
+            data.threadId = entry.payload.id;
+          }
+        }
+        if (entry.type === "turn_context" && typeof entry.payload?.model === "string" && !data.model) {
+          data.model = entry.payload.model;
+        }
+        if (entry.type === "session_meta" && typeof entry.payload?.model === "string") {
+          data.model = entry.payload.model;
+        }
+        if (entry.type === "session_meta" && typeof entry.payload?.id === "string" && entry.payload.id) {
+          data.threadId = entry.payload.id;
+        }
+        if (entry.type === "turn_context" && typeof entry.payload?.model === "string") {
+          data.model = entry.payload.model;
         }
         if (typeof entry.threadId === "string" && entry.threadId) {
           data.threadId = entry.threadId;
@@ -674,6 +723,8 @@ async function streamCodexSessionData(filePath: string): Promise<CodexSessionDat
         if (entry.type === "event_msg" && entry.msg?.type === "token_count") {
           data.inputTokens += entry.msg.input_tokens ?? 0;
           data.outputTokens += entry.msg.output_tokens ?? 0;
+          data.cachedTokens += entry.msg.cached_tokens ?? 0;
+          data.reasoningTokens += entry.msg.reasoning_tokens ?? 0;
         }
       } catch {
         // Skip malformed lines
@@ -811,24 +862,12 @@ const SESSION_FILE_CACHE_TTL_MS = 30_000;
 const sessionFileCache = new Map<string, { path: string | null; expiry: number }>();
 
 function getSessionMetadataString(session: Session, key: string): string | null {
-  const value = session.metadata?.[key];
-  if (typeof value === "string" && value.trim()) {
-    return value.trim();
+  for (const value of [session.metadata?.[key], session.agentInfo?.metadata?.[key]]) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
   }
-
-  const agentValue = session.agentInfo?.metadata?.[key];
-  return typeof agentValue === "string" && agentValue.trim() ? agentValue.trim() : null;
-}
-
-/**
- * Normalize a filesystem path for comparison. Windows users may use mixed
- * forward-slash paths or vary drive-letter case on Windows; AO constructs
- * workspace paths via path.join which yields backslashes on Windows. Compare
- * via a canonical form: forward slashes throughout, lowercased drive letter.
- */
-function toComparablePath(p: string): string {
-  const slash = p.replace(/\\/g, "/");
-  return slash.replace(/^([a-zA-Z]):/, (_, d: string) => d.toLowerCase() + ":");
+  return null;
 }
 
 async function getCachedSessionFile(
@@ -956,6 +995,7 @@ function createCodexAgent(): Agent {
       readyThresholdMs?: number,
     ): Promise<ActivityDetection | null> {
       const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
+      const activeWindowMs = Math.min(DEFAULT_ACTIVE_WINDOW_MS, threshold);
 
       // Check if process is running first
       const exitedAt = new Date();
@@ -963,31 +1003,98 @@ function createCodexAgent(): Agent {
       const running = await this.isProcessRunning(session.runtimeHandle);
       if (!running) return { state: "exited", timestamp: exitedAt };
 
-      // Use session file mtime as a proxy for activity. Codex continuously
-      // appends to its rollout JSONL file while working, so a recently
-      // modified file means the agent is active.
       if (!session.workspacePath && !getSessionMetadataString(session, "codexThreadId")) {
         return null;
       }
 
+      // 1. Try Codex's native JSONL first — it has richer 6-state detection
+      //    (approval_request, error, tool_call, etc.) that terminal parsing can't match.
       const sessionFile = await findCodexSessionFileCached(session);
-      if (!sessionFile) return null;
+      if (sessionFile) {
+        const entry = await readLastJsonlEntry(sessionFile);
+        if (entry) {
+          const ageMs = Date.now() - entry.modifiedAt.getTime();
+          const timestamp = entry.modifiedAt;
 
-      try {
-        const s = await stat(sessionFile);
-        const timestamp = s.mtime;
-        const ageMs = Date.now() - s.mtimeMs;
+          // Real Codex wraps the semantic type in `payload.type` on event_msg
+          // records (e.g. `{"type":"event_msg","payload":{"type":"error",...}}`).
+          // Prefer payloadType when present so approval_request/error surface
+          // correctly instead of decaying to ready/idle via the event_msg case.
+          const effectiveType = entry.payloadType ?? entry.lastType;
 
-        if (ageMs <= threshold) {
-          // File was recently modified — agent is actively working
-          return { state: "active", timestamp };
+          // Map Codex JSONL entry types to activity states.
+          // Confirmed types: session_meta, event_msg. Others are best-effort.
+          switch (effectiveType) {
+            case "approval_request":
+            case "exec_approval_request":
+            case "apply_patch_approval_request":
+              return { state: "waiting_input", timestamp };
+
+            case "error":
+            case "api_error":
+            case "stream_error":
+              return { state: "blocked", timestamp };
+
+            case "task_started":
+            case "agent_reasoning":
+            case "response_item":
+            case "turn_context":
+            case "user_input":
+            case "tool_call":
+            case "exec_command":
+            case "exec_command_begin":
+            case "exec_command_end":
+              if (ageMs <= activeWindowMs) return { state: "active", timestamp };
+              return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+
+            case "task_complete":
+            case "turn_aborted":
+            case "agent_message":
+            case "assistant_message":
+            case "session_meta":
+            case "event_msg":
+            case "compacted":
+            case "token_count":
+              return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+
+            default:
+              if (ageMs <= activeWindowMs) return { state: "active", timestamp };
+              return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+          }
         }
 
-        // File is stale — agent finished or is idle
-        return { state: "idle", timestamp };
-      } catch {
-        return null;
+        // Session file exists but no parseable entry — fall through to AO JSONL
+        // checks below instead of returning early, so waiting_input/blocked
+        // from terminal parsing can still be detected.
       }
+
+      // 2. Fallback: check AO activity JSONL (terminal-derived) for waiting_input/blocked
+      //    that the native JSONL may not have captured.
+      const activityResult = session.workspacePath
+        ? await readLastActivityEntry(session.workspacePath)
+        : null;
+      const activityState = checkActivityLogState(activityResult);
+      if (activityState) return activityState;
+
+      // 3. Fallback: use JSONL entry with age-based decay when native session file
+      //    is missing or unparseable.
+      const fallback = getActivityFallbackState(activityResult, activeWindowMs, threshold);
+      if (fallback) return fallback;
+
+      // 4. Last resort: native session file exists but nothing else — use its mtime
+      if (sessionFile) {
+        try {
+          const s = await stat(sessionFile);
+          const ageMs = Date.now() - s.mtimeMs;
+          if (ageMs <= activeWindowMs) return { state: "active", timestamp: s.mtime };
+          if (ageMs <= threshold) return { state: "ready", timestamp: s.mtime };
+          return { state: "idle", timestamp: s.mtime };
+        } catch {
+          // stat failed — no signal available
+        }
+      }
+
+      return null;
     },
 
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
@@ -1052,14 +1159,20 @@ function createCodexAgent(): Agent {
 
       const agentSessionId = basename(sessionFile, ".jsonl");
 
+      const totalInputTokens = data.inputTokens;
+      const totalOutputTokens = data.outputTokens;
+
       const cost: CostEstimate | undefined =
-        data.inputTokens === 0 && data.outputTokens === 0
+        totalInputTokens === 0 && totalOutputTokens === 0
           ? undefined
           : {
-              inputTokens: data.inputTokens,
-              outputTokens: data.outputTokens,
+              inputTokens: totalInputTokens,
+              outputTokens: totalOutputTokens,
               estimatedCostUsd:
-                (data.inputTokens / 1_000_000) * 2.5 + (data.outputTokens / 1_000_000) * 10.0,
+                ((data.inputTokens - data.cachedTokens) / 1_000_000) * 2.5 +
+                (data.cachedTokens / 1_000_000) * 0.3 +
+                ((data.outputTokens - data.reasoningTokens) / 1_000_000) * 10.0 +
+                (data.reasoningTokens / 1_000_000) * 10.0,
             };
 
       return {
