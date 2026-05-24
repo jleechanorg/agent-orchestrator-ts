@@ -582,6 +582,11 @@ describe("wholesome — structural source-code assertions", () => {
       "1df0ad412b073a0513a8f3e43311969447eae85f", // test: clarify FTS integration test bypasses openDb/initFts
       // PR #585: add SKIP_SHA for clarify-FTS commit
       "899449dc748cdc888255d2561b599e4be91b3014", // test: add PR #585 clarify-FTS commit SHA to wholesome SKIP_SHAS
+      // fix/antigravity-tmux-startup-readiness-poll (PR #591): pre-fix commits lacking [agento] prefix
+      "57e0c89a474f864dc7afb3c008ccfaf17d5eb263", // fix(ops): address tmux session collision, config hash collision, and worktree cleanup papercuts
+      "2cb82ed71162fb820197ee7e8e2aae2886bcdc8b", // fix(runtime-tmux): wait for agy/Gemini ready prompt before returning handle
+      "300cc6957d2589416a92e4c6e3b009e48b51acc0", // fix(cr): address CodeRabbit CHANGES_REQUESTED on PR #591
+      "88d84173cb114b97ce53eed63259c08c111357bb", // test(workspace-worktree): add git worktree prune mock for cleanupStaleWorktree
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {

@@ -151,6 +151,13 @@ export function sourceEnvFile(
       ["--noprofile", "--norc", "-i", "-c", `source "$1" > /dev/null 2>&1; env`, "--", expanded],
       { timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] },
     );
+    // Guard against spawn failures (e.g. bash not found, timeout). Unlike
+    // execFileSync, spawnSync never throws — errors are reported via .error.
+    // Note: we do NOT gate on spawnResult.status because we use `;` so `env`
+    // always runs (and exits 0) even when the sourced file exits non-zero.
+    if (spawnResult.error) {
+      return {};
+    }
     const output = (spawnResult.stdout || "").toString().trim();
 
     const newVars: Record<string, string> = {};

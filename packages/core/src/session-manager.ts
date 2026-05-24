@@ -972,6 +972,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         }
         const alive = await aliveRuntime.isAlive(session.runtimeHandle);
         if (!alive) {
+          // Confirm with a second probe before persisting — isAlive() can
+          // transiently return false under tmux load, and a disk-persisted
+          // "killed" status is permanent (TERMINAL_SESSION_STATUSES skips it
+          // on future polls). A second false result confirms the session is gone.
+          const confirmedAlive = await aliveRuntime.isAlive(session.runtimeHandle).catch(() => false);
+          if (confirmedAlive) return; // Transient false negative — skip this cycle
           session.status = "killed";
           session.activity = "exited";
           if (sessionsDir) {
