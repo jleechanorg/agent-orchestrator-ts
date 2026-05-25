@@ -19,7 +19,7 @@ import { isPackageResolutionFailure, tryMonorepoFallback } from "./plugin-regist
 import { applyForkExtensions } from "./plugin-registry-extensions.js";
 
 /** Map from "slot:name" → plugin instance */
-type PluginMap = Map<string, { manifest: PluginManifest; instance: unknown }>;
+type PluginMap = Map<string, { manifest: PluginManifest; instance: unknown; module?: PluginModule }>;
 
 /** Built-in plugin package names, mapped to their npm package (exported for tests) */
 export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pkg: string }> = [
@@ -62,6 +62,8 @@ export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pk
   // Terminals
   { slot: "terminal", name: "iterm2", pkg: "@jleechanorg/ao-plugin-terminal-iterm2" },
   { slot: "terminal", name: "web", pkg: "@jleechanorg/ao-plugin-terminal-web" },
+  // Locks
+  { slot: "lock", name: "area-lock", pkg: "@jleechanorg/ao-plugin-area-lock" },
   // Pollers
   { slot: "poller", name: "github-pr", pkg: "@jleechanorg/ao-plugin-poller-github-pr" },
   // Runtimes
@@ -97,6 +99,14 @@ function extractPluginConfig(
     }
   }
 
+  // Lock plugins: config.plugins["lock-<name>"] (e.g., plugins["lock-area-lock"])
+  if (slot === "lock") {
+    const pluginConfig = config.plugins?.[`lock-${name}`];
+    if (pluginConfig && typeof pluginConfig === "object") {
+      return pluginConfig as Record<string, unknown>;
+    }
+  }
+
   // Poller plugins: config.plugins["poller-<name>"] (e.g., plugins["poller-github-pr"])
   if (slot === "poller") {
     const pluginConfig = config.plugins?.[`poller-${name}`];
@@ -120,12 +130,17 @@ export function createPluginRegistry(): PluginRegistry {
       const { manifest } = plugin;
       const key = makeKey(manifest.slot, manifest.name);
       const instance = plugin.create(config);
-      plugins.set(key, { manifest, instance });
+      plugins.set(key, { manifest, instance, module: plugin });
     },
 
     get<T>(slot: PluginSlot, name: string): T | null {
       const entry = plugins.get(makeKey(slot, name));
       return entry ? (entry.instance as T) : null;
+    },
+
+    getModule(slot: PluginSlot, name: string): PluginModule | null {
+      const entry = plugins.get(makeKey(slot, name));
+      return entry?.module ?? null;
     },
 
     list(slot: PluginSlot): PluginManifest[] {

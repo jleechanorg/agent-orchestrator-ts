@@ -171,6 +171,7 @@ export function writeMetadata(
       ? String(metadata.displayNameUserSet)
       : metadata.displayNameUserSet;
   }
+  if (metadata.lockReserved) data["lockReserved"] = metadata.lockReserved;
 
   atomicWriteFileSync(path, serializeMetadata(data));
 }

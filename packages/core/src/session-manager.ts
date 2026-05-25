@@ -51,6 +51,8 @@ import {
   type PluginRegistry,
   type RuntimeHandle,
   type Issue,
+  type AreaLock,
+  type LockEntry,
   isOrchestratorSession,
   PR_STATE,
   TERMINAL_STATUSES,
@@ -85,6 +87,7 @@ import {
 import { sessionFromMetadata } from "./utils/session-from-metadata.js";
 import { parsePrFromUrl } from "./utils/pr.js";
 import { safeJsonParse } from "./utils/validation.js";
+import { getWorkspaceChangedFiles } from "./utils/worktree-git.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
 import { getAllSessionPrefixes, getAoManagedSessionWorktreePattern } from "./session-prefixes.js";
 import { applySlashCommandRouting } from "./fork-slash-command-routing.js";
@@ -353,6 +356,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   // Shadow listMetadata when injected (for test isolation)
   const sessionListMetadata = injectedListMetadata ?? listMetadata;
   const allSessionPrefixes = getAllSessionPrefixes(config.projects);
+
+  function parsePrNumber(prUrl: string | undefined | null): number | undefined {
+    if (!prUrl) return undefined;
+    const parsed = parsePrFromUrl(prUrl);
+    if (parsed && !isNaN(parsed.number)) return parsed.number;
+    const num = parseInt(prUrl, 10);
+    if (!isNaN(num)) return num;
+    return undefined;
+  }
 
   interface LocatedSession {
     raw: Record<string, string>;
@@ -823,8 +835,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       ? registry.get<Tracker>("tracker", project.tracker.plugin)
       : null;
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    const lockName = project.lock?.plugin ?? config.defaults.lock ?? "area-lock";
+    let lock: AreaLock | null = registry.get<AreaLock>("lock", lockName);
+    if (lock && project.lock?.config) {
+      const lockModule = registry.getModule("lock", lockName);
+      if (lockModule) {
+        const perProjectConfig = { ...project.lock.config, projectRoot: project.path };
+        lock = lockModule.create(perProjectConfig) as AreaLock;
+      }
+    }
 
-    return { runtime, agent, workspace, tracker, scm };
+    return { runtime, agent, workspace, tracker, scm, lock };
   }
 
   function resolveSelectionForSession(
@@ -1201,8 +1222,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     const cleanupFailedSpawn = async (): Promise<void> => {
+      if (lockReservedAtSpawn && plugins.lock) {
+        try {
+          const prNumber = parsePrNumber(spawnConfig.issueId);
+          if (prNumber !== undefined) {
+            await plugins.lock.release(prNumber, workspacePath);
+          }
+        } catch {
+          /* best effort */
+        }
+      }
       if (
         plugins.workspace &&
+        workspacePath &&
         shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
       ) {
         try {
@@ -1217,6 +1249,42 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         /* best effort */
       }
     };
+
+    // Perform spawn-time domain lock collision detection and reservation
+    let lockReservedAtSpawn = false;
+    if (plugins.lock) {
+      try {
+        const baseBranch = project.defaultBranch;
+        const changedFiles = baseBranch
+          ? await getWorkspaceChangedFiles(workspacePath, baseBranch, execFileAsync)
+          : [];
+        if (changedFiles.length > 0) {
+          const checkResult = await plugins.lock.check(changedFiles, workspacePath);
+          if (checkResult.status === "held") {
+            const holders = checkResult.held_by
+              .map((h: LockEntry) => `#${h.pr_number} (${h.agent} - ${h.branch})`)
+              .join(", ");
+            throw new Error(`Spawn blocked: Domain lock is held by active sessions/PRs: ${holders}`);
+          }
+
+          // spawnConfig.issueId may be a PR URL (from --claim-pr), an issue URL,
+          // or a bare string. parsePrNumber extracts a numeric ID from URLs;
+          // non-numeric bare IDs (e.g. "INT-9999") skip spawn-time reservation —
+          // the lock is reserved later when the lifecycle-manager detects the PR.
+          const prNumber = parsePrNumber(spawnConfig.issueId);
+          if (prNumber !== undefined && !isNaN(prNumber)) {
+            await plugins.lock.reserve(prNumber, changedFiles, selection.agentName, branch, workspacePath);
+            lockReservedAtSpawn = true;
+          }
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith("Spawn blocked:")) {
+          await cleanupFailedSpawn();
+          throw err;
+        }
+        console.warn(`[session-manager] Pre-spawn lock check warning: ${err}`);
+      }
+    }
 
     let composedPromptPath: string | undefined;
     const cleanupPromptArtifact = (): void => {
@@ -1397,6 +1465,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         requestedTask,
         composedPromptPath,
         ...(displayName ? { displayName } : {}),
+        ...(lockReservedAtSpawn ? { lockReserved: "true" } : {}),
       });
 
       if (plugins.agent.postLaunchSetup) {
@@ -2153,6 +2222,30 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     const worktree = raw["worktree"];
+
+    // Release domain locks BEFORE destroying the workspace path.
+    // The lock release CLI needs the workspace path as cwd.
+    const prNumber = parsePrNumber(raw["pr"]);
+    if (prNumber !== undefined) {
+      const lockName = project?.lock?.plugin ?? config.defaults.lock ?? "area-lock";
+      let lock: AreaLock | null = registry.get<AreaLock>("lock", lockName);
+      if (lock && project?.lock?.config) {
+        const lockModule = registry.getModule("lock", lockName);
+        if (lockModule) {
+          const perProjectConfig = { ...project.lock.config, projectRoot: project.path };
+          lock = lockModule.create(perProjectConfig) as AreaLock;
+        }
+      }
+      if (lock) {
+        try {
+          const workspacePath = worktree || project?.path;
+          await lock.release(prNumber, workspacePath);
+        } catch (err) {
+          console.error(`[session-manager] Failed to release domain locks for PR #${prNumber}: ${err}`);
+        }
+      }
+    }
+
     if (worktree && shouldDestroyWorkspacePath(project, projectId, worktree)) {
       const workspacePlugin = project
         ? resolvePlugins(project).workspace
@@ -2733,10 +2826,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new Error(`Session ${sessionId} is an orchestrator session and cannot claim PRs`);
     }
 
-    const plugins = resolvePlugins(
-      project,
-      resolveSelectionForSession(project, sessionId, raw).agentName,
-    );
+    const selection = resolveSelectionForSession(project, sessionId, raw);
+    const plugins = resolvePlugins(project, selection.agentName);
     const scm = plugins.scm;
     if (!scm?.resolvePR || !scm.checkoutPR) {
       throw new Error(
@@ -2774,11 +2865,61 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new Error(`Session ${sessionId} has no workspace to check out PR #${pr.number}`);
     }
 
+    // Defer old-lock release until after checkout + new reservation succeed
+    const oldPrNumber = parsePrNumber(raw["pr"]);
+
     const branchChanged = await scm.checkoutPR(pr, workspacePath);
+
+    // Reserve locks for the new PR before releasing old locks
+    if (plugins.lock) {
+      try {
+        const changedFiles = await getWorkspaceChangedFiles(
+          workspacePath,
+          pr.baseBranch ?? project.defaultBranch,
+          execFileAsync,
+        );
+        if (changedFiles.length > 0) {
+          await plugins.lock.reserve(
+            pr.number,
+            changedFiles,
+            selection.agentName,
+            pr.branch,
+            workspacePath,
+          );
+          updateMetadata(sessionsDir, sessionId, { lockReserved: "true" });
+        }
+      } catch (err) {
+        console.warn(
+          `[session-manager] Failed to reserve domain locks for claimed PR #${pr.number}: ${err}`,
+        );
+      }
+    }
+
+    // Release locks for the session's PREVIOUS PR now that new reservation succeeded
+    if (oldPrNumber !== undefined && oldPrNumber !== pr.number && plugins.lock) {
+      try {
+        await plugins.lock.release(oldPrNumber, workspacePath);
+      } catch (err) {
+        console.warn(`[session-manager] Failed to release old domain locks during claimPR: ${err}`);
+      }
+    }
 
     for (const previousSessionId of takenOverFrom) {
       const previousRaw = readMetadataRaw(sessionsDir, previousSessionId);
       if (!previousRaw) continue;
+
+      // Release locks for the previous session if it had a PR
+      const prevPrNumber = parsePrNumber(previousRaw["pr"]);
+      if (prevPrNumber !== undefined && plugins.lock) {
+        try {
+          const prevWorkspace = previousRaw["worktree"] || workspacePath;
+          await plugins.lock.release(prevPrNumber, prevWorkspace);
+        } catch (err) {
+          console.warn(
+            `[session-manager] Failed to release taken-over domain locks for PR #${prevPrNumber} during claimPR: ${err}`,
+          );
+        }
+      }
 
       updateMetadata(sessionsDir, previousSessionId, {
         pr: "",

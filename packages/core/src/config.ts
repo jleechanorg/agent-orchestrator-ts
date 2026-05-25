@@ -263,6 +263,11 @@ const AutoMergeOverrideSchema = z.union([
   }),
 ]);
 
+const LockConfigSchema = z.object({
+  plugin: z.string().optional(),
+  config: z.record(z.any()).optional(),
+});
+
 const ProjectConfigSchema = z.object({
   name: z.string().optional(),
   repo: z.string(),
@@ -279,6 +284,7 @@ const ProjectConfigSchema = z.object({
   workspace: z.string().optional(),
   tracker: TrackerConfigSchema.optional(),
   scm: SCMConfigSchema.optional(),
+  lock: LockConfigSchema.optional(),
   symlinks: z.array(z.string()).optional(),
   postCreate: z.array(z.string()).optional(),
   // RoleAgentSpecificConfigSchema: empty project must not inject permissions: permissionless
@@ -325,6 +331,7 @@ const DefaultPluginsSchema = z.object({
   runtime: z.string().default("tmux"),
   agent: z.string().default("codex"),
   workspace: z.string().default("worktree"),
+  lock: z.string().default("area-lock"),
   notifiers: z.array(z.string()).default(["composio"]),
   agentConfig: AgentSpecificConfigSchema.optional(),
   modelByCli: z.record(CliModelDefaultsSchema).optional(),

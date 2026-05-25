@@ -37,9 +37,82 @@ vi.mock("node:child_process", () => ({
 // ------------------------------------------------------------------
 // SUT
 // ------------------------------------------------------------------
-import { findRepoPathForWorktree } from "../utils/worktree-git.js";
+import { findRepoPathForWorktree, getWorkspaceChangedFiles } from "../utils/worktree-git.js";
 
 const makeResponse = (stdout: string, stderr = "") => ({ stdout, stderr });
+
+describe("getWorkspaceChangedFiles", () => {
+  beforeEach(() => {
+    gitMock.mockReset();
+  });
+
+  it("returns list of changed files using baseBranch...HEAD", async () => {
+    gitMock.mockResolvedValueOnce(makeResponse("file1.ts\nfile2.ts\n"));
+
+    const result = await getWorkspaceChangedFiles("/tmp/ws", "main");
+
+    expect(result).toEqual(["file1.ts", "file2.ts"]);
+    expect(gitMock).toHaveBeenCalledWith(
+      "git",
+      ["diff", "--name-only", "main...HEAD"],
+      expect.objectContaining({ cwd: "/tmp/ws" }),
+    );
+  });
+
+  it("falls back to origin/baseBranch if baseBranch...HEAD fails", async () => {
+    gitMock
+      .mockRejectedValueOnce(new Error("fatal: unknown revision"))
+      .mockResolvedValueOnce(makeResponse("file3.ts\n"));
+
+    const result = await getWorkspaceChangedFiles("/tmp/ws", "develop");
+
+    expect(result).toEqual(["file3.ts"]);
+    expect(gitMock).toHaveBeenCalledTimes(2);
+    expect(gitMock).toHaveBeenNthCalledWith(
+      2,
+      "git",
+      ["diff", "--name-only", "origin/develop...HEAD"],
+      expect.objectContaining({ cwd: "/tmp/ws" }),
+    );
+  });
+
+  it("falls back to HEAD~1 if both local and origin branches fail", async () => {
+    gitMock
+      .mockRejectedValueOnce(new Error("fail1"))
+      .mockRejectedValueOnce(new Error("fail2"))
+      .mockResolvedValueOnce(makeResponse("fallback-file.ts\n"));
+
+    const result = await getWorkspaceChangedFiles("/tmp/ws", "main");
+
+    expect(result).toEqual(["fallback-file.ts"]);
+    expect(gitMock).toHaveBeenCalledTimes(3);
+    expect(gitMock).toHaveBeenNthCalledWith(
+      3,
+      "git",
+      ["diff", "--name-only", "HEAD~1"],
+      expect.objectContaining({ cwd: "/tmp/ws" }),
+    );
+  });
+
+  it("returns empty array if all three strategies fail", async () => {
+    gitMock
+      .mockRejectedValueOnce(new Error("fail1"))
+      .mockRejectedValueOnce(new Error("fail2"))
+      .mockRejectedValueOnce(new Error("fail3"));
+
+    const result = await getWorkspaceChangedFiles("/tmp/ws", "main");
+
+    expect(result).toEqual([]);
+  });
+
+  it("trims whitespace and filters empty lines", async () => {
+    gitMock.mockResolvedValueOnce(makeResponse("  file1.ts  \n\n  file2.ts  \n"));
+
+    const result = await getWorkspaceChangedFiles("/tmp/ws", "main");
+
+    expect(result).toEqual(["file1.ts", "file2.ts"]);
+  });
+});
 
 describe("findRepoPathForWorktree", () => {
   beforeEach(() => {

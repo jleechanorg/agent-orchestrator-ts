@@ -64,6 +64,7 @@ describe.skipIf(!tmuxOk)("CLI-Core integration (hash-based architecture)", () =>
         runtime: "tmux",
         agent: "claude-code",
         workspace: "worktree",
+        lock: "area-lock",
         notifiers: [],
       },
       projects: {
@@ -161,6 +162,7 @@ describe.skipIf(!tmuxOk)("CLI-Core integration (hash-based architecture)", () =>
         runtime: "tmux",
         agent: "claude-code",
         workspace: "worktree",
+        lock: "area-lock",
         notifiers: [],
       },
       projects: {
@@ -221,6 +223,7 @@ describe.skipIf(!tmuxOk)("CLI-Core integration (hash-based architecture)", () =>
         runtime: "tmux",
         agent: "claude-code",
         workspace: "worktree",
+        lock: "area-lock",
         notifiers: [],
       },
       projects: {

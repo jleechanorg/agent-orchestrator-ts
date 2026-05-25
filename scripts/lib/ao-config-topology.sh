@@ -9,7 +9,12 @@ ao_staging_config_path() {
     printf '%s\n' "$AO_CONFIG_STAGING_PATH"
     return 0
   fi
-  printf '%s/.openclaw/agent-orchestrator.yaml\n' "${HOME:?HOME is required}"
+  if [ -f "${HOME}/.openclaw/agent-orchestrator.yaml" ]; then
+    # Backward-compatibility fallback
+    printf '%s/.openclaw/agent-orchestrator.yaml\n' "$HOME"
+    return 0
+  fi
+  printf '%s/.hermes/agent-orchestrator.yaml\n' "${HOME:?HOME is required}"
 }
 
 ao_production_config_path() {
@@ -38,7 +43,7 @@ ao_production_config_path() {
     return 0
   fi
   if [ -f "${HOME}/.openclaw_prod/agent-orchestrator.yaml" ]; then
-    # Backward-compatibility: preserve discovery of configs written by older ao-install.sh.
+    # Backward-compatibility fallback
     printf '%s/.openclaw_prod/agent-orchestrator.yaml\n' "$HOME"
     return 0
   fi

@@ -1045,6 +1045,35 @@ export interface Terminal {
 }
 
 // =============================================================================
+// LOCK — Plugin Slot 9
+// =============================================================================
+
+export interface LockEntry {
+  domain: string;
+  pr_number: number;
+  agent: string;
+  branch: string;
+  timestamp: string;
+}
+
+export interface CheckResult {
+  status: "free" | "held";
+  held_by: LockEntry[];
+}
+
+export interface AreaLock {
+  reserve(
+    prNumber: number,
+    changedFiles: string[],
+    agent: string,
+    branch: string,
+    runtimeProjectRoot?: string,
+  ): Promise<LockEntry[]>;
+  release(prNumber: number, runtimeProjectRoot?: string): Promise<LockEntry[]>;
+  check(changedFiles: string[], runtimeProjectRoot?: string): Promise<CheckResult>;
+}
+
+// =============================================================================
 // EVENTS
 // =============================================================================
 
@@ -1360,6 +1389,7 @@ export interface DefaultPlugins {
   runtime: string;
   agent: string;
   workspace: string;
+  lock: string;
   notifiers: string[];
   /** Merged before role/project overrides (permissions, model, etc.). */
   agentConfig?: AgentSpecificConfig;
@@ -1453,6 +1483,11 @@ export interface RecordedOutcome {
   recordedAt: string;
 }
 
+export interface LockConfig {
+  plugin?: string;
+  config?: Record<string, unknown>;
+}
+
 export interface ProjectConfig {
   /** Display name */
   name: string;
@@ -1492,6 +1527,9 @@ export interface ProjectConfig {
 
   /** SCM configuration (usually inferred from repo) */
   scm?: SCMConfig;
+
+  /** Domain lock configuration */
+  lock?: LockConfig;
 
   /** Files/dirs to symlink into workspaces */
   symlinks?: string[];
@@ -1858,7 +1896,8 @@ export type PluginSlot =
   | "scm"
   | "notifier"
   | "terminal"
-  | "poller";
+  | "poller"
+  | "lock";
 
 /** Plugin manifest — what every plugin exports */
 export interface PluginManifest {
@@ -1933,6 +1972,8 @@ export interface SessionMetadata {
   composedPromptPath?: string;
   displayName?: string;
   displayNameUserSet?: boolean | "on" | "off";
+  /** Whether domain locks have been reserved for this session's PR (bd-lock) */
+  lockReserved?: string;
 }
 
 // =============================================================================
@@ -2014,6 +2055,9 @@ export interface PluginRegistry {
 
   /** Get a plugin by slot and name */
   get<T>(slot: PluginSlot, name: string): T | null;
+
+  /** Get the plugin module (for re-creating instances with per-project config) */
+  getModule(slot: PluginSlot, name: string): PluginModule | null;
 
   /** List plugins for a slot */
   list(slot: PluginSlot): PluginManifest[];

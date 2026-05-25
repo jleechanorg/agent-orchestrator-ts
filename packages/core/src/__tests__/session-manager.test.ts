@@ -36,6 +36,7 @@ import {
   type Workspace,
   type Tracker,
   type SCM,
+  type AreaLock,
   PR_STATE,
   type RuntimeHandle,
   type Session,
@@ -239,6 +240,7 @@ beforeEach(() => {
       if (slot === "workspace") return mockWorkspace;
       return null;
     }),
+    getModule: vi.fn().mockReturnValue(null),
     list: vi.fn().mockReturnValue([]),
     loadBuiltins: vi.fn().mockResolvedValue(undefined),
     loadFromConfig: vi.fn().mockResolvedValue(undefined),
@@ -6227,5 +6229,173 @@ describe("isIssueNotFoundError", () => {
     expect(isIssueNotFoundError(null)).toBe(false);
     expect(isIssueNotFoundError(undefined)).toBe(false);
     expect(isIssueNotFoundError("string")).toBe(false);
+  });
+});
+
+describe("SessionManager Domain Lock Integration", () => {
+  let mockLock: AreaLock;
+
+  beforeEach(() => {
+    mockLock = {
+      check: vi.fn().mockResolvedValue({ status: "free", held_by: [] }),
+      reserve: vi.fn().mockResolvedValue([]),
+      release: vi.fn().mockResolvedValue([]),
+    };
+  });
+
+  it("blocks spawn when domain lock check returns held status", async () => {
+    mockLock.check.mockResolvedValue({
+      status: "held",
+      held_by: [{ domain: "core", pr_number: 42, agent: "claude-code", branch: "feat/conflict" }],
+    });
+
+    const registryWithLock: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, _name?: string) => {
+        if (slot === "lock") return mockLock;
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn(),
+      loadFromConfig: vi.fn(),
+      register: vi.fn(),
+    };
+
+    const customExecFileAsync = vi.fn().mockResolvedValue({ stdout: "src/core.ts\n", stderr: "" });
+
+    const sm = createSessionManager({
+      config,
+      registry: registryWithLock,
+      execFileAsync: customExecFileAsync,
+    });
+
+    await expect(sm.spawn({ projectId: "my-app", issueId: "INT-42" })).rejects.toThrow(
+      "Spawn blocked: Domain lock is held by active sessions/PRs: #42 (claude-code - feat/conflict)"
+    );
+
+    expect(mockLock.check).toHaveBeenCalled();
+  });
+
+  it("reserves domain lock when spawning with a PR URL", async () => {
+    const registryWithLock: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, _name?: string) => {
+        if (slot === "lock") return mockLock;
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn(),
+      loadFromConfig: vi.fn(),
+      register: vi.fn(),
+    };
+
+    const customExecFileAsync = vi.fn().mockResolvedValue({ stdout: "src/core.ts\n", stderr: "" });
+
+    const sm = createSessionManager({
+      config,
+      registry: registryWithLock,
+      execFileAsync: customExecFileAsync,
+    });
+
+    await sm.spawn({ projectId: "my-app", issueId: "https://github.com/acme/app/pull/456" });
+
+    expect(mockLock.reserve).toHaveBeenCalledWith(
+      456,
+      ["src/core.ts"],
+      "mock-agent",
+      expect.stringContaining("456"),
+      expect.any(String)
+    );
+  });
+
+  it("calls lock.release when a session with an active PR is killed", async () => {
+    const registryWithLock: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, _name?: string) => {
+        if (slot === "lock") return mockLock;
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn(),
+      loadFromConfig: vi.fn(),
+      register: vi.fn(),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithLock });
+
+    writeMetadata(sessionsDir, "app-lock-test", {
+      status: "working",
+      pr: "https://github.com/acme/app/pull/123",
+      worktree: join(tmpDir, "lock-test-ws"),
+    });
+
+    await sm.kill("app-lock-test");
+
+    expect(mockLock.release).toHaveBeenCalledWith(123, join(tmpDir, "lock-test-ws"));
+  });
+
+  it("reserves locks and releases previous locks during claimPR", async () => {
+    const registryWithLock: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, _name?: string) => {
+        if (slot === "lock") return mockLock;
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn(),
+      loadFromConfig: vi.fn(),
+      register: vi.fn(),
+    };
+
+    const customExecFileAsync = vi.fn().mockResolvedValue({ stdout: "src/new.ts\n", stderr: "" });
+    const mockSCM: Partial<SCM> & { name: string } = {
+      name: "mock-scm",
+      resolvePR: vi.fn().mockResolvedValue({
+        number: 789,
+        url: "https://github.com/acme/app/pull/789",
+        branch: "feat/new",
+        baseBranch: "main"
+      }),
+      checkoutPR: vi.fn().mockResolvedValue(true),
+      getPRState: vi.fn().mockResolvedValue(PR_STATE.OPEN),
+    };
+    const sm = createSessionManager({
+      config,
+      registry: registryWithLock,
+      execFileAsync: customExecFileAsync
+    });
+
+    // Existing session we will take over from
+    writeMetadata(sessionsDir, "old-owner", {
+      status: "working",
+      pr: "https://github.com/acme/app/pull/789",
+      worktree: join(tmpDir, "old-ws"),
+    });
+
+    // Current session claiming the PR
+    writeMetadata(sessionsDir, "claimer", {
+      status: "working",
+      worktree: join(tmpDir, "claimer-ws"),
+    });
+
+    await sm.claimPR("claimer", "789", { sendInitialMessage: false });
+
+    // Should release from previous owner
+    expect(mockLock.release).toHaveBeenCalledWith(789, join(tmpDir, "old-ws"));
+    // Should reserve for new owner
+    expect(mockLock.reserve).toHaveBeenCalledWith(789, ["src/new.ts"], "mock-agent", "feat/new", join(tmpDir, "claimer-ws"));
   });
 });
