@@ -8,6 +8,7 @@ import {
   getLeaves,
   getSiblings,
   formatPlanTree,
+  TERMINAL_STATUSES,
   isTerminalSession,
   enqueueSpawnRequest,
   resolveSpawnQueueConfig,
@@ -462,7 +463,7 @@ export function registerBatchSpawn(program: Command): void {
       const existingSessions = await sm.list(projectId);
       const existingIssueMap = new Map(
         existingSessions
-          .filter((s) => s.issueId && !isTerminalSession(s))
+          .filter((s) => s.issueId && !TERMINAL_STATUSES.has(s.status))
           .map((s) => [(s.issueId as string).toLowerCase(), s.id]),
       );
 
