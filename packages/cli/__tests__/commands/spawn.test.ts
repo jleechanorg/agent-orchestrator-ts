@@ -71,7 +71,7 @@ let tmpDir: string;
 let configPath: string;
 
 import { Command } from "commander";
-import { registerSpawn } from "../../src/commands/spawn.js";
+import { registerSpawn, registerBatchSpawn } from "../../src/commands/spawn.js";
 
 let program: Command;
 let consoleSpy: ReturnType<typeof vi.spyOn>;
@@ -109,6 +109,7 @@ beforeEach(() => {
   program = new Command();
   program.exitOverride();
   registerSpawn(program);
+  registerBatchSpawn(program);
   consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(process, "exit").mockImplementation((code) => {
@@ -772,5 +773,77 @@ describe("spawn pre-flight checks", () => {
       .join("\n");
     expect(errors).toContain("not installed");
     expect(errors).not.toContain("not authenticated");
+  });
+});
+
+describe("batch-spawn duplicate detection", () => {
+  it("allows respawning an issue whose session has activity exited", async () => {
+    const exitedSession: Session = {
+      id: "app-1",
+      projectId: "my-app",
+      status: "idle",
+      activity: "exited",
+      branch: null,
+      issueId: "BD-42",
+      pr: null,
+      workspacePath: "/tmp/wt",
+      runtimeHandle: { id: "hash-app-1", runtimeName: "tmux", data: {} },
+      agentInfo: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+      metadata: {},
+    };
+    const newSession: Session = {
+      id: "app-2",
+      projectId: "my-app",
+      status: "spawning",
+      activity: null,
+      branch: null,
+      issueId: "BD-42",
+      pr: null,
+      workspacePath: "/tmp/wt2",
+      runtimeHandle: { id: "hash-app-2", runtimeName: "tmux", data: {} },
+      agentInfo: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+      metadata: {},
+    };
+
+    mockSessionManager.list.mockResolvedValue([exitedSession]);
+    mockSessionManager.spawn.mockResolvedValue(newSession);
+
+    await program.parseAsync(["node", "test", "batch-spawn", "BD-42"]);
+
+    expect(mockSessionManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ issueId: "BD-42" }),
+    );
+    const logs = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logs).not.toContain("Skip BD-42");
+  });
+
+  it("skips an issue with an active (non-terminal) session", async () => {
+    const activeSession: Session = {
+      id: "app-1",
+      projectId: "my-app",
+      status: "active",
+      activity: null,
+      branch: null,
+      issueId: "BD-99",
+      pr: null,
+      workspacePath: "/tmp/wt",
+      runtimeHandle: { id: "hash-app-1", runtimeName: "tmux", data: {} },
+      agentInfo: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+      metadata: {},
+    };
+
+    mockSessionManager.list.mockResolvedValue([activeSession]);
+
+    await program.parseAsync(["node", "test", "batch-spawn", "BD-99"]);
+
+    expect(mockSessionManager.spawn).not.toHaveBeenCalled();
+    const logs = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logs).toContain("Skip BD-99");
   });
 });
