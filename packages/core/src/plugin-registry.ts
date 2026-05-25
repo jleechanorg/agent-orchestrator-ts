@@ -19,7 +19,7 @@ import { isPackageResolutionFailure, tryMonorepoFallback } from "./plugin-regist
 import { applyForkExtensions } from "./plugin-registry-extensions.js";
 
 /** Map from "slot:name" → plugin instance */
-type PluginMap = Map<string, { manifest: PluginManifest; instance: unknown }>;
+type PluginMap = Map<string, { manifest: PluginManifest; instance: unknown; module?: PluginModule }>;
 
 /** Built-in plugin package names, mapped to their npm package (exported for tests) */
 export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pkg: string }> = [
@@ -130,12 +130,17 @@ export function createPluginRegistry(): PluginRegistry {
       const { manifest } = plugin;
       const key = makeKey(manifest.slot, manifest.name);
       const instance = plugin.create(config);
-      plugins.set(key, { manifest, instance });
+      plugins.set(key, { manifest, instance, module: plugin });
     },
 
     get<T>(slot: PluginSlot, name: string): T | null {
       const entry = plugins.get(makeKey(slot, name));
       return entry ? (entry.instance as T) : null;
+    },
+
+    getModule(slot: PluginSlot, name: string): PluginModule | null {
+      const entry = plugins.get(makeKey(slot, name));
+      return entry?.module ?? null;
     },
 
     list(slot: PluginSlot): PluginManifest[] {

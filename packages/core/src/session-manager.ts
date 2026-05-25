@@ -836,7 +836,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       : null;
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
     const lockName = project.lock?.plugin ?? config.defaults.lock ?? "area-lock";
-    const lock = registry.get<AreaLock>("lock", lockName);
+    let lock: AreaLock | null = registry.get<AreaLock>("lock", lockName);
+    if (lock && project.lock?.config) {
+      const lockModule = registry.getModule("lock", lockName);
+      if (lockModule) {
+        const perProjectConfig = { ...project.lock.config, projectRoot: project.path };
+        lock = lockModule.create(perProjectConfig) as AreaLock;
+      }
+    }
 
     return { runtime, agent, workspace, tracker, scm, lock };
   }
@@ -2221,7 +2228,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const prNumber = parsePrNumber(raw["pr"]);
     if (prNumber !== undefined) {
       const lockName = project?.lock?.plugin ?? config.defaults.lock ?? "area-lock";
-      const lock = registry.get<AreaLock>("lock", lockName);
+      let lock: AreaLock | null = registry.get<AreaLock>("lock", lockName);
+      if (lock && project?.lock?.config) {
+        const lockModule = registry.getModule("lock", lockName);
+        if (lockModule) {
+          const perProjectConfig = { ...project.lock.config, projectRoot: project.path };
+          lock = lockModule.create(perProjectConfig) as AreaLock;
+        }
+      }
       if (lock) {
         try {
           const workspacePath = worktree || project?.path;

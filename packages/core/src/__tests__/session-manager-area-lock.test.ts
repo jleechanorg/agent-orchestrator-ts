@@ -92,6 +92,7 @@ describe("SessionManager - Area Lock", () => {
         if (slot === "lock") return mockLock;
         return null;
       }),
+      getModule: vi.fn().mockReturnValue(null),
     };
 
     vi.mocked(worktreeGit.getWorkspaceChangedFiles).mockResolvedValue(["file1.ts"]);
@@ -242,6 +243,39 @@ describe("SessionManager - Area Lock", () => {
 
     // Order must be: checkout → reserve → release (not release before checkout)
     expect(callOrder).toEqual(["checkout", "reserve", "release"]);
+  });
+
+  it("creates per-project lock instance when project.lock.config is set", async () => {
+    const customLock = {
+      check: vi.fn().mockResolvedValue({ status: "free" }),
+      reserve: vi.fn().mockResolvedValue([]),
+      release: vi.fn().mockResolvedValue([]),
+    };
+    const mockLockModule = {
+      manifest: { name: "area-lock", slot: "lock", description: "", version: "0.1.0", displayName: "Area Lock" },
+      create: vi.fn().mockReturnValue(customLock),
+    };
+    mockRegistry.getModule = vi.fn((slot, name) => {
+      if (slot === "lock" && name === "area-lock") return mockLockModule;
+      return null;
+    });
+
+    config.projects["my-app"].lock = {
+      plugin: "area-lock",
+      config: { registryPath: "/custom/file_domains.yaml", cliPath: "/usr/local/bin/domain_lock" },
+    };
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await sm.spawn({ projectId: "my-app", issueId: "456" });
+
+    expect(mockRegistry.getModule).toHaveBeenCalledWith("lock", "area-lock");
+    expect(mockLockModule.create).toHaveBeenCalledWith({
+      registryPath: "/custom/file_domains.yaml",
+      cliPath: "/usr/local/bin/domain_lock",
+      projectRoot: tmpDir,
+    });
+    expect(customLock.check).toHaveBeenCalledWith(["file1.ts"], expect.any(String));
   });
 
 });

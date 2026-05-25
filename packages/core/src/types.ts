@@ -2056,6 +2056,9 @@ export interface PluginRegistry {
   /** Get a plugin by slot and name */
   get<T>(slot: PluginSlot, name: string): T | null;
 
+  /** Get the plugin module (for re-creating instances with per-project config) */
+  getModule(slot: PluginSlot, name: string): PluginModule | null;
+
   /** List plugins for a slot */
   list(slot: PluginSlot): PluginManifest[];
 

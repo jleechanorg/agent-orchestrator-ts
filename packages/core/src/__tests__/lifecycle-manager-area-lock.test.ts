@@ -80,6 +80,7 @@ describe("LifecycleManager - Area Lock Reservation", () => {
         if (slot === "agent") return mockAgent;
         return null;
       }),
+      getModule: vi.fn().mockReturnValue(null),
     };
 
     mockEventBus = {

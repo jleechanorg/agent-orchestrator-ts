@@ -240,6 +240,7 @@ beforeEach(() => {
       if (slot === "workspace") return mockWorkspace;
       return null;
     }),
+    getModule: vi.fn().mockReturnValue(null),
     list: vi.fn().mockReturnValue([]),
     loadBuiltins: vi.fn().mockResolvedValue(undefined),
     loadFromConfig: vi.fn().mockResolvedValue(undefined),
