@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isOrchestratorSession, isTerminalSession } from "../types.js";
-import type { SessionStatus, ActivityState } from "../types.js";
+import { isOrchestratorSession, isTerminalSession, type SessionStatus, type ActivityState } from "../types.js";
 
 describe("isOrchestratorSession", () => {
   it("detects orchestrators by explicit role metadata", () => {
