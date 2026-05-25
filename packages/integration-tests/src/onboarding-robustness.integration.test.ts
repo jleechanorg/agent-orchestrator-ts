@@ -44,8 +44,9 @@ describe("Onboarding Robustness", () => {
                       print(p)
                       break`;
 
-      const output = execSync(`RESERVED_PORTS_FILE=${reservedFile} python3 -c "${snippet}"`, {
-        encoding: "utf-8"
+      const output = execSync(`python3 -c "${snippet}"`, {
+        encoding: "utf-8",
+        env: { ...process.env, RESERVED_PORTS_FILE: reservedFile }
       }).trim();
 
       expect(parseInt(output)).toBeGreaterThan(1024);
@@ -76,8 +77,9 @@ describe("Onboarding Robustness", () => {
                       print(p)
                       break`;
 
-      const output = execSync(`RESERVED_PORTS_FILE=${reservedFile} python3 -c "${snippet}"`, {
-        encoding: "utf-8"
+      const output = execSync(`python3 -c "${snippet}"`, {
+        encoding: "utf-8",
+        env: { ...process.env, RESERVED_PORTS_FILE: reservedFile }
       }).trim();
 
       expect(output).not.toBe("9000");
