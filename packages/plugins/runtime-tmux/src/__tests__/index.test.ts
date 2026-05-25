@@ -221,10 +221,13 @@ describe("runtime.create()", () => {
     mockTmuxSuccess();
 
     const originalNow = Date.now;
-    let callCount = 0;
+    let pollIterations = 0;
     vi.spyOn(Date, "now").mockImplementation(() => {
-      callCount++;
-      return callCount > 1 ? originalNow() + 20_000 : originalNow();
+      pollIterations++;
+      // Advance time past deadline only after the first poll iteration
+      // (sleep + capture-pane) completes — this verifies that the poll loop
+      // actually exercises capture-pane at least once before timing out.
+      return pollIterations > 2 ? originalNow() + 20_000 : originalNow();
     });
 
     // 3: capture-pane returns NOT ready
@@ -238,6 +241,9 @@ describe("runtime.create()", () => {
     });
 
     expect(handle.id).toBe("gemini-session-timeout");
+    // Verify the poll loop exercised at least one capture-pane call
+    // (not just exiting on the first while-check due to mock timing).
+    expect(pollIterations).toBeGreaterThanOrEqual(3);
     vi.restoreAllMocks();
   });
 

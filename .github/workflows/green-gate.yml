@@ -211,7 +211,10 @@ jobs:
             fi
           fi
 
-          if [ "$LATEST_CR" = "APPROVED" ] || { [ "$LATEST_CR" = "none" ] && [ "$CR_STATUS" = "success" ] && [ "$CR_APPROVE_COMMENT" = "APPROVED" ]; }; then
+          # Accept fresh approval comment even after CHANGES_REQUESTED if the
+          # comment is newer (CR_APPROVE_AT > LATEST_CR_AT guard above ensures
+          # stale approvals don't override a newer CHANGES_REQUESTED).
+          if [ "$LATEST_CR" = "APPROVED" ] || { [ "$CR_APPROVE_COMMENT" = "APPROVED" ] && [ "$CR_STATUS" = "success" ]; }; then
             GATE3="PASS"
           else
             GATE3="FAIL"
