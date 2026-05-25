@@ -46,12 +46,16 @@ domains:
 ## 3. Installation Script: `install.sh`
 
 The `merge_train` repository contains the authoritative, automated installer script:
-- **Location:** `/Users/jleechan/projects/merge_train/install.sh`
+- **Location:** `$(git rev-parse --show-toplevel)/scripts/install_domain_lock.sh` (or the `merge_train` repo root)
 
 ### Usage:
 From within any target repository:
 ```bash
-/Users/jleechan/projects/merge_train/install.sh
+# If installed via merge_train repo:
+/path/to/merge_train/install.sh
+
+# Or via AO project-local script:
+./scripts/install_domain_lock.sh
 ```
 
 ### What it does:
