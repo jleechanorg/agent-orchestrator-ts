@@ -700,10 +700,10 @@ jobs:
             #   /tree/main/assets/ and /blob/main/assets/ (3+ segments) don't match.
             #   github\.com/user-attachments/ matches GitHub attachment URLs that
             #   don't follow the owner/repo/assets/ structure.
-            # Pass 2 — direct file-extension URLs (.mp4/.cast/.webm/.gif).
+            # Pass 2 — direct file-extension URLs (.mp4/.cast/.webm/.gif/.mov).
             if echo "$ALL_TEXT" | grep -qEi '(asciinema\.org/a/|loom\.com/share/|github\.com/[^/]+/[^/]+/(assets|files)/|github\.com/user-attachments/|user-attachments\.githubusercontent\.com/|gist\.github\.com/)'; then
               HAS_VIDEO=true
-            elif echo "$ALL_TEXT" | grep -qEi '\.(mp4|cast|webm|gif)([^a-zA-Z0-9_]|$)'; then
+            elif echo "$ALL_TEXT" | grep -qEi '\.(mp4|cast|webm|gif|mov)([^a-zA-Z0-9_]|$)'; then
               HAS_VIDEO=true
             fi
 
