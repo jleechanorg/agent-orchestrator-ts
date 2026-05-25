@@ -1,6 +1,6 @@
 #!/bin/bash
 # Integration test: Fresh developer onboarding experience
-# Measures time and verifies each step of the onboarding flow
+# Measures end-to-end time and verifies each step of the standard onboarding flow
 
 set -e
 
