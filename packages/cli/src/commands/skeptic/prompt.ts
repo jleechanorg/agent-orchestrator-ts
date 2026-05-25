@@ -82,7 +82,6 @@ export function buildSkepticPrompt(
       ? `FAIL (${state.unresolvedBlockingComments} blocking)`
       : "PASS";
 
-  const evidenceAuthentic = isEvidenceAuthentic(pr.body ?? "");
   const evidenceLabel = state.evidenceRequired
     ? state.evidenceApproved
       ? "PASS"
