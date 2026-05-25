@@ -693,7 +693,21 @@ jobs:
             ALL_TEXT=$(printf "%s\n%s\n%s" "$PR_BODY" "$PR_COMMENTS_BODY" "$PR_REVIEWS")
 
             HAS_VIDEO=false
-            if echo "$ALL_TEXT" | grep -qEi 'https?://(([^][:space:]">)]+\.)?(asciinema\.org/a/[^][:space:]">)]+|loom\.com/share/[^][:space:]">)]+|github\.com/[^][:space:]">)]+/(assets|files)/[^][:space:]">)]+|user-attachments\.githubusercontent\.com/[^][:space:]">)]+|gist\.github\.com/[^][:space:]">)]+)|[^][:space:]">)]+\.(mp4|cast|webm|gif)([^a-zA-Z0-9_]|$|[?#][^][:space:]">)]*))'; then
+            # Two-pass video detection:
+            # Pass 1 — anchored known video-hosting domains and GitHub asset paths.
+            #   github\.com/[^/]+/[^/]+/(assets|files)/ requires exactly two path
+            #   segments after the domain (owner/repo) before assets/files, so
+            #   /tree/main/assets/ and /blob/main/assets/ (3+ segments) don't match.
+            #   github\.com/user-attachments/ matches GitHub attachment URLs that
+            #   don't follow the owner/repo/assets/ structure.
+            # Pass 2 — direct file-extension URLs (.mp4/.cast/.webm/.gif/.mov).
+            # Anchor each domain to https?:// to avoid false positives from
+            # substrings like "notloom.com/share/" in plain text.
+            # github.com/user-attachments/ requires a non-empty path segment
+            # after it, matching only actual attachment URLs, not bare paths.
+            if echo "$ALL_TEXT" | grep -qEi '(https?://asciinema\.org/a/|https?://loom\.com/share/|https?://github\.com/[^/]+/[^/]+/(assets|files)/[^/]+|https?://github\.com/user-attachments/[^/]+|https?://user-attachments\.githubusercontent\.com/|https?://gist\.github\.com/)'; then
+              HAS_VIDEO=true
+            elif echo "$ALL_TEXT" | grep -qEi '\.(mp4|cast|webm|gif|mov)([^a-zA-Z0-9_]|$)'; then
               HAS_VIDEO=true
             fi
 
