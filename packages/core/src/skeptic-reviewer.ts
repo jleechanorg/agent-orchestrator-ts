@@ -56,13 +56,11 @@ async function findRequestIdFromComments(
         "api",
         `repos/${owner}/${repo}/issues/${prNumber}/comments`,
         "--jq",
-        ".[] | select(.user.login == \"github-actions[bot]\") | .body",
+        "[.[] | select(.user.login == \"github-actions[bot]\") | .body]",
       ],
       { timeout: 10_000 },
     );
-    const bodies: string[] = result.stdout
-      .split("\n")
-      .filter((l) => l.trim().length > 0);
+    const bodies: string[] = JSON.parse(result.stdout.trim() || "[]");
     const headShaRe = HEAD_SHA_MARKER_RE(triggerSha);
     for (const body of bodies) {
       if (!headShaRe.test(body)) continue;

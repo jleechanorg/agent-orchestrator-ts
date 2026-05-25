@@ -261,7 +261,7 @@ describe("runSkepticReview", () => {
         `<!-- skeptic-head-sha-${validSha} -->`,
         `<!-- skeptic-gate-trigger-${validSha} -->`,
       ].join("\n");
-      const commentsJson = JSON.stringify([{ body: commentBody, user: { login: "github-actions[bot]" } }]);
+      const commentsJson = JSON.stringify([commentBody]);
 
       execFileMock
         .mockResolvedValueOnce({ stdout: validSha, stderr: "" })                    // gh api: SHA
@@ -280,7 +280,7 @@ describe("runSkepticReview", () => {
 
     it("omits --request-id when no trigger comment with request-id marker is found", async () => {
       const validSha = "a".repeat(40);
-      const commentsJson = JSON.stringify([{ body: "some unrelated comment", user: { login: "someone" } }]);
+      const commentsJson = JSON.stringify(["some unrelated comment"]);
 
       execFileMock
         .mockResolvedValueOnce({ stdout: validSha, stderr: "" })                    // gh api: SHA
@@ -322,7 +322,7 @@ describe("runSkepticReview", () => {
         `<!-- skeptic-head-sha-${validSha} -->`,
         `<!-- skeptic-gate-trigger-${validSha} -->`,
       ].join("\n");
-      const commentsJson = JSON.stringify([{ body: commentBody, user: { login: "github-actions[bot]" } }]);
+      const commentsJson = JSON.stringify([commentBody]);
 
       const enobufsError = Object.assign(new Error("spawn ENOBUFS"), { code: "ENOBUFS" });
       execFileMock
