@@ -693,8 +693,12 @@ describe("isEvidenceAuthentic", () => {
     expect(isEvidenceAuthentic("   \n\t  ")).toBe(false);
   });
 
-  it("returns false for null/undefined (treated as empty)", () => {
-    expect(isEvidenceAuthentic("")).toBe(false);
+  it("returns false for null (treated as empty)", () => {
+    expect(isEvidenceAuthentic(null as unknown as string)).toBe(false);
+  });
+
+  it("returns false for undefined (treated as empty)", () => {
+    expect(isEvidenceAuthentic(undefined as unknown as string)).toBe(false);
   });
 
   // Scoping to ## Evidence section
@@ -736,5 +740,68 @@ $ pnpm test
        Tests  10 passed (10)
 \`\`\``;
     expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  // Coverage claim without percentage (Rule 10 sub-item)
+  it("returns false for coverage claim without percentage number", () => {
+    const body = "## Evidence\nUnit test coverage is good — all files covered.";
+    expect(isEvidenceAuthentic(body)).toBe(false);
+  });
+
+  it("returns false for coverage claim with word 'coverage' but no digit-percent", () => {
+    const body = "## Evidence\nTest coverage improved across the board.";
+    expect(isEvidenceAuthentic(body)).toBe(false);
+  });
+
+  it("returns true for coverage claim with percentage number", () => {
+    const body = "## Evidence\nUnit test coverage: 97% of lines covered.";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns true for coverage claim with multiple percentages", () => {
+    const body = "## Evidence\nCoverage: 85% statements, 92% branches, 78% functions.";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns true when no coverage is mentioned at all", () => {
+    const body = "## Evidence\n```\n$ pnpm test\n  ✓ auth.test.ts\n```";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns false for coverage claim in Evidence section even if percentage is outside Evidence", () => {
+    const body = "## Background\nWe achieved 95% coverage.\n\n## Evidence\nCoverage is high.";
+    expect(isEvidenceAuthentic(body)).toBe(false);
+  });
+
+  it("does NOT match standalone verb 'cover' (CR fix: regex is \\bcoverage\\b only)", () => {
+    const body = "## Evidence\nThis PR covers authentication changes.\n```\n$ pnpm test\n  ✓ auth.test.ts\n```";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+});
+
+describe("evidence authenticity blocks PASS in prompt", () => {
+  it("buildSkepticPrompt includes Rule 10 evidence instructions", () => {
+    const prompt = buildSkepticPrompt(
+      makeMinimalPR(),
+      makePassingState(),
+      EMPTY_DIFF,
+      EMPTY_REVIEWS,
+      null,
+    );
+    expect(prompt).toContain("ALWAYS evaluate evidence authenticity");
+    expect(prompt).toContain("Rule 10");
+    expect(prompt).toContain("simulated");
+  });
+
+  it("buildSkepticPrompt with empty evidence section shows (see Rule 10) for gate 6", () => {
+    const state = { ...makePassingState(), evidenceRequired: false };
+    const prompt = buildSkepticPrompt(
+      makeMinimalPR(),
+      state,
+      EMPTY_DIFF,
+      EMPTY_REVIEWS,
+      null,
+    );
+    expect(prompt).toContain("(see Rule 10)");
   });
 });

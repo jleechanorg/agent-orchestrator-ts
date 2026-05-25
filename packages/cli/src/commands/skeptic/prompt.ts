@@ -28,6 +28,11 @@ export function isEvidenceAuthentic(body: string): boolean {
   for (const pattern of FABRICATED_PATTERNS) {
     if (pattern.test(evidenceContent)) return false;
   }
+  // Coverage claim without percentage — e.g. "coverage is good" without "97%"
+  // Use \bcoverage\b only (not \bcov(?:erage|er)\b) to avoid matching verb "cover"
+  if (/\bcoverage\b/i.test(evidenceContent) && !/\d\s*%/.test(evidenceContent)) {
+    return false;
+  }
   return true;
 }
 
@@ -82,9 +87,7 @@ export function buildSkepticPrompt(
     ? state.evidenceApproved
       ? "PASS"
       : "FAIL"
-    : evidenceAuthentic
-      ? "PASS (Rule 10)"
-      : "FAIL (Rule 10)";
+    : "(see Rule 10)";
 
   const designDocSection = designDoc
     ? [
