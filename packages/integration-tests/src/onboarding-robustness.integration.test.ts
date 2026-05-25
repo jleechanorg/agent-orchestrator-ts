@@ -27,25 +27,22 @@ describe("Onboarding Robustness", () => {
 
       // Snippet exactly as in onboarding-test.yml, but we must escape it for shell
       const snippet = `if True:
-  import socket, os
-  reserved = set()
-  rf = os.environ.get('RESERVED_PORTS_FILE', '')
-  if rf and os.path.exists(rf):
-      reserved = set(open(rf).read().split())
-  for _ in range(20):
-      s = socket.socket()
-      s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-      try:
-          s.bind(('', 0))
-          p = str(s.getsockname()[1])
-          s.close()
-          if p not in reserved:
-              if rf:
-                  open(rf, 'a').write(p + '\\\\n')
-              print(p)
-              break
-      except:
-          continue`;
+              import socket, os
+              reserved = set()
+              rf = os.environ.get('RESERVED_PORTS_FILE', '')
+              if rf and os.path.exists(rf):
+                  reserved = set(open(rf).read().split())
+              for _ in range(20):
+                  s = socket.socket()
+                  s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+                  s.bind(('', 0))
+                  p = str(s.getsockname()[1])
+                  s.close()
+                  if p not in reserved:
+                      if rf:
+                          open(rf, 'a').write(p + '\\n')
+                      print(p)
+                      break`;
 
       const output = execSync(`RESERVED_PORTS_FILE=${reservedFile} python3 -c "${snippet}"`, {
         encoding: "utf-8"
@@ -62,25 +59,22 @@ describe("Onboarding Robustness", () => {
       writeFileSync(reservedFile, "9000\n9001\n");
 
       const snippet = `if True:
-  import socket, os
-  reserved = set()
-  rf = os.environ.get('RESERVED_PORTS_FILE', '')
-  if rf and os.path.exists(rf):
-      reserved = set(open(rf).read().split())
-  for _ in range(20):
-      s = socket.socket()
-      s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-      try:
-          s.bind(('', 0))
-          p = str(s.getsockname()[1])
-          s.close()
-          if p not in reserved:
-              if rf:
-                  open(rf, 'a').write(p + '\\\\n')
-              print(p)
-              break
-      except:
-          continue`;
+              import socket, os
+              reserved = set()
+              rf = os.environ.get('RESERVED_PORTS_FILE', '')
+              if rf and os.path.exists(rf):
+                  reserved = set(open(rf).read().split())
+              for _ in range(20):
+                  s = socket.socket()
+                  s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+                  s.bind(('', 0))
+                  p = str(s.getsockname()[1])
+                  s.close()
+                  if p not in reserved:
+                      if rf:
+                          open(rf, 'a').write(p + '\\n')
+                      print(p)
+                      break`;
 
       const output = execSync(`RESERVED_PORTS_FILE=${reservedFile} python3 -c "${snippet}"`, {
         encoding: "utf-8"
