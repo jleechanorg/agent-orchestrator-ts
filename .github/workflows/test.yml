@@ -77,7 +77,7 @@ jobs:
           TRIGGER_SHA: ${{ steps.post_trigger.outputs.trigger_sha }}
           REQUEST_ID: ${{ steps.post_trigger.outputs.request_id }}
           SKEPTIC_BOT_AUTHOR: ${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}
-        timeout-minutes: 11  # headroom over POLL_TIMEOUT=10m below
+        timeout-minutes: 22  # headroom over POLL_TIMEOUT=20m below
         run: |
           set +e
 
@@ -92,7 +92,7 @@ jobs:
           echo "Polling for VERDICT on PR #$PR_NUM (trigger SHA ${TRIGGER_SHA:0:7})"
           echo "Only accepting verdicts after: $TRIGGER_UPDATED"
 
-          POLL_TIMEOUT=600  # seconds — MUST match (timeout-minutes - 1min-headroom) * 60
+          POLL_TIMEOUT=1200  # seconds — MUST match (timeout-minutes - 2min-headroom) * 60
           # Grace window: verdicts posted up to GRACE_SECS before the trigger are also
           # accepted. This handles the case where `ao skeptic verify` runs before the
           # CI's SKEPTIC_GATE_TRIGGER comment is posted (e.g. lifecycle-worker triggered
