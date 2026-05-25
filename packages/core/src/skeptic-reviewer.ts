@@ -25,6 +25,57 @@ import type { Session } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
+const REQUEST_ID_RE = /<!--\s*skeptic-request-id-([A-Za-z0-9_.:-]+)\s*-->/i;
+const HEAD_SHA_MARKER_RE = (sha: string) =>
+  new RegExp(`<!--\\s*skeptic-head-sha-${sha}\\s*-->`, "i");
+const GATE_TRIGGER_LABEL_RE = /SKEPTIC_(?:GATE|CRON)_TRIGGER/i;
+
+/**
+ * Extract the skeptic request-id from a PR's trigger comment.
+ *
+ * Scans PR comments from `github-actions[bot]` for a trigger comment
+ * that contains both the head-sha marker (matching `triggerSha`) and a
+ * `<!-- skeptic-request-id-{id} -->` marker. Returns the request-id
+ * so it can be passed to `ao skeptic verify --request-id`.
+ *
+ * This bridges the gap between the CI skeptic-gate workflow (which posts
+ * a trigger with request-id) and the lifecycle-worker (which runs the
+ * actual skeptic evaluation). Without it, the VERDICT comment lacks the
+ * request-id marker and CI always times out.
+ */
+async function findRequestIdFromComments(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  triggerSha: string,
+): Promise<string | undefined> {
+  try {
+    const result = await execFileAsync(
+      "gh",
+      [
+        "api",
+        `repos/${owner}/${repo}/issues/${prNumber}/comments`,
+        "--jq",
+        ".[] | select(.user.login == \"github-actions[bot]\") | .body",
+      ],
+      { timeout: 10_000 },
+    );
+    const bodies: string[] = result.stdout
+      .split("\n")
+      .filter((l) => l.trim().length > 0);
+    const headShaRe = HEAD_SHA_MARKER_RE(triggerSha);
+    for (const body of bodies) {
+      if (!headShaRe.test(body)) continue;
+      if (!GATE_TRIGGER_LABEL_RE.test(body)) continue;
+      const match = body.match(REQUEST_ID_RE);
+      if (match?.[1]) return match[1];
+    }
+  } catch {
+    // Non-fatal: requestId is best-effort
+  }
+  return undefined;
+}
+
 /** Line-anchored VERDICT matcher — accepts VERDICT: PASS, VERDICT: FAIL, or VERDICT: SKIPPED. */
 const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
 
@@ -119,12 +170,16 @@ function extractVerdictFromError(
  * @param triggerSha - The PR head SHA frozen at the start of this review run. Passing
  *   the same SHA for all attempts ensures all fallbacks evaluate the same commit even
  *   if the PR is force-pushed mid-chain.
+ * @param requestId - The request-id from the CI trigger comment. When present,
+ *   passed to `ao skeptic verify --request-id` so the VERDICT comment includes
+ *   the marker that skeptic-gate.yml polls for.
  */
 async function tryModel(
   session: Session,
   model: "codex" | "claude" | "gemini" | "cursor",
   postComment: boolean,
   triggerSha: string | undefined,
+  requestId: string | undefined,
   excludePaths?: string[],
 ): Promise<
   | { result: SkepticReviewResult; infraFailure?: undefined }
@@ -145,6 +200,9 @@ async function tryModel(
   if (!postComment) args.push("--dry-run");
   if (triggerSha) {
     args.push("--trigger-sha", triggerSha);
+  }
+  if (requestId) {
+    args.push("--request-id", requestId);
   }
   if (excludePaths && excludePaths.length > 0) {
     for (const p of excludePaths) {
@@ -240,6 +298,18 @@ export async function runSkepticReview(
     // Non-fatal: triggerSha is best-effort
   }
 
+  // Resolve the request-id from the CI trigger comment so the VERDICT
+  // comment carries the marker that skeptic-gate.yml polls for.
+  let requestId: string | undefined;
+  if (triggerSha) {
+    requestId = await findRequestIdFromComments(
+      session.pr.owner,
+      session.pr.repo,
+      prNumber,
+      triggerSha,
+    );
+  }
+
   // Build the model chain: if a specific model is requested, start from that
   // model's position in the chain. Default starts from codex (index 0).
   const startIdx = model ? FALLBACK_CHAIN.indexOf(model) : 0;
@@ -248,7 +318,7 @@ export async function runSkepticReview(
   const infraErrors: string[] = [];
 
   for (const currentModel of chain) {
-    const attempt = await tryModel(session, currentModel, postComment, triggerSha, excludePaths);
+    const attempt = await tryModel(session, currentModel, postComment, triggerSha, requestId, excludePaths);
 
     if (attempt.result) {
       // Got a verdict — write report and return
