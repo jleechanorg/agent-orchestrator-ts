@@ -779,6 +779,7 @@ $ pnpm test
     expect(isEvidenceAuthentic(body)).toBe(true);
   });
 
+
   it("returns true for command invocations containing --coverage (no prose coverage claim)", () => {
     const body = "## Evidence\n```\n$ pnpm test --coverage\n  ✓ auth.test.ts\n```";
     expect(isEvidenceAuthentic(body)).toBe(true);
@@ -802,7 +803,7 @@ $ pnpm test
   it("returns true for coverage report inside fenced output (no leading dollar, has %)", () => {
     const body = "## Evidence\n```\n$ pnpm test --coverage\nCoverage: 97%\n```";
     // "Coverage: 97%" is in fenced output and has a %. No coverage check applies
-    // to fenced lines (they don't start with $ and don't match /\s--/). So PASS.
+    // to fenced lines (they don't start with $). So PASS.
     expect(isEvidenceAuthentic(body)).toBe(true);
   });
 });
