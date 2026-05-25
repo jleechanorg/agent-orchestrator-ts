@@ -114,7 +114,13 @@ async function readLastLine(filePath: string): Promise<string | null> {
  */
 export async function readLastJsonlEntry(
   filePath: string,
-): Promise<{ lastType: string | null; modifiedAt: Date } | null> {
+): Promise<{
+  lastType: string | null;
+  payloadType: string | null;
+  lastSubtype: string | null;
+  lastLevel: string | null;
+  modifiedAt: Date;
+} | null> {
   try {
     const [line, fileStat] = await Promise.all([readLastLine(filePath), stat(filePath)]);
 
@@ -124,10 +130,21 @@ export async function readLastJsonlEntry(
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
       const obj = parsed as Record<string, unknown>;
       const lastType = typeof obj.type === "string" ? obj.type : null;
-      return { lastType, modifiedAt: fileStat.mtime };
+      const lastSubtype = typeof obj.subtype === "string" ? obj.subtype : null;
+      const lastLevel = typeof obj.level === "string" ? obj.level : null;
+      let payloadType: string | null = null;
+      if (
+        typeof obj.payload === "object" &&
+        obj.payload !== null &&
+        !Array.isArray(obj.payload)
+      ) {
+        const payload = obj.payload as Record<string, unknown>;
+        if (typeof payload.type === "string") payloadType = payload.type;
+      }
+      return { lastType, payloadType, lastSubtype, lastLevel, modifiedAt: fileStat.mtime };
     }
 
-    return { lastType: null, modifiedAt: fileStat.mtime };
+    return { lastType: null, payloadType: null, lastSubtype: null, lastLevel: null, modifiedAt: fileStat.mtime };
   } catch {
     return null;
   }

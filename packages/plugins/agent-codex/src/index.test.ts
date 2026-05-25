@@ -18,6 +18,10 @@ const {
   mockCreateReadStream,
   mockCreateInterface,
   mockHomedir,
+  mockReadLastJsonlEntry,
+  mockReadLastActivityEntry,
+  mockCheckActivityLogState,
+  mockGetActivityFallbackState,
 } = vi.hoisted(() => ({
   mockExecFileAsync: vi.fn(),
   mockWriteFile: vi.fn().mockResolvedValue(undefined),
@@ -31,6 +35,10 @@ const {
   mockCreateReadStream: vi.fn(),
   mockCreateInterface: vi.fn(),
   mockHomedir: vi.fn(() => "/mock/home"),
+  mockReadLastJsonlEntry: vi.fn().mockResolvedValue(null),
+  mockReadLastActivityEntry: vi.fn().mockReturnValue(null),
+  mockCheckActivityLogState: vi.fn().mockReturnValue(null),
+  mockGetActivityFallbackState: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock("node:child_process", () => {
@@ -75,12 +83,31 @@ vi.mock("node:os", () => ({
   homedir: mockHomedir,
 }));
 
+vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@jleechanorg/ao-core")>();
+  return {
+    ...actual,
+    readLastJsonlEntry: mockReadLastJsonlEntry,
+  };
+});
+
 // setupMcpMailInWorkspace lives in agent-base and uses fs/promises; Vitest's fs/promises
 // mock may not apply across that package boundary. Stub MCP mail setup so these tests
 // only exercise Codex workspace hooks.
 vi.mock("@jleechanorg/ao-plugin-agent-base", () => ({
   setupMcpMailInWorkspace: vi.fn().mockResolvedValue(undefined),
 }));
+
+vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    readLastJsonlEntry: mockReadLastJsonlEntry,
+    readLastActivityEntry: mockReadLastActivityEntry,
+    checkActivityLogState: mockCheckActivityLogState,
+    getActivityFallbackState: mockGetActivityFallbackState,
+  };
+});
 
 import { Readable } from "node:stream";
 import { dirname, join } from "node:path";
@@ -190,6 +217,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   _resetSessionFileCache();
   mockHomedir.mockReturnValue("/mock/home");
+  mockReadLastJsonlEntry.mockResolvedValue(null);
   // Default: open() returns a handle with empty content (no session_meta match).
   // Session tests call setupMockOpen(content) to override.
   mockOpen.mockResolvedValue(makeFakeFileHandle(""));
@@ -198,6 +226,10 @@ beforeEach(() => {
   // Default: createReadStream returns an empty stream. Session tests call
   // setupMockStream(content) to override.
   mockCreateReadStream.mockReturnValue(makeContentStream(""));
+  mockReadLastJsonlEntry.mockResolvedValue(null);
+  mockReadLastActivityEntry.mockReturnValue(null);
+  mockCheckActivityLogState.mockReturnValue(null);
+  mockGetActivityFallbackState.mockReturnValue(null);
 });
 
 // =========================================================================
@@ -683,13 +715,66 @@ describe("getActivityState", () => {
     expect(await agent.getActivityState(session)).toBeNull();
   });
 
-  it("returns active when session file was recently modified", async () => {
+  it("uses persisted codexThreadId filename without cwd-prefix open scans", async () => {
+    mockTmuxWithProcess("codex");
+    mockReaddir.mockResolvedValue(["rollout-2026-05-22T00-00-00-thread-fast-activity.jsonl"]);
+    const modifiedAt = new Date();
+    mockReadLastJsonlEntry.mockResolvedValue({
+      lastType: "assistant_message",
+      modifiedAt,
+    });
+
+    const session = makeSession({
+      runtimeHandle: makeTmuxHandle(),
+      workspacePath: "/workspace/test",
+      metadata: { codexThreadId: "thread-fast-activity" },
+    });
+    const result = await agent.getActivityState(session);
+
+    expect(result?.state).toBe("ready");
+    expect(mockReadLastJsonlEntry).toHaveBeenCalledWith(
+      join(
+        "/mock/home",
+        ".codex",
+        "sessions",
+        "rollout-2026-05-22T00-00-00-thread-fast-activity.jsonl",
+      ),
+    );
+    expect(mockOpen).not.toHaveBeenCalled();
+  });
+
+  it("falls back to cwd-prefix scanning when codexThreadId lookup misses", async () => {
     mockTmuxWithProcess("codex");
     const content = '{"type":"session_meta","cwd":"/workspace/test"}\n';
-    mockReaddir.mockResolvedValue(["sess.jsonl"]);
+    mockReaddir.mockResolvedValue(["rollout-other-thread.jsonl"]);
     setupMockOpen(content);
-    // mtime = now (just modified)
     mockStat.mockResolvedValue({ mtimeMs: Date.now(), mtime: new Date() });
+    mockReadLastJsonlEntry.mockResolvedValue({
+      lastType: "assistant_message",
+      modifiedAt: new Date(),
+    });
+
+    const session = makeSession({
+      runtimeHandle: makeTmuxHandle(),
+      workspacePath: "/workspace/test",
+      metadata: { codexThreadId: "missing-thread" },
+    });
+    const result = await agent.getActivityState(session);
+
+    expect(result?.state).toBe("ready");
+    expect(mockReaddir).toHaveBeenCalledTimes(1);
+    expect(mockOpen).toHaveBeenCalled();
+  });
+
+  it("returns active when session file was recently modified", async () => {
+    mockTmuxWithProcess("codex");
+    mockReaddir.mockResolvedValue(["sess.jsonl"]);
+    setupMockOpen('{"type":"session_meta","cwd":"/workspace/test"}\n');
+    mockStat.mockResolvedValue({ mtimeMs: Date.now(), mtime: new Date() });
+    mockReadLastJsonlEntry.mockResolvedValue({
+      lastType: "task_started",
+      modifiedAt: new Date(),
+    });
 
     const session = makeSession({ runtimeHandle: makeTmuxHandle(), workspacePath: "/workspace/test" });
     const result = await agent.getActivityState(session);
@@ -699,12 +784,14 @@ describe("getActivityState", () => {
 
   it("returns idle when session file is stale", async () => {
     mockTmuxWithProcess("codex");
-    const content = '{"type":"session_meta","cwd":"/workspace/test"}\n';
     mockReaddir.mockResolvedValue(["sess.jsonl"]);
-    setupMockOpen(content);
-    // mtime = 10 minutes ago (past the 5-minute threshold)
+    setupMockOpen('{"type":"session_meta","cwd":"/workspace/test"}\n');
     const staleTime = Date.now() - 600_000;
     mockStat.mockResolvedValue({ mtimeMs: staleTime, mtime: new Date(staleTime) });
+    mockReadLastJsonlEntry.mockResolvedValue({
+      lastType: "task_complete",
+      modifiedAt: new Date(staleTime),
+    });
 
     const session = makeSession({ runtimeHandle: makeTmuxHandle(), workspacePath: "/workspace/test" });
     const result = await agent.getActivityState(session);
@@ -757,7 +844,15 @@ describe("getSessionInfo", () => {
     const sessionContent = jsonl(
       {
         type: "session_meta",
-        model: "gpt-5.5",
+        payload: {
+          id: "thread-fast-info",
+        },
+      },
+      {
+        type: "turn_context",
+        payload: {
+          model: "gpt-5.5",
+        },
       },
     );
 
@@ -810,11 +905,11 @@ describe("getSessionInfo", () => {
   it("chooses the newest duplicate codexThreadId filename match by mtime", async () => {
     const oldContent = jsonl({
       type: "session_meta",
-      model: "old-model",
+      payload: { id: "thread-dupe", model: "old-model" },
     });
     const newContent = jsonl({
       type: "session_meta",
-      model: "new-model",
+      payload: { id: "thread-dupe", model: "new-model" },
     });
 
     mockReaddir.mockResolvedValue([
@@ -1233,6 +1328,58 @@ describe("getRestoreCommand", () => {
     expect(mockReaddir).not.toHaveBeenCalled();
     expect(mockOpen).not.toHaveBeenCalled();
   });
+
+  it("builds native resume command from payload-wrapped Codex session id", async () => {
+    const content = jsonl(
+      {
+        type: "session_meta",
+        payload: {
+          cwd: "/workspace/test",
+          id: "thread-payload-999",
+          model_provider: "openai",
+        },
+      },
+      {
+        type: "turn_context",
+        payload: {
+          model: "gpt-5.3-codex",
+        },
+      },
+    );
+    mockReaddir.mockResolvedValue(["sess.jsonl"]);
+    setupMockOpen(content);
+    setupMockStream(content);
+    mockStat.mockResolvedValue({ mtimeMs: 1000 });
+
+    const session = makeSession({ workspacePath: "/workspace/test" });
+    const cmd = await agent.getRestoreCommand!(session, makeProjectConfig());
+
+    expect(cmd).not.toBeNull();
+    expect(cmd).toContain("'codex' resume");
+    expect(cmd).toContain("thread-payload-999");
+  });
+
+  it("does not append --model from model_provider-only payload data", async () => {
+    const content = jsonl({
+      type: "session_meta",
+      payload: {
+        cwd: "/workspace/test",
+        id: "thread-payload-999",
+        model_provider: "openai",
+      },
+    });
+    mockReaddir.mockResolvedValue(["sess.jsonl"]);
+    setupMockOpen(content);
+    setupMockStream(content);
+    mockStat.mockResolvedValue({ mtimeMs: 1000 });
+
+    const session = makeSession({ workspacePath: "/workspace/test" });
+    const cmd = await agent.getRestoreCommand!(session, makeProjectConfig());
+
+    expect(cmd).not.toBeNull();
+    expect(cmd).not.toContain("--model 'openai'");
+  });
+
 
   it("includes bypass flag when project config permissions=permissionless", async () => {
     const content = jsonl(
