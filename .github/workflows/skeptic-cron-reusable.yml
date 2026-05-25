@@ -693,13 +693,15 @@ jobs:
             ALL_TEXT=$(printf "%s\n%s\n%s" "$PR_BODY" "$PR_COMMENTS_BODY" "$PR_REVIEWS")
 
             HAS_VIDEO=false
-            # Two-pass video detection:
+            # Three-pass video detection:
             # Pass 1 — specific known video-hosting domains and GitHub asset paths.
             #   github\.com/[^/]+/[^/]+/(assets|files)/ requires exactly two path
             #   segments after the domain (owner/repo) before assets/files, so
             #   /tree/main/assets/ and /blob/main/assets/ (3+ segments) don't match.
+            #   github\.com/user-attachments/ matches GitHub attachment URLs that
+            #   don't follow the owner/repo/assets/ structure.
             # Pass 2 — direct file-extension URLs (.mp4/.cast/.webm/.gif).
-            if echo "$ALL_TEXT" | grep -qEi '(asciinema\.org/a/|loom\.com/share/|github\.com/[^/]+/[^/]+/(assets|files)/|user-attachments\.githubusercontent\.com/|gist\.github\.com/)'; then
+            if echo "$ALL_TEXT" | grep -qEi '(asciinema\.org/a/|loom\.com/share/|github\.com/[^/]+/[^/]+/(assets|files)/|github\.com/user-attachments/|user-attachments\.githubusercontent\.com/|gist\.github\.com/)'; then
               HAS_VIDEO=true
             elif echo "$ALL_TEXT" | grep -qEi '\.(mp4|cast|webm|gif)([^a-zA-Z0-9_]|$)'; then
               HAS_VIDEO=true
