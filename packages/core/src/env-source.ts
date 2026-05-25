@@ -157,9 +157,11 @@ export function sourceEnvFile(
     );
     // Guard against spawn failures (e.g. bash not found, timeout). Unlike
     // execFileSync, spawnSync never throws — errors are reported via .error.
-    // Note: we do NOT gate on spawnResult.status because we use `;` so `env`
-    // always runs (and exits 0) even when the sourced file exits non-zero.
-    if (spawnResult.error) {
+    // We gate on .error (spawn failure), .signal (killed by OS), and
+    // .status === null (process never exited). We do NOT gate on status !== 0
+    // because we use `;` so `env` always runs (and exits 0) even when the
+    // sourced file exits non-zero.
+    if (spawnResult.error || spawnResult.status === null || spawnResult.signal !== null) {
       return {};
     }
     const output = (spawnResult.stdout || "").toString().trim();
