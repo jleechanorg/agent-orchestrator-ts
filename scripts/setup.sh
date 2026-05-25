@@ -60,7 +60,7 @@ echo "[ok] git $GIT_VERSION"
 
 # Detect interactive terminal for optional prompts (skip in CI/Docker)
 INTERACTIVE=false
-if [ -t 0 ]; then
+if [ -t 0 ] && [ "${CI}" != "true" ] && [ "${NONINTERACTIVE}" != "true" ]; then
   INTERACTIVE=true
 fi
 
@@ -144,7 +144,7 @@ fi
 
 echo ""
 echo "Installing dependencies..."
-pnpm install
+pnpm install --frozen-lockfile
 
 echo ""
 echo "Cleaning stale build artifacts..."
