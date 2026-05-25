@@ -2059,7 +2059,7 @@ describe("reactions", () => {
       getPRState: vi.fn().mockResolvedValue("open"),
       mergePR: vi.fn(),
       closePR: vi.fn(),
-      getCIChecks: vi.fn(),
+      getCIChecks: vi.fn().mockRejectedValue(new Error("not available")),
       getCISummary: vi.fn().mockResolvedValue("failing"),
       getReviews: vi.fn(),
       getReviewDecision: vi.fn().mockResolvedValue("none"),
@@ -2096,7 +2096,10 @@ describe("reactions", () => {
 
     await lm.check("app-1");
 
-    expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "CI is failing. Fix it.");
+    expect(mockSessionManager.send).toHaveBeenCalledWith(
+      "app-1",
+      "CI is failing. Fix it.",
+    );
   });
 
   it("injects CI failure context into send-to-agent message", async () => {
@@ -2168,10 +2171,9 @@ describe("reactions", () => {
 
     await lm.check("app-1");
 
-    // Verify that context was injected with failing check names and URLs
     expect(mockSessionManager.send).toHaveBeenCalled();
     const sentMessage = vi.mocked(mockSessionManager.send).mock.calls[0][1];
-    expect(sentMessage).toContain("CI failed. Fix it. Details:");
+    expect(sentMessage).toContain("CI checks are failing on your PR");
     expect(sentMessage).toContain("build");
     expect(sentMessage).toContain("test");
     expect(sentMessage).toContain("https://github.com/org/repo/runs/123");
@@ -2328,7 +2330,7 @@ describe("reactions", () => {
       getPRState: vi.fn().mockResolvedValue("open"),
       mergePR: vi.fn(),
       closePR: vi.fn(),
-      getCIChecks: vi.fn(),
+      getCIChecks: vi.fn().mockRejectedValue(new Error("not available")),
       getCISummary: vi.fn().mockResolvedValue("failing"),
       getReviews: vi.fn(),
       getReviewDecision: vi.fn(),
@@ -2383,8 +2385,11 @@ describe("reactions", () => {
     await lm.check("app-1");
 
     expect(lm.getStates().get("app-1")).toBe("ci_failed");
-    // send-to-agent reaction should have been executed
-    expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "Fix CI");
+    // send-to-agent reaction should have been executed (enrichment fails → fallback message)
+    expect(mockSessionManager.send).toHaveBeenCalledWith(
+      "app-1",
+      "Fix CI",
+    );
     // Notifier should NOT have been called — the reaction is handling it
     expect(mockNotifier.notify).not.toHaveBeenCalled();
   });

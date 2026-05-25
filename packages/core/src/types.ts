@@ -695,6 +695,9 @@ export interface SCM {
   /** Get individual CI check statuses */
   getCIChecks(pr: PRInfo): Promise<CICheck[]>;
 
+  /** Get failed CI jobs/steps with a bounded failed-log tail, if supported. */
+  getCIFailureSummary?(pr: PRInfo, failedChecks?: CICheck[]): Promise<CIFailureSummary | null>;
+
   /** Get overall CI summary */
   getCISummary(pr: PRInfo): Promise<CIStatus>;
 
@@ -856,6 +859,15 @@ export interface CICheck {
   conclusion?: string;
   startedAt?: Date;
   completedAt?: Date;
+}
+
+export interface CIFailureSummary {
+  failedJobs: Array<{
+    name: string;
+    failedStep?: string;
+    runUrl: string;
+    logTail?: string;
+  }>;
 }
 
 export type CIStatus = "pending" | "passing" | "failing" | "none";
