@@ -516,13 +516,6 @@ PY
 fi
 
 
-# All metadata writers run in PostToolUse only.
-# Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above.
-if [[ "$hook_event" != "PostToolUse" && -n "$hook_event" ]]; then
-  echo '{}'
-  exit 0
-fi
-
 # Hard guardrail: block agent-triggered gh pr merge by default.
 # Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
 # This check runs BEFORE AO_SESSION/metadata checks since blocking a merge doesn't require session metadata.
@@ -541,6 +534,13 @@ if [[ "$clean_command" =~ $merge_pattern ]]; then
     exit 0
   fi
   # AO_ALLOW_GH_PR_MERGE=1 during PreToolUse OR PostToolUse: fall through to metadata update below
+fi
+
+# All metadata writers run in PostToolUse only.
+# Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above.
+if [[ "$hook_event" != "PostToolUse" && -n "$hook_event" ]]; then
+  echo '{}'
+  exit 0
 fi
 
 # Validate AO_SESSION is set
