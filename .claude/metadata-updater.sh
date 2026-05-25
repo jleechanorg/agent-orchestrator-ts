@@ -259,8 +259,17 @@ try:
 except ValueError as e:
     msg = str(e)
     if "unsupported shell operator" in msg:
-        print("deny")
-        print("Blocked by AO policy: cannot safely analyze chained shell commands. Run the guarded command directly.")
+        # Only deny if the raw command contains a guarded command — over-blocking
+        # safe commands like `echo hi | cat` is a policy regression.
+        # Strip quotes so patterns like 'gh' pr merge are detected.
+        stripped = re.sub(r"['\"]gh['\"]", "gh", source)
+        if contains_guarded_in_substitution(source) or bool(re.search(r'\bgh\s+pr\s+(create|merge)\b', stripped)):
+            print("deny")
+            print("Blocked by AO policy: cannot safely analyze chained shell commands hiding gh pr create or gh pr merge. Run the guarded command directly.")
+            raise SystemExit(0)
+        # Unguarded commands with pipes/redirects are not a policy concern — let them through.
+        print("raw")
+        print(source)
         raise SystemExit(0)
     print("raw")
     print(source)
@@ -346,6 +355,16 @@ else
       break
     fi
   done
+  # Python-less fallback: check for guarded commands after prefix stripping.
+  # If a guarded command survives cd/env stripping, deny it — we cannot safely
+  # rewrite the input without the Python tokenizer.
+  if [[ "$hook_event" != "PostToolUse" && -n "$hook_event" ]]; then
+    guarded_re='gh[[:space:]]+pr[[:space:]]+(merge|create)'
+    if printf '%s' "$clean_command" | grep -qE "$guarded_re"; then
+      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: cannot safely analyze chained commands with gh pr merge/create without python3. Run the guarded command directly."}}'
+      exit 0
+    fi
+  fi
 fi
 
 
@@ -518,15 +537,8 @@ fi
 
 # Hard guardrail: block agent-triggered gh pr merge by default.
 # Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
-# This check runs BEFORE AO_SESSION/metadata checks since blocking a merge doesn't require session metadata.
+# This MUST run before the PostToolUse early return so PreToolUse can still deny merge commands.
 # Guard fires when NOT PostToolUse and NOT allowed. PostToolUse falls through for metadata update.
-# Known limitation: this pattern intentionally does NOT match wrapped/absolute forms
-# (e.g., \`command gh pr merge\`, \`/usr/bin/gh pr merge\`, \`env gh pr merge\`, \`sudo gh pr merge\`).
-# Agents in this codebase generate simple \`gh pr merge\` invocations; wrapped forms would be
-# unusual and deliberate. Layered defenses apply regardless: PreToolUse blocks ALL tool calls
-# containing "gh pr merge" in the raw input before this script runs, and agent-codex's gh
-# wrapper also gates on AO_ALLOW_GH_PR_MERGE. The risk of a bypassed merge is therefore
-# negligible while the pattern remains readable and maintainable.
 merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern ]]; then
   if [[ "$hook_event" != "PostToolUse" && ${AO_ALLOW_GH_PR_MERGE:-_} != "1" ]]; then
@@ -537,7 +549,8 @@ if [[ "$clean_command" =~ $merge_pattern ]]; then
 fi
 
 # All metadata writers run in PostToolUse only.
-# Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above.
+# Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above
+# (which have already executed by this point — including the merge guard).
 if [[ "$hook_event" != "PostToolUse" && -n "$hook_event" ]]; then
   echo '{}'
   exit 0
@@ -619,7 +632,7 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
-if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-]+[/-][^[:space:]]+) ]]; then
+if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^-][^[:space:]]*) ]]; then
   branch="${BASH_REMATCH[1]}"
 
   # Avoid updating for checkout of commits/tags
