@@ -292,7 +292,7 @@ describe("sourceEnvFile — real exports", () => {
     const lastCall = mockSpawnSync.mock.lastCall;
     expect(lastCall).not.toBeUndefined();
     if (!lastCall) throw new Error("lastCall is undefined");
-    const [cmd, args] = lastCall;
+    const [cmd, args, options] = lastCall;
     expect(cmd).toBe("bash");
     expect(args).toBeDefined();
     if (!args) throw new Error("args is undefined");
@@ -302,6 +302,25 @@ describe("sourceEnvFile — real exports", () => {
     expect(args).toContain("-c");
     expect(args[args.indexOf("-c") + 1]).toContain("source");
     expect(args).toContain("--");
+    expect(options).toEqual(
+      expect.objectContaining({
+        detached: true,
+        timeout: 10_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    );
+  });
+
+  it("passes detached:true to spawnSync so the child survives parent termination", () => {
+    setSpawnSuccess(Buffer.from("MY_VAR=hello"));
+    sourceEnvFile("~/.bashrc");
+    const lastCall = mockSpawnSync.mock.lastCall;
+    expect(lastCall).not.toBeUndefined();
+    if (!lastCall) throw new Error("lastCall is undefined");
+    const options = lastCall[2];
+    expect(options).toBeDefined();
+    if (!options) throw new Error("options is undefined");
+    expect(options.detached).toBe(true);
   });
 
   // regression: `&&` silently drops vars if sourced file exits non-zero (e.g.
