@@ -68,7 +68,9 @@ async function waitForGeminiReady(sessionName: string, timeoutMs = 10_000): Prom
     try {
       paneOutput = await tmux("capture-pane", "-t", sessionName, "-p", "-S", "-20");
     } catch {
-      return false; // Session died — let the caller handle it
+      // Transient capture error — keep polling until deadline. A single
+      // failure doesn't prove the session died (tmux may be briefly busy).
+      continue;
     }
     if (readyPattern.test(paneOutput)) {
       return true;
@@ -216,7 +218,12 @@ async function doSendWithRetry(handle: RuntimeHandle, message: string): Promise<
         AGENT_ALIVE_PATTERNS.some((p) => p.test(line)),
       );
       const agentStarted = hasRecentActivity || !trimmedOutput.endsWith(messageTail);
-      if (agentStarted && !hasQueuedMessage) {
+      // Force the first Enter-retry when geminiTimedOut: the agentStarted
+      // heuristic is unreliable during splash rendering because the pane
+      // shows the splash screen (not our message), so !endsWith(messageTail)
+      // is true even though Enter hasn't actually been processed yet.
+      const forceRetry = geminiTimedOut && attempt === 0;
+      if (agentStarted && !hasQueuedMessage && !forceRetry) {
         // Agent responded — clear the timedOut flag so subsequent short
         // messages don't get unnecessary Enter-retry treatment.
         if (handle.data) handle.data.geminiReady = true;
@@ -253,23 +260,27 @@ export function create(): Runtime {
           ? writeLaunchScript(launchCmd)
           : withKeepAliveShell(launchCmd);
 
-      // Kill any pre-existing stale/orphaned session with the same name
+      // Try creating the session first. If tmux reports a duplicate session name,
+      // kill the stale session and retry. This avoids destroying a live session
+      // before we know the replacement can be created successfully.
+      const createSession = (): Promise<string> =>
+        tmux("new-session", "-d", "-s", sessionName, "-c", config.workspacePath, ...envArgs, shellCommand);
       try {
-        await tmux("kill-session", "-t", sessionName);
-      } catch {
-        // Ignore errors if the session does not exist
+        await createSession();
+      } catch (createErr: unknown) {
+        const errMsg = createErr instanceof Error ? createErr.message : String(createErr);
+        // tmux reports "duplicate session: <name>" when a session with that name exists.
+        if (!errMsg.includes("duplicate session")) {
+          throw createErr;
+        }
+        // Stale session collision — kill the old one and retry.
+        try {
+          await tmux("kill-session", "-t", sessionName);
+        } catch {
+          // Ignore if session disappeared between check and kill.
+        }
+        await createSession();
       }
-
-      await tmux(
-        "new-session",
-        "-d",
-        "-s",
-        sessionName,
-        "-c",
-        config.workspacePath,
-        ...envArgs,
-        shellCommand,
-      );
 
       // Hide the tmux status bar — sessions are embedded in the web terminal,
       // and the green bar at the bottom is visual noise (and racy with the

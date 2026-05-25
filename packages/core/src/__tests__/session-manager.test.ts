@@ -1704,6 +1704,37 @@ describe("list", () => {
     expect(sessions[0].activity).toBe("exited");
   });
 
+  it("treats second isAlive probe throw as uncertain/alive — does not mark killed", async () => {
+    const flakyRuntime: Runtime = {
+      ...mockRuntime,
+      isAlive: vi.fn()
+        .mockResolvedValueOnce(false)
+        .mockRejectedValueOnce(new Error("tmux temporarily unreachable")),
+    };
+    const registryWithFlaky: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return flakyRuntime;
+        if (slot === "agent") return mockAgent;
+        return null;
+      }),
+    };
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "a",
+      status: "working",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithFlaky });
+    const sessions = await sm.list();
+
+    expect(sessions[0].status).toBe("working");
+    expect(sessions[0].activity).not.toBe("exited");
+  });
+
   it("detects activity using agent-native mechanism", async () => {
     const agentWithState: Agent = {
       ...mockAgent,

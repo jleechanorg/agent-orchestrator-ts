@@ -69,14 +69,29 @@ export async function isAgentAliveInPane(sessionName: string): Promise<boolean> 
     return false;
   }
 
+  // Split once and reuse for both Gemini detection and shell-prompt checks.
+  const lines = paneOutput.split("\n").filter((l) => l.trim().length > 0);
+
+  // Gemini CLI ready prompt: a ">" preceded by "────" separator. The fish
+  // shell prompt pattern (/(?:^|\s)>\s*$/) would match this as "dead",
+  // causing a false restart loop. Detect and skip.
+  // Only check the trailing window (last 5 lines) — stale separators in
+  // old scrollback must not suppress a real fish prompt on the last line.
+  const trailingLines = lines.slice(-5);
+  const isGeminiReadyPrompt = trailingLines.some((l) => /─{10,}/.test(l));
+
   // Step 1: Check the last non-empty line for shell prompt patterns FIRST.
   // A shell prompt on the last line means the agent has exited — even if stale
   // activity tokens appear earlier in the buffer.
-  const lines = paneOutput.split("\n").filter((l) => l.trim().length > 0);
   if (lines.length > 0) {
     const lastLine = lines[lines.length - 1] ?? "";
     for (const pattern of SHELL_PROMPT_PATTERNS) {
       if (pattern.test(lastLine)) {
+        // Fish-style ">" on the last line is Gemini's ready prompt, not a
+        // dead shell — skip it so the agent isn't falsely restarted.
+        if (pattern === SHELL_PROMPT_PATTERNS[3] && isGeminiReadyPrompt) {
+          continue;
+        }
         return false;
       }
     }
@@ -116,6 +131,10 @@ export async function restartAgentCli(handle: RuntimeHandle): Promise<void> {
       `Cannot restart agent CLI in session "${handle.id}": launchCommand not stored in handle.data`,
     );
   }
+
+  // Reset geminiReady so doSendWithRetry applies Enter-retry on the next
+  // sendMessage after restart — the agent goes through splash again.
+  if (handle.data) handle.data.geminiReady = false;
 
   // Cancel any partially-pasted text / in-progress command
   await tmux("send-keys", "-t", handle.id, "C-c");
