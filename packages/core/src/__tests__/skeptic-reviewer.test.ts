@@ -116,7 +116,7 @@ describe("runSkepticReview", () => {
     // second call (gh api comments) returns empty, third call (ao skeptic) returns PASS
     const mockResults = [
       { stdout: "abc123def4567890000000000000000000000000", stderr: "" }, // gh api SHA
-      { stdout: "", stderr: "" },  // gh api comments (no request-id)
+      { stdout: "[[]]", stderr: "" },  // gh api comments --paginate --slurp (no request-id)
       { stdout: "VERDICT: PASS\nAll exit criteria met.", stderr: "" },  // ao skeptic
     ];
     execFileMock.mockResolvedValue({ stdout: "", stderr: "" }); // reset
@@ -261,11 +261,11 @@ describe("runSkepticReview", () => {
         `<!-- skeptic-head-sha-${validSha} -->`,
         `<!-- skeptic-gate-trigger-${validSha} -->`,
       ].join("\n");
-      const commentsJson = JSON.stringify([commentBody]);
+      const commentsJson = JSON.stringify([[{ body: commentBody, user: { login: "github-actions[bot]" } }]]);
 
       execFileMock
         .mockResolvedValueOnce({ stdout: validSha, stderr: "" })                    // gh api: SHA
-        .mockResolvedValueOnce({ stdout: commentsJson, stderr: "" })                // gh api: comments
+        .mockResolvedValueOnce({ stdout: commentsJson, stderr: "" })                // gh api: comments (--paginate --slurp)
         .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nAll good.", stderr: "" }); // ao skeptic verify
 
       const session = makeSession();
@@ -280,7 +280,7 @@ describe("runSkepticReview", () => {
 
     it("omits --request-id when no trigger comment with request-id marker is found", async () => {
       const validSha = "a".repeat(40);
-      const commentsJson = JSON.stringify(["some unrelated comment"]);
+      const commentsJson = JSON.stringify([[{ body: "some unrelated comment", user: { login: "someone" } }]]);
 
       execFileMock
         .mockResolvedValueOnce({ stdout: validSha, stderr: "" })                    // gh api: SHA
@@ -322,7 +322,7 @@ describe("runSkepticReview", () => {
         `<!-- skeptic-head-sha-${validSha} -->`,
         `<!-- skeptic-gate-trigger-${validSha} -->`,
       ].join("\n");
-      const commentsJson = JSON.stringify([commentBody]);
+      const commentsJson = JSON.stringify([[{ body: commentBody, user: { login: "github-actions[bot]" } }]]);
 
       const enobufsError = Object.assign(new Error("spawn ENOBUFS"), { code: "ENOBUFS" });
       execFileMock
@@ -342,6 +342,67 @@ describe("runSkepticReview", () => {
         expect(call[1]).toContain(requestId);
       }
     });
+
+    it("selects the latest matching request-id when multiple triggers share the same SHA", async () => {
+      const validSha = "a".repeat(40);
+      const oldRequestId = "req-old";
+      const newRequestId = "req-new";
+      const oldBody = [
+        "SKEPTIC_GATE_TRIGGER",
+        `<!-- skeptic-request-id-${oldRequestId} -->`,
+        `<!-- skeptic-head-sha-${validSha} -->`,
+        `<!-- skeptic-gate-trigger-${validSha} -->`,
+      ].join("\n");
+      const newBody = [
+        "SKEPTIC_GATE_TRIGGER",
+        `<!-- skeptic-request-id-${newRequestId} -->`,
+        `<!-- skeptic-head-sha-${validSha} -->`,
+        `<!-- skeptic-gate-trigger-${validSha} -->`,
+      ].join("\n");
+      const commentsJson = JSON.stringify([[
+        { body: oldBody, user: { login: "github-actions[bot]" } },
+        { body: newBody, user: { login: "github-actions[bot]" } },
+      ]]);
+
+      execFileMock
+        .mockResolvedValueOnce({ stdout: validSha, stderr: "" })                    // gh api: SHA
+        .mockResolvedValueOnce({ stdout: commentsJson, stderr: "" })                // gh api: comments (--paginate --slurp)
+        .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nAll good.", stderr: "" }); // ao skeptic verify
+
+      const session = makeSession();
+      const result = await runSkepticReview(session);
+      expect(result.verdict).toBe("PASS");
+
+      const aoCall = execFileMock.mock.calls.find((c) => c[0] === "ao");
+      expect(aoCall).toBeDefined();
+      expect(aoCall![1]).toContain("--request-id");
+      expect(aoCall![1]).toContain(newRequestId);
+      expect(aoCall![1]).not.toContain(oldRequestId);
+    });
+
+    it("requires skeptic-gate/cron-trigger marker to match (rejects stale triggers)", async () => {
+      const validSha = "a".repeat(40);
+      const commentBody = [
+        "SKEPTIC_GATE_TRIGGER",
+        `<!-- skeptic-request-id-req-stale -->`,
+        `<!-- skeptic-head-sha-${validSha} -->`,
+        // Missing <!-- skeptic-gate-trigger-{sha} --> marker
+      ].join("\n");
+      const commentsJson = JSON.stringify([[{ body: commentBody, user: { login: "github-actions[bot]" } }]]);
+
+      execFileMock
+        .mockResolvedValueOnce({ stdout: validSha, stderr: "" })                    // gh api: SHA
+        .mockResolvedValueOnce({ stdout: commentsJson, stderr: "" })                // gh api: comments
+        .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nAll good.", stderr: "" }); // ao skeptic verify
+
+      const session = makeSession();
+      const result = await runSkepticReview(session);
+      expect(result.verdict).toBe("PASS");
+
+      const aoCall = execFileMock.mock.calls.find((c) => c[0] === "ao");
+      expect(aoCall).toBeDefined();
+      expect(aoCall![1]).not.toContain("--request-id");
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -359,7 +420,7 @@ describe("runSkepticReview", () => {
       // Call 4: ao skeptic --model claude → PASS
       execFileMock
         .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // gh api comments (no request-id)
+        .mockResolvedValueOnce({ stdout: "[[]]", stderr: "" }) // gh api comments --paginate --slurp (no request-id)
         .mockRejectedValueOnce(enobufsError) // codex fails
         .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nAll good.", stderr: "" }); // claude succeeds
 
@@ -385,7 +446,7 @@ describe("runSkepticReview", () => {
       // triggerSha fetched once — no repeated gh api calls per model attempt
       execFileMock
         .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // gh api comments (no request-id)
+        .mockResolvedValueOnce({ stdout: "[[]]", stderr: "" }) // gh api comments --paginate --slurp (no request-id)
         .mockRejectedValueOnce(enobufsError) // codex fails
         .mockRejectedValueOnce(spawnSyncError) // claude fails
         .mockResolvedValueOnce({ stdout: "VERDICT: FAIL\nMissing tests.", stderr: "" }); // gemini succeeds
@@ -403,7 +464,7 @@ describe("runSkepticReview", () => {
       // triggerSha fetched once — one gh api call, then all 4 model attempts fail
       execFileMock
         .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // gh api comments (no request-id)
+        .mockResolvedValueOnce({ stdout: "[[]]", stderr: "" }) // gh api comments --paginate --slurp (no request-id)
         .mockRejectedValueOnce(enobufsError) // codex fails
         .mockRejectedValueOnce(enobufsError) // claude fails
         .mockRejectedValueOnce(enobufsError) // gemini fails
@@ -440,7 +501,7 @@ describe("runSkepticReview", () => {
       });
       execFileMock
         .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // gh api comments (no request-id)
+        .mockResolvedValueOnce({ stdout: "[[]]", stderr: "" }) // gh api comments --paginate --slurp
         .mockRejectedValueOnce(exitErr); // ao exits 1 but has verdict
 
       const session = makeSession();
@@ -461,7 +522,7 @@ describe("runSkepticReview", () => {
       // triggerSha fetched once — one gh api call total
       execFileMock
         .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // gh api comments (no request-id)
+        .mockResolvedValueOnce({ stdout: "[[]]", stderr: "" }) // gh api comments --paginate --slurp (no request-id)
         .mockRejectedValueOnce(exitErr) // codex: exit 1, no verdict
         .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nAll good.", stderr: "" }); // claude: PASS
 
@@ -485,7 +546,7 @@ describe("runSkepticReview", () => {
       });
       execFileMock
         .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA (once)
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // gh api comments (no request-id)
+        .mockResolvedValueOnce({ stdout: "[[]]", stderr: "" }) // gh api comments --paginate --slurp (no request-id)
         .mockRejectedValueOnce(exitErr) // codex: ENOBUFS with prompt echo, NOT a real verdict
         .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nReal analysis.", stderr: "" }); // claude: real PASS
 

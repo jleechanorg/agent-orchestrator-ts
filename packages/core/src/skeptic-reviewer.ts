@@ -29,6 +29,13 @@ const REQUEST_ID_RE = /<!--\s*skeptic-request-id-([A-Za-z0-9_.:-]+)\s*-->/i;
 const HEAD_SHA_MARKER_RE = (sha: string) =>
   new RegExp(`<!--\\s*skeptic-head-sha-${sha}\\s*-->`, "i");
 const GATE_TRIGGER_LABEL_RE = /SKEPTIC_(?:GATE|CRON)_TRIGGER/i;
+const GATE_TRIGGER_MARKER_RE = (sha: string) =>
+  new RegExp(`<!--\\s*skeptic-(?:gate|cron)-trigger-${sha}\\s*-->`, "i");
+
+interface GhComment {
+  body?: string;
+  user?: { login?: string };
+}
 
 /**
  * Extract the skeptic request-id from a PR's trigger comment.
@@ -37,6 +44,12 @@ const GATE_TRIGGER_LABEL_RE = /SKEPTIC_(?:GATE|CRON)_TRIGGER/i;
  * that contains both the head-sha marker (matching `triggerSha`) and a
  * `<!-- skeptic-request-id-{id} -->` marker. Returns the request-id
  * so it can be passed to `ao skeptic verify --request-id`.
+ *
+ * Uses `--paginate --slurp` to fetch all comment pages (not just page 1),
+ * iterates in reverse order (newest-first) to pick the latest matching
+ * trigger for the current gate run, and checks for the trigger-type
+ * marker (`skeptic-gate-trigger-{sha}` or `skeptic-cron-trigger-{sha}`)
+ * to avoid binding a stale or ambiguous request-id.
  *
  * This bridges the gap between the CI skeptic-gate workflow (which posts
  * a trigger with request-id) and the lifecycle-worker (which runs the
@@ -55,19 +68,26 @@ async function findRequestIdFromComments(
       [
         "api",
         `repos/${owner}/${repo}/issues/${prNumber}/comments`,
-        "--jq",
-        "[.[] | select(.user.login == \"github-actions[bot]\") | .body]",
+        "--paginate",
+        "--slurp",
       ],
-      { timeout: 10_000 },
+      { timeout: 30_000 },
     );
-    const bodies: string[] = JSON.parse(result.stdout.trim() || "[]");
+    const pages: GhComment[][] = JSON.parse(result.stdout);
+    const comments = pages.flat();
     const headShaRe = HEAD_SHA_MARKER_RE(triggerSha);
-    for (const body of bodies) {
+    const triggerMarkerRe = GATE_TRIGGER_MARKER_RE(triggerSha);
+    let latestRequestId: string | undefined;
+    for (const comment of comments) {
+      if (comment.user?.login?.toLowerCase() !== "github-actions[bot]") continue;
+      const body = comment.body ?? "";
       if (!headShaRe.test(body)) continue;
       if (!GATE_TRIGGER_LABEL_RE.test(body)) continue;
+      if (!triggerMarkerRe.test(body)) continue;
       const match = body.match(REQUEST_ID_RE);
-      if (match?.[1]) return match[1];
+      if (match?.[1]) latestRequestId = match[1];
     }
+    return latestRequestId;
   } catch {
     // Non-fatal: requestId is best-effort
   }

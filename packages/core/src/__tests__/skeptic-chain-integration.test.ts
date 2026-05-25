@@ -113,8 +113,8 @@ function defaultExecFileImpl(
     // gh api --jq .head.sha (runSkepticReview's own gh call)
     return Promise.resolve({ stdout: TRIGGER_SHA, stderr: "" });
   } else if (execFileCall === 2) {
-    // gh api comments (findRequestIdFromComments — no request-id found by default)
-    return Promise.resolve({ stdout: "", stderr: "" });
+    // gh api comments --paginate --slurp (findRequestIdFromComments — no request-id by default)
+    return Promise.resolve({ stdout: "[[]]", stderr: "" });
   } else if (execFileCall === 3) {
     // ao skeptic verify stdout — overridden per-test
     return Promise.resolve({ stdout: "VERDICT: PASS\nAll exit criteria met.", stderr: "" });
@@ -233,8 +233,8 @@ function setVerdictOutput(output: string): void {
       if (execFileCall === 1) {
         return Promise.resolve({ stdout: TRIGGER_SHA, stderr: "" });
       } else if (execFileCall === 2) {
-        // gh api comments — no request-id found by default
-        return Promise.resolve({ stdout: "", stderr: "" });
+        // gh api comments --paginate --slurp — no request-id found by default
+        return Promise.resolve({ stdout: "[[]]", stderr: "" });
       } else if (execFileCall === 3) {
         return Promise.resolve({ stdout: currentVerdictOutput, stderr: "" });
       } else {
