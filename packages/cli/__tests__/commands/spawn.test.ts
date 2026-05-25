@@ -825,7 +825,7 @@ describe("batch-spawn duplicate detection", () => {
     const activeSession: Session = {
       id: "app-1",
       projectId: "my-app",
-      status: "active",
+      status: "working",
       activity: null,
       branch: null,
       issueId: "BD-99",
