@@ -1198,3 +1198,4 @@ export function detect(): boolean {
 
 export default { manifest, create, detect } satisfies PluginModule<Agent>;
 // trigger review
+
