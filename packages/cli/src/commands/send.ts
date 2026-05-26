@@ -12,6 +12,7 @@ import {
 import { exec, tmux } from "../lib/shell.js";
 import { getAgentByName } from "../lib/plugins.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
+import { isAgentAliveInPane } from "@jleechanorg/ao-plugin-runtime-tmux";
 
 /**
  * Resolve session context: tmux target name and Agent plugin.
@@ -189,15 +190,24 @@ export function registerSend(program: Command): void {
         }
 
         // Unmanaged session (no AO session record): paste directly via tmux.
-        // Note: we skip isAgentAliveInPane here to avoid false-positive "dead agent"
-        // warnings for idle sessions whose pane shows a shell prompt (❯ / $).  The
-        // sessionManager path above already has its own liveness check via
-        // runtime.sendMessage; unmanaged sessions have no restart capability anyway.
+        // Dead-agent detection: check if the agent CLI is still alive before
+        // pasting. If the shell has taken over (agent exited), the paste lands
+        // on a shell prompt and is never processed — the worker goes permanently
+        // idle (bd-i9o). Log a warning so the operator can intervene.
         console.log(
           chalk.dim(
             `Session '${session}' is not tracked by AO — sending directly via tmux.`,
           ),
         );
+
+        const agentAlive = await isAgentAliveInPane(tmuxTarget);
+        if (!agentAlive) {
+          console.log(
+            chalk.yellow(
+              `Warning: dead agent detected in '${session}' — agent CLI has exited and shell has taken over. Message may not be processed.`,
+            ),
+          );
+        }
 
         await sendViaTmux(tmuxTarget, message);
 
