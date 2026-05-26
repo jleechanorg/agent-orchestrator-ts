@@ -980,8 +980,10 @@ function createClaudeCodeAgent(): Agent {
 
     async recordActivity(session: Session, terminalOutput: string): Promise<void> {
       if (!session.workspacePath) return;
-      await recordTerminalActivity(session.workspacePath, terminalOutput, (output) =>
-        this.detectActivity(output),
+      await recordTerminalActivity(
+        session.workspacePath,
+        terminalOutput,
+        this.detectActivity.bind(this),
       );
     },
 

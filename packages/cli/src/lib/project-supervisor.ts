@@ -61,13 +61,7 @@ function loadSupervisorConfig(configPath?: string): LoadedSupervisorConfig {
     }
     return { config: loadConfig(globalConfigPath), source: "global" };
   } catch (error) {
-    if (
-      (error instanceof ConfigNotFoundError) ||
-      (error instanceof Error &&
-        "code" in error &&
-        ((error as NodeJS.ErrnoException).code === "ENOENT" ||
-          (error as NodeJS.ErrnoException).code === "EISDIR"))
-    ) {
+    if (error instanceof ConfigNotFoundError) {
       const config = configPath ? loadConfig(configPath) : loadConfig();
       return { config, source: "local-fallback" };
     }
