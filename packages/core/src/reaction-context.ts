@@ -70,7 +70,7 @@ export async function buildReactionContext(
           `Failing checks:`,
           lines.join("\n"),
           ``,
-          `Run the failing test locally first before pushing a fix.`,
+          `Reproduce the failure locally before pushing a fix.`,
         ].join("\n");
       }
       case "changes-requested": {
@@ -95,15 +95,9 @@ export async function buildReactionContext(
         return `Merge blockers:\n${merge.blockers.map((b) => `- ${b}`).join("\n")}`;
       }
       case "mergeable-unknown": {
-        // bd-ara.2: GitHub hasn't computed merge status; rebase to trigger re-evaluation.
-        // Use the structured mergeable boolean — false means GitHub hasn't computed it yet
-        // (true = ready, false = either UNKNOWN or actual conflicts).
-        // Real conflicts are handled separately by the merge-conflicts branch, so a false
-        // mergeable here with no blockers mentioning "unknown" means GitHub is still computing.
         const merge = await scm.getMergeability(session.pr);
         if (merge.mergeable) return "";
-        const isUnknownSignal = merge.blockers.some((b) => b.toLowerCase().includes("unknown"));
-        if (!isUnknownSignal) return "";
+        if (!merge.unknown) return "";
         const baseBranch = session.pr.baseBranch ?? "main";
         return [
           `Merge status is UNKNOWN — GitHub hasn't computed mergeability.`,

@@ -64,7 +64,7 @@ function makeSCM(overrides: Partial<SCM> = {}): SCM {
   return {
     getCIChecks: vi.fn().mockResolvedValue([]),
     getPendingComments: vi.fn().mockResolvedValue([]),
-    getMergeability: vi.fn().mockResolvedValue({ noConflicts: true, blockers: [] }),
+    getMergeability: vi.fn().mockResolvedValue({ noConflicts: true, unknown: false, blockers: [] }),
     ...overrides,
   } as unknown as SCM;
 }
@@ -110,8 +110,8 @@ describe("buildReactionContext", () => {
         makeConfig(),
         makeRegistry(scm),
       );
+      expect(result).toContain("Reproduce the failure locally");
       expect(result).toContain("locally");
-      expect(result).toContain("Run the failing test locally");
     });
   });
 
@@ -220,6 +220,7 @@ describe("buildReactionContext", () => {
           ciPassing: true,
           approved: true,
           noConflicts: false,
+          unknown: true,
           blockers: ["Merge status unknown (GitHub is computing)"],
         }),
       });
@@ -241,6 +242,7 @@ describe("buildReactionContext", () => {
           ciPassing: true,
           approved: true,
           noConflicts: false,
+          unknown: true,
           blockers: ["Merge status unknown (GitHub is computing)"],
         }),
       });
@@ -255,6 +257,7 @@ describe("buildReactionContext", () => {
       expect(result).not.toContain("origin/main");
     });
 
+
     it("returns empty string when mergeability is MERGEABLE", async () => {
       const scm = makeSCM({
         getMergeability: vi.fn().mockResolvedValue({
@@ -262,6 +265,7 @@ describe("buildReactionContext", () => {
           ciPassing: true,
           approved: true,
           noConflicts: true,
+          unknown: false,
           blockers: [],
         }),
       });
@@ -282,6 +286,7 @@ describe("buildReactionContext", () => {
           ciPassing: true,
           approved: true,
           noConflicts: false,
+          unknown: false,
           blockers: ["Merge conflicts"],
         }),
       });
@@ -294,6 +299,7 @@ describe("buildReactionContext", () => {
       );
       expect(result).toBe("");
     });
+
   });
 
   describe("unknown reaction key", () => {
