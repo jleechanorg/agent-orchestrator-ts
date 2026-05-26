@@ -10,11 +10,10 @@ const nextConfig = {
     // Optimize worker memory usage
     workers: true,
   },
-  serverExternalPackages: ["@composio/core"],
+  serverExternalPackages: ["@composio/core", "@jleechanorg/ao-core", "better-sqlite3"],
   // Fix lockfile warning by specifying the correct root
   outputFileTracingRoot: __dirname,
   transpilePackages: [
-    "@jleechanorg/ao-core",
     "@jleechanorg/ao-plugin-agent-claude-code",
     "@jleechanorg/ao-plugin-agent-cursor",
     "@jleechanorg/ao-plugin-agent-opencode",
