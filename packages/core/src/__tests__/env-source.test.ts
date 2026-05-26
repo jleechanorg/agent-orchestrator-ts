@@ -35,7 +35,7 @@ vi.mock("node:child_process", () => ({
   execFileSync: mockExecFileSync,
   spawnSync: vi.fn((...args: Parameters<typeof mockExecFileSync>) => {
     const res = mockExecFileSync(...args);
-    return { stdout: res, status: 0 } as import("node:child_process").SpawnSyncReturns<Buffer>;
+    return { stdout: res, status: 0, signal: null } as import("node:child_process").SpawnSyncReturns<Buffer>;
   }),
 }));
 
