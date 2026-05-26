@@ -35,6 +35,8 @@ vi.mock("node:child_process", () => ({
   execFileSync: mockExecFileSync,
   spawnSync: vi.fn((...args: Parameters<typeof mockExecFileSync>) => {
     const res = mockExecFileSync(...args);
+    // signal: null is required — Node returns {signal:null} for normal exits; omitting it
+    // causes env-source's early-return guard (signal !== null → skip) to discard output
     return { stdout: res, status: 0, signal: null } as import("node:child_process").SpawnSyncReturns<Buffer>;
   }),
 }));
