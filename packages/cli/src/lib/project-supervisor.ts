@@ -1,9 +1,10 @@
 import {
   loadConfig,
+  findManagedConfigFile,
+  ConfigNotFoundError,
   isTerminalSession,
   createCorrelationId,
   createProjectObserver,
-  ConfigNotFoundError,
   type OrchestratorConfig,
   type ProjectObserver,
   type Session,
@@ -47,31 +48,25 @@ function isMissingConfigError(error: unknown): boolean {
   return (
     error instanceof Error &&
     "code" in error &&
-    (error as NodeJS.ErrnoException).code === "ENOENT"
+    ((error as NodeJS.ErrnoException).code === "ENOENT" ||
+      (error as NodeJS.ErrnoException).code === "EISDIR")
   );
 }
 
 function loadSupervisorConfig(configPath?: string): LoadedSupervisorConfig {
-  const globalConfigPath = process.env["AO_GLOBAL_CONFIG"];
-  if (globalConfigPath) {
-    try {
-      return { config: loadConfig(globalConfigPath), source: "global" };
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        "code" in error &&
-        (error as NodeJS.ErrnoException).code === "ENOENT" &&
-        "path" in error &&
-        (error as NodeJS.ErrnoException).path === globalConfigPath
-      ) {
-        const config = configPath ? loadConfig(configPath) : loadConfig();
-        return { config, source: "local-fallback" };
-      }
-      throw error;
+  const globalConfigPath = findManagedConfigFile();
+  try {
+    if (!globalConfigPath) {
+      throw new ConfigNotFoundError();
     }
+    return { config: loadConfig(globalConfigPath), source: "global" };
+  } catch (error) {
+    if (error instanceof ConfigNotFoundError) {
+      const config = configPath ? loadConfig(configPath) : loadConfig();
+      return { config, source: "local-fallback" };
+    }
+    throw error;
   }
-  const config = configPath ? loadConfig(configPath) : loadConfig();
-  return { config, source: "local-fallback" };
 }
 
 function reportProjectSupervisorError(
@@ -154,17 +149,12 @@ export async function reconcileProjectSupervisor(
 }
 
 export async function startProjectSupervisor(
-  optionsOrIntervalMs?: StartProjectSupervisorOptions | number,
+  options: StartProjectSupervisorOptions | number = {},
 ): Promise<SupervisorHandle> {
-  const options: StartProjectSupervisorOptions =
-    typeof optionsOrIntervalMs === "number"
-      ? { intervalMs: optionsOrIntervalMs }
-      : (optionsOrIntervalMs ?? {});
-
   if (activeSupervisor) return activeSupervisor;
 
-  const intervalMs = options.intervalMs ?? DEFAULT_SUPERVISOR_INTERVAL_MS;
-  const configPath = options.configPath;
+  const intervalMs = typeof options === "number" ? options : (options.intervalMs ?? DEFAULT_SUPERVISOR_INTERVAL_MS);
+  const configPath = typeof options === "number" ? undefined : options.configPath;
 
   let reconciling = false;
   let pending = false;

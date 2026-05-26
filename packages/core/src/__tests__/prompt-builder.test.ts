@@ -1,12 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { buildPrompt, BASE_AGENT_PROMPT, CORE_AGENT_PROMPT, PR_BOILERPLATE, type OverlappingSession } from "../prompt-builder.js";
 import { buildWorkerPromptArtifact, type WorkerPromptArtifactConfig } from "../prompt-artifact-builder.js";
-import { readFileSync } from "node:fs";
-import type { Agent, Issue, ProjectConfig, SessionSpawnConfig } from "../types.js";
+import type { Agent, Issue, ProjectConfig } from "../types.js";
 
 let tmpDir: string;
 let project: ProjectConfig;

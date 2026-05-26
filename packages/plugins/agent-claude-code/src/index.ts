@@ -12,6 +12,7 @@ import {
   readLastActivityEntry,
   checkActivityLogState,
   getActivityFallbackState,
+  recordTerminalActivity,
   DEFAULT_READY_THRESHOLD_MS,
   DEFAULT_NATIVE_ACTIVE_WINDOW_MS,
   DEFAULT_ACTIVE_WINDOW_MS,
@@ -977,6 +978,15 @@ function createClaudeCodeAgent(): Agent {
       return classifyTerminalOutput(terminalOutput);
     },
 
+    async recordActivity(session: Session, terminalOutput: string): Promise<void> {
+      if (!session.workspacePath) return;
+      await recordTerminalActivity(
+        session.workspacePath,
+        terminalOutput,
+        this.detectActivity.bind(this),
+      );
+    },
+
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
       const pid = await findClaudeProcess(handle);
       return pid !== null;
@@ -1006,51 +1016,54 @@ function createClaudeCodeAgent(): Agent {
       if (sessionFile) {
         const entry = await readLastJsonlEntry(sessionFile);
         if (entry) {
-          const ageMs = Date.now() - entry.modifiedAt.getTime();
-          const timestamp = entry.modifiedAt;
-          const _isStaleEntry = session.createdAt && entry.modifiedAt < session.createdAt;
+          if (session.createdAt && entry.modifiedAt < session.createdAt) {
+            staleNativeState = { state: "idle", timestamp: session.createdAt };
+          } else {
+            const ageMs = Date.now() - entry.modifiedAt.getTime();
+            const timestamp = entry.modifiedAt;
 
-          if (entry.lastType === "permission_request") {
-            return { state: "waiting_input", timestamp };
-          }
+            if (entry.lastType === "permission_request") {
+              return { state: "waiting_input", timestamp };
+            }
 
-          if (entry.lastType === "error") {
-            return { state: "blocked", timestamp };
-          }
+            if (entry.lastType === "error") {
+              return { state: "blocked", timestamp };
+            }
 
-          if (entry.lastType === "system" && entry.lastSubtype === "api_error" && entry.lastLevel === "error") {
-            return { state: "blocked", timestamp };
-          }
+            if (entry.lastType === "system" && entry.lastSubtype === "api_error" && entry.lastLevel === "error") {
+              return { state: "blocked", timestamp };
+            }
 
-        if (entry.lastType && NOISE_JSONL_TYPES.has(entry.lastType)) {
-          // Noise entries (bookkeeping) don't count as activity; use the entry's
-          // modification time as the idle timestamp.
-          staleNativeState = { state: "idle", timestamp: entry.modifiedAt };
-        } else {
-            const activeWindowMs = Math.min(DEFAULT_NATIVE_ACTIVE_WINDOW_MS, threshold);
-            switch (entry.lastType) {
-              case "user":
-              case "progress":
-                if (ageMs <= activeWindowMs) return { state: "active", timestamp };
-                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+            if (entry.lastType && NOISE_JSONL_TYPES.has(entry.lastType)) {
+              // Noise entries (bookkeeping) don't count as activity; use the entry's
+              // modification time as the idle timestamp.
+              staleNativeState = { state: "idle", timestamp: entry.modifiedAt };
+            } else {
+              const activeWindowMs = Math.min(DEFAULT_NATIVE_ACTIVE_WINDOW_MS, threshold);
+              switch (entry.lastType) {
+                case "user":
+                case "progress":
+                  if (ageMs <= activeWindowMs) return { state: "active", timestamp };
+                  return { state: ageMs > threshold ? "idle" : "ready", timestamp };
 
-              case "system":
-                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+                case "system":
+                  return { state: ageMs > threshold ? "idle" : "ready", timestamp };
 
-              case "assistant":
-              case "summary":
-              case "result":
-                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+                case "assistant":
+                case "summary":
+                case "result":
+                  return { state: ageMs > threshold ? "idle" : "ready", timestamp };
 
-              case "file-history-snapshot":
-              case "attachment":
-              case "queue-operation":
-              case "last-prompt":
-                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+                case "file-history-snapshot":
+                case "attachment":
+                case "queue-operation":
+                case "last-prompt":
+                  return { state: ageMs > threshold ? "idle" : "ready", timestamp };
 
-              default:
-                if (ageMs <= activeWindowMs) return { state: "active", timestamp };
-                return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+                default:
+                  if (ageMs <= activeWindowMs) return { state: "active", timestamp };
+                  return { state: ageMs > threshold ? "idle" : "ready", timestamp };
+              }
             }
           }
         }
