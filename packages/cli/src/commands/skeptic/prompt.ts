@@ -28,18 +28,20 @@ export function isEvidenceAuthentic(body: string): boolean {
   for (const pattern of FABRICATED_PATTERNS) {
     if (pattern.test(evidenceContent)) return false;
   }
-  // Coverage claim without percentage — fail only when "coverage" appears in
-  // prose/narrative text without a nearby %. Command invocations like
-  // "pnpm test --coverage" and raw test output blocks are excluded because they
-  // do not make an inauthentic coverage assertion — the absence of a % there
-  // simply means the tool wasn't asked to report, not that the evidence is fake.
+  // Coverage claim without percentage — scan each non-command line individually.
+  // A line is suspicious if it contains "coverage" but no digit-%. Lines with " --"
+  // are command/flag lines and are skipped (covers `pnpm test --coverage` and
+  // any `--option` style arguments). This avoids both the em-dash false-positive
+  // (prose lines with "--" as punctuation are not command invocations) and the
+  // cross-line % false-negative (fenced output with "%" on a separate line no
+  // longer satisfies the check for a coverage claim in prose).
   const lines = evidenceContent.split("\n");
-  const proseLines = lines.filter(
-    (line) => !line.trim().startsWith("$") && !/\s--/.test(line),
-  );
-  const proseText = proseLines.join(" ");
-  if (/\bcoverage\b/i.test(proseText) && !/\d\s*%/.test(proseText)) {
-    return false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("$") || /\s--/.test(trimmed)) continue;
+    if (/\bcoverage\b/i.test(trimmed) && !/\d\s*%/.test(trimmed)) {
+      return false;
+    }
   }
   return true;
 }
