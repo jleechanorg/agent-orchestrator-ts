@@ -788,6 +788,7 @@ $ pnpm test
     const body = "## Evidence\nWe improved coverage significantly after adding tests.";
     expect(isEvidenceAuthentic(body)).toBe(false);
   });
+
   it("returns true for --option flags that are not coverage commands", () => {
     const body = "## Evidence\n```\n$ ao spawn --project my-app -- agent check\n```";
     expect(isEvidenceAuthentic(body)).toBe(true);
