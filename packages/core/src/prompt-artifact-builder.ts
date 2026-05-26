@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { buildPrompt } from "./prompt-builder.js";
+import type { OverlappingSession } from "./prompt-builder.js";
 import { getProjectBaseDir } from "./paths.js";
 import type { Agent, Issue, ProjectConfig, SessionId, SessionSpawnConfig } from "./types.js";
 
@@ -25,8 +26,8 @@ export interface WorkerPromptArtifactConfig {
   sessionId: SessionId;
   spawnConfig: SessionSpawnConfig;
   composedPromptPath?: string;
-  /** Skip PR/push boilerplate (e.g. for artifact-only workers). Defaults to false. */
   skipPrBoilerplate?: boolean;
+  overlappingSessions?: OverlappingSession[];
 }
 
 export function agentSupportsPromptFile(agent: Agent): boolean {
@@ -69,6 +70,7 @@ export function buildWorkerPromptArtifact(config: WorkerPromptArtifactConfig): W
     lineage: config.spawnConfig.lineage,
     siblings: config.spawnConfig.siblings,
     skipPrBoilerplate: config.skipPrBoilerplate ?? config.spawnConfig.skipPrBoilerplate ?? false,
+    overlappingSessions: config.overlappingSessions,
   });
 
   const composedPromptPath =

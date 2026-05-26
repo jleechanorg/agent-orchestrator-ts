@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { buildPrompt, BASE_AGENT_PROMPT, CORE_AGENT_PROMPT, PR_BOILERPLATE } from "../prompt-builder.js";
+import type { OverlappingSession } from "../prompt-builder.js";
 import type { ProjectConfig } from "../types.js";
 
 let tmpDir: string;
@@ -373,5 +374,94 @@ describe("PR_BOILERPLATE", () => {
   it("contains TDD and evidence guidance", () => {
     expect(PR_BOILERPLATE).toContain("## Git Workflow & TDD Mandate");
     expect(PR_BOILERPLATE).toContain("## PR Best Practices");
+  });
+});
+
+describe("Scope Guard", () => {
+  it("is injected when issueContext is present", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+      issueContext: "## Linear Issue INT-1343\nTitle: Fix rate limiter",
+    });
+    expect(result).toContain("## Scope Guard");
+    expect(result).toContain("scope creep");
+    expect(result).toContain("Focus exclusively on the files and domains mentioned in the bead description above");
+  });
+
+  it("is NOT injected when issueContext is absent (ad-hoc task)", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+    });
+    expect(result).not.toContain("## Scope Guard");
+    expect(result).not.toContain("scope creep");
+  });
+
+  it("is NOT injected when issueContext is empty string", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+      issueContext: "",
+    });
+    expect(result).not.toContain("## Scope Guard");
+  });
+});
+
+describe("Overlapping Work (Dedup Guard)", () => {
+  it("is injected when overlappingSessions is non-empty", () => {
+    const overlapping: OverlappingSession[] = [
+      { sessionId: "sess-abc", beadId: "bd-100", scope: "Fix rate limit handler" },
+      { sessionId: "sess-def", beadId: "bd-101", scope: "Refactor SCM module" },
+    ];
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+      overlappingSessions: overlapping,
+    });
+    expect(result).toContain("## Overlapping Work");
+    expect(result).toContain("[sess-abc]");
+    expect(result).toContain("(bd-100)");
+    expect(result).toContain("Fix rate limit handler");
+    expect(result).toContain("[sess-def]");
+    expect(result).toContain("(bd-101)");
+    expect(result).toContain("Refactor SCM module");
+    expect(result).toContain("Do not duplicate their work");
+  });
+
+  it("is NOT injected when overlappingSessions is empty array", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+      overlappingSessions: [],
+    });
+    expect(result).not.toContain("## Overlapping Work");
+  });
+
+  it("is NOT injected when overlappingSessions is undefined", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+    });
+    expect(result).not.toContain("## Overlapping Work");
+  });
+
+  it("formats each overlapping session with session ID, bead ID, and scope", () => {
+    const overlapping: OverlappingSession[] = [
+      { sessionId: "sess-xyz", beadId: "bd-200", scope: "Add scope guard" },
+    ];
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+      overlappingSessions: overlapping,
+    });
+    expect(result).toContain("- [sess-xyz] (bd-200): Add scope guard");
   });
 });

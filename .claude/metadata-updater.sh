@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-
 # Metadata Updater Hook for Agent Orchestrator
 #
 # This PostToolUse hook automatically updates session metadata when:
 # - gh pr create: extracts PR URL and writes to metadata
-# - git checkout / git switch: extracts branch name and writes to metadata
+# - git checkout -b / git switch -c: extracts branch name and writes to metadata
 # - gh pr merge: updates status to "merged"
 
 set -euo pipefail
@@ -37,8 +36,8 @@ if [[ "$exit_code" -ne 0 ]]; then
   exit 0
 fi
 
-# Only process shell tool calls (Claude uses "Bash"; Gemini CLI uses "run_shell_command")
-if [[ "$tool_name" != "Bash" && "$tool_name" != "run_shell_command" ]]; then
+# Only process Bash tool calls
+if [[ "$tool_name" != "Bash" ]]; then
   echo '{}' # Empty JSON output
   exit 0
 fi
@@ -51,8 +50,98 @@ fi
 clean_command="$command"
 if command -v python3 >/dev/null 2>&1; then
   normalize_prefixed_command_out=$(python3 - "$command" <<'PY'
-import sys
 import re
+import shlex
+import sys
+
+def deny(reason):
+    print("deny")
+    print(reason)
+    raise SystemExit(0)
+
+GUARDED_SUBSTITUTION_RE = re.compile(
+    r"(?:^|[\s;&|()\x60\x22\x27])gh\s+pr\s+(?:create|merge)(?:\s|$)",
+    re.IGNORECASE,
+)
+COMMAND_SUBSTITUTION_OPEN = "$" + "("
+
+def contains_guarded_command_substitution(source):
+    def has_guarded_body(body):
+        return bool(GUARDED_SUBSTITUTION_RE.search(body))
+
+    def find_command_substitution_end(start):
+        depth = 1
+        i = start
+        in_single = False
+        in_double = False
+        while i < len(source):
+            char = source[i]
+            if char == "\\" and not in_single:
+                i += 2
+                continue
+            if char == "'" and not in_double:
+                in_single = not in_single
+                i += 1
+                continue
+            if char == '"' and not in_single:
+                in_double = not in_double
+                i += 1
+                continue
+            if not in_single and source.startswith(COMMAND_SUBSTITUTION_OPEN, i):
+                depth += 1
+                i += 2
+                continue
+            if not in_single and not in_double and char == ")":
+                depth -= 1
+                if depth == 0:
+                    return i
+            i += 1
+        return None
+
+    i = 0
+    in_single = False
+    in_double = False
+    while i < len(source):
+        char = source[i]
+        if char == "\\" and not in_single:
+            i += 2
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+            i += 1
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
+            i += 1
+            continue
+        if in_single:
+            i += 1
+            continue
+        if source.startswith(COMMAND_SUBSTITUTION_OPEN, i):
+            body_start = i + 2
+            body_end = find_command_substitution_end(body_start)
+            if body_end is None:
+                return has_guarded_body(source[body_start:])
+            if has_guarded_body(source[body_start:body_end]):
+                return True
+            i = body_end + 1
+            continue
+        if char == chr(96):
+            body_start = i + 1
+            i = body_start
+            while i < len(source):
+                if source[i] == "\\":
+                    i += 2
+                    continue
+                if source[i] == chr(96):
+                    if has_guarded_body(source[body_start:i]):
+                        return True
+                    break
+                i += 1
+            else:
+                return has_guarded_body(source[body_start:])
+        i += 1
+    return False
 
 def tokenize(source):
     tokens = []
@@ -67,14 +156,35 @@ def tokenize(source):
             tokens.append(("op", "&&", i, i + 2))
             i += 2
             continue
+        if source.startswith("||", i):
+            tokens.append(("op", "||", i, i + 2))
+            i += 2
+            continue
+        if source[i] == "|":
+            tokens.append(("op", "|", i, i + 1))
+            i += 1
+            continue
+        if source[i] == "&":
+            tokens.append(("op", "&", i, i + 1))
+            i += 1
+            continue
         if source[i] == ";":
             tokens.append(("op", ";", i, i + 1))
+            i += 1
+            continue
+        if source[i] in "(){}<>":
+            tokens.append(("op", source[i], i, i + 1))
             i += 1
             continue
 
         start = i
         while i < length:
-            if source.startswith("&&", i) or source[i] == ";" or source[i].isspace():
+            if (
+                source.startswith("&&", i)
+                or source.startswith("||", i)
+                or source[i] in ";|&(){}<>"
+                or source[i].isspace()
+            ):
                 break
             char = source[i]
             if char == "'":
@@ -104,134 +214,11 @@ def tokenize(source):
                     raise ValueError("unterminated escape")
                 i += 2
                 continue
-            if source[i:i+2] == '$(':
-                depth = 1
-                i += 2
-                while i < length and depth > 0:
-                    c = source[i]
-                    if c == "'":
-                        i += 1
-                        while i < length and source[i] != "'":
-                            i += 1
-                    elif c == '"':
-                        i += 1
-                        while i < length:
-                            if source[i] == '\\' and i + 1 < length:
-                                i += 2
-                                continue
-                            if source[i] == '"':
-                                break
-                            i += 1
-                    elif c == '(':
-                        depth += 1
-                    elif c == ')':
-                        depth -= 1
-                    i += 1
-                continue
-            if char == '`':
-                i += 1
-                while i < length and source[i] != '`':
-                    if source[i] == '\\' and i + 1 < length:
-                        i += 2
-                        continue
-                    i += 1
-                if i < length:
-                    i += 1
-                continue
-            if char in "|&<>(){}":
-                raise ValueError("unsupported shell operator")
+            # Allow all shell operators; dangerous command chaining is caught by
+            # the is_guarded_segment() check below.
             i += 1
         tokens.append(("word", source[start:i], start, i))
     return tokens
-
-def contains_guarded_in_substitution(source):
-    i = 0
-    length = len(source)
-    while i < length:
-        char = source[i]
-        if char == "'":
-            i += 1
-            while i < length and source[i] != "'":
-                i += 1
-            if i < length:
-                i += 1
-            continue
-        if char == '"':
-            i += 1
-            while i < length and source[i] != '"':
-                if source[i] == '\\' and i + 1 < length:
-                    i += 2
-                    continue
-                if source[i:i+2] == '$(' or source[i] == '`':
-                    if _subst_contains_guarded(source, i):
-                        return True
-                i += 1
-            if i < length:
-                i += 1
-            continue
-        if source[i:i+2] == '$(' or char == '`':
-            if _subst_contains_guarded(source, i):
-                return True
-        i += 1
-    return False
-
-def _subst_contains_guarded(source, start):
-    if source[start:start+2] == '$(':
-        depth = 1
-        i = start + 2
-        while i < len(source) and depth > 0:
-            c = source[i]
-            if c == "'":
-                i += 1
-                while i < len(source) and source[i] != "'":
-                    i += 1
-            elif c == '"':
-                i += 1
-                while i < len(source) and source[i] != '"':
-                    if source[i] == '\\' and i + 1 < len(source):
-                        i += 2
-                        continue
-                    i += 1
-            elif c == '(':
-                depth += 1
-            elif c == ')':
-                depth -= 1
-                if depth == 0:
-                    break
-            i += 1
-        content = source[start+2:i] if depth == 0 else source[start+2:]
-    elif source[start] == '`':
-        i = start + 1
-        while i < len(source) and source[i] != '`':
-            if source[i] == '\\' and i + 1 < len(source):
-                i += 2
-                continue
-            i += 1
-        content = source[start+1:i] if i < len(source) else source[start+1:]
-    else:
-        return False
-    # Tokenize the extracted body instead of raw-regexing it, so quoted
-    # literals like printf "%s" "gh pr merge" don't false-deny.
-    try:
-        body_tokens = tokenize(content)
-        if remaining_segments_contain_guarded(body_tokens, 0):
-            return True
-        # eval/bash/sh -c wrapping: the tokenizer sees the quoted arg as
-        # one word (e.g. eval "gh pr merge" → [eval, "gh pr merge"]), so
-        # is_guarded_segment can't split it.  Check the token values of
-        # the argument *after* a shell-eval builtin.
-        eval_builtins = {"eval", "bash", "sh"}
-        for idx, tok in enumerate(body_tokens):
-            if tok[0] == "word" and tok[1] in eval_builtins:
-                for next_tok in body_tokens[idx+1:]:
-                    if next_tok[0] == "word" and re.search(r'\bgh\s+pr\s+(create|merge)\b', next_tok[1]):
-                        return True
-                break
-        return False
-    except ValueError:
-        # If the substitution body itself has unsupported operators,
-        # fall back to raw regex — conservative but avoids false-pass.
-        return bool(re.search(r'\bgh\s+pr\s+(create|merge)\b', content))
 
 def is_assignment(word):
     if "=" not in word:
@@ -247,23 +234,18 @@ def strip_assignments(words):
         index += 1
     return words[index:]
 
-def _strip_quotes(w):
-    if len(w) >= 2 and ((w[0] == '"' and w[-1] == '"') or (w[0] == "'" and w[-1] == "'")):
-        return w[1:-1]
-    return w
+def shell_word_value(word):
+    try:
+        parts = shlex.split(word, posix=True)
+    except ValueError:
+        return word
+    return parts[0] if len(parts) == 1 else word
 
 def is_guarded_segment(words):
-    words = [_strip_quotes(w) for w in strip_assignments(words)]
-    if len(words) >= 3 and words[0] == "gh" and words[1] == "pr" and words[2] in {"create", "merge"}:
-        return True
-    # eval/bash/sh -c wrapping: skip the shell builtin and -c flag if present, then check the remaining words.
-    if words and words[0] in {"eval", "bash", "sh"}:
-        remaining = words[1:]
-        # If the next word is "-c", skip it too (handles sh -c gh pr merge)
-        if remaining and remaining[0] == "-c":
-            remaining = remaining[1:]
-        return is_guarded_segment(remaining)
-    return False
+    words = [shell_word_value(word) for word in strip_assignments(words)]
+    return (
+        len(words) >= 3 and words[0] == "gh" and words[1] == "pr" and words[2] in {"create", "merge"}
+    )
 
 def remaining_segments_contain_guarded(tokens, start_index):
     index = start_index
@@ -282,31 +264,14 @@ def remaining_segments_contain_guarded(tokens, start_index):
 
 source = sys.argv[1]
 
-if contains_guarded_in_substitution(source):
-    print("deny")
-    print("Blocked by AO policy: command substitution cannot safely hide gh pr create or gh pr merge. Run the guarded command directly.")
-    raise SystemExit(0)
+if contains_guarded_command_substitution(source):
+    deny("Blocked by AO policy: command substitution cannot safely hide gh pr create or gh pr merge. Run the guarded command directly.")
 
 try:
     tokens = tokenize(source)
-except ValueError as e:
-    msg = str(e)
-    if "unsupported shell operator" in msg:
-        # Only deny if the raw command contains a guarded command — over-blocking
-        # safe commands like `echo hi | cat` is a policy regression.
-        # Strip quotes so patterns like 'gh' "pr" 'merge' are detected.
-        stripped = re.sub(r"['\"](gh|pr|create|merge)['\"]", r"\1", source)
-        if contains_guarded_in_substitution(source) or bool(re.search(r'\bgh\s+pr\s+(create|merge)\b', stripped)):
-            print("deny")
-            print("Blocked by AO policy: cannot safely analyze chained shell commands hiding gh pr create or gh pr merge. Run the guarded command directly.")
-            raise SystemExit(0)
-        # Unguarded commands with pipes/redirects are not a policy concern — let them through.
-        print("raw")
-        print(source)
-        raise SystemExit(0)
-    print("raw")
-    print(source)
-    raise SystemExit(0)
+except ValueError:
+    # Fail-closed: if we cannot parse the command, deny it.
+    deny(f"Blocked by AO policy: unable to parse command ({sys.exc_info()[1]}).")
 
 index = 0
 while index < len(tokens) and tokens[index][0] == "word" and is_assignment(tokens[index][1]):
@@ -314,9 +279,9 @@ while index < len(tokens) and tokens[index][0] == "word" and is_assignment(token
 
 while index < len(tokens):
     if tokens[index][0] != "word":
-        if remaining_segments_contain_guarded(tokens, index):
+        if remaining_segments_contain_guarded(tokens, index + 1):
             print("deny")
-            print("Blocked by AO policy: cannot safely analyze chained shell commands with gh pr create or gh pr merge after env assignments. Run the guarded command directly.")
+            print("Blocked by AO policy: cannot safely analyze chained shell commands before gh pr create or gh pr merge. Run the guarded command directly after any env assignments or cd prefixes.")
             raise SystemExit(0)
         print("raw")
         print(source)
@@ -331,6 +296,10 @@ while index < len(tokens):
 
     if words and words[0] == "cd":
         if len(words) != 2 or next_op not in {"&&", ";"}:
+            if remaining_segments_contain_guarded(tokens, segment_end + 1):
+                print("deny")
+                print("Blocked by AO policy: cannot safely analyze chained shell commands before gh pr create or gh pr merge. Run the guarded command directly after any env assignments or cd prefixes.")
+                raise SystemExit(0)
             print("raw")
             print(source)
             raise SystemExit(0)
@@ -347,16 +316,6 @@ while index < len(tokens):
         print("raw")
         print(source)
         raise SystemExit(0)
-
-    # Direct command — only deny if quotes were used to obfuscate guarded keywords.
-    # A plain "gh pr create" is safe; a quoted '"gh" pr merge' is not.
-    raw_words = strip_assignments(words)
-    stripped_words = [_strip_quotes(w) for w in raw_words]
-    if len(stripped_words) >= 3 and stripped_words[0] == "gh" and stripped_words[1] == "pr" and stripped_words[2] in {"create", "merge"}:
-        if len(raw_words) >= 3 and (raw_words[0] != stripped_words[0] or raw_words[1] != stripped_words[1] or raw_words[2] != stripped_words[2]):
-            print("deny")
-            print("Blocked by AO policy: quoted keywords cannot hide gh pr create or gh pr merge. Run the command without shell quoting tricks.")
-            raise SystemExit(0)
 
     print("safe")
     print(source[tokens[index][2]:])
@@ -388,10 +347,18 @@ print(
 PY
     exit 0
   fi
+  if [[ "$normalize_prefixed_command_status" == "deny" ]]; then
+    echo '{}'
+    exit 0
+  fi
   if [[ "$normalize_prefixed_command_status" == "safe" ]]; then
     clean_command="$normalize_prefixed_command_payload"
   fi
 else
+  # No python3: strip only leading env assignments and cd prefixes.
+  # BUT if the cleaned command contains a guarded gh pr command chained
+  # after any other command (via && or ;), we must deny — the anchored
+  # guards only match leading gh and would miss "echo x && gh pr merge".
   cd_prefix_pattern='^[[:space:]]*cd[[:space:]]+.*[[:space:]]+(&&|;)[[:space:]]+(.*)'
   while true; do
     if [[ "$clean_command" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.+)$ ]]; then
@@ -402,15 +369,19 @@ else
       break
     fi
   done
-  # Python-less fallback: check for guarded commands after prefix stripping.
-  # If a guarded command survives cd/env stripping, deny it — we cannot safely
-  # rewrite the input without the Python tokenizer.
-  if [[ "$hook_event" != "PostToolUse" && -n "$hook_event" ]]; then
-    guarded_re='["'\''"]?gh["'\''"]?[[:space:]]+["'\''"]?pr["'\''"]?[[:space:]]+["'\''"]?(merge|create)["'\''"]?([[:space:]]|$)'
-    if printf '%s' "$clean_command" | grep -qE "$guarded_re"; then
-      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: cannot safely analyze chained commands with gh pr merge/create without python3. Run the guarded command directly."}}'
+  guarded_context_pattern='(\$\(|`|\||\(|\{|<\(|&&|;)[[:space:]]*gh[[:space:]]+pr[[:space:]]+(create|merge)([[:space:]]|$)'
+  # Deny chained guarded commands when python3 is unavailable to parse them safely.
+  if [[ "$clean_command" =~ (&&|;)[[:space:]]*(gh[[:space:]]+pr[[:space:]]+(create|merge)|git[[:space:]]+(checkout[[:space:]]+-b|switch[[:space:]]+-c))[[:space:]] ]] ||
+         [[ "$clean_command" =~ ^(gh[[:space:]]+pr[[:space:]]+(create|merge)|git[[:space:]]+(checkout[[:space:]]+-b|switch[[:space:]]+-c))[[:space:]] ]] ||
+         [[ "$clean_command" =~ $guarded_context_pattern ]];
+  then
+    if [[ "$hook_event" == "PreToolUse" ]]; then
+      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: python3 unavailable — cannot safely parse chained guarded commands (gh pr create/merge, git checkout -b, git switch -c)."}}'
       exit 0
     fi
+    # PostToolUse: deny silently for guarded commands, let others pass.
+    echo '{}'
+    exit 0
   fi
 fi
 
@@ -419,8 +390,9 @@ fi
 # Guardrail: ensure [agento] prefix on gh pr create titles (PreToolUse only).
 # If --title/-t is present without the prefix, prepend it via updatedInput.
 # PostToolUse falls through to metadata update — no re-check there.
-pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*["'\''"]?gh["'\''"]?[[:space:]]+["'\''"]?pr["'\''"]?[[:space:]]+["'\''"]?create["'\''"]?([[:space:]]|$)'
-if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
+pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
+guarded_create_context_pattern='(\$\(|`|\||\(|\{|<\(|&&|;)[[:space:]]*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
+if [[ "$hook_event" == "PreToolUse" && ("$clean_command" =~ $pr_create_pattern || "$clean_command" =~ $guarded_create_context_pattern) ]]; then
   if ! command -v python3 >/dev/null 2>&1; then
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: python3 is required to safely rewrite gh pr create titles."}}'
     exit 0
@@ -583,21 +555,20 @@ fi
 
 
 # Hard guardrail: block agent-triggered gh pr merge by default.
+# Placed BEFORE the PostToolUse-only guard so PreToolUse denials fire correctly.
+# Rationale: prompt rules (e.g., "NEVER MERGE") are advisory; this enforces policy in code.
 # Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
-# This MUST run before the PostToolUse early return so PreToolUse can still deny merge commands.
-# Guard fires when NOT PostToolUse and NOT allowed. PostToolUse falls through for metadata update.
-merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*["'\''"]?gh["'\''"]?[[:space:]]+["'\''"]?pr["'\''"]?[[:space:]]+["'\''"]?merge["'\''"]?([[:space:]]|$)'
-if [[ "$clean_command" =~ $merge_pattern ]]; then
+merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+guarded_merge_context_pattern='(\$\(|`|\||\(|\{|<\(|&&|;)[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+if [[ "$clean_command" =~ $merge_pattern || "$clean_command" =~ $guarded_merge_context_pattern ]]; then
   if [[ "$hook_event" != "PostToolUse" && ${AO_ALLOW_GH_PR_MERGE:-_} != "1" ]]; then
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'
     exit 0
   fi
-  # AO_ALLOW_GH_PR_MERGE=1 during PreToolUse OR PostToolUse: fall through to metadata update below
 fi
 
 # All metadata writers run in PostToolUse only.
-# Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above
-# (which have already executed by this point — including the merge guard).
+# Allow PreToolUse (hook_event empty or "PreToolUse") to fall through to guards above.
 if [[ "$hook_event" != "PostToolUse" && -n "$hook_event" ]]; then
   echo '{}'
   exit 0
@@ -605,7 +576,7 @@ fi
 
 # Validate AO_SESSION is set
 if [[ -z ${AO_SESSION:-} ]]; then
-  echo '{}'
+  echo '{"systemMessage": "AO_SESSION environment variable not set, skipping metadata update"}'
   exit 0
 fi
 
@@ -644,7 +615,6 @@ update_metadata_key() {
   mv "$temp_file" "$metadata_file"
 }
 
-
 # Detect: gh pr create (uses same pr_create_pattern as the guardrail above)
 if [[ "$clean_command" =~ $pr_create_pattern ]]; then
   # Extract PR URL from output
@@ -669,6 +639,7 @@ if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+-b[[:space:]]+([^[
   fi
 fi
 
+# Detect: git switch -c <branch>
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:space:]]+) ]]; then
   branch="${BASH_REMATCH[1]}"
 
@@ -679,30 +650,22 @@ if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([^[:s
   fi
 fi
 
-if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^-][^[:space:]]*) ]]; then
+if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^[:space:]-][^[:space:]]*)$ ]]; then
   branch="${BASH_REMATCH[1]}"
-
-  # Only update branch metadata for plausible branch names:
-  # - not HEAD (commit checkout)
-  # - not a hex SHA (7+ hex digits = commit hash)
-  # Note: we intentionally do NOT filter dot-suffix names (e.g. release/1.0,
-  # feature/foo.bar) because Git allows branches with dots. File-path vs
-  # branch ambiguity is inherent in `git checkout`; we prefer false-positive
-  # branch updates over silently skipping valid branches.
-  if [[ -n "$branch" && "$branch" != "HEAD" \
-        && ! "$branch" =~ ^[0-9a-fA-F]{7,}$ ]]; then
+  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0
   fi
 fi
 
-if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^-][^[:space:]]*) ]]; then
+# Detect: git checkout <branch> (switching to existing branch without -b)
+# Only update metadata if arg looks like a branch name (not a file, tag, or SHA)
+if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^[:space:]-][^[:space:]]*) ]]; then
   branch="${BASH_REMATCH[1]}"
-
-  # git switch only operates on branches (no file-path ambiguity),
-  # so we only need to exclude HEAD
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+  # Skip if it looks like a file (has / or extension), tag (has .), or SHA (all hex)
+  if [[ -n "$branch" && "$branch" != "HEAD" &&
+        ! "$branch" =~ ^.*[/.].*$ && ! "$branch" =~ ^[0-9a-f]+$ ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0

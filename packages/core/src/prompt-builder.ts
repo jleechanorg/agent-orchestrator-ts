@@ -83,6 +83,12 @@ export const BASE_AGENT_PROMPT = CORE_AGENT_PROMPT;
 // TYPES
 // =============================================================================
 
+export interface OverlappingSession {
+  sessionId: string;
+  beadId: string;
+  scope: string;
+}
+
 export interface PromptBuildConfig {
   /** The project config from the orchestrator config */
   project: ProjectConfig;
@@ -117,6 +123,9 @@ export interface PromptBuildConfig {
    * should not attempt to create branches, push code, or open PRs.
    */
   skipPrBoilerplate?: boolean;
+
+  /** Overlapping AO sessions to warn about (dedup guard) */
+  overlappingSessions?: OverlappingSession[];
 }
 
 // =============================================================================
@@ -261,6 +270,13 @@ export function buildPrompt(config: PromptBuildConfig): string {
   // Layer 2: Config-derived context
   sections.push(buildConfigLayer(config));
 
+  // Layer 2.1: Scope guard (when issue context from a bead is present)
+  if (config.issueContext) {
+    sections.push(
+      `## Scope Guard\nIMPORTANT: Only modify files directly related to this bead's task. If you encounter pre-existing test failures unrelated to your bead, note them in your PR description but do NOT fix them — that is scope creep. Focus exclusively on the files and domains mentioned in the bead description above.`,
+    );
+  }
+
   // Layer 2.5: Technique selection (autor research: all converge, SR-prtype is safe default)
   sections.push(buildTechniqueLayer(config));
 
@@ -285,6 +301,15 @@ export function buildPrompt(config: PromptBuildConfig): string {
     const siblingLines = config.siblings.map((s) => `  - ${s}`);
     sections.push(
       `## Parallel Work\nSibling tasks being worked on in parallel:\n${siblingLines.join("\n")}\n\nDo not duplicate work that sibling tasks handle. If you need interfaces/types from siblings, define reasonable stubs.`,
+    );
+  }
+
+  if (config.overlappingSessions && config.overlappingSessions.length > 0) {
+    const sessionLines = config.overlappingSessions.map(
+      (s) => `- [${s.sessionId}] (${s.beadId}): ${s.scope}`,
+    );
+    sections.push(
+      `## Overlapping Work\nThe following AO workers are already handling related work:\n${sessionLines.join("\n")}\nDo not duplicate their work. If your bead overlaps, coordinate via PR comments or focus on the non-overlapping portion.`,
     );
   }
 

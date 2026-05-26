@@ -204,7 +204,21 @@ pnpm --filter @jleechanorg/ao-core test
 pnpm test
 ```
 
-All tests must pass before pushing. CI failures are blockers — fix them, don't skip.
+All tests must pass before pushing. CI failures are blockers — fix them, don't skip. Exception: AO workers on bead tasks — pre-existing failures on main are not your responsibility. See "AO Worker Scope Discipline" below.
+
+## AO Worker Scope Discipline
+
+**AO workers must NOT fix pre-existing failures unrelated to their bead.**
+
+When you spawn on a fresh branch from `origin/main` and encounter test failures you did not cause:
+1. **Do not fix them.** That is scope creep — another worker or a main-branch fix will handle it.
+2. **Note them** in your PR description under a "Pre-existing Failures" heading.
+3. **Focus exclusively** on files and domains mentioned in your bead description.
+4. **Only fix tests** that are directly related to your bead's changes (i.e., your code broke them, or your feature needs new tests).
+
+Why: Two workers on different beads duplicated the same env-source.test.ts mock fix, wasting both sessions. Scope discipline prevents this.
+
+**Operator** (human dispatching workers): Use `ao spawn` with non-overlapping beads. If overlap is unavoidable, steer the second worker away from the first's domain via `ao send`.
 
 ## PR worker harness — blocked vs done (7-green)
 
