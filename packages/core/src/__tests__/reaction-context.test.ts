@@ -257,7 +257,6 @@ describe("buildReactionContext", () => {
       expect(result).not.toContain("origin/main");
     });
 
-
     it("returns empty string when mergeability is MERGEABLE", async () => {
       const scm = makeSCM({
         getMergeability: vi.fn().mockResolvedValue({
@@ -299,7 +298,6 @@ describe("buildReactionContext", () => {
       );
       expect(result).toBe("");
     });
-
   });
 
   describe("unknown reaction key", () => {
