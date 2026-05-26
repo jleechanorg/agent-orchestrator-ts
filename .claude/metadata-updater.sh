@@ -247,8 +247,13 @@ def strip_assignments(words):
         index += 1
     return words[index:]
 
+def _strip_quotes(w):
+    if len(w) >= 2 and ((w[0] == '"' and w[-1] == '"') or (w[0] == "'" and w[-1] == "'")):
+        return w[1:-1]
+    return w
+
 def is_guarded_segment(words):
-    words = strip_assignments(words)
+    words = [_strip_quotes(w) for w in strip_assignments(words)]
     if len(words) >= 3 and words[0] == "gh" and words[1] == "pr" and words[2] in {"create", "merge"}:
         return True
     # eval/bash/sh -c wrapping: skip the shell builtin and -c flag if present, then check the remaining words.
@@ -289,8 +294,8 @@ except ValueError as e:
     if "unsupported shell operator" in msg:
         # Only deny if the raw command contains a guarded command — over-blocking
         # safe commands like `echo hi | cat` is a policy regression.
-        # Strip quotes so patterns like 'gh' pr merge are detected.
-        stripped = re.sub(r"['\"]gh['\"]", "gh", source)
+        # Strip quotes so patterns like 'gh' "pr" 'merge' are detected.
+        stripped = re.sub(r"['\"](gh|pr|create|merge)['\"]", r"\1", source)
         if contains_guarded_in_substitution(source) or bool(re.search(r'\bgh\s+pr\s+(create|merge)\b', stripped)):
             print("deny")
             print("Blocked by AO policy: cannot safely analyze chained shell commands hiding gh pr create or gh pr merge. Run the guarded command directly.")
@@ -338,6 +343,16 @@ while index < len(tokens):
         print("raw")
         print(source)
         raise SystemExit(0)
+
+    # Direct command — only deny if quotes were used to obfuscate guarded keywords.
+    # A plain "gh pr create" is safe; a quoted '"gh" pr merge' is not.
+    raw_words = strip_assignments(words)
+    stripped_words = [_strip_quotes(w) for w in raw_words]
+    if len(stripped_words) >= 3 and stripped_words[0] == "gh" and stripped_words[1] == "pr" and stripped_words[2] in {"create", "merge"}:
+        if len(raw_words) >= 3 and (raw_words[0] != stripped_words[0] or raw_words[1] != stripped_words[1] or raw_words[2] != stripped_words[2]):
+            print("deny")
+            print("Blocked by AO policy: quoted keywords cannot hide gh pr create or gh pr merge. Run the command without shell quoting tricks.")
+            raise SystemExit(0)
 
     print("safe")
     print(source[tokens[index][2]:])
@@ -387,7 +402,7 @@ else
   # If a guarded command survives cd/env stripping, deny it — we cannot safely
   # rewrite the input without the Python tokenizer.
   if [[ "$hook_event" != "PostToolUse" && -n "$hook_event" ]]; then
-    guarded_re='gh[[:space:]]+pr[[:space:]]+(merge|create)'
+    guarded_re='["'\''"]?gh["'\''"]?[[:space:]]+["'\''"]?pr["'\''"]?[[:space:]]+["'\''"]?(merge|create)["'\''"]?([[:space:]]|$)'
     if printf '%s' "$clean_command" | grep -qE "$guarded_re"; then
       echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: cannot safely analyze chained commands with gh pr merge/create without python3. Run the guarded command directly."}}'
       exit 0
@@ -400,7 +415,7 @@ fi
 # Guardrail: ensure [agento] prefix on gh pr create titles (PreToolUse only).
 # If --title/-t is present without the prefix, prepend it via updatedInput.
 # PostToolUse falls through to metadata update — no re-check there.
-pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
+pr_create_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*["'\''"]?gh["'\''"]?[[:space:]]+["'\''"]?pr["'\''"]?[[:space:]]+["'\''"]?create["'\''"]?([[:space:]]|$)'
 if [[ "$hook_event" == "PreToolUse" && "$clean_command" =~ $pr_create_pattern ]]; then
   if ! command -v python3 >/dev/null 2>&1; then
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: python3 is required to safely rewrite gh pr create titles."}}'
@@ -567,7 +582,7 @@ fi
 # Escape hatch for trusted/manual flows: AO_ALLOW_GH_PR_MERGE=1
 # This MUST run before the PostToolUse early return so PreToolUse can still deny merge commands.
 # Guard fires when NOT PostToolUse and NOT allowed. PostToolUse falls through for metadata update.
-merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)'
+merge_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*["'\''"]?gh["'\''"]?[[:space:]]+["'\''"]?pr["'\''"]?[[:space:]]+["'\''"]?merge["'\''"]?([[:space:]]|$)'
 if [[ "$clean_command" =~ $merge_pattern ]]; then
   if [[ "$hook_event" != "PostToolUse" && ${AO_ALLOW_GH_PR_MERGE:-_} != "1" ]]; then
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}'

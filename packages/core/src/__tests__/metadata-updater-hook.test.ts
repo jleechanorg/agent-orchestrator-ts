@@ -98,6 +98,20 @@ describe("metadata-updater PreToolUse guarded command parsing", () => {
   });
 
   it.each([
+    '"gh" pr merge --auto 123',
+    'gh "pr" merge --auto 123',
+    "'gh' pr create --title test --body body",
+    'gh pr "create" --title test --body body',
+  ])("denies guarded gh commands with quoted keywords: %s", (command) => {
+    const output = runPreTool(command);
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(output.hookSpecificOutput?.permissionDecisionReason).toContain(
+      "gh pr create or gh pr merge",
+    );
+  });
+
+  it.each([
     "gh pr create --title ok --body 'literal $(not a command)'",
     "gh pr create --title ok --body 'literal `not a command`'",
   ])("allows direct gh pr create commands with single-quoted literal substitution text: %s", (command) => {
