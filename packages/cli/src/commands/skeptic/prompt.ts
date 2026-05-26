@@ -28,6 +28,22 @@ export function isEvidenceAuthentic(body: string): boolean {
   for (const pattern of FABRICATED_PATTERNS) {
     if (pattern.test(evidenceContent)) return false;
   }
+  // Coverage claim without percentage — scan each non-command line individually.
+  // A line is suspicious if it contains "coverage" but no digit-%. Lines with " --"
+  // surrounded by whitespace are command/flag lines and are skipped (covers
+  // `pnpm test --coverage` and any `--option` style arguments). This avoids the
+  // em-dash false-positive (prose lines where "--" is English punctuation are not
+  // command invocations) and the cross-line % false-negative (fenced output with
+  // "%" on a separate line no longer satisfies the check for a coverage claim
+  // in prose).
+  const lines = evidenceContent.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("$") || /(?<=\s)--(?=\s)/.test(trimmed)) continue;
+    if (/\bcoverage\b/i.test(trimmed) && !/\d\s*%/.test(trimmed)) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -77,14 +93,11 @@ export function buildSkepticPrompt(
       ? `FAIL (${state.unresolvedBlockingComments} blocking)`
       : "PASS";
 
-  const evidenceAuthentic = isEvidenceAuthentic(pr.body ?? "");
   const evidenceLabel = state.evidenceRequired
     ? state.evidenceApproved
       ? "PASS"
       : "FAIL"
-    : evidenceAuthentic
-      ? "PASS (Rule 10)"
-      : "FAIL (Rule 10)";
+    : "(see Rule 10)";
 
   const designDocSection = designDoc
     ? [
@@ -174,7 +187,7 @@ export function buildSkepticPrompt(
     "9. If CR's most recent state is CHANGES_REQUESTED and the review body says 'REQUEST CHANGES', that is a gap.",
     "10. ALWAYS evaluate evidence authenticity in the PR body's ## Evidence section:",
     "    - FAIL if evidence contains 'simulated', 'example.com', '<screenshot path>', '<value>', 'TODO', 'TBD'",
-    "    - FAIL if a coverage claim (unit test coverage) has no percentage numbers (e.g. '97%', '85%')",
+    "    - FAIL if evidence mentions a coverage metric without stating the actual percentage (e.g. 'coverage is 97%' is fine; 'coverage increased' without a number is a FAIL; 'pnpm test --coverage' as a command invocation is not a coverage claim and is exempt)",
     "    - FAIL if the evidence section is empty or contains only template placeholders",
     "    - FAIL if evidence for a fix or feature does not show the TDD Red-Green cycle (must show the initial failure logs/media followed by passing ones, per repo skill: skills/tdd-evidence-workflow/SKILL.md).",
     "    - FAIL if Terminal media is provided but the URL is not HTTPS or does not point to a .mp4, .gif, .webm, .mov, or .cast file (must be video evidence per repo skill: skills/tmux-video-evidence/SKILL.md).",

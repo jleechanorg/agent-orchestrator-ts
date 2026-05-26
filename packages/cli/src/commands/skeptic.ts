@@ -18,12 +18,32 @@ import type { Command } from "commander";
 import { exec } from "../lib/shell.js";
 import { fetchPRMeta, fetchReviews, fetchDiff, fetchIssueComments, fetchDesignDoc, fetchTestFileContents } from "./skeptic/gh-client.js";
 import { fetchMergeGateState } from "./skeptic/mergeGate.js";
-import { buildSkepticPrompt } from "./skeptic/prompt.js";
+import { buildSkepticPrompt, isEvidenceAuthentic } from "./skeptic/prompt.js";
 import { runSkepticEvaluation } from "./skeptic/modelRunner.js";
 import { postVerdict, type SkepticVerdictBinding } from "./skeptic/posting.js";
 import { verifySkepticClaim, formatClaimVerification } from "./skeptic/claim-verifier.js";
 import { bindVerdictOutput, VERDICT_LINE_RE } from "./skeptic/verdict-utils.js";
 export { VERDICT_LINE_RE };
+
+/**
+ * Apply Rule 10 evidence authenticity override.
+ * If evidence is inauthentic and the LLM returned PASS, replace with FAIL.
+ */
+export function applyEvidenceOverride(
+  verdict: string,
+  prBody: string | undefined,
+): string {
+  if (!isEvidenceAuthentic(prBody ?? "")) {
+    const verdictMatch = verdict.match(VERDICT_LINE_RE);
+    if (verdictMatch?.[1]?.toUpperCase() === "PASS") {
+      return verdict.replace(
+        VERDICT_LINE_RE,
+        "VERDICT: FAIL — evidence authenticity check failed (Rule 10: missing or fabricated ## Evidence section)",
+      );
+    }
+  }
+  return verdict;
+}
 
 // bd-lg7i: Default to github-actions[bot] — CI workflow poller filters by this
 // author, and CLI posts via gh api authenticated as the local user. Override via
@@ -264,11 +284,19 @@ export function registerSkeptic(program: Command): Command {
       });
       spinner3.succeed(chalk.green("Skeptic evaluation complete"));
 
-      // Dry-run: print verdict without posting — fail-closed on malformed output
+      // Deterministic evidence authenticity override (Rule 10):
+      // If isEvidenceAuthentic returns false, override any PASS verdict to FAIL.
+      // The LLM might ignore Rule 10 — this ensures fabricated/empty evidence always blocks merge.
+      const finalVerdict = applyEvidenceOverride(verdict, pr.body);
+      if (finalVerdict !== verdict) {
+        console.warn(chalk.yellow("Override: LLM returned PASS but evidence authenticity check failed — forcing FAIL (Rule 10)"));
+      }
+
+      // Dry-run: print verdict without posting
       if (options.dryRun) {
         console.log(chalk.yellow("\n=== DRY RUN — Verdict ===\n"));
         const bound = bindVerdictOutput({
-          llmOutput: verdict,
+          llmOutput: finalVerdict,
         });
         if (bound.verdictType === null) {
           console.warn(chalk.red("Could not parse VERDICT from LLM output."));
@@ -288,7 +316,7 @@ export function registerSkeptic(program: Command): Command {
       // Parse verdict from LLM output — bindVerdictOutput handles fail-closed downgrade
       // when gate markers are incomplete.
       const bound = bindVerdictOutput({
-        llmOutput: verdict,
+        llmOutput: finalVerdict,
       });
 
       if (bound.verdictType === null) {
@@ -316,7 +344,7 @@ export function registerSkeptic(program: Command): Command {
         // Verify both run-level (LLM output) and comment-level (GitHub comment).
         // This surfaces INSUFFICIENT when evidence is missing or inconsistent — fail-closed.
         const spinner5 = ora("Verifying claim (run-level + comment-level)…").start();
-        const claimResult = verifySkepticClaim(verdict, commentBody);
+        const claimResult = verifySkepticClaim(finalVerdict, commentBody);
         spinner5.stop();
         console.log(formatClaimVerification(claimResult));
 

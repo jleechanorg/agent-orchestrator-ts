@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSkepticPrompt, isEvidenceAuthentic } from "../../commands/skeptic/prompt.js";
+import { applyEvidenceOverride } from "../../commands/skeptic.js";
 import { extractSkepticGateMarkers, hasCompletePassingGateMarkers } from "../../commands/skeptic/verdict-utils.js";
 import type { PRInfo, ReviewInfo } from "../../commands/skeptic/gh-client.js";
 import type { MergeGateState } from "../../commands/skeptic/mergeGate.js";
@@ -221,8 +222,8 @@ describe("skeptic structured output", () => {
         expect(prompt).toContain("<value>");
         expect(prompt).toContain("TODO");
         expect(prompt).toContain("TBD");
-        expect(prompt).toContain("coverage claim");
-        expect(prompt).toContain("percentage numbers");
+        expect(prompt).toContain("coverage");
+        expect(prompt).toContain("percentage");
         expect(prompt).toContain("evidence section is empty");
         expect(prompt).toContain("template placeholders");
         expect(prompt).toContain("evidence-review-bot");
@@ -693,8 +694,12 @@ describe("isEvidenceAuthentic", () => {
     expect(isEvidenceAuthentic("   \n\t  ")).toBe(false);
   });
 
-  it("returns false for null/undefined (treated as empty)", () => {
-    expect(isEvidenceAuthentic("")).toBe(false);
+  it("returns false for null (treated as empty)", () => {
+    expect(isEvidenceAuthentic(null as unknown as string)).toBe(false);
+  });
+
+  it("returns false for undefined (treated as empty)", () => {
+    expect(isEvidenceAuthentic(undefined as unknown as string)).toBe(false);
   });
 
   // Scoping to ## Evidence section
@@ -736,5 +741,168 @@ $ pnpm test
        Tests  10 passed (10)
 \`\`\``;
     expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  // Coverage claim without percentage (Rule 10 sub-item)
+  it("returns false for coverage claim without percentage number", () => {
+    const body = "## Evidence\nUnit test coverage is good — all files covered.";
+    expect(isEvidenceAuthentic(body)).toBe(false);
+  });
+
+  it("returns false for coverage claim with word 'coverage' but no digit-percent", () => {
+    const body = "## Evidence\nTest coverage improved across the board.";
+    expect(isEvidenceAuthentic(body)).toBe(false);
+  });
+
+  it("returns true for coverage claim with percentage number", () => {
+    const body = "## Evidence\nUnit test coverage: 97% of lines covered.";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns true for coverage claim with multiple percentages", () => {
+    const body = "## Evidence\nCoverage: 85% statements, 92% branches, 78% functions.";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns true when no coverage is mentioned at all", () => {
+    const body = "## Evidence\n```\n$ pnpm test\n  ✓ auth.test.ts\n```";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns false for coverage claim in Evidence section even if percentage is outside Evidence", () => {
+    const body = "## Background\nWe achieved 95% coverage.\n\n## Evidence\nCoverage is high.";
+    expect(isEvidenceAuthentic(body)).toBe(false);
+  });
+
+  it("does NOT match standalone verb 'cover' (CR fix: regex is \\bcoverage\\b only)", () => {
+    const body = "## Evidence\nThis PR covers authentication changes.\n```\n$ pnpm test\n  ✓ auth.test.ts\n```";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns true for command invocations containing --coverage (no prose coverage claim)", () => {
+    const body = "## Evidence\n```\n$ pnpm test --coverage\n  ✓ auth.test.ts\n```";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns false when prose contains 'coverage' without a percentage", () => {
+    const body = "## Evidence\nWe improved coverage significantly after adding tests.";
+    expect(isEvidenceAuthentic(body)).toBe(false);
+  });
+
+  it("returns true for --option flags that are not coverage commands", () => {
+    const body = "## Evidence\n```\n$ ao spawn --project my-app -- agent check\n```";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns false for prose with em-dash (bypass via '--' as punctuation)", () => {
+    const body = "## Evidence\nCoverage improved -- all tests now pass.";
+    expect(isEvidenceAuthentic(body)).toBe(false);
+  });
+
+  it("returns true for coverage report inside fenced output (no leading dollar, has %)", () => {
+    const body = "## Evidence\n```\n$ pnpm test --coverage\nCoverage: 97%\n```";
+    // "Coverage: 97%" is in fenced output and has a %. No coverage check applies
+    // to fenced lines (they don't start with $ and don't match /\s--/). So PASS.
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+});
+
+describe("evidence authenticity blocks PASS in prompt", () => {
+  it("buildSkepticPrompt includes Rule 10 evidence instructions", () => {
+    const prompt = buildSkepticPrompt(
+      makeMinimalPR(),
+      makePassingState(),
+      EMPTY_DIFF,
+      EMPTY_REVIEWS,
+      null,
+    );
+    expect(prompt).toContain("ALWAYS evaluate evidence authenticity");
+    expect(prompt).toContain("Rule 10");
+    expect(prompt).toContain("simulated");
+  });
+
+  it("buildSkepticPrompt with empty evidence section shows (see Rule 10) for gate 6", () => {
+    const state = { ...makePassingState(), evidenceRequired: false };
+    const prompt = buildSkepticPrompt(
+      makeMinimalPR(),
+      state,
+      EMPTY_DIFF,
+      EMPTY_REVIEWS,
+      null,
+    );
+    expect(prompt).toContain("(see Rule 10)");
+  });
+});
+
+describe("applyEvidenceOverride", () => {
+  it("overrides PASS to FAIL when evidence is empty", () => {
+    const verdict = "## Analysis\nSome analysis\n\nVERDICT: PASS";
+    const result = applyEvidenceOverride(verdict, "");
+    expect(result).toContain("VERDICT: FAIL");
+    expect(result).toContain("Rule 10");
+    expect(result).not.toMatch(/\bVERDICT:\s*PASS\b/);
+  });
+
+  it("overrides PASS to FAIL when evidence is fabricated (no evidence section)", () => {
+    const verdict = "## Analysis\nGood\n\nVERDICT: PASS";
+    const prBody = "## Summary\nSome changes without evidence section";
+    const result = applyEvidenceOverride(verdict, prBody);
+    expect(result).toContain("VERDICT: FAIL");
+  });
+
+  it("overrides PASS to FAIL for coverage claim without percentage", () => {
+    const verdict = "VERDICT: PASS";
+    const prBody = "## Evidence\nCoverage improved significantly.\n```\n$ pnpm test\nTests 10 passed\n```";
+    const result = applyEvidenceOverride(verdict, prBody);
+    expect(result).toContain("VERDICT: FAIL");
+  });
+
+  it("does NOT override PASS when evidence is authentic", () => {
+    const verdict = "VERDICT: PASS";
+    const prBody = "## Evidence\n```\n$ pnpm test\nTests 10 passed (10)\n```\nCoverage: 95%";
+    const result = applyEvidenceOverride(verdict, prBody);
+    expect(result).toContain("VERDICT: PASS");
+    expect(result).not.toContain("Rule 10");
+  });
+
+  it("does NOT override FAIL verdict even when evidence is inauthentic", () => {
+    const verdict = "VERDICT: FAIL";
+    const result = applyEvidenceOverride(verdict, "");
+    expect(result).toContain("VERDICT: FAIL");
+    expect(result).not.toContain("Rule 10");
+  });
+
+  it("does NOT override PASS when evidence section has valid coverage", () => {
+    const verdict = "VERDICT: PASS";
+    const prBody = "## Evidence\nUnit test coverage: 87%.\n```\n$ pnpm test\nTests pass\n```";
+    const result = applyEvidenceOverride(verdict, prBody);
+    expect(result).toContain("VERDICT: PASS");
+  });
+
+  it("preserves surrounding content when overriding", () => {
+    const verdict = "## Background\nSome text\n\nVERDICT: PASS\n\n## Recommendation\nFix X";
+    const result = applyEvidenceOverride(verdict, "");
+    expect(result).toContain("## Background");
+    expect(result).toContain("## Recommendation");
+    expect(result).toContain("VERDICT: FAIL");
+  });
+
+  it("handles null pr body as empty", () => {
+    const verdict = "VERDICT: PASS";
+    const result = applyEvidenceOverride(verdict, null as unknown as string);
+    expect(result).toContain("VERDICT: FAIL");
+  });
+
+  it("handles undefined pr body as empty", () => {
+    const verdict = "VERDICT: PASS";
+    const result = applyEvidenceOverride(verdict, undefined as unknown as string);
+    expect(result).toContain("VERDICT: FAIL");
+  });
+
+  it("returns original verdict unchanged when evidence authentic", () => {
+    const verdict = "VERDICT: PASS";
+    const prBody = "## Evidence\n```\n$ pnpm test\nTests 5 passed (5)\n```";
+    const result = applyEvidenceOverride(verdict, prBody);
+    expect(result).toBe(verdict);
   });
 });
