@@ -10,6 +10,10 @@ import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getAoBaseDir } from "./paths.js";
+import {
+  emitActivityEventsDbUnavailableWarning,
+  __resetActivityEventsDbWarningForTests,
+} from "./events-db-warning.js";
 
 const _require = createRequire(import.meta.url);
 

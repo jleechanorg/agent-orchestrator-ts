@@ -4,7 +4,7 @@ import {
   __resetActivityEventsDbWarningForTests,
   emitActivityEventsDbUnavailableWarning,
   formatActivityEventsDbUnavailableWarning,
-} from "../events-db.js";
+} from "../events-db-warning.js";
 
 describe("activity-events DB unavailable warning", () => {
   const originalArgv = process.argv;
