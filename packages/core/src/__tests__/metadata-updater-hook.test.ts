@@ -91,6 +91,12 @@ describe("metadata-updater PreToolUse guarded command parsing", () => {
     expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
+  it("does not deny substitution with quoted guarded literal (printf)", () => {
+    const output = runPreTool('echo $(printf "%s" "gh pr merge")');
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+  });
+
   it.each([
     "gh pr create --title ok --body 'literal $(not a command)'",
     "gh pr create --title ok --body 'literal `not a command`'",

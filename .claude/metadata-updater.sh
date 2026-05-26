@@ -210,7 +210,28 @@ def _subst_contains_guarded(source, start):
         content = source[start+1:i] if i < len(source) else source[start+1:]
     else:
         return False
-    return bool(re.search(r'\bgh\s+pr\s+(create|merge)\b', content))
+    # Tokenize the extracted body instead of raw-regexing it, so quoted
+    # literals like printf "%s" "gh pr merge" don't false-deny.
+    try:
+        body_tokens = tokenize(content)
+        if remaining_segments_contain_guarded(body_tokens, 0):
+            return True
+        # eval/bash/sh -c wrapping: the tokenizer sees the quoted arg as
+        # one word (e.g. eval "gh pr merge" → [eval, "gh pr merge"]), so
+        # is_guarded_segment can't split it.  Check the token values of
+        # the argument *after* a shell-eval builtin.
+        eval_builtins = {"eval", "bash", "sh"}
+        for idx, tok in enumerate(body_tokens):
+            if tok[0] == "word" and tok[1] in eval_builtins:
+                for next_tok in body_tokens[idx+1:]:
+                    if next_tok[0] == "word" and re.search(r'\bgh\s+pr\s+(create|merge)\b', next_tok[1]):
+                        return True
+                break
+        return False
+    except ValueError:
+        # If the substitution body itself has unsupported operators,
+        # fall back to raw regex — conservative but avoids false-pass.
+        return bool(re.search(r'\bgh\s+pr\s+(create|merge)\b', content))
 
 def is_assignment(word):
     if "=" not in word:
@@ -228,9 +249,12 @@ def strip_assignments(words):
 
 def is_guarded_segment(words):
     words = strip_assignments(words)
-    return (
-        len(words) >= 3 and words[0] == "gh" and words[1] == "pr" and words[2] in {"create", "merge"}
-    )
+    if len(words) >= 3 and words[0] == "gh" and words[1] == "pr" and words[2] in {"create", "merge"}:
+        return True
+    # eval/bash/sh -c wrapping: skip the shell builtin and check the remaining words.
+    if words and words[0] in {"eval", "bash", "sh"}:
+        return is_guarded_segment(words[1:])
+    return False
 
 def remaining_segments_contain_guarded(tokens, start_index):
     index = start_index
