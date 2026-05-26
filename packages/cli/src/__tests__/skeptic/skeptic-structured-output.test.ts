@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSkepticPrompt, isEvidenceAuthentic } from "../../commands/skeptic/prompt.js";
-import { applyEvidenceOverride } from "../../commands/skeptic.js";
+import { applyEvidenceOverride, VERDICT_LINE_RE } from "../../commands/skeptic.js";
 import { extractSkepticGateMarkers, hasCompletePassingGateMarkers } from "../../commands/skeptic/verdict-utils.js";
 import type { PRInfo, ReviewInfo } from "../../commands/skeptic/gh-client.js";
 import type { MergeGateState } from "../../commands/skeptic/mergeGate.js";
