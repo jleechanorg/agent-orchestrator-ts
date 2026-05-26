@@ -5281,6 +5281,22 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 8px;
   margin-top: 12px;
+  /* 320px ≈ dashboard header + subhead + body padding + done-bar toggle/margins.
+     Mirrors the .kanban-board viewport-anchored height pattern (line 5107). */
+  max-height: calc(100vh - 320px);
+  max-height: calc(100dvh - 320px);
+  overflow-y: auto;
+}
+
+.done-bar__cards::-webkit-scrollbar {
+  width: 4px;
+}
+.done-bar__cards::-webkit-scrollbar-track {
+  background: transparent;
+}
+.done-bar__cards::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+  border-radius: 0;
 }
 
 /* ── Done card (compact grid card) ──────────────────────────────────── */

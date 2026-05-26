@@ -245,15 +245,12 @@ describe("getLaunchCommand", () => {
 
   it("prepends trust-file preamble to create .workspace-trusted before launch", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    // The preamble must be present and separated from the agent invocation by "; "
     expect(cmd).toContain(".workspace-trusted");
     expect(cmd).toContain("mkdir -p");
     expect(cmd).toMatch(/^\( .+ \); cursor-agent/);
   });
 
   it("ignores systemPrompt (no --append-system-prompt flag on Cursor)", () => {
-    // Cursor CLI does not support --append-system-prompt; system prompts are
-    // delivered post-launch via sendMessage().
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPrompt: "You are a helper", prompt: "Do the task" }),
     );
