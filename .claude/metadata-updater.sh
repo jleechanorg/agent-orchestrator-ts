@@ -243,6 +243,27 @@ def shell_word_value(word):
 
 def is_guarded_segment(words):
     words = [shell_word_value(word) for word in strip_assignments(words)]
+    # Peel shell wrappers: bash -c, sh -c, eval
+    while len(words) >= 1:
+        if words[0] in {"bash", "sh"} and len(words) >= 3 and words[1] == "-c":
+            # bash/sh -c "command" - extract and parse the wrapped command
+            wrapped = shell_word_value(words[2])
+            try:
+                words = shlex.split(wrapped, posix=True)
+            except ValueError:
+                # If parsing fails, treat as a single-word command
+                words = [wrapped]
+            continue
+        elif words[0] == "eval" and len(words) >= 2:
+            # eval "command" - extract and parse the wrapped command
+            wrapped = shell_word_value(words[1])
+            try:
+                words = shlex.split(wrapped, posix=True)
+            except ValueError:
+                words = [wrapped]
+            continue
+        else:
+            break
     return (
         len(words) >= 3 and words[0] == "gh" and words[1] == "pr" and words[2] in {"create", "merge"}
     )
