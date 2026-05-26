@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { buildPrompt, BASE_AGENT_PROMPT, CORE_AGENT_PROMPT, PR_BOILERPLATE, type OverlappingSession } from "../prompt-builder.js";
-import type { ProjectConfig } from "../types.js";
+import { buildWorkerPromptArtifact, type WorkerPromptArtifactConfig } from "../prompt-artifact-builder.js";
+import { readFileSync } from "node:fs";
+import type { Agent, Issue, ProjectConfig, SessionSpawnConfig } from "../types.js";
 
 let tmpDir: string;
 let project: ProjectConfig;
@@ -462,5 +464,135 @@ describe("Overlapping Work (Dedup Guard)", () => {
       overlappingSessions: overlapping,
     });
     expect(result).toContain("- [sess-xyz] (bd-200): Add scope guard");
+  });
+});
+
+describe("buildWorkerPromptArtifact", () => {
+  const stubAgent = {
+    name: "test-agent",
+    processName: "test",
+    supportsSystemPromptFile: false,
+    getLaunchCommand: () => "echo hello",
+    getEnvironment: () => ({}),
+    detectActivity: () => "idle" as const,
+    getActivityState: async () => null,
+    isProcessRunning: async () => ({ running: false }),
+    getSessionInfo: async () => null,
+  } as unknown as Agent;
+
+  function makeConfig(overrides: Partial<WorkerPromptArtifactConfig> = {}): WorkerPromptArtifactConfig {
+    return {
+      agent: stubAgent,
+      configPath: tmpDir,
+      hasTracker: false,
+      issueContext: undefined,
+      project,
+      resolvedIssue: undefined,
+      sessionId: "test-session",
+      spawnConfig: {
+        projectId: "test-app",
+      },
+      composedPromptPath: join(tmpDir, "composed-prompt.md"),
+      ...overrides,
+    };
+  }
+
+  it("writes composed prompt file to disk", () => {
+    const config = makeConfig();
+    const result = buildWorkerPromptArtifact(config);
+
+    expect(result.composedPromptPath).toBe(join(tmpDir, "composed-prompt.md"));
+    const content = readFileSync(result.composedPromptPath, "utf-8");
+    expect(content).toContain(BASE_AGENT_PROMPT);
+  });
+
+  it("passes overlappingSessions through to buildPrompt", () => {
+    const overlapping: OverlappingSession[] = [
+      { sessionId: "sess-abc", beadId: "bd-100", scope: "Fix auth module" },
+    ];
+    const config = makeConfig({ overlappingSessions: overlapping });
+    const result = buildWorkerPromptArtifact(config);
+
+    const content = readFileSync(result.composedPromptPath, "utf-8");
+    expect(content).toContain("## Overlapping Work");
+    expect(content).toContain("[sess-abc]");
+    expect(content).toContain("(bd-100)");
+    expect(content).toContain("Fix auth module");
+  });
+
+  it("omits Overlapping Work section when overlappingSessions is undefined", () => {
+    const config = makeConfig();
+    const result = buildWorkerPromptArtifact(config);
+
+    const content = readFileSync(result.composedPromptPath, "utf-8");
+    expect(content).not.toContain("## Overlapping Work");
+  });
+
+  it("uses WORKER_BOOT_PROMPT for agents with supportsSystemPromptFile", () => {
+    const promptFileAgent = {
+      ...stubAgent,
+      supportsSystemPromptFile: true,
+    } as unknown as Agent;
+    const config = makeConfig({ agent: promptFileAgent });
+    const result = buildWorkerPromptArtifact(config);
+
+    expect(result.launchPrompt).toBe("Begin the assigned AO worker task. Follow the session instructions file.");
+  });
+
+  it("uses composed prompt as launchPrompt for agents without supportsSystemPromptFile", () => {
+    const config = makeConfig();
+    const result = buildWorkerPromptArtifact(config);
+
+    expect(result.launchPrompt).toBe(result.postLaunchPrompt);
+  });
+
+  it("sets skipPrBoilerplate from config override", () => {
+    const config = makeConfig({ skipPrBoilerplate: true });
+    const result = buildWorkerPromptArtifact(config);
+
+    const content = readFileSync(result.composedPromptPath, "utf-8");
+    expect(content).toContain("Session Lifecycle");
+    expect(content).not.toContain("Git Workflow");
+  });
+
+  it("falls back to spawnConfig.skipPrBoilerplate when config skipPrBoilerplate is undefined", () => {
+    const config = makeConfig({
+      spawnConfig: { projectId: "test-app", skipPrBoilerplate: true },
+    });
+    const result = buildWorkerPromptArtifact(config);
+
+    const content = readFileSync(result.composedPromptPath, "utf-8");
+    expect(content).not.toContain("Git Workflow");
+  });
+
+  it("resolves ad-hoc task when issueId present but no resolved issue with tracker", () => {
+    const config = makeConfig({
+      hasTracker: true,
+      resolvedIssue: undefined,
+      spawnConfig: { projectId: "test-app", issueId: "INT-500" },
+    });
+    const result = buildWorkerPromptArtifact(config);
+
+    expect(result.promptIssueId).toBeUndefined();
+    expect(result.requestedTask).toBe("INT-500");
+  });
+
+  it("preserves issueId when resolved issue exists with tracker", () => {
+    const resolved: Issue = {
+      id: "INT-500",
+      title: "Fix scope guard",
+      description: "Details",
+      url: "https://example.com",
+      state: "open",
+      labels: [],
+    };
+    const config = makeConfig({
+      hasTracker: true,
+      resolvedIssue: resolved,
+      spawnConfig: { projectId: "test-app", issueId: "INT-500" },
+    });
+    const result = buildWorkerPromptArtifact(config);
+
+    expect(result.promptIssueId).toBe("INT-500");
   });
 });
