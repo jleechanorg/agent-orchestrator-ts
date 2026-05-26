@@ -178,7 +178,6 @@ describe("getActivityFallbackState", () => {
 });
 
 describe("readLastActivityEntry", () => {
->>>>>>> ce6b47adf (fix(core): keep actionable activity sticky (#1902))
   let tmpDir: string;
 
   afterEach(() => {
@@ -507,6 +506,5 @@ describe("recordTerminalActivity", () => {
     const content = await rf(getActivityLogPath(tmpDir), "utf-8");
     const lines = content.trim().split("\n").filter(Boolean);
     expect(lines).toHaveLength(2);
-  });
   });
 });
