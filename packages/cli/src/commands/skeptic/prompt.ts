@@ -39,7 +39,7 @@ export function isEvidenceAuthentic(body: string): boolean {
   const lines = evidenceContent.split("\n");
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.startsWith("$") || /(?<=\s)--(?=\s)/.test(trimmed)) continue;
+    if (trimmed.startsWith("$") || /(^|\s)--[a-zA-Z]/.test(trimmed)) continue;
     if (/\bcoverage\b/i.test(trimmed) && !/\d\s*%/.test(trimmed)) {
       return false;
     }
