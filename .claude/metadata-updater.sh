@@ -681,10 +681,12 @@ if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^-][^[:space:]]*
   # Only update branch metadata for plausible branch names:
   # - not HEAD (commit checkout)
   # - not a hex SHA (7+ hex digits = commit hash)
-  # - not a file path with extension (contains a dot followed by letters)
+  # Note: we intentionally do NOT filter dot-suffix names (e.g. release/1.0,
+  # feature/foo.bar) because Git allows branches with dots. File-path vs
+  # branch ambiguity is inherent in `git checkout`; we prefer false-positive
+  # branch updates over silently skipping valid branches.
   if [[ -n "$branch" && "$branch" != "HEAD" \
-        && ! "$branch" =~ ^[0-9a-fA-F]{7,}$ \
-        && ! "$branch" =~ \.[a-zA-Z]+$ ]]; then
+        && ! "$branch" =~ ^[0-9a-fA-F]{7,}$ ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0
@@ -694,7 +696,8 @@ fi
 if [[ "$clean_command" =~ ^git[[:space:]]+switch[[:space:]]+([^-][^[:space:]]*) ]]; then
   branch="${BASH_REMATCH[1]}"
 
-  # Avoid updating for checkout of commits/tags
+  # git switch only operates on branches (no file-path ambiguity),
+  # so we only need to exclude HEAD
   if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
