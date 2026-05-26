@@ -10,7 +10,7 @@
   "packageManager": "pnpm@9.15.9",
   "pnpm": {
     "overrides": {
-      "axios": "1.15.2",
+      "axios": ">=1.15.0",
       "flatted": "3.4.2",
       "handlebars": ">=4.7.9",
       "langsmith": ">=0.6.0",
@@ -46,11 +46,6 @@
     "novel:backfill": "node scripts/novel/backfill-entries.mjs",
     "novel:daily": "node scripts/novel/generate-daily-entry.mjs --file novel/the-daily-lives-of-workers.md --days 1 --words 1000",
     "launchd:install": "bash scripts/setup-launchd.sh all"
-  },
-  "pnpm": {
-    "overrides": {
-      "axios": ">=1.15.0"
-    }
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
