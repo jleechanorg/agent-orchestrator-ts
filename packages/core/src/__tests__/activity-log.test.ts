@@ -1,8 +1,10 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  classifyTerminalActivity,
   readLastActivityEntry,
   checkActivityLogState,
   getActivityFallbackState,
@@ -178,7 +180,6 @@ describe("getActivityFallbackState", () => {
 });
 
 describe("readLastActivityEntry", () => {
->>>>>>> ce6b47adf (fix(core): keep actionable activity sticky (#1902))
   let tmpDir: string;
 
   afterEach(() => {
@@ -313,14 +314,14 @@ describe("readLastActivityEntry", () => {
       }
     });
 
-    it("returns null for stale waiting_input (older than ACTIVITY_INPUT_STALENESS_MS)", () => {
+    it("returns waiting_input for stale waiting_input (actionable states are sticky)", () => {
       const staleTs = new Date(Date.now() - ACTIVITY_INPUT_STALENESS_MS - 60000);
       const entry: ActivityLogEntry = {
         ts: staleTs.toISOString(),
         state: "waiting_input",
         source: "terminal",
       };
-      expect(checkActivityLogState({ entry, modifiedAt: new Date() })).toBeNull();
+      expect(checkActivityLogState({ entry, modifiedAt: new Date() })?.state).toBe("waiting_input");
     });
 
     it("returns null for entry with invalid timestamp", () => {
@@ -357,7 +358,7 @@ describe("readLastActivityEntry", () => {
       expect(result!.state).toBe("waiting_input");
     });
 
-    it("returns idle for stale waiting_input", () => {
+    it("returns waiting_input for stale waiting_input (actionable states are sticky)", () => {
       const staleTs = new Date(Date.now() - ACTIVITY_INPUT_STALENESS_MS - 60000);
       const entry: ActivityLogEntry = {
         ts: staleTs.toISOString(),
@@ -365,7 +366,7 @@ describe("readLastActivityEntry", () => {
         source: "terminal",
       };
       const result = getActivityFallbackState({ entry, modifiedAt: new Date() }, 60000, 300000);
-      expect(result!.state).toBe("idle");
+      expect(result!.state).toBe("waiting_input");
     });
 
     it("decays active to ready after activeWindowMs", () => {
@@ -399,36 +400,6 @@ describe("readLastActivityEntry", () => {
       };
       const result = getActivityFallbackState({ entry, modifiedAt: new Date() }, 60000, 300000);
       expect(result!.state).toBe("exited");
-    });
-  });
-
-  describe("recordTerminalActivity", () => {
-    it("writes activity entry for active state", async () => {
-      const ws = makeWorkspace();
-      await recordTerminalActivity(ws, "working on code", () => "active");
-      const result = await readLastActivityEntry(ws);
-      expect(result).not.toBeNull();
-      expect(result!.entry.state).toBe("active");
-    });
-
-    it("writes entry for waiting_input state", async () => {
-      const ws = makeWorkspace();
-      await recordTerminalActivity(ws, "prompt> enter command", () => "waiting_input");
-      const result = await readLastActivityEntry(ws);
-      expect(result!.entry.state).toBe("waiting_input");
-      expect(result!.entry.trigger).toContain("prompt> enter command");
-    });
-
-    it("deduplicates non-actionable state writes within 20s", async () => {
-      const ws = makeWorkspace();
-      mkdirSync(join(ws, ".ao"), { recursive: true });
-      const logPath = getActivityLogPath(ws);
-      const ts = new Date().toISOString();
-      writeFileSync(logPath, JSON.stringify({ ts, state: "active", source: "terminal" }) + "\n", "utf-8");
-      const sizeBefore = statSync(logPath).size;
-      await recordTerminalActivity(ws, "still active", () => "active");
-      const sizeAfter = statSync(logPath).size;
-      expect(sizeAfter).toBe(sizeBefore);
     });
   });
 
@@ -507,6 +478,5 @@ describe("recordTerminalActivity", () => {
     const content = await rf(getActivityLogPath(tmpDir), "utf-8");
     const lines = content.trim().split("\n").filter(Boolean);
     expect(lines).toHaveLength(2);
-  });
   });
 });
