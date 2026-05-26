@@ -25,6 +25,26 @@ import { verifySkepticClaim, formatClaimVerification } from "./skeptic/claim-ver
 import { bindVerdictOutput, VERDICT_LINE_RE } from "./skeptic/verdict-utils.js";
 export { VERDICT_LINE_RE };
 
+/**
+ * Apply Rule 10 evidence authenticity override.
+ * If evidence is inauthentic and the LLM returned PASS, replace with FAIL.
+ */
+export function applyEvidenceOverride(
+  verdict: string,
+  prBody: string | undefined,
+): string {
+  if (!isEvidenceAuthentic(prBody ?? "")) {
+    const verdictMatch = verdict.match(VERDICT_LINE_RE);
+    if (verdictMatch?.[1]?.toUpperCase() === "PASS") {
+      return verdict.replace(
+        VERDICT_LINE_RE,
+        "VERDICT: FAIL — evidence authenticity check failed (Rule 10: missing or fabricated ## Evidence section)",
+      );
+    }
+  }
+  return verdict;
+}
+
 // bd-lg7i: Default to github-actions[bot] — CI workflow poller filters by this
 // author, and CLI posts via gh api authenticated as the local user. Override via
 // GH_SKEPTIC_BOT_AUTHOR env var if posting identity changes.
@@ -267,16 +287,9 @@ export function registerSkeptic(program: Command): Command {
       // Deterministic evidence authenticity override (Rule 10):
       // If isEvidenceAuthentic returns false, override any PASS verdict to FAIL.
       // The LLM might ignore Rule 10 — this ensures fabricated/empty evidence always blocks merge.
-      let finalVerdict = verdict;
-      if (!isEvidenceAuthentic(pr.body ?? "")) {
-        const verdictMatch = verdict.match(VERDICT_LINE_RE);
-        if (verdictMatch?.[1]?.toUpperCase() === "PASS") {
-          finalVerdict = verdict.replace(
-            VERDICT_LINE_RE,
-            "VERDICT: FAIL — evidence authenticity check failed (Rule 10: missing or fabricated ## Evidence section)",
-          );
-          console.warn(chalk.yellow("Override: LLM returned PASS but evidence authenticity check failed — forcing FAIL (Rule 10)"));
-        }
+      const finalVerdict = applyEvidenceOverride(verdict, pr.body);
+      if (finalVerdict !== verdict) {
+        console.warn(chalk.yellow("Override: LLM returned PASS but evidence authenticity check failed — forcing FAIL (Rule 10)"));
       }
 
       // Dry-run: print verdict without posting
