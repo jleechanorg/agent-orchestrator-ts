@@ -28,6 +28,8 @@ export { VERDICT_LINE_RE };
 /**
  * Apply Rule 10 evidence authenticity override.
  * If evidence is inauthentic and the LLM returned PASS, replace with FAIL.
+ * Also rewrites any PASS gate markers to FAIL so the verdict body is
+ * internally consistent (VERDICT: FAIL + gate markers: FAIL).
  */
 export function applyEvidenceOverride(
   verdict: string,
@@ -36,10 +38,16 @@ export function applyEvidenceOverride(
   if (!isEvidenceAuthentic(prBody ?? "")) {
     const verdictMatch = verdict.match(VERDICT_LINE_RE);
     if (verdictMatch?.[1]?.toUpperCase() === "PASS") {
-      return verdict.replace(
+      let overridden = verdict.replace(
         VERDICT_LINE_RE,
         "VERDICT: FAIL — evidence authenticity check failed (Rule 10: missing or fabricated ## Evidence section)",
       );
+      // Rewrite PASS gate markers to FAIL so the body is internally consistent.
+      overridden = overridden.replace(
+        /<!--\s*skeptic-gate-([1-8]|8[abcd])\s*:\s*PASS\s*-->/gi,
+        "<!-- skeptic-gate-$1:FAIL -->",
+      );
+      return overridden;
     }
   }
   return verdict;

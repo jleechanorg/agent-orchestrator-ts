@@ -801,8 +801,8 @@ $ pnpm test
 
   it("returns true for coverage report inside fenced output (no leading dollar, has %)", () => {
     const body = "## Evidence\n```\n$ pnpm test --coverage\nCoverage: 97%\n```";
-    // "Coverage: 97%" is in fenced output and has a %. No coverage check applies
-    // to fenced lines (they don't start with $ and don't match /\s--/). So PASS.
+    // "Coverage: 97%" is not a command line (no $ prefix) but has a digit-%, so
+    // the coverage check does not flag it.
     expect(isEvidenceAuthentic(body)).toBe(true);
   });
 });
@@ -904,5 +904,32 @@ describe("applyEvidenceOverride", () => {
     const prBody = "## Evidence\n```\n$ pnpm test\nTests 5 passed (5)\n```";
     const result = applyEvidenceOverride(verdict, prBody);
     expect(result).toBe(verdict);
+  });
+
+  it("rewrites PASS gate markers to FAIL when overriding", () => {
+    const verdict = [
+      "<!-- skeptic-gate-1:PASS -->",
+      "<!-- skeptic-gate-3:PASS -->",
+      "<!-- skeptic-gate-8d:PASS -->",
+      "",
+      "VERDICT: PASS",
+      "",
+      "<!-- skeptic-gate-5:PASS -->",
+    ].join("\n");
+    const result = applyEvidenceOverride(verdict, "");
+    expect(result).toContain("VERDICT: FAIL");
+    expect(result).not.toMatch(/skeptic-gate-\d+:PASS/);
+    expect(result).toContain("<!-- skeptic-gate-1:FAIL -->");
+    expect(result).toContain("<!-- skeptic-gate-3:FAIL -->");
+    expect(result).toContain("<!-- skeptic-gate-8d:FAIL -->");
+    expect(result).toContain("<!-- skeptic-gate-5:FAIL -->");
+  });
+
+  it("does not rewrite gate markers when verdict is already FAIL", () => {
+    const verdict = "<!-- skeptic-gate-1:PASS -->\nVERDICT: FAIL\n<!-- skeptic-gate-3:PASS -->";
+    const result = applyEvidenceOverride(verdict, "");
+    expect(result).toContain("VERDICT: FAIL");
+    expect(result).toContain("<!-- skeptic-gate-1:PASS -->");
+    expect(result).toContain("<!-- skeptic-gate-3:PASS -->");
   });
 });
