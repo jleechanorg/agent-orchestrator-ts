@@ -119,4 +119,25 @@ describe("metadata-updater PreToolUse guarded command parsing", () => {
 
     expect(output.hookSpecificOutput?.permissionDecision).not.toBe("deny");
   });
+
+  it("denies env assignment before guarded command via &&", () => {
+    const output = runPreTool("FOO=bar && gh pr merge --auto 123");
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(output.hookSpecificOutput?.permissionDecisionReason).toContain(
+      "gh pr create or gh pr merge",
+    );
+  });
+
+  it("denies env assignment before guarded command via ;", () => {
+    const output = runPreTool("FOO=bar ; gh pr create --title t --body b");
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+
+  it("allows env assignment before unguarded command via &&", () => {
+    const output = runPreTool("FOO=bar && echo hello");
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+  });
 });
