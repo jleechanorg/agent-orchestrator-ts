@@ -96,8 +96,8 @@ describe("buildReactionContext", () => {
       expect(result).not.toContain("Lint");
     });
 
-    // bd-ara.5: ci-failed context must include local-test-first hint
-    it("includes local-test-first hint when CI fails (bd-ara.5)", async () => {
+    // bd-ara.5: ci-failed context must include reproduce-locally hint
+    it("includes reproduce-locally hint when CI fails (bd-ara.5)", async () => {
       const scm = makeSCM({
         getCIChecks: vi.fn().mockResolvedValue([
           { name: "Test", status: "failed", url: "https://ci/1" },
@@ -297,6 +297,28 @@ describe("buildReactionContext", () => {
         makeRegistry(scm),
       );
       expect(result).toBe("");
+    });
+
+    it("returns rebase instruction when unknown=true even without 'unknown' in blockers", async () => {
+      const scm = makeSCM({
+        getMergeability: vi.fn().mockResolvedValue({
+          mergeable: false,
+          ciPassing: true,
+          approved: true,
+          noConflicts: false,
+          unknown: true,
+          blockers: ["Still computing merge status"],
+        }),
+      });
+      const result = await buildReactionContext(
+        "mergeable-unknown",
+        makeSession(),
+        "my-app",
+        makeConfig(),
+        makeRegistry(scm),
+      );
+      expect(result).toContain("UNKNOWN");
+      expect(result).toContain("rebase");
     });
   });
 

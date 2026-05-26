@@ -2892,6 +2892,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async getMergeability(pr: PRInfo): Promise<MergeReadiness> {
       const blockers: string[] = [];
+      let unknown = false;
 
       // First, check if the PR is merged
       // GitHub returns mergeable=null for merged PRs, which is not useful
@@ -2904,6 +2905,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           ciPassing: true,
           approved: true,
           noConflicts: true,
+          unknown: false,
           blockers: [],
         };
       }
@@ -2958,6 +2960,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       const mergeableVal = data.mergeable;
       if (mergeableVal === null || mergeableVal === undefined) {
         noConflicts = false;
+        unknown = true;
         blockers.push("Merge status unknown (GitHub is computing)");
       } else if (typeof mergeableVal === "boolean") {
         noConflicts = mergeableVal;
@@ -2968,6 +2971,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         const mergeable = String(mergeableVal ?? "").toUpperCase();
         if (mergeable === "NULL") {
           noConflicts = false;
+          unknown = true;
           blockers.push("Merge status unknown (GitHub is computing)");
         } else {
           noConflicts = mergeable === "MERGEABLE";
@@ -2976,10 +2980,8 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           } else if (mergeable === "UNKNOWN" || mergeable === "") {
             // bd-ara.2: Explicitly set noConflicts=false for UNKNOWN so the
             // non-batch path also triggers merge_conflicts status.
-            // After line 1925 noConflicts=false for all non-MERGEABLE values,
-            // but the explicit assignment documents intent and guards against
-            // future refactors that move the noConflicts init out of line 1925.
             noConflicts = false;
+            unknown = true;
             blockers.push("Merge status unknown (GitHub is computing)");
           }
         }
@@ -3003,6 +3005,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         ciPassing,
         approved,
         noConflicts,
+        unknown,
         blockers,
       };
     },
@@ -3091,6 +3094,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       // --- Merge Readiness ---
       const blockers: string[] = [];
+      let unknown = false;
 
       // CI
       const ciPassing = ciStatus === "passing" || ciStatus === "none";
@@ -3106,6 +3110,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       const mergeableVal = data.mergeable;
       if (mergeableVal === null || mergeableVal === undefined) {
         noConflicts = false;
+        unknown = true;
         blockers.push("Merge status unknown (GitHub is computing)");
       } else if (typeof mergeableVal === "boolean") {
         noConflicts = mergeableVal;
@@ -3114,17 +3119,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         const mergeable = String(mergeableVal ?? "").toUpperCase();
         if (mergeable === "NULL") {
           noConflicts = false;
+          unknown = true;
           blockers.push("Merge status unknown (GitHub is computing)");
         } else {
           noConflicts = mergeable === "MERGEABLE";
           if (mergeable === "CONFLICTING") blockers.push("Merge conflicts");
           else if (mergeable === "UNKNOWN" || mergeable === "") {
-            // bd-ara.2: Explicitly set noConflicts=false for UNKNOWN so the
-            // batch path (bd-att) also triggers merge_conflicts status.
-            // After line 2066 noConflicts=false for all non-MERGEABLE values,
-            // but the explicit assignment documents intent and guards against
-            // future refactors that move the noConflicts init out of line 2066.
             noConflicts = false;
+            unknown = true;
             blockers.push("Merge status unknown (GitHub is computing)");
           }
         }
@@ -3145,6 +3147,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           ciPassing,
           approved,
           noConflicts,
+          unknown,
           blockers,
         },
       };

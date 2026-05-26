@@ -2456,6 +2456,7 @@ describe("scm-github plugin", () => {
         ciPassing: true,
         approved: true,
         noConflicts: true,
+        unknown: false,
         blockers: [],
       });
       // Should only call gh once (for getPRState), not for mergeable/CI
@@ -2477,6 +2478,7 @@ describe("scm-github plugin", () => {
 
       const result = await scm.getMergeability(pr);
       expect(result.noConflicts).toBe(false);
+      expect(result.unknown).toBe(false);
       expect(result.blockers).toContain("Merge conflicts");
       // Closed PRs go through normal checks, unlike merged PRs
     });
@@ -2500,6 +2502,7 @@ describe("scm-github plugin", () => {
         ciPassing: true,
         approved: true,
         noConflicts: true,
+        unknown: false,
         blockers: [],
       });
     });
@@ -2672,6 +2675,7 @@ describe("scm-github plugin", () => {
       expect(result.noConflicts).toBe(false);
       expect(result.blockers).toContain("Merge status unknown (GitHub is computing)");
       expect(result.mergeable).toBe(false);
+      expect(result.unknown).toBe(true);
     });
 
     it("reports draft status as blocker", async () => {
@@ -2718,6 +2722,7 @@ describe("scm-github plugin", () => {
 
       const result = await scm.getMergeability(pr);
       expect(result.noConflicts).toBe(true);
+      expect(result.unknown).toBe(false);
       expect(result.blockers).not.toContain("Merge status unknown (GitHub is computing)");
     });
 
@@ -2733,6 +2738,7 @@ describe("scm-github plugin", () => {
 
       const result = await scm.getMergeability(pr);
       expect(result.noConflicts).toBe(false);
+      expect(result.unknown).toBe(false);
       expect(result.blockers).toContain("Merge conflicts");
     });
   });

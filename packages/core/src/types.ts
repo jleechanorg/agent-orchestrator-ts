@@ -922,6 +922,8 @@ export interface MergeReadiness {
   ciPassing: boolean;
   approved: boolean;
   noConflicts: boolean;
+  /** True when the SCM host hasn't finished computing mergeability (e.g. GitHub mergeable=null/UNKNOWN). */
+  unknown: boolean;
   blockers: string[];
 }
 

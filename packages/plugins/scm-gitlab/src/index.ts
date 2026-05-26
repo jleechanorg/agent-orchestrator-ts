@@ -748,6 +748,7 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
           ciPassing: true,
           approved: true,
           noConflicts: true,
+          unknown: false,
           blockers: [],
         };
       }
@@ -757,6 +758,7 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
           ciPassing: false,
           approved: false,
           noConflicts: true,
+          unknown: false,
           blockers: ["MR is closed"],
         };
       }
@@ -769,6 +771,7 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
       }>(apiRaw, `getMergeability api for MR !${pr.number}`);
 
       const blockers: string[] = [];
+      let unknown = false;
 
       const ciStatus = await this.getCISummary(pr);
       const ciPassing = ciStatus === CI_STATUS.PASSING || ciStatus === CI_STATUS.NONE;
@@ -790,6 +793,7 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
       if (apiData.merge_status === "cannot_be_merged" && noConflicts) {
         blockers.push("Merge status: cannot be merged");
       } else if (apiData.merge_status === "checking") {
+        unknown = true;
         blockers.push("Merge status unknown (GitLab is computing)");
       }
 
@@ -806,6 +810,7 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
         ciPassing,
         approved,
         noConflicts,
+        unknown,
         blockers,
       };
     },

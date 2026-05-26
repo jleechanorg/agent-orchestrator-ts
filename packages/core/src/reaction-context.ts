@@ -65,7 +65,7 @@ export async function buildReactionContext(
           const urlPart = c.url ? ` (${c.url})` : "";
           return `- ${c.name}${urlPart}`;
         });
-        // bd-ara.5: Tell workers to run failing tests locally before pushing a fix
+        // bd-ara.5: Tell workers to reproduce the failure locally before pushing a fix
         return [
           `Failing checks:`,
           lines.join("\n"),
@@ -95,6 +95,8 @@ export async function buildReactionContext(
         return `Merge blockers:\n${merge.blockers.map((b) => `- ${b}`).join("\n")}`;
       }
       case "mergeable-unknown": {
+        // bd-ara.2: GitHub hasn't computed merge status; rebase to trigger re-evaluation.
+        // Use the structured `unknown` field from MergeReadiness instead of keyword matching.
         const merge = await scm.getMergeability(session.pr);
         if (merge.mergeable) return "";
         if (!merge.unknown) return "";
