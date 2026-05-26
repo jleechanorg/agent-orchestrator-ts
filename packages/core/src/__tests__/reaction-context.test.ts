@@ -95,6 +95,24 @@ describe("buildReactionContext", () => {
       expect(result).toContain("https://ci/1");
       expect(result).not.toContain("Lint");
     });
+
+    // bd-ara.5: ci-failed context must include local-test-first hint
+    it("includes local-test-first hint when CI fails (bd-ara.5)", async () => {
+      const scm = makeSCM({
+        getCIChecks: vi.fn().mockResolvedValue([
+          { name: "Test", status: "failed", url: "https://ci/1" },
+        ]),
+      });
+      const result = await buildReactionContext(
+        "ci-failed",
+        makeSession(),
+        "my-app",
+        makeConfig(),
+        makeRegistry(scm),
+      );
+      expect(result).toContain("locally");
+      expect(result).toContain("Run the failing test locally");
+    });
   });
 
   describe("changes-requested", () => {
@@ -190,6 +208,91 @@ describe("buildReactionContext", () => {
       expect(result).toContain("PR #42");
       expect(result).toContain("Build");
       expect(result).toContain("1 failing");
+    });
+  });
+
+  // bd-ara.2: mergeable-unknown reaction tells workers to rebase
+  describe("mergeable-unknown", () => {
+    it("returns rebase instruction when mergeability is UNKNOWN (bd-ara.2)", async () => {
+      const scm = makeSCM({
+        getMergeability: vi.fn().mockResolvedValue({
+          mergeable: false,
+          ciPassing: true,
+          approved: true,
+          noConflicts: false,
+          blockers: ["Merge status unknown (GitHub is computing)"],
+        }),
+      });
+      const result = await buildReactionContext(
+        "mergeable-unknown",
+        makeSession(),
+        "my-app",
+        makeConfig(),
+        makeRegistry(scm),
+      );
+      expect(result).toContain("rebase");
+      expect(result).toContain("origin/main");
+    });
+
+    it("uses PR base branch instead of hardcoded main (bd-ara.2 CR fix)", async () => {
+      const scm = makeSCM({
+        getMergeability: vi.fn().mockResolvedValue({
+          mergeable: false,
+          ciPassing: true,
+          approved: true,
+          noConflicts: false,
+          blockers: ["Merge status unknown (GitHub is computing)"],
+        }),
+      });
+      const result = await buildReactionContext(
+        "mergeable-unknown",
+        makeSession({ pr: makePR({ baseBranch: "develop" }) }),
+        "my-app",
+        makeConfig(),
+        makeRegistry(scm),
+      );
+      expect(result).toContain("origin/develop");
+      expect(result).not.toContain("origin/main");
+    });
+
+    it("returns empty string when mergeability is MERGEABLE", async () => {
+      const scm = makeSCM({
+        getMergeability: vi.fn().mockResolvedValue({
+          mergeable: true,
+          ciPassing: true,
+          approved: true,
+          noConflicts: true,
+          blockers: [],
+        }),
+      });
+      const result = await buildReactionContext(
+        "mergeable-unknown",
+        makeSession(),
+        "my-app",
+        makeConfig(),
+        makeRegistry(scm),
+      );
+      expect(result).toBe("");
+    });
+
+    it("returns empty string for real merge conflicts (not UNKNOWN)", async () => {
+      const scm = makeSCM({
+        getMergeability: vi.fn().mockResolvedValue({
+          mergeable: false,
+          ciPassing: true,
+          approved: true,
+          noConflicts: false,
+          blockers: ["Merge conflicts"],
+        }),
+      });
+      const result = await buildReactionContext(
+        "mergeable-unknown",
+        makeSession(),
+        "my-app",
+        makeConfig(),
+        makeRegistry(scm),
+      );
+      expect(result).toBe("");
     });
   });
 
