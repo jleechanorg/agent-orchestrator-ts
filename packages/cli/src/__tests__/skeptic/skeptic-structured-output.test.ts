@@ -805,6 +805,22 @@ $ pnpm test
     // to fenced lines (they don't start with $ and don't match /\s--/). So PASS.
     expect(isEvidenceAuthentic(body)).toBe(true);
   });
+
+  it("returns true for coverage tool output with header line before percentages (inside fenced block)", () => {
+    const body = `## Evidence
+\`\`\`
+$ pnpm test --coverage
+% Coverage report from v8:
+--------------------|---------|----------|---------|---------|
+File                | % Stmts | % Branch | % Funcs | % Lines |
+--------------------|---------|----------|---------|---------|
+auth.ts             |   97.5  |    85.2  |   100   |   97.5  |
+--------------------|---------|----------|---------|---------|
+\`\`\``;
+    // "% Coverage report from v8:" has "coverage" but no digit-% on that line.
+    // However, it's inside a fenced block (tool output), so it should pass.
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
 });
 
 describe("evidence authenticity blocks PASS in prompt", () => {

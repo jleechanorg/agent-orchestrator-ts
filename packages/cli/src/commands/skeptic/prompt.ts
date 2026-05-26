@@ -33,12 +33,20 @@ export function isEvidenceAuthentic(body: string): boolean {
   // surrounded by whitespace are command/flag lines and are skipped (covers
   // `pnpm test --coverage` and any `--option` style arguments). This avoids the
   // em-dash false-positive (prose lines where "--" is English punctuation are not
-  // command invocations) and the cross-line % false-negative (fenced output with
-  // "%" on a separate line no longer satisfies the check for a coverage claim
-  // in prose).
+  // command invocations). Lines inside fenced code blocks are tool output and are
+  // exempt from the coverage-percentage requirement (headers and table formatting
+  // lines often contain "coverage" without a % on the same line).
   const lines = evidenceContent.split("\n");
+  let inFencedBlock = false;
   for (const line of lines) {
     const trimmed = line.trim();
+    // Track fenced code block state
+    if (/^```/.test(trimmed)) {
+      inFencedBlock = !inFencedBlock;
+      continue;
+    }
+    // Skip coverage checks inside fenced blocks (tool output)
+    if (inFencedBlock) continue;
     if (trimmed.startsWith("$") || /(^|\s)--[a-zA-Z]/.test(trimmed)) continue;
     if (/\bcoverage\b/i.test(trimmed) && !/\d\s*%/.test(trimmed)) {
       return false;
