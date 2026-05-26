@@ -35,7 +35,7 @@ export function isEvidenceAuthentic(body: string): boolean {
   // simply means the tool wasn't asked to report, not that the evidence is fake.
   const lines = evidenceContent.split("\n");
   const proseLines = lines.filter(
-    (line) => !line.trim().startsWith("$") && !line.includes(" --"),
+    (line) => !line.trim().startsWith("$") && !/\s--/.test(line),
   );
   const proseText = proseLines.join(" ");
   if (/\bcoverage\b/i.test(proseText) && !/\d\s*%/.test(proseText)) {

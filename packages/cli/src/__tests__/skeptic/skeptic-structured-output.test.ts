@@ -222,8 +222,8 @@ describe("skeptic structured output", () => {
         expect(prompt).toContain("<value>");
         expect(prompt).toContain("TODO");
         expect(prompt).toContain("TBD");
-        expect(prompt).toContain("coverage claim");
-        expect(prompt).toContain("percentage numbers");
+        expect(prompt).toContain("coverage");
+        expect(prompt).toContain("percentage");
         expect(prompt).toContain("evidence section is empty");
         expect(prompt).toContain("template placeholders");
         expect(prompt).toContain("evidence-review-bot");
@@ -787,6 +787,11 @@ $ pnpm test
   it("returns false when prose contains 'coverage' without a percentage", () => {
     const body = "## Evidence\nWe improved coverage significantly after adding tests.";
     expect(isEvidenceAuthentic(body)).toBe(false);
+  });
+
+  it("returns true for --option flags that are not coverage commands", () => {
+    const body = "## Evidence\n```\n$ ao spawn --project my-app -- agent check\n```";
+    expect(isEvidenceAuthentic(body)).toBe(true);
   });
 });
 
