@@ -17,11 +17,12 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          persist-credentials: false
           ref: main
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
@@ -34,15 +35,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BODY=$(cat /tmp/test-main-output.txt | head -n 200)
+          {
+            echo "## Daily main-branch test run failed"
+            echo ""
+            echo '```'
+            head -n 200 /tmp/test-main-output.txt 2>/dev/null || echo "(no test output captured — earlier step failed before tests ran)"
+            echo '```'
+            echo ""
+            echo "Triggered by scheduled test-main workflow on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+          } > /tmp/test-main-issue-body.txt
           gh issue create \
             --title "[test-main] Pre-existing failures detected on main" \
-            --body "## Daily main-branch test run failed
-
-          \`\`\`
-          ${BODY}
-          \`\`\`
-
-          Triggered by scheduled test-main workflow on $(date -u +%Y-%m-%dT%H:%M:%SZ)." \
+            --body-file /tmp/test-main-issue-body.txt \
             --label "bug" \
             --label "test-failure"

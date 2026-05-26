@@ -212,7 +212,7 @@ All tests must pass before pushing. CI failures are blockers — fix them, don't
 
 When you spawn on a fresh branch from `origin/main` and encounter test failures you did not cause:
 1. **Do not fix them.** That is scope creep — another worker or a main-branch fix will handle it.
-2. **Note them** in your PR description under a "Pre-existing Failures" heading.
+2. **Note them** in your PR description under `## Evidence` → "Pre-existing Failures", and include authoritative gist/log/video links that prove the failure existed before your change.
 3. **Focus exclusively** on files and domains mentioned in your bead description.
 4. **Only fix tests** that are directly related to your bead's changes (i.e., your code broke them, or your feature needs new tests).
 

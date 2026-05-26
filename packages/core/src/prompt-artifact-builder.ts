@@ -1,7 +1,6 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { buildPrompt } from "./prompt-builder.js";
-import type { OverlappingSession } from "./prompt-builder.js";
+import { buildPrompt, type OverlappingSession } from "./prompt-builder.js";
 import { getProjectBaseDir } from "./paths.js";
 import type { Agent, Issue, ProjectConfig, SessionId, SessionSpawnConfig } from "./types.js";
 
