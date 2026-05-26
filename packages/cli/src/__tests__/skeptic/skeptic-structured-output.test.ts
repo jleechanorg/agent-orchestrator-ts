@@ -779,7 +779,6 @@ $ pnpm test
     expect(isEvidenceAuthentic(body)).toBe(true);
   });
 
-
   it("returns true for command invocations containing --coverage (no prose coverage claim)", () => {
     const body = "## Evidence\n```\n$ pnpm test --coverage\n  ✓ auth.test.ts\n```";
     expect(isEvidenceAuthentic(body)).toBe(true);
@@ -789,7 +788,6 @@ $ pnpm test
     const body = "## Evidence\nWe improved coverage significantly after adding tests.";
     expect(isEvidenceAuthentic(body)).toBe(false);
   });
-
   it("returns true for --option flags that are not coverage commands", () => {
     const body = "## Evidence\n```\n$ ao spawn --project my-app -- agent check\n```";
     expect(isEvidenceAuthentic(body)).toBe(true);
