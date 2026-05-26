@@ -794,16 +794,27 @@ $ pnpm test
     expect(isEvidenceAuthentic(body)).toBe(true);
   });
 
-  it("returns false for prose with em-dash (bypass via '--' as punctuation)", () => {
+  it("returns false for prose with em-dash (coverage claim without %)", () => {
     const body = "## Evidence\nCoverage improved -- all tests now pass.";
     expect(isEvidenceAuthentic(body)).toBe(false);
   });
 
   it("returns true for coverage report inside fenced output (no leading dollar, has %)", () => {
     const body = "## Evidence\n```\n$ pnpm test --coverage\nCoverage: 97%\n```";
-    // "Coverage: 97%" is in fenced output and has a %. No coverage check applies
-    // to fenced lines (they don't start with $ and don't match /\s--/). So PASS.
+    // Fenced blocks are stripped entirely — no coverage check applies to them.
     expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns true for fenced block mentioning coverage without percentage (not prose)", () => {
+    const body = "## Evidence\n```\nCoverage enabled with v8\n```";
+    // "Coverage enabled with v8" is inside a fenced block — stripped before check.
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns false when prose claims coverage but fenced block has the percentage", () => {
+    const body = "## Evidence\nCoverage improved.\n```\nStatements: 97%\n```";
+    // Fenced block stripped → "Coverage improved" has no same-line % → FAIL.
+    expect(isEvidenceAuthentic(body)).toBe(false);
   });
 });
 

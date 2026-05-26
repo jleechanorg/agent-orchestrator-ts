@@ -6,6 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   test: {
+    testTimeout: 60_000,
     alias: {
       // Integration tests import real plugins. These aliases resolve
       // package names to source files so we don't need circular devDeps

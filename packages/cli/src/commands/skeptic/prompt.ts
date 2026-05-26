@@ -17,6 +17,21 @@ const FABRICATED_PATTERNS = [
   /placeholder/i,
 ];
 
+/** Strip fenced code blocks (```...```) from text, returning only prose lines. */
+function stripFencedBlocks(text: string): string {
+  const lines = text.split("\n");
+  const result: string[] = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (line.trimStart().startsWith("```")) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence) result.push(line);
+  }
+  return result.join("\n");
+}
+
 /** Deterministic check: does the PR body contain any fabricated evidence patterns? */
 export function isEvidenceAuthentic(body: string): boolean {
   // Rule 10: empty Evidence section is a FAIL — do not default to authentic
@@ -28,18 +43,17 @@ export function isEvidenceAuthentic(body: string): boolean {
   for (const pattern of FABRICATED_PATTERNS) {
     if (pattern.test(evidenceContent)) return false;
   }
-  // Coverage claim without percentage — scan each non-command line individually.
-  // A line is suspicious if it contains "coverage" but no digit-%. Lines with " --"
-  // surrounded by whitespace are command/flag lines and are skipped (covers
-  // `pnpm test --coverage` and any `--option` style arguments). This avoids the
-  // em-dash false-positive (prose lines where "--" is English punctuation are not
-  // command invocations) and the cross-line % false-negative (fenced output with
-  // "%" on a separate line no longer satisfies the check for a coverage claim
-  // in prose).
-  const lines = evidenceContent.split("\n");
+  // Coverage claim without percentage — scan each non-command, non-fenced line individually.
+  // A line is suspicious if it contains "coverage" but no digit-%. Lines starting with "$"
+  // are command invocations and are skipped. Fenced code blocks (```...```) are stripped
+  // entirely so output like "Coverage enabled with v8" or bare "%" on separate lines
+  // cannot false-fail or false-pass the check. Prose with "--" (em-dash) is checked
+  // normally — fenced block stripping means command flags like --coverage are already
+  // removed from the scanned text.
+  const lines = stripFencedBlocks(evidenceContent).split("\n");
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.startsWith("$") || /(?<=\s)--(?=\s)/.test(trimmed)) continue;
+    if (trimmed.startsWith("$")) continue;
     if (/\bcoverage\b/i.test(trimmed) && !/\d\s*%/.test(trimmed)) {
       return false;
     }
