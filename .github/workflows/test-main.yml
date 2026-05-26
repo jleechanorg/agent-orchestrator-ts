@@ -1,0 +1,51 @@
+name: Test Main
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: test-main
+  cancel-in-progress: true
+
+jobs:
+  test-main:
+    name: Test Main
+    runs-on: ${{ fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]') }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          ref: main
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r --filter '!@jleechanorg/ao-web' build
+      - run: pnpm test 2>&1 | tee /tmp/test-main-output.txt
+      - run: pnpm typecheck 2>&1 | tee -a /tmp/test-main-output.txt
+      - name: Create issue on failure
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## Daily main-branch test run failed"
+            echo ""
+            echo '```'
+            head -n 200 /tmp/test-main-output.txt 2>/dev/null || echo "(no test output captured — earlier step failed before tests ran)"
+            echo '```'
+            echo ""
+            echo "Triggered by scheduled test-main workflow on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+          } > /tmp/test-main-issue-body.txt
+          gh issue create \
+            --title "[test-main] Pre-existing failures detected on main" \
+            --body-file /tmp/test-main-issue-body.txt \
+            --label "bug" \
+            --label "test-failure"

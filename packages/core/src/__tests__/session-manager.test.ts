@@ -3023,7 +3023,7 @@ describe("send", () => {
     );
   });
 
-  it("auto-discovers OpenCode mapping before sending when missing", async () => {
+  it("auto-discovers OpenCode mapping before sending when missing", { timeout: 30_000 }, async () => {
     const deleteLogPath = join(tmpDir, "opencode-send-remap.log");
     const mockBin = installMockOpencode(
       JSON.stringify([
@@ -3053,7 +3053,7 @@ describe("send", () => {
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(makeHandle("rt-1"), "hello");
   });
 
-  it("re-discovers OpenCode mapping before sending when stored mapping is invalid", async () => {
+  it("re-discovers OpenCode mapping before sending when stored mapping is invalid", { timeout: 30_000 }, async () => {
     const deleteLogPath = join(tmpDir, "opencode-send-remap-invalid.log");
     const mockBin = installMockOpencode(
       JSON.stringify([

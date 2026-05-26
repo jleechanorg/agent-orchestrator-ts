@@ -93,6 +93,7 @@ export {
   isFailedCICheck,
   escapeMarkdownCodeFenceClosers,
 } from "./upstream-ci-failure-context.js";
+export type { CIFailureSummary } from "./types.js";
 
 // Failure budget tracker — tracks retry attempts and routes on exhaustion
 export { FailureBudgetTracker, routeExhaustedBudget } from "./failure-budget.js";
