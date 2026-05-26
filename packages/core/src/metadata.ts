@@ -22,7 +22,6 @@
 import {
   readFileSync,
   writeFileSync,
-  renameSync,
   existsSync,
   mkdirSync,
   unlinkSync,
@@ -45,16 +44,6 @@ function serializeMetadata(data: Record<string, string>): string {
       .map(([k, v]) => `${k}=${v.replace(/[\r\n]/g, " ")}`)
       .join("\n") + "\n"
   );
-}
-
-/**
- * Atomically write a file by writing to a temp file then renaming.
- * rename() is atomic on POSIX, so concurrent writers never produce torn data.
- */
-function atomicWriteFileSync(filePath: string, content: string): void {
-  const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
-  writeFileSync(tmpPath, content, "utf-8");
-  renameSync(tmpPath, filePath);
 }
 
 /** Validate sessionId to prevent path traversal. */
