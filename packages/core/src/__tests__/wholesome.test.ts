@@ -206,7 +206,7 @@ function shouldEnforcePRTitlePrefix(title: string): boolean {
   // GITHUB_REF is set for push events (e.g. "refs/heads/main") and absent for PRs
   const githubRef = process.env.GITHUB_REF ?? "";
   if (/^refs\/heads\/(main|master)$/.test(githubRef)) return false;
-  return !["main", "master", "HEAD"].includes(title);
+  return !["main", "master", "HEAD"].includes(title) && !title.startsWith("session/");
 }
 
 // ---------------------------------------------------------------------------
