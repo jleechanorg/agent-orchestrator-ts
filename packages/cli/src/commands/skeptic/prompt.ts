@@ -28,9 +28,17 @@ export function isEvidenceAuthentic(body: string): boolean {
   for (const pattern of FABRICATED_PATTERNS) {
     if (pattern.test(evidenceContent)) return false;
   }
-  // Coverage claim without percentage — e.g. "coverage is good" without "97%"
-  // Use \bcoverage\b only (not \bcov(?:erage|er)\b) to avoid matching verb "cover"
-  if (/\bcoverage\b/i.test(evidenceContent) && !/\d\s*%/.test(evidenceContent)) {
+  // Coverage claim without percentage — fail only when "coverage" appears in
+  // prose/narrative text without a nearby %. Command invocations like
+  // "pnpm test --coverage" and raw test output blocks are excluded because they
+  // do not make an inauthentic coverage assertion — the absence of a % there
+  // simply means the tool wasn't asked to report, not that the evidence is fake.
+  const lines = evidenceContent.split("\n");
+  const proseLines = lines.filter(
+    (line) => !line.trim().startsWith("$") && !line.includes(" --"),
+  );
+  const proseText = proseLines.join(" ");
+  if (/\bcoverage\b/i.test(proseText) && !/\d\s*%/.test(proseText)) {
     return false;
   }
   return true;

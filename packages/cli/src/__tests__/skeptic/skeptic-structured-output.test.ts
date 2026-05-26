@@ -778,6 +778,16 @@ $ pnpm test
     const body = "## Evidence\nThis PR covers authentication changes.\n```\n$ pnpm test\n  ✓ auth.test.ts\n```";
     expect(isEvidenceAuthentic(body)).toBe(true);
   });
+
+  it("returns true for command invocations containing --coverage (no prose coverage claim)", () => {
+    const body = "## Evidence\n```\n$ pnpm test --coverage\n  ✓ auth.test.ts\n```";
+    expect(isEvidenceAuthentic(body)).toBe(true);
+  });
+
+  it("returns false when prose contains 'coverage' without a percentage", () => {
+    const body = "## Evidence\nWe improved coverage significantly after adding tests.";
+    expect(isEvidenceAuthentic(body)).toBe(false);
+  });
 });
 
 describe("evidence authenticity blocks PASS in prompt", () => {
