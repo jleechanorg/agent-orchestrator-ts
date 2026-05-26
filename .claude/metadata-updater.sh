@@ -338,6 +338,22 @@ while index < len(tokens):
         print(source)
         raise SystemExit(0)
 
+    if is_guarded_segment(words):
+        stripped = strip_assignments(words)
+        has_obfuscation = False
+        if len(stripped) >= 1:
+            if stripped[0] in {"bash", "sh", "eval"}:
+                has_obfuscation = True
+            elif len(stripped) >= 3:
+                for word in stripped[:3]:
+                    if word != shell_word_value(word):
+                        has_obfuscation = True
+                        break
+        if has_obfuscation:
+            print("deny")
+            print("Blocked by AO policy: cannot safely analyze chained shell commands before gh pr create or gh pr merge. Run the guarded command directly after any env assignments or cd prefixes.")
+            raise SystemExit(0)
+
     print("safe")
     print(source[tokens[index][2]:])
     raise SystemExit(0)
