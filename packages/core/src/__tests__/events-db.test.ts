@@ -13,6 +13,7 @@ describe("activity-events DB unavailable warning", () => {
   beforeEach(() => {
     __resetActivityEventsDbWarningForTests();
     vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     delete process.env["AO_DEBUG"];
     process.argv = ["node", "ao"];
   });
@@ -50,8 +51,8 @@ describe("activity-events DB unavailable warning", () => {
     emitActivityEventsDbUnavailableWarning(err);
     emitActivityEventsDbUnavailableWarning(err);
 
-    expect(console.warn).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(console.warn).mock.calls[0]?.[0]).toContain(
+    expect(process.stderr.write).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(process.stderr.write).mock.calls[0]?.[0]).toContain(
       "activity-events disabled: better-sqlite3 not compiled",
     );
   });
@@ -63,10 +64,10 @@ describe("activity-events DB unavailable warning", () => {
 
     process.argv = ["node", "ao", "spawn", "demo"];
     emitActivityEventsDbUnavailableWarning(err);
-    expect(console.warn).not.toHaveBeenCalled();
+    expect(process.stderr.write).not.toHaveBeenCalled();
 
     process.argv = ["node", "ao", "events", "stats"];
     emitActivityEventsDbUnavailableWarning(err);
-    expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(process.stderr.write).toHaveBeenCalledTimes(1);
   });
 });

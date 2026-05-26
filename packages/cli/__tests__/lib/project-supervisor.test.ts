@@ -9,41 +9,37 @@ const mockSetHealth = vi.fn();
 const activeWorkers = new Set<string>();
 
 vi.mock("@jleechanorg/ao-core", () => {
-  class ConfigNotFoundError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = "ConfigNotFoundError";
-    }
-  }
+  class ConfigNotFoundError extends Error {}
   return {
     createCorrelationId: () => "correlation-id",
     createProjectObserver: () => ({ setHealth: (...args: unknown[]) => mockSetHealth(...args) }),
     loadConfig: (...args: unknown[]) => mockLoadConfig(...args),
+    findManagedConfigFile: () => "/tmp/global-config.yaml",
     ConfigNotFoundError,
     isTerminalSession: (session: {
-    status: string;
-    activity: string | null;
-    lifecycle?: {
-      session: { state: string };
-      pr: { state: string };
-      runtime: { state: string };
-    };
-  }) => {
-    if (session.lifecycle) {
+      status: string;
+      activity: string | null;
+      lifecycle?: {
+        session: { state: string };
+        pr: { state: string };
+        runtime: { state: string };
+      };
+    }) => {
+      if (session.lifecycle) {
+        return (
+          session.lifecycle.session.state === "done" ||
+          session.lifecycle.session.state === "terminated" ||
+          session.lifecycle.pr.state === "merged" ||
+          session.lifecycle.runtime.state === "missing" ||
+          session.lifecycle.runtime.state === "exited"
+        );
+      }
       return (
-        session.lifecycle.session.state === "done" ||
-        session.lifecycle.session.state === "terminated" ||
-        session.lifecycle.pr.state === "merged" ||
-        session.lifecycle.runtime.state === "missing" ||
-        session.lifecycle.runtime.state === "exited"
+        ["done", "killed", "terminated", "errored", "merged", "cleanup"].includes(
+          session.status,
+        ) || session.activity === "exited"
       );
-    }
-    return (
-      ["done", "killed", "terminated", "errored", "merged", "cleanup"].includes(
-        session.status,
-      ) || session.activity === "exited"
-    );
-  },
+    },
   };
 });
 
@@ -148,11 +144,9 @@ describe("project-supervisor", () => {
   it("detaches a worker when the project is removed from global config", async () => {
     activeWorkers.add("removed");
     mockLoadConfig.mockReturnValue(makeConfig(["app"]));
-    process.env["AO_GLOBAL_CONFIG"] = "/tmp/global-config.yaml";
 
     await reconcileProjectSupervisor();
 
-    delete process.env["AO_GLOBAL_CONFIG"];
     expect(activeWorkers.has("removed")).toBe(false);
     expect(mockRemoveProjectFromRunning).toHaveBeenCalledWith("removed");
   });
@@ -230,7 +224,7 @@ describe("project-supervisor", () => {
       },
     });
 
-    const startPromise = startProjectSupervisor({ intervalMs: 1_000 });
+    const startPromise = startProjectSupervisor(1_000);
     await vi.waitFor(() => expect(releaseList).toBeDefined());
 
     stopProjectSupervisor();
@@ -248,11 +242,8 @@ describe("project-supervisor", () => {
     mockLoadConfig.mockImplementation(() => {
       throw new Error("bad config");
     });
-    process.env["AO_GLOBAL_CONFIG"] = "/tmp/global-config.yaml";
 
-    await expect(startProjectSupervisor({ intervalMs: 1_000 })).rejects.toThrow("bad config");
-
-    delete process.env["AO_GLOBAL_CONFIG"];
+    await expect(startProjectSupervisor(1_000)).rejects.toThrow("bad config");
   });
 
   it("allows startup when the global config does not exist yet", async () => {
@@ -260,17 +251,14 @@ describe("project-supervisor", () => {
       new Error("ENOENT: no such file or directory, open '/tmp/global-config.yaml'"),
       {
         code: "ENOENT",
-        path: "/tmp/global-config.yaml",
       },
     );
     mockLoadConfig.mockImplementation(() => {
       throw error;
     });
-    process.env["AO_GLOBAL_CONFIG"] = "/tmp/global-config.yaml";
 
-    const handle = await startProjectSupervisor({ intervalMs: 1_000 });
+    const handle = await startProjectSupervisor(1_000);
 
-    delete process.env["AO_GLOBAL_CONFIG"];
     expect(handle).toEqual({
       stop: expect.any(Function),
       reconcileNow: expect.any(Function),
@@ -281,7 +269,7 @@ describe("project-supervisor", () => {
   it("forwards the supervisor interval to lifecycle workers it starts", async () => {
     sessionsByProject.set("app", [makeSession("app")]);
 
-    const handle = await startProjectSupervisor({ intervalMs: 1_234 });
+    const handle = await startProjectSupervisor(1_234);
 
     expect(mockEnsureLifecycleWorker).toHaveBeenCalledWith(
       expect.anything(),
@@ -291,7 +279,7 @@ describe("project-supervisor", () => {
   });
 
   it("reconcileNow waits for a queued reconcile when one is already running", async () => {
-    const handle = await startProjectSupervisor({ intervalMs: 1_000 });
+    const handle = await startProjectSupervisor(1_000);
     let firstRelease: (() => void) | undefined;
     let secondRelease: (() => void) | undefined;
     let listCalls = 0;

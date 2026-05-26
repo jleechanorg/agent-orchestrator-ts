@@ -91,12 +91,14 @@ function initFts(db: BetterSqlite3Database, rebuild = false): void {
 }
 
 function pruneOldEvents(db: BetterSqlite3Database, cutoff: number): void {
-  db.prepare(
-    `DELETE FROM activity_events
+  db
+    .prepare(
+      `DELETE FROM activity_events
        WHERE rowid IN (
          SELECT rowid FROM activity_events WHERE ts_epoch < ? LIMIT ?
        )`,
-  ).run(cutoff, PRUNE_BATCH_SIZE);
+    )
+    .run(cutoff, PRUNE_BATCH_SIZE);
 }
 
 function openDb(): BetterSqlite3Database {
@@ -165,7 +167,7 @@ export function emitActivityEventsDbUnavailableWarning(err: unknown): void {
   if (_dbUnavailableWarningEmitted) return;
   if (process.env["AO_DEBUG"] !== "1" && !isAoEventsInvocation()) return;
   _dbUnavailableWarningEmitted = true;
-  console.warn(formatActivityEventsDbUnavailableWarning(err));
+  process.stderr.write(`${formatActivityEventsDbUnavailableWarning(err)}\n`);
 }
 
 export function __resetActivityEventsDbWarningForTests(): void {
