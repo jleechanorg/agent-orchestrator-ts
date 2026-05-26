@@ -29,11 +29,12 @@ export function isEvidenceAuthentic(body: string): boolean {
     if (pattern.test(evidenceContent)) return false;
   }
   // Coverage claim without percentage — scan each non-command line individually.
-  // A line is suspicious if it contains "coverage" but no digit-%. Lines starting
-  // with "$" are command invocations and are skipped (covers `pnpm test --coverage`).
-  // The previous `--` flag exemption was too broad: it matched em-dash prose
-  // ("Coverage improved -- all tests pass") letting verdicts bypass the coverage
-  // authenticity check. Only command lines (starting with "$") are exempt.
+  // A line is suspicious if it contains "coverage" but no digit-%. Only lines
+  // starting with "$" (command invocations) are skipped — this correctly exempts
+  // `pnpm test --coverage` while catching prose lines where "coverage" is an
+  // unsubstantiated claim. The previous `--` flag exemption was too broad: it
+  // matched em-dash prose ("Coverage improved -- all tests pass") letting
+  // verdicts bypass the coverage authenticity check.
   const lines = evidenceContent.split("\n");
   for (const line of lines) {
     const trimmed = line.trim();
