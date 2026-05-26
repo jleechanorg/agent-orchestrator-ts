@@ -3,11 +3,12 @@ import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-const { mockTmux, mockExec, mockDetectActivity } =
+const { mockTmux, mockExec, mockDetectActivity, mockIsAgentAliveInPane } =
   vi.hoisted(() => ({
     mockTmux: vi.fn(),
     mockExec: vi.fn(),
     mockDetectActivity: vi.fn(),
+    mockIsAgentAliveInPane: vi.fn(),
   }));
 
 const { mockConfigRef, mockSessionManager } = vi.hoisted(() => ({
@@ -56,6 +57,10 @@ vi.mock("../../src/lib/create-session-manager.js", () => ({
   getSessionManager: async () => mockSessionManager,
 }));
 
+vi.mock("@jleechanorg/ao-plugin-runtime-tmux", () => ({
+  isAgentAliveInPane: mockIsAgentAliveInPane,
+}));
+
 import { Command } from "commander";
 import { registerSend } from "../../src/commands/send.js";
 
@@ -79,6 +84,7 @@ beforeEach(() => {
   mockDetectActivity.mockReset();
   mockSessionManager.get.mockReset();
   mockSessionManager.send.mockReset();
+  mockIsAgentAliveInPane.mockReset();
   mockConfigRef.current = null;
   mockExec.mockResolvedValue({ stdout: "", stderr: "" });
 });
@@ -313,6 +319,46 @@ describe("send command", () => {
         "-l",
         "hello",
       ]);
+    });
+
+    describe("dead-agent detection", () => {
+      it("checks liveness before sending and logs warning when agent is dead", async () => {
+        mockTmux.mockImplementation(async (...args: string[]) => {
+          if (args[0] === "has-session") return "";
+          if (args[0] === "capture-pane") return "$ ";
+          return "";
+        });
+        mockDetectActivity.mockReturnValue("idle");
+        mockIsAgentAliveInPane.mockResolvedValue(false);
+
+        await program.parseAsync(["node", "test", "send", "my-session", "hello"]);
+
+        // Must check liveness before sending
+        expect(mockIsAgentAliveInPane).toHaveBeenCalledWith("my-session");
+        // Must log warning about dead agent
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining("dead agent"),
+        );
+      });
+
+      it("skips warning when agent is alive", async () => {
+        mockTmux.mockImplementation(async (...args: string[]) => {
+          if (args[0] === "has-session") return "";
+          if (args[0] === "capture-pane") return "✻ Thinking";
+          return "";
+        });
+        // detectActivity=idle so the busy-wait loop exits immediately;
+        // isAgentAliveInPane=true is the liveness check we're testing.
+        mockDetectActivity.mockReturnValue("idle");
+        mockIsAgentAliveInPane.mockResolvedValue(true);
+
+        await program.parseAsync(["node", "test", "send", "my-session", "hello"]);
+
+        expect(mockIsAgentAliveInPane).toHaveBeenCalledWith("my-session");
+        expect(consoleSpy).not.toHaveBeenCalledWith(
+          expect.stringContaining("dead agent"),
+        );
+      });
     });
   });
 
