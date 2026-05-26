@@ -176,7 +176,7 @@ export function buildSkepticPrompt(
     "9. If CR's most recent state is CHANGES_REQUESTED and the review body says 'REQUEST CHANGES', that is a gap.",
     "10. ALWAYS evaluate evidence authenticity in the PR body's ## Evidence section:",
     "    - FAIL if evidence contains 'simulated', 'example.com', '<screenshot path>', '<value>', 'TODO', 'TBD'",
-    "    - FAIL if a coverage claim (unit test coverage) has no percentage numbers (e.g. '97%', '85%')",
+    "    - FAIL if evidence mentions a coverage metric without stating the actual percentage (e.g. 'coverage is 97%' is fine; 'coverage increased' without a number is a FAIL; 'pnpm test --coverage' as a command invocation is not a coverage claim and is exempt)",
     "    - FAIL if the evidence section is empty or contains only template placeholders",
     "    - FAIL if evidence for a fix or feature does not show the TDD Red-Green cycle (must show the initial failure logs/media followed by passing ones, per repo skill: skills/tdd-evidence-workflow/SKILL.md).",
     "    - FAIL if Terminal media is provided but the URL is not HTTPS or does not point to a .mp4, .gif, .webm, .mov, or .cast file (must be video evidence per repo skill: skills/tmux-video-evidence/SKILL.md).",
