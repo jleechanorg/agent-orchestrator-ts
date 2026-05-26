@@ -678,7 +678,13 @@ fi
 if [[ "$clean_command" =~ ^git[[:space:]]+checkout[[:space:]]+([^-][^[:space:]]*) ]]; then
   branch="${BASH_REMATCH[1]}"
 
-  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+  # Only update branch metadata for plausible branch names:
+  # - not HEAD (commit checkout)
+  # - not a hex SHA (7+ hex digits = commit hash)
+  # - not a file path with extension (contains a dot followed by letters)
+  if [[ -n "$branch" && "$branch" != "HEAD" \
+        && ! "$branch" =~ ^[0-9a-fA-F]{7,}$ \
+        && ! "$branch" =~ \.[a-zA-Z]+$ ]]; then
     update_metadata_key "branch" "$branch"
     echo '{"systemMessage": "Updated metadata: branch = '"$branch"'"}'
     exit 0
