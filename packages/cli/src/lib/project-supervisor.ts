@@ -3,6 +3,7 @@ import {
   isTerminalSession,
   createCorrelationId,
   createProjectObserver,
+  ConfigNotFoundError,
   type OrchestratorConfig,
   type ProjectObserver,
   type Session,
@@ -24,16 +25,53 @@ interface SupervisorHandle {
 
 let activeSupervisor: SupervisorHandle | null = null;
 
-export interface ReconcileProjectSupervisorOptions {
-  intervalMs?: number;
+type SupervisorConfigSource = "global" | "local-fallback";
+
+interface LoadedSupervisorConfig {
+  config: OrchestratorConfig;
+  source: SupervisorConfigSource;
 }
 
-function isMissingGlobalConfigError(error: unknown): boolean {
+export interface ReconcileProjectSupervisorOptions {
+  intervalMs?: number;
+  configPath?: string;
+}
+
+export interface StartProjectSupervisorOptions {
+  intervalMs?: number;
+  configPath?: string;
+}
+
+function isMissingConfigError(error: unknown): boolean {
+  if (error instanceof ConfigNotFoundError) return true;
   return (
     error instanceof Error &&
     "code" in error &&
     (error as NodeJS.ErrnoException).code === "ENOENT"
   );
+}
+
+function loadSupervisorConfig(configPath?: string): LoadedSupervisorConfig {
+  const globalConfigPath = process.env["AO_GLOBAL_CONFIG"];
+  if (globalConfigPath) {
+    try {
+      return { config: loadConfig(globalConfigPath), source: "global" };
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error as NodeJS.ErrnoException).code === "ENOENT" &&
+        "path" in error &&
+        (error as NodeJS.ErrnoException).path === globalConfigPath
+      ) {
+        const config = configPath ? loadConfig(configPath) : loadConfig();
+        return { config, source: "local-fallback" };
+      }
+      throw error;
+    }
+  }
+  const config = configPath ? loadConfig(configPath) : loadConfig();
+  return { config, source: "local-fallback" };
 }
 
 function reportProjectSupervisorError(
@@ -65,25 +103,27 @@ async function projectHasNonTerminalSession(
 }
 
 export async function reconcileProjectSupervisor(
-  _options: ReconcileProjectSupervisorOptions = {},
+  options: ReconcileProjectSupervisorOptions = {},
 ): Promise<void> {
-  const config = loadConfig();
+  const { config, source } = loadSupervisorConfig(options.configPath);
   const observer = createProjectObserver(config, "project-supervisor");
   const configuredProjectIds = new Set(Object.keys(config.projects));
-  const activeProjectIds = new Set(listLifecycleWorkers());
 
-  for (const projectId of activeProjectIds) {
-    if (!configuredProjectIds.has(projectId)) {
-      try {
-        await stopLifecycleWorker(config, projectId);
-        await removeProjectFromRunning(projectId);
-      } catch (error) {
-        reportProjectSupervisorError(
-          observer,
-          projectId,
-          "Failed to detach lifecycle worker for removed project",
-          error,
-        );
+  if (source === "global") {
+    const activeProjectIds = new Set(listLifecycleWorkers());
+    for (const projectId of activeProjectIds) {
+      if (!configuredProjectIds.has(projectId)) {
+        try {
+          await stopLifecycleWorker(config, projectId);
+          await removeProjectFromRunning(projectId);
+        } catch (error) {
+          reportProjectSupervisorError(
+            observer,
+            projectId,
+            "Failed to detach lifecycle worker for removed project",
+            error,
+          );
+        }
       }
     }
   }
@@ -114,16 +154,24 @@ export async function reconcileProjectSupervisor(
 }
 
 export async function startProjectSupervisor(
-  intervalMs: number = DEFAULT_SUPERVISOR_INTERVAL_MS,
+  optionsOrIntervalMs?: StartProjectSupervisorOptions | number,
 ): Promise<SupervisorHandle> {
+  const options: StartProjectSupervisorOptions =
+    typeof optionsOrIntervalMs === "number"
+      ? { intervalMs: optionsOrIntervalMs }
+      : (optionsOrIntervalMs ?? {});
+
   if (activeSupervisor) return activeSupervisor;
+
+  const intervalMs = options.intervalMs ?? DEFAULT_SUPERVISOR_INTERVAL_MS;
+  const configPath = options.configPath;
 
   let reconciling = false;
   let pending = false;
   let stopped = false;
   let waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
 
-  const run = async (options: { swallowErrors?: boolean } = {}): Promise<void> => {
+  const run = async (runOptions: { swallowErrors?: boolean } = {}): Promise<void> => {
     if (stopped) return;
     if (reconciling) {
       pending = true;
@@ -138,11 +186,11 @@ export async function startProjectSupervisor(
       do {
         pending = false;
         try {
-          await reconcileProjectSupervisor({ intervalMs });
+          await reconcileProjectSupervisor({ intervalMs, configPath });
         } catch (error) {
-          if (isMissingGlobalConfigError(error)) return;
+          if (isMissingConfigError(error)) return;
           err = error;
-          if (!options.swallowErrors) throw error;
+          if (!runOptions.swallowErrors) throw error;
         }
       } while (pending && !stopped);
     } finally {
@@ -154,7 +202,7 @@ export async function startProjectSupervisor(
       const pendingWaiters = waiters;
       waiters = [];
       for (const w of pendingWaiters) {
-        if (err && options.swallowErrors === false) w.reject(err);
+        if (err && runOptions.swallowErrors === false) w.reject(err);
         else w.resolve();
       }
     }
