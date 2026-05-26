@@ -5283,6 +5283,7 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
   margin-top: 12px;
   /* 320px ≈ dashboard header + subhead + body padding + done-bar toggle/margins.
      Mirrors the .kanban-board viewport-anchored height pattern (line 5107). */
+  max-height: calc(100dvh - 320px);
   max-height: calc(100vh - 320px);
   overflow-y: auto;
 }
