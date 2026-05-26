@@ -251,9 +251,13 @@ def is_guarded_segment(words):
     words = strip_assignments(words)
     if len(words) >= 3 and words[0] == "gh" and words[1] == "pr" and words[2] in {"create", "merge"}:
         return True
-    # eval/bash/sh -c wrapping: skip the shell builtin and check the remaining words.
+    # eval/bash/sh -c wrapping: skip the shell builtin and -c flag if present, then check the remaining words.
     if words and words[0] in {"eval", "bash", "sh"}:
-        return is_guarded_segment(words[1:])
+        remaining = words[1:]
+        # If the next word is "-c", skip it too (handles sh -c gh pr merge)
+        if remaining and remaining[0] == "-c":
+            remaining = remaining[1:]
+        return is_guarded_segment(remaining)
     return False
 
 def remaining_segments_contain_guarded(tokens, start_index):
