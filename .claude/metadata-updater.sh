@@ -314,6 +314,10 @@ while index < len(tokens) and tokens[index][0] == "word" and is_assignment(token
 
 while index < len(tokens):
     if tokens[index][0] != "word":
+        if remaining_segments_contain_guarded(tokens, index):
+            print("deny")
+            print("Blocked by AO policy: cannot safely analyze chained shell commands with gh pr create or gh pr merge after env assignments. Run the guarded command directly.")
+            raise SystemExit(0)
         print("raw")
         print(source)
         raise SystemExit(0)
