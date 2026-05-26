@@ -56,7 +56,7 @@ const GATE_PRIORITY: Record<string, number> = {
 /** Gate name → recommended fix action */
 const GATE_FIX: Record<string, string> = {
   [GATE.MERGEABLE]:
-    "Rebase onto main: git fetch origin && git rebase origin/main && git push --force-with-lease",
+    "Rebase: git fetch origin && git rebase origin/<base-branch> && git push --force-with-lease",
   [GATE.CI_GREEN]: "Read CI logs, fix failing tests/lint, push",
   [GATE.BUGBOT_CLEAN]: "Fix error-severity Bugbot findings, push",
   [GATE.INLINE_RESOLVED]:
