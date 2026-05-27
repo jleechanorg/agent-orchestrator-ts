@@ -26,6 +26,13 @@ vi.mock("../fork-lifecycle-postmerge.js", () => ({
 vi.mock("../ao-action-log.js", () => ({
   logAoAction: vi.fn(),
 }));
+vi.mock("../fork-lifecycle-manager.js", async (importOriginal) => {
+  const original = await importOriginal() as Record<string, unknown>;
+  return {
+    ...original,
+    detectAndApplyRateLimitPause: vi.fn().mockResolvedValue(undefined),
+  };
+});
 vi.mock("../lifecycle-activity-events.js", () => ({
   emitLifecycleTransition: vi.fn(),
   emitActivityTransition: vi.fn(),
@@ -121,7 +128,7 @@ beforeEach(() => {
 
   mockRegistry = {
     register: vi.fn(),
-    get: vi.fn().mockImplementation((slot: string) => {
+    get: vi.fn().mockImplementation((slot: string, _name?: string) => {
       if (slot === "runtime") return mockRuntime;
       if (slot === "agent") return mockAgent;
       return null;
@@ -228,6 +235,7 @@ describe("activity first-poll seeds from session.activity (cache miss)", () => {
     const session = makeSession({
       status: "working",
       activity: "active", // persisted state from before restart
+      metadata: { agent: "mock-agent" },
     });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
@@ -236,6 +244,7 @@ describe("activity first-poll seeds from session.activity (cache miss)", () => {
       branch: "feat/test",
       status: "working",
       project: "my-app",
+      agent: "mock-agent",
     });
 
     // Fresh lifecycle manager — activityStateCache is empty
