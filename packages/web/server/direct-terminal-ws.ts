@@ -91,8 +91,23 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
   });
 
   const wss = new WebSocketServer({
-    server,
     path: "/ws",
+  });
+
+  // Manual upgrade routing — accept both /ws (existing) and /ao-terminal-mux
+  // (alias for reverse-proxy deployments) so path-routing reverse proxies
+  // (e.g. cloudflared, nginx, Caddy) can forward the dashboard's path-based
+  // mux URL straight at this port without needing a path-rewrite rule.
+  server.on("upgrade", (request, socket, head) => {
+    const pathname = new URL(request.url ?? "/", "ws://localhost").pathname;
+
+    if ((pathname === "/ws" || pathname === "/ao-terminal-mux")) {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
   });
 
   const recordWebsocketMetric = (input: {

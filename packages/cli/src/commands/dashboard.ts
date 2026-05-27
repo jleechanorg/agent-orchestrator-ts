@@ -4,6 +4,7 @@ import type { Command } from "commander";
 import { loadConfig } from "@jleechanorg/ao-core";
 import { findWebDir, buildDashboardEnv, waitForPortAndOpen } from "../lib/web-dir.js";
 import { cleanNextCache, findRunningDashboardPid, findProcessWebDir, waitForPortFree } from "../lib/dashboard-rebuild.js";
+import { dashboardUrl } from "../lib/dashboard-url.js";
 
 export function registerDashboard(program: Command): void {
   program
@@ -49,7 +50,7 @@ export function registerDashboard(program: Command): void {
 
       const webDir = localWebDir;
 
-      console.log(chalk.bold(`Starting dashboard on http://localhost:${port}\n`));
+      console.log(chalk.bold(`Starting dashboard on ${dashboardUrl(port)}\n`));
 
       const env = await buildDashboardEnv(
         port,
@@ -87,7 +88,7 @@ export function registerDashboard(program: Command): void {
 
       if (opts.open !== false) {
         openAbort = new AbortController();
-        void waitForPortAndOpen(port, `http://localhost:${port}`, openAbort.signal);
+        void waitForPortAndOpen(port, dashboardUrl(port), openAbort.signal);
       }
 
       child.on("exit", (code) => {
