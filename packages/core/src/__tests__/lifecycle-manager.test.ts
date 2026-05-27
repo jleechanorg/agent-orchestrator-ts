@@ -66,7 +66,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     agentInfo: null,
     createdAt: new Date(),
     lastActivityAt: new Date(),
-    metadata: {},
+    metadata: { agent: "mock-agent" },
     ...overrides,
   };
 }
@@ -288,7 +288,7 @@ describe("check (single session)", () => {
     expect(meta!["status"]).toBe("working");
   });
 
-  it("uses worker-specific agent fallback when metadata does not persist an agent", async () => {
+  it("uses persisted session agent even when worker config differs", async () => {
     const codexAgent: Agent = {
       ...mockAgent,
       name: "codex",
@@ -314,12 +314,12 @@ describe("check (single session)", () => {
           ...config.projects["my-app"],
           agent: "mock-agent",
           worker: {
-            agent: "codex",
+            agent: "mock-agent",
           },
         },
       },
     };
-    const session = makeSession({ status: "working", metadata: {} });
+    const session = makeSession({ status: "working", metadata: { agent: "codex" } });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
     writeMetadata(sessionsDir, "app-1", {
@@ -327,6 +327,7 @@ describe("check (single session)", () => {
       branch: "main",
       status: "working",
       project: "my-app",
+      agent: "codex",
     });
 
     const lm = createLifecycleManager({

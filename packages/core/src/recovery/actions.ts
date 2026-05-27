@@ -5,6 +5,12 @@ import { validateStatus } from "../utils/validation.js";
 import { sessionFromMetadata } from "../utils/session-from-metadata.js";
 import type { RecoveryAssessment, RecoveryResult, RecoveryContext } from "./types.js";
 
+function preserveSessionAgentPatch(
+  rawMetadata: Record<string, string>,
+): Partial<Record<string, string>> {
+  return rawMetadata["agent"] ? { agent: rawMetadata["agent"] } : {};
+}
+
 export async function recoverSession(
   assessment: RecoveryAssessment,
   config: OrchestratorConfig,
@@ -47,6 +53,7 @@ export async function recoverSession(
         escalatedAt: now,
         escalationReason: `Exceeded max recovery attempts (${context.recoveryConfig.maxRecoveryAttempts})`,
         recoveryCount: String(recoveryCount),
+        ...preserveSessionAgentPatch(rawMetadata),
       });
 
       return {
@@ -62,6 +69,7 @@ export async function recoverSession(
       status: preservedStatus,
       restoredAt: now,
       recoveryCount: String(recoveryCount),
+      ...preserveSessionAgentPatch(rawMetadata),
     });
 
     const updatedMetadata = {
@@ -141,6 +149,7 @@ export async function cleanupSession(
       status: "terminated",
       terminatedAt: new Date().toISOString(),
       terminationReason: "cleanup",
+      ...preserveSessionAgentPatch(rawMetadata),
     });
 
     deleteMetadata(sessionsDir, sessionId, true);
@@ -166,7 +175,7 @@ export async function escalateSession(
   _registry: PluginRegistry,
   context: RecoveryContext,
 ): Promise<RecoveryResult> {
-  const { sessionId, projectId, reason } = assessment;
+  const { sessionId, projectId, reason, rawMetadata } = assessment;
 
   if (context.dryRun) {
     return {
@@ -186,6 +195,7 @@ export async function escalateSession(
       status: "stuck",
       escalatedAt: new Date().toISOString(),
       escalationReason: reason,
+      ...preserveSessionAgentPatch(rawMetadata),
     });
 
     return {

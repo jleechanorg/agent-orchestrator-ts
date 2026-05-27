@@ -88,7 +88,7 @@ import { sessionFromMetadata } from "./utils/session-from-metadata.js";
 import { parsePrFromUrl } from "./utils/pr.js";
 import { safeJsonParse } from "./utils/validation.js";
 import { getWorkspaceChangedFiles } from "./utils/worktree-git.js";
-import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
+import { resolveAgentSelection, resolveAgentSelectionForSession, resolveSessionRole } from "./agent-selection.js";
 import { getAllSessionPrefixes, getAoManagedSessionWorktreePattern } from "./session-prefixes.js";
 import { applySlashCommandRouting } from "./fork-slash-command-routing.js";
 import {
@@ -562,6 +562,21 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return repaired;
   }
 
+  function repairSessionAgentMetadataOnRead(
+    sessionsDir: string,
+    record: ActiveSessionRecord,
+    project: ProjectConfig,
+  ): ActiveSessionRecord {
+    if (record.raw["agent"]) return record;
+
+    const agent = resolveSelectionForSession(project, record.sessionName, record.raw).agentName;
+    updateMetadataPreservingMtime(sessionsDir, record.sessionName, { agent }, record.modifiedAt);
+    return {
+      ...record,
+      raw: applyMetadataUpdatesToRaw(record.raw, { agent }),
+    };
+  }
+
   function sessionMetadataTimestamp(record: ActiveSessionRecord): number {
     const metadataTimestamp = Date.parse(record.raw["restoredAt"] ?? record.raw["createdAt"] ?? "");
     if (record.modifiedAt) return record.modifiedAt.getTime();
@@ -579,8 +594,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     for (const record of repaired) {
       if (isOrchestratorSessionRecord(record.sessionName, record.raw, project)) {
         record.raw = repairSingleSessionMetadataOnRead(sessionsDir, record, project).raw;
+        record.raw = repairSessionAgentMetadataOnRead(sessionsDir, record, project).raw;
         continue;
       }
+
+      record.raw = repairSessionAgentMetadataOnRead(sessionsDir, record, project).raw;
 
       const prUrl = record.raw["pr"];
       if (!prUrl) continue;
@@ -853,11 +871,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     sessionId: string,
     metadata: Record<string, string>,
   ) {
-    return resolveAgentSelection({
-      role: resolveSessionRole(sessionId, metadata, project.sessionPrefix, allSessionPrefixes),
+    return resolveAgentSelectionForSession({
+      sessionId,
+      metadata,
       project,
       defaults: config.defaults,
-      persistedAgent: metadata["agent"],
+      allSessionPrefixes,
     });
   }
 
@@ -895,13 +914,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         modifiedAt = undefined;
       }
 
-      const repaired = repairSingleSessionMetadataOnRead(
+      const repaired = repairSessionAgentMetadataOnRead(
         sessionsDir,
-        {
-          sessionName: sessionId,
-          raw,
-          modifiedAt,
-        },
+        repairSingleSessionMetadataOnRead(
+          sessionsDir,
+          {
+            sessionName: sessionId,
+            raw,
+            modifiedAt,
+          },
+          project,
+        ),
         project,
       );
 
@@ -1921,13 +1944,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         // If stat fails, timestamps will fall back to current time
       }
 
-      const repaired = repairSingleSessionMetadataOnRead(
+      const repaired = repairSessionAgentMetadataOnRead(
         sessionsDir,
-        {
-          sessionName: sessionId,
-          raw,
-          modifiedAt,
-        },
+        repairSingleSessionMetadataOnRead(
+          sessionsDir,
+          {
+            sessionName: sessionId,
+            raw,
+            modifiedAt,
+          },
+          project,
+        ),
         project,
       );
 
@@ -3267,6 +3294,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     updateMetadata(sessionsDir, sessionId, {
       status: "spawning",
       runtimeHandle: JSON.stringify(handle),
+      agent: selection.agentName,
       restoredAt: now,
     });
 

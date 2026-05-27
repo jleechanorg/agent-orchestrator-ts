@@ -45,6 +45,15 @@ export {
   listMetadata,
 } from "./metadata.js";
 
+// Agent selection — role + persisted agent resolution
+export {
+  resolveAgentSelection,
+  resolveAgentSelectionForSession,
+  resolveSessionRole,
+  type ResolvedAgentSelection,
+  type SessionRole,
+} from "./agent-selection.js";
+
 // tmux — command wrappers
 export {
   isTmuxAvailable,
