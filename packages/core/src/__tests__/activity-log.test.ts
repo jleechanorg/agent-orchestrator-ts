@@ -411,6 +411,15 @@ describe("readLastActivityEntry", () => {
     expect(result).toBeNull();
   });
 
+  it("accepts entries with source: hook", async () => {
+    await appendActivityEntry(tmpDir, "waiting_input", "hook", "PermissionRequest");
+    const result = await readLastActivityEntry(tmpDir);
+    expect(result).not.toBeNull();
+    expect(result!.entry.state).toBe("waiting_input");
+    expect(result!.entry.source).toBe("hook");
+    expect(result!.entry.trigger).toBe("PermissionRequest");
+  });
+
   it("falls back to the previous complete line when a read races a truncated tail", async () => {
     await mkdir(join(tmpDir, ".ao"), { recursive: true });
     const completeEntry: ActivityLogEntry = {

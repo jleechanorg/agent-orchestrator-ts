@@ -169,8 +169,8 @@ describe("toClaudeProjectPath", () => {
     );
   });
 
-  it("strips Windows drive colons and folds backslashes", () => {
-    expect(toClaudeProjectPath("C:\\Users\\dev\\foo")).toBe("C-Users-dev-foo");
+  it("maps Windows drive colons to dashes and folds backslashes", () => {
+    expect(toClaudeProjectPath("C:\\Users\\dev\\foo")).toBe("C--Users-dev-foo");
   });
 
   it("collapses any other non-alphanumeric character into a dash", () => {
@@ -499,9 +499,9 @@ describe("isProcessRunning", () => {
     expect(mockExecFileAsync).not.toHaveBeenCalled();
   });
 
-  it("returns false when tmux command fails", async () => {
+  it("returns indeterminate when tmux command fails", async () => {
     mockExecFileAsync.mockRejectedValue(new Error("fail"));
-    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(false);
+    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe("indeterminate");
   });
 
   it("returns true when PID exists but throws EPERM", async () => {
@@ -531,254 +531,44 @@ describe("isProcessRunning", () => {
 });
 
 // ==================================================================
-// detectActivity — terminal output classification
+// detectActivity — retired terminal-regex (#1941)
 // ==================================================================
 describe("detectActivity", () => {
   const agent = create();
 
-  it("returns idle for empty terminal output", () => {
-    expect(agent.detectActivity("")).toBe("idle");
+  it("always returns idle — terminal-regex retired in favour of hooks (#1941)", () => {
+    const previouslyActive: string[] = [
+      "Working... esc to interrupt\n",
+      "Thinking...\n",
+      "Reading file src/index.ts\n",
+      "Writing to src/main.ts\n",
+      "Searching codebase...\n",
+      "Press up to edit queued messages\n",
+      "✻ Fluttering… (6m 49s · ↓ 26.9k tokens)\n",
+      "✻ Working...\n❯\n",
+    ];
+    const previouslyWaitingInput: string[] = [
+      "Do you want to proceed? (Y)es / (N)o\n",
+      "Do you want to proceed?\n",
+      "bypass all future permissions for this session\n",
+      "(Y)es / (N)o\n",
+    ];
+    const previouslyBlocked: string[] = [
+      "  ⎿  Unable to connect to API (ConnectionRefused)\n",
+      "     Retrying in 19s · attempt 7/10\n",
+    ];
+    for (const input of [...previouslyActive, ...previouslyWaitingInput, ...previouslyBlocked]) {
+      expect(agent.detectActivity(input)).toBe("idle");
+    }
   });
 
-  it("returns idle for whitespace-only terminal output", () => {
+  it("returns idle for empty/whitespace output", () => {
+    expect(agent.detectActivity("")).toBe("idle");
     expect(agent.detectActivity("   \n  \n  ")).toBe("idle");
   });
 
-  it("returns active when 'esc to interrupt' is visible", () => {
-    expect(agent.detectActivity("Working... esc to interrupt\n")).toBe("active");
-  });
-
-  it("returns active when Thinking indicator is visible", () => {
-    expect(agent.detectActivity("Thinking...\n")).toBe("active");
-  });
-
-  it("returns active when Reading indicator is visible", () => {
-    expect(agent.detectActivity("Reading file src/index.ts\n")).toBe("active");
-  });
-
-  it("returns active when Writing indicator is visible", () => {
-    expect(agent.detectActivity("Writing to src/main.ts\n")).toBe("active");
-  });
-
-  it("returns active when Searching indicator is visible", () => {
-    expect(agent.detectActivity("Searching codebase...\n")).toBe("active");
-  });
-
-  it("returns waiting_input for permission prompt (Y/N)", () => {
-    expect(agent.detectActivity("Do you want to proceed? (Y)es / (N)o\n")).toBe("waiting_input");
-  });
-
-  it("returns waiting_input for 'Do you want to proceed?' prompt", () => {
-    expect(agent.detectActivity("Do you want to proceed?\n")).toBe("waiting_input");
-  });
-
-  it("returns waiting_input for bypass permissions prompt", () => {
-    expect(agent.detectActivity("bypass all future permissions for this session\n")).toBe(
-      "waiting_input",
-    );
-  });
-
-  it("does NOT match Claude's persistent UI footer 'bypass permissions on (shift+tab to cycle)'", () => {
-    // Regression test: the old `/bypass.*permissions/i` regex matched this
-    // footer toggle (visible on EVERY Claude session) and falsely fired
-    // waiting_input for every session that fell through to the AO JSONL
-    // pipeline. ao-143/144/151 all flipped to waiting_input on dormant
-    // sessions until this was tightened to require "all future".
-    const footerOnly = [
-      "✻ Crunched for 11s",
-      "",
-      "──────────────────────────────────────────────────────────",
-      "❯ ",
-      "──────────────────────────────────────────────────────────",
-      "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
-    ].join("\n");
-    expect(agent.detectActivity(footerOnly)).not.toBe("waiting_input");
-  });
-
-  it("returns active when queued message indicator is visible", () => {
-    expect(agent.detectActivity("Press up to edit queued messages\n")).toBe("active");
-  });
-
-  it("returns idle when shell prompt is visible", () => {
-    expect(agent.detectActivity("some output\n> ")).toBe("idle");
-    expect(agent.detectActivity("some output\n$ ")).toBe("idle");
-  });
-
-  it("returns idle when prompt follows historical activity indicators", () => {
-    // Key regression test: historical "Reading file..." output in the buffer
-    // should NOT override an idle prompt on the last line.
-    expect(agent.detectActivity("Reading file src/index.ts\nWriting to out.ts\n❯ ")).toBe("idle");
-    expect(agent.detectActivity("Thinking...\nSearching codebase...\n$ ")).toBe("idle");
-  });
-
-  it("returns waiting_input when permission prompt follows historical activity", () => {
-    // Permission prompt at the bottom should NOT be overridden by historical
-    // "Reading"/"Thinking" output higher in the buffer.
-    expect(
-      agent.detectActivity("Reading file src/index.ts\nThinking...\nDo you want to proceed?\n"),
-    ).toBe("waiting_input");
-    expect(agent.detectActivity("Searching codebase...\n(Y)es / (N)o\n")).toBe("waiting_input");
-    expect(
-      agent.detectActivity("Writing to out.ts\nbypass all future permissions for this session\n"),
-    ).toBe("waiting_input");
-  });
-
-  it("returns idle for non-empty output with no active-work indicators", () => {
-    // Default-to-idle (changed from default-to-active in this PR). Claude's
-    // tmux pane has a persistent input area + footer that looks identical
-    // between "just finished" and "currently working". Treating
-    // unrecognized output as active caused dormant sessions to get an
-    // "active" written to AO activity-JSONL every poll cycle, which the
-    // age-decayed fallback then surfaced as ready forever (ao-160 repro).
-    expect(agent.detectActivity("some random terminal output\n")).toBe("idle");
-  });
-
-  it("returns idle for dormant session showing only Claude's input area + footer", () => {
-    // Real captured output from a dormant session (ao-143 style): assistant
-    // output above, separator, empty prompt line, separator, footer toggle.
-    // The empty prompt ❯ is NOT the LAST line (footer is) so the existing
-    // lastLine check misses it, and previously the default-to-active sent
-    // every dormant session into the AO-JSONL active-loop.
-    const dormant = [
-      "※ recap: working on issue #143; next: wait for review",
-      "",
-      "──────────────────────────────────────────────────────────",
-      "❯ ",
-      "──────────────────────────────────────────────────────────",
-      "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt",
-    ].join("\n");
-    expect(agent.detectActivity(dormant)).toBe("idle");
-  });
-
-  it("returns active when spinner+ellipsis is in the tail (✻ Fluttering…)", () => {
-    // Real captured output from ao-161 mid-active-turn. The ✻ spinner
-    // followed by a verb and trailing ellipsis is the canonical Claude
-    // active indicator across all turn-status words (Germinating,
-    // Fluttering, Thinking, Pondering, etc).
-    const active = [
-      "✻ Fluttering… (6m 49s · ↓ 26.9k tokens)",
-      "  ⎿  Tip: Use /feedback to help us improve!",
-      "",
-      "──────",
-      "❯ ",
-      "──────",
-      "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt",
-    ].join("\n");
-    expect(agent.detectActivity(active)).toBe("active");
-  });
-
-  it("returns idle for past-tense spinner status like '✻ Worked for 11s' (no ellipsis)", () => {
-    // Real captured output from ao-143 dormant. The ✻ glyph appears in
-    // past-tense turn summaries too — without the trailing ellipsis,
-    // Claude is done, not active.
-    const dormant = [
-      "⏺ Posted: https://github.com/owner/repo/pull/1#comment-1",
-      "",
-      "✻ Worked for 11s",
-      "",
-      "※ recap: working on issue #143; next: wait for review",
-      "──────",
-      "❯ ",
-      "──────",
-      "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
-    ].join("\n");
-    expect(agent.detectActivity(dormant)).toBe("idle");
-  });
-
-  // Blocked detection from terminal regex — empirically captured from real
-  // Claude output during api.anthropic.com block (see PR #1932).
-  it("returns blocked for 'Unable to connect to API' error line", () => {
-    const real = [
-      "❯ what is 2+2? answer in one word.",
-      "  ⎿  Unable to connect to API (ConnectionRefused)",
-      "     Retrying in 19s · attempt 7/10",
-      "",
-      "✽ Germinating… (56s)",
-      "",
-    ].join("\n");
-    expect(agent.detectActivity(real)).toBe("blocked");
-  });
-
-  it("returns blocked for FailedToOpenSocket error variant", () => {
-    expect(
-      agent.detectActivity("  ⎿  Unable to connect to API (FailedToOpenSocket)\n"),
-    ).toBe("blocked");
-  });
-
-  it("returns blocked for retry counter alone (Retrying in Ns · attempt N/M)", () => {
-    // If only the retry line is in the visible window (error scrolled off),
-    // the retry counter is still a sufficient signal.
-    expect(agent.detectActivity("     Retrying in 30s · attempt 9/10\n")).toBe("blocked");
-  });
-
-  it("does NOT return blocked when API error has scrolled out of the visible window after a successful retry", () => {
-    // Regression test: blocked detection must be bounded to the last 12
-    // lines (wideTail), NOT the full terminalOutput buffer. Otherwise an
-    // api_error that scrolled off the visible area after a successful
-    // retry but stayed in scrollback would falsely return "blocked"
-    // forever (Greptile review on PR #1932).
-    const recoveredAndContinued = [
-      "  ⎿  Unable to connect to API (ConnectionRefused)",
-      "     Retrying in 1s · attempt 1/10",
-      "  ⎿  ✓ Connected, retry succeeded",
-      "",
-      "(many lines of work output below pushing the error off the visible area)",
-      ...Array.from({ length: 15 }, (_, i) => `  line ${i + 1} of subsequent work`),
-      "",
-      "✻ Fluttering… (2m 14s)",
-      "  ⎿  Tip: Use /feedback to help us improve!",
-      "",
-      "──────",
-      "❯ ",
-      "──────",
-      "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt",
-    ].join("\n");
-    expect(agent.detectActivity(recoveredAndContinued)).toBe("active");
-  });
-
-  it("blocked takes precedence over waiting_input when both 'bypass permissions' footer and api-error are present", () => {
-    // Claude's static UI footer always contains "bypass permissions on …",
-    // which the existing waiting_input regex matches. A real blocked state
-    // must win over that incidental match.
-    const real = [
-      "  ⎿  Unable to connect to API (ConnectionRefused)",
-      "     Retrying in 1s · attempt 5/10",
-      "",
-      "────────────────────────────────────────",
-      "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt",
-    ].join("\n");
-    expect(agent.detectActivity(real)).toBe("blocked");
-  });
-
-  // Spinner-aware idle detection (orch-jtc7)
-  it("returns 'active' when spinner ✻ is in last 20 lines with ❯ on last line", () => {
-    const output = ["✻ Working...", "❯"].join("\n");
-    expect(agent.detectActivity(output)).toBe("active");
-  });
-
-  it("returns 'active' when spinner ✶ is in last 20 lines with > on last line", () => {
-    const output = ["✶ Processing...", "> "].join("\n");
-    expect(agent.detectActivity(output)).toBe("active");
-  });
-
-  it("returns 'active' when spinner is immediately above the prompt", async () => {
-    // 5 step lines + 1 spinner + prompt = 7 total.
-    // The spinner must be immediately above the prompt to match tightened logic.
-    const lines = [...Array(5).fill("  step"), "✻ Working...", "❯ "];
-    expect(agent.detectActivity(lines.join("\n"))).toBe("active");
-  });
-
-  it("returns 'idle' when spinner is exactly 20 lines before ❯ (outside window)", () => {
-    // spinner at index 0, 19 filler lines, prompt at index 20 = 21 total lines
-    // windowStart = max(0, 21-20) = 1; window = lines[1..20] (excludes spinner at 0) → idle
-    const lines = ["✻ Boundary activity...", ...Array(19).fill("done"), "❯"];
-    expect(agent.detectActivity(lines.join("\n"))).toBe("idle");
-  });
-
-  it("returns 'idle' when spinner is more than 20 lines before ❯ (outside window)", () => {
-    // spinner far above, then 21 blank/done lines, then prompt
-    const lines = ["✻ Old activity...", ...Array(21).fill("done"), "❯"];
-    expect(agent.detectActivity(lines.join("\n"))).toBe("idle");
+  it("recordActivity is NOT implemented on the Claude agent (#1941)", () => {
+    expect((agent as Record<string, unknown>)["recordActivity"]).toBeUndefined();
   });
 });
 
@@ -1176,7 +966,7 @@ describe("hook setup — relative path (symlink-safe)", () => {
     expect(hookCommand).not.toMatch(/^\//);
   });
 
-  it("registers metadata hook for both PostToolUse and PreToolUse", async () => {
+  it("registers metadata hook for PostToolUse and activity hooks for all activity events", async () => {
     await agent.setupWorkspaceHooks!(
       "/Users/equinox/.worktrees/integrator/integrator-5",
       {} as WorkspaceHooksConfig,
@@ -1186,18 +976,25 @@ describe("hook setup — relative path (symlink-safe)", () => {
       ([path]: unknown[]) => typeof path === "string" && path.endsWith("settings.json"),
     );
     const parsed = JSON.parse(settingsWrite![1] as string);
-    expect(parsed.hooks.PostToolUse[0].hooks[0].command).toBe(".claude/metadata-updater.sh");
-    expect(parsed.hooks.PreToolUse[0].hooks[0].command).toBe(".claude/metadata-updater.sh");
+    expect(parsed.hooks.PostToolUse).toBeDefined();
+    // Activity hooks are registered on multiple events
+    expect(parsed.hooks.PermissionRequest).toBeDefined();
+    expect(parsed.hooks.Stop).toBeDefined();
+    expect(parsed.hooks.Notification).toBeDefined();
   });
 
-  it("postLaunchSetup writes a relative hook command (not absolute)", async () => {
+  it("postLaunchSetup is a no-op (hooks installed pre-launch) (#1941)", async () => {
     await agent.postLaunchSetup!(
       makeSession({ workspacePath: "/Users/equinox/.worktrees/integrator/integrator-10" }),
     );
 
-    const hookCommand = getWrittenHookCommand();
-    expect(hookCommand).toBe(".claude/metadata-updater.sh");
-    expect(hookCommand).not.toMatch(/^\//);
+    // postLaunchSetup is intentionally a no-op — hooks are installed
+    // pre-launch via setupWorkspaceHooks so that PostToolUse hooks exist
+    // before the agent's first tool call.
+    const settingsWrite = mockWriteFile.mock.calls.find(
+      ([path]: unknown[]) => typeof path === "string" && path.endsWith("settings.json"),
+    );
+    expect(settingsWrite).toBeUndefined();
   });
 
   it("different worktree paths produce identical settings.json content", async () => {
@@ -1270,18 +1067,18 @@ describe("hook setup — relative path (symlink-safe)", () => {
     );
   });
 
-  it("warns (does not throw) for symlinked .claude directory", async () => {
-    mockLstat.mockResolvedValueOnce({ isSymbolicLink: () => true });
-
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("proceeds without warnings for symlinked .claude directory (#1941)", async () => {
+    // The upstream Phase 5-B refactor removed symlink guards from
+    // setupHookInWorkspace — the new upsertHookEntry approach is
+    // idempotent and doesn't need symlink protection.
+    // Note: setupMcpMailInWorkspace still has its own symlink guard,
+    // so we don't mock lstat as symlink here to avoid that separate check.
     await expect(
       agent.setupWorkspaceHooks!(
         "/Users/equinox/.worktrees/integrator/integrator-5",
         {} as WorkspaceHooksConfig,
       ),
     ).resolves.not.toThrow();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/symlink/i));
-    warnSpy.mockRestore();
   });
 
   it("skips postLaunchSetup when workspacePath is null", async () => {

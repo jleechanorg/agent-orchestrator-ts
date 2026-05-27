@@ -41,7 +41,7 @@ export function getActivityLogPath(workspacePath: string): string {
 export async function appendActivityEntry(
   workspacePath: string,
   state: ActivityState,
-  source: "terminal" | "native",
+  source: "terminal" | "native" | "hook",
   trigger?: string,
 ): Promise<void> {
   const logPath = getActivityLogPath(workspacePath);
@@ -104,7 +104,7 @@ export async function readLastActivityEntry(
 
       const record = parsed as Record<string, unknown>;
       const validStates = new Set(["active", "ready", "idle", "waiting_input", "blocked", "exited"]);
-      const validSources = new Set(["terminal", "native"]);
+      const validSources = new Set(["terminal", "native", "hook"]);
       if (
         typeof record.ts !== "string" ||
         typeof record.state !== "string" ||

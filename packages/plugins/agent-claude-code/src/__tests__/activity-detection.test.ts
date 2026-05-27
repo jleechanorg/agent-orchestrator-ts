@@ -11,8 +11,14 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { toClaudeProjectPath, create, resetWarnedReaddirPaths } from "../index.js";
-import type { Session, RuntimeHandle } from "@jleechanorg/ao-core";
+import { toClaudeProjectPath, create, resetWarnedReaddirPaths, resetPsCache } from "../index.js";
+import {
+  classifyTerminalOutput,
+  findLatestSessionFile,
+  getClaudeActivityState,
+  isClaudeProcessAlive,
+} from "../activity-detection.js";
+import type { Session, RuntimeHandle, ProcessProbeResult } from "@jleechanorg/ao-core";
 
 // Mock homedir() so getActivityState looks in our temp dir
 vi.mock("node:os", async (importOriginal) => {
@@ -76,6 +82,22 @@ function writeActivityLog(state: string): void {
   writeFileSync(logPath, existing + entry + "\n");
 }
 
+function writeActivityLogWithSource(state: string, source: string, trigger?: string): void {
+  const aoDir = join(workspacePath, ".ao");
+  mkdirSync(aoDir, { recursive: true });
+  const logPath = join(aoDir, "activity.jsonl");
+  const entry = JSON.stringify({
+    ts: new Date().toISOString(),
+    state,
+    source,
+    ...(trigger ? { trigger } : {}),
+  });
+  const existing = existsSync(logPath)
+    ? readFileSync(logPath, "utf-8")
+    : "";
+  writeFileSync(logPath, existing + entry + "\n");
+}
+
 // =============================================================================
 // toClaudeProjectPath
 // =============================================================================
@@ -94,8 +116,8 @@ describe("Claude Code Activity Detection", () => {
       expect(toClaudeProjectPath("/path/to/.hidden")).toBe("-path-to--hidden");
     });
 
-    it("handles Windows paths (no leading slash)", () => {
-      expect(toClaudeProjectPath("C:\\Users\\dev\\project")).toBe("C-Users-dev-project");
+    it("handles Windows paths — colon maps to dash", () => {
+      expect(toClaudeProjectPath("C:\\Users\\dev\\project")).toBe("C--Users-dev-project");
     });
 
     it("handles consecutive dots and slashes", () => {
@@ -339,7 +361,8 @@ describe("Claude Code Activity Detection", () => {
       });
 
       it("falls back to AO JSONL waiting_input when native session lookup is unavailable", async () => {
-        await agent.recordActivity?.(makeSession(), "Do you want to proceed?\n(Y)es / (N)o");
+        // Simulate hook-sourced waiting_input entry (#1941)
+        writeActivityLogWithSource("waiting_input", "hook", "PermissionRequest (Bash)");
 
         expect((await agent.getActivityState(makeSession()))?.state).toBe("waiting_input");
       });
@@ -348,7 +371,8 @@ describe("Claude Code Activity Detection", () => {
         writeJsonl([{ type: "assistant", message: { content: "Previous session done" } }], 120_000);
         const session = makeSession({ createdAt: new Date() });
 
-        await agent.recordActivity?.(session, "Do you want to proceed?\n(Y)es / (N)o");
+        // Simulate hook-sourced waiting_input entry (#1941)
+        writeActivityLogWithSource("waiting_input", "hook", "PermissionRequest");
 
         expect((await agent.getActivityState(session))?.state).toBe("waiting_input");
       });
@@ -435,14 +459,18 @@ describe("Claude Code Activity Detection", () => {
         expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
       });
 
-      it("'permission_request' ignores staleness (always waiting_input)", async () => {
+      it("permission_request falls to default branch — fresh → active (#1927 dead case removal)", async () => {
         writeJsonl([{ type: "permission_request" }], 400_000);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("waiting_input");
+        // Claude never emits permission_request as a JSONL type (#1927).
+        // Falls through to default: stale → idle.
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
       });
 
-      it("'error' ignores staleness (always blocked)", async () => {
+      it("'error' falls to default branch — stale → idle (#1927 dead case removal)", async () => {
         writeJsonl([{ type: "error" }], 400_000);
-        expect((await agent.getActivityState(makeSession()))?.state).toBe("blocked");
+        // Claude never emits top-level 'error' as a JSONL type (#1927).
+        // Falls through to default: stale → idle.
+        expect((await agent.getActivityState(makeSession()))?.state).toBe("idle");
       });
 
       it("respects custom readyThresholdMs", async () => {

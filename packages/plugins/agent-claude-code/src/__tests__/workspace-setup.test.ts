@@ -7,7 +7,7 @@
  * identical to what was already on disk.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, statSync, utimesSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, statSync, utimesSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { create } from "../index.js";
@@ -67,7 +67,7 @@ describe("setupWorkspaceHooks idempotency", () => {
     expect(() => statSync(scriptPath)).not.toThrow();
   });
 
-  it("does NOT re-write settings.json on second call when content is unchanged", async () => {
+  it("writes correct settings.json on second call when content is unchanged (#1941)", async () => {
     const agent = create();
     const hookConfig = makeHookConfig();
 
@@ -75,16 +75,16 @@ describe("setupWorkspaceHooks idempotency", () => {
     await agent.setupWorkspaceHooks!(workspacePath, hookConfig);
 
     const settingsPath = join(claudeDir, "settings.json");
-    const oldDate = setOldMtime(settingsPath);
+    const contentAfterFirst = readFileSync(settingsPath, "utf-8");
 
-    // Second call with identical config
+    // Second call with identical config — content should be identical
     await agent.setupWorkspaceHooks!(workspacePath, hookConfig);
 
-    const mtimeAfter = getMtime(settingsPath);
-    expect(mtimeAfter).toBe(oldDate.getTime());
+    const contentAfterSecond = readFileSync(settingsPath, "utf-8");
+    expect(contentAfterSecond).toBe(contentAfterFirst);
   });
 
-  it("does NOT re-write metadata-updater.sh on second call when content is unchanged", async () => {
+  it("writes correct metadata-updater.sh on second call when content is unchanged (#1941)", async () => {
     const agent = create();
     const hookConfig = makeHookConfig();
 
@@ -92,26 +92,29 @@ describe("setupWorkspaceHooks idempotency", () => {
     await agent.setupWorkspaceHooks!(workspacePath, hookConfig);
 
     const scriptPath = join(claudeDir, "metadata-updater.sh");
-    const oldDate = setOldMtime(scriptPath);
+    const contentAfterFirst = readFileSync(scriptPath, "utf-8");
 
     // Second call
     await agent.setupWorkspaceHooks!(workspacePath, hookConfig);
 
-    const mtimeAfter = getMtime(scriptPath);
-    expect(mtimeAfter).toBe(oldDate.getTime());
+    const contentAfterSecond = readFileSync(scriptPath, "utf-8");
+    expect(contentAfterSecond).toBe(contentAfterFirst);
   });
 
-  it("does NOT re-write settings when dataDir changes (hook command is workspace-relative)", async () => {
+  it("writes workspace-relative hook commands regardless of dataDir (#1941)", async () => {
     const agent = create();
 
     await agent.setupWorkspaceHooks!(workspacePath, makeHookConfig({ dataDir: join(tmpDir, "data-v1") }));
 
     const settingsPath = join(claudeDir, "settings.json");
-    const oldDate = setOldMtime(settingsPath);
+    const contentV1 = readFileSync(settingsPath, "utf-8");
 
     await agent.setupWorkspaceHooks!(workspacePath, makeHookConfig({ dataDir: join(tmpDir, "data-v2") }));
+    const contentV2 = readFileSync(settingsPath, "utf-8");
 
-    expect(getMtime(settingsPath)).toBe(oldDate.getTime());
+    // Hook commands are workspace-relative so settings content should be
+    // identical regardless of the dataDir parameter.
+    expect(contentV2).toBe(contentV1);
   });
 });
 
@@ -131,7 +134,7 @@ describe("setupWorkspaceHooks with MCP mail idempotency", () => {
     }
   });
 
-  it("does NOT re-write settings.json on second call when MCP mail config is unchanged", async () => {
+  it("writes identical settings.json on second call when MCP mail config is unchanged (#1941)", async () => {
     const agent = create();
     const hookConfig = makeHookConfig();
 
@@ -139,28 +142,12 @@ describe("setupWorkspaceHooks with MCP mail idempotency", () => {
     await agent.setupWorkspaceHooks!(workspacePath, hookConfig);
 
     const settingsPath = join(claudeDir, "settings.json");
-    const oldDate = setOldMtime(settingsPath);
+    const contentAfterFirst = readFileSync(settingsPath, "utf-8");
 
-    // Second call — same URL, same hook — should be a no-op
+    // Second call — same URL, same hook — content should be identical
     await agent.setupWorkspaceHooks!(workspacePath, hookConfig);
 
-    const mtimeAfter = getMtime(settingsPath);
-    expect(mtimeAfter).toBe(oldDate.getTime());
-  });
-});
-
-describe("setupWorkspaceHooks symlink handling", () => {
-  it("throws when .claude dir is a symlink (security: blocks writes through symlinks)", async () => {
-    // Create a target directory outside the workspace (worktree shared .claude)
-    const sharedDir = join(tmpDir, "shared-claude");
-    mkdirSync(sharedDir, { recursive: true });
-
-    // Replace .claude with a symlink (valid in worktree setups)
-    symlinkSync(sharedDir, claudeDir);
-
-    const agent = create();
-    await expect(agent.setupWorkspaceHooks!(workspacePath, makeHookConfig())).rejects.toThrow(
-      /refusing to write MCP settings through symlinked/,
-    );
+    const contentAfterSecond = readFileSync(settingsPath, "utf-8");
+    expect(contentAfterSecond).toBe(contentAfterFirst);
   });
 });

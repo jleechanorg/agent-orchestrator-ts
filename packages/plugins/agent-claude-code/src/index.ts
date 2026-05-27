@@ -8,14 +8,7 @@ import {
 } from "@jleechanorg/ao-plugin-agent-base";
 import {
   shellEscape,
-  readLastJsonlEntry,
-  readLastActivityEntry,
-  checkActivityLogState,
-  getActivityFallbackState,
-  recordTerminalActivity,
-  DEFAULT_READY_THRESHOLD_MS,
-  DEFAULT_NATIVE_ACTIVE_WINDOW_MS,
-  DEFAULT_ACTIVE_WINDOW_MS,
+  isWindows,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
@@ -24,17 +17,26 @@ import {
   type CostEstimate,
   type PluginModule,
   type ProjectConfig,
+  type ProcessProbeResult,
   type RuntimeHandle,
   type Session,
   type WorkspaceHooksConfig,
 } from "@jleechanorg/ao-core";
-import { execFile, execFileSync } from "node:child_process";
-import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat, realpath } from "node:fs/promises";
-import { existsSync, realpathSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { promisify } from "node:util";
-const execFileAsync = promisify(execFile);
+import {
+  classifyTerminalOutput,
+  findLatestSessionFile,
+  getClaudeActivityState,
+  isClaudeProcessAlive,
+  resolveWorkspaceForClaude,
+  toClaudeProjectPath,
+} from "./activity-detection.js";
+
+export { resetPsCache, resetWarnedReaddirPaths, resolveWorkspaceForClaude, toClaudeProjectPath } from "./activity-detection.js";
 
 function normalizePermissionMode(mode: string | undefined): "permissionless" | "default" | "auto-edit" | "suggest" | undefined {
   if (mode === undefined) return "permissionless";
@@ -45,8 +47,6 @@ function normalizePermissionMode(mode: string | undefined): "permissionless" | "
   }
   return undefined;
 }
-
-export { resolveWorkspaceForClaude };
 
 // =============================================================================
 // Metadata Updater Hook Script
@@ -243,6 +243,170 @@ echo '{}'
 exit 0
 `;
 
+export const METADATA_UPDATER_SCRIPT_NODE = `#!/usr/bin/env node
+// Metadata Updater Hook for Agent Orchestrator (Node.js — Windows)
+//
+// This PostToolUse hook automatically updates session metadata when:
+// - gh pr create: extracts PR URL and writes to metadata
+// - git checkout -b / git switch -c: extracts branch name and writes to metadata
+// - gh pr merge: updates status to "merged"
+
+const { readFileSync, writeFileSync, renameSync, existsSync, realpathSync } = require("node:fs");
+const { join, sep, resolve: resolvePath } = require("node:path");
+const os = require("node:os");
+
+const AO_DATA_DIR = process.env.AO_DATA_DIR || join(process.env.HOME || process.env.USERPROFILE || "", ".ao-sessions");
+const AO_SESSION = process.env.AO_SESSION || "";
+
+// Read hook input from stdin (fd 0 is cross-platform, no /dev/stdin needed)
+let inputRaw = "";
+try {
+  inputRaw = readFileSync(0, "utf-8");
+} catch {
+  inputRaw = "";
+}
+
+let input;
+try {
+  input = JSON.parse(inputRaw || "{}");
+} catch {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+
+const toolName = input.tool_name || "";
+const command = (input.tool_input && input.tool_input.command) || "";
+const output = input.tool_response || "";
+const exitCode = typeof input.exit_code === "number" ? input.exit_code : 0;
+const hookEvent = input.hook_event_name || "";
+
+// Only process successful commands
+if (exitCode !== 0) {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+
+// Only process Bash tool calls
+if (toolName !== "Bash") {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+
+// Hard guardrail: block agent-triggered gh pr merge by default
+const mergePattern = /^[\\s]*([A-Za-z_][A-Za-z0-9_]*=[^\\s]+[\\s]+)*gh[\\s]+pr[\\s]+merge([\\s]|$)/;
+let cleanCommand = command;
+// Strip cd prefix
+const cdPrefixRe = /^\\s*cd\\s+\\S.*?\\s+(?:&&|;)\\s+(.*)/;
+let m;
+while ((m = cdPrefixRe.exec(cleanCommand)) !== null && /^\\s*cd\\s/.test(cleanCommand)) {
+  cleanCommand = m[1];
+}
+
+if (mergePattern.test(cleanCommand)) {
+  if (hookEvent !== "PostToolUse" && process.env.AO_ALLOW_GH_PR_MERGE !== "1") {
+    process.stdout.write(JSON.stringify({hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Blocked by AO policy: agents must not run gh pr merge. Leave merge to orchestrator/human."}}) + "\\n");
+    process.exit(0);
+  }
+}
+
+if (hookEvent !== "PostToolUse" && hookEvent) {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+
+// Validate AO_SESSION is set
+if (!AO_SESSION) {
+  process.stdout.write(JSON.stringify({ systemMessage: "AO_SESSION environment variable not set, skipping metadata update" }) + "\\n");
+  process.exit(0);
+}
+
+// Validate AO_SESSION contains no path traversal components
+if (AO_SESSION.includes("/") || AO_SESSION.includes("\\\\") || AO_SESSION.includes("..")) {
+  process.stdout.write(JSON.stringify({ systemMessage: "AO_SESSION contains invalid path characters, skipping metadata update" }) + "\\n");
+  process.exit(0);
+}
+
+const home = os.homedir();
+let resolvedAoDir;
+try { resolvedAoDir = realpathSync(AO_DATA_DIR); } catch { resolvedAoDir = resolvePath(AO_DATA_DIR); }
+const allowedBases = [join(home, ".ao"), join(home, ".agent-orchestrator"), os.tmpdir()];
+if (!allowedBases.some((a) => resolvedAoDir === a || resolvedAoDir.startsWith(a + sep))) {
+  process.stdout.write(JSON.stringify({ systemMessage: "AO_DATA_DIR is outside allowed directories, skipping metadata update" }) + "\\n");
+  process.exit(0);
+}
+
+const metadataFile = join(AO_DATA_DIR, AO_SESSION);
+
+if (!existsSync(metadataFile)) {
+  process.stdout.write(JSON.stringify({ systemMessage: "Metadata file not found: " + metadataFile }) + "\\n");
+  process.exit(0);
+}
+
+function updateMetadataKey(key, value) {
+  const lines = readFileSync(metadataFile, "utf-8").split("\\n");
+  let found = false;
+  const updated = lines.map((line) => {
+    if (line.startsWith(key + "=")) {
+      found = true;
+      return key + "=" + value;
+    }
+    return line;
+  });
+  if (!found) {
+    updated.push(key + "=" + value);
+  }
+  const tmpFile = metadataFile + ".tmp." + process.pid;
+  writeFileSync(tmpFile, updated.join("\\n"), "utf-8");
+  renameSync(tmpFile, metadataFile);
+}
+
+// Detect: gh pr create
+if (/^gh\\s+pr\\s+create/.test(cleanCommand)) {
+  const prMatch = output.match(/https:\\/\\/github[.]com\\/[^/]+\\/[^/]+\\/pull\\/\\d+/);
+  if (prMatch) {
+    const prUrl = prMatch[0];
+    updateMetadataKey("pr", prUrl);
+    updateMetadataKey("status", "pr_open");
+    process.stdout.write(JSON.stringify({ systemMessage: "Updated metadata: PR created at " + prUrl }) + "\\n");
+    process.exit(0);
+  }
+}
+
+// Detect: git checkout -b <branch> or git switch -c <branch>
+const checkoutNewBranch = cleanCommand.match(/^git\\s+checkout\\s+-b\\s+(\\S+)/) ||
+  cleanCommand.match(/^git\\s+switch\\s+-c\\s+(\\S+)/);
+if (checkoutNewBranch) {
+  const branch = checkoutNewBranch[1];
+  if (branch) {
+    updateMetadataKey("branch", branch);
+    process.stdout.write(JSON.stringify({ systemMessage: "Updated metadata: branch = " + branch }) + "\\n");
+    process.exit(0);
+  }
+}
+
+// Detect: git checkout <branch> or git switch <branch> (without -b/-c)
+const checkoutBranch = cleanCommand.match(/^git\\s+checkout\\s+([^\\s-]+[/-][^\\s]+)/) ||
+  cleanCommand.match(/^git\\s+switch\\s+([^\\s-]+[/-][^\\s]+)/);
+if (checkoutBranch) {
+  const branch = checkoutBranch[1];
+  if (branch && branch !== "HEAD") {
+    updateMetadataKey("branch", branch);
+    process.stdout.write(JSON.stringify({ systemMessage: "Updated metadata: branch = " + branch }) + "\\n");
+    process.exit(0);
+  }
+}
+
+// Detect: gh pr merge
+if (mergePattern.test(cleanCommand) && process.env.AO_ALLOW_GH_PR_MERGE === "1" && hookEvent === "PostToolUse") {
+  updateMetadataKey("status", "merged");
+  process.stdout.write(JSON.stringify({ systemMessage: "Updated metadata: status = merged" }) + "\\n");
+  process.exit(0);
+}
+
+process.stdout.write("{}\\n");
+process.exit(0);
+`;
+
 // =============================================================================
 // Plugin Manifest
 // =============================================================================
@@ -256,90 +420,8 @@ export const manifest = {
 };
 
 // =============================================================================
-// JSONL Helpers
+// JSONL Helpers (for getSessionInfo)
 // =============================================================================
-
-/**
- * Convert a workspace path to Claude's project directory path.
- * Claude stores sessions at ~/.claude/projects/{encoded-path}/
- *
- * Verified against Claude Code's actual on-disk slugs: every non-alphanumeric
- * character (other than `-`) is replaced with `-`. That includes `/`, `.`,
- * and crucially `_` — AO's per-project data dirs are named like
- * `<sanitized>_<hash>`, and without underscore folding the slug AO computes
- * misses the directory Claude actually wrote (issue #1611).
- *
- * Windows drive letters keep their special handling: `C:\Users\...` → strip
- * the colon, then encode → `C-Users-...`.
- *
- * Exported for testing purposes.
- */
-export function toClaudeProjectPath(workspacePath: string): string {
-  const normalized = workspacePath.replace(/\\/g, "/").replace(/:/g, "");
-  return normalized.replace(/[^a-zA-Z0-9-]/g, "-");
-}
-
-async function resolveWorkspaceForClaude(workspacePath: string): Promise<string> {
-  try {
-    return await realpath(workspacePath);
-  } catch {
-    return workspacePath;
-  }
-}
-
-const warnedReaddirPaths = new Set<string>();
-
-export function resetWarnedReaddirPaths(): void {
-  warnedReaddirPaths.clear();
-}
-
-async function findLatestSessionFile(
-  projectDir: string,
-  preferredUuid?: string,
-): Promise<string | null> {
-  if (preferredUuid) {
-    const preferred = join(projectDir, `${preferredUuid}.jsonl`);
-    try {
-      await stat(preferred);
-      return preferred;
-    } catch {
-      // Fall through to newest-mtime
-    }
-  }
-
-  let entries: string[];
-  try {
-    entries = await readdir(projectDir);
-  } catch (err: unknown) {
-    if (err instanceof Error && "code" in err && err.code !== "ENOENT") {
-      if (!warnedReaddirPaths.has(projectDir)) {
-        warnedReaddirPaths.add(projectDir);
-        const code = (err as NodeJS.ErrnoException).code;
-        console.warn(
-          `[claude-code] failed to read ${projectDir} (${code}): ${(err as Error).message}. Session activity will fall back to AO JSONL only. (This warning is shown once per path for the process lifetime.)`,
-        );
-      }
-    }
-    return null;
-  }
-
-  const jsonlFiles = entries.filter((f) => f.endsWith(".jsonl") && !f.startsWith("agent-"));
-  if (jsonlFiles.length === 0) return null;
-
-  const withStats = await Promise.all(
-    jsonlFiles.map(async (f) => {
-      const fullPath = join(projectDir, f);
-      try {
-        const s = await stat(fullPath);
-        return { path: fullPath, mtime: s.mtimeMs };
-      } catch {
-        return { path: fullPath, mtime: 0 };
-      }
-    }),
-  );
-  withStats.sort((a, b) => b.mtime - a.mtime);
-  return withStats[0]?.path ?? null;
-}
 
 interface JsonlLine {
   type?: string;
@@ -494,239 +576,446 @@ function extractCost(lines: JsonlLine[]): CostEstimate | undefined {
 }
 
 // =============================================================================
-// Process Detection
+// Activity Updater Hook Scripts (#1941)
 // =============================================================================
 
 /**
- * TTL cache for `ps -eo pid,tty,args` output. Without this, listing N sessions
- * would spawn N concurrent `ps` processes, each taking 30+ seconds on machines
- * with many processes. The cache ensures `ps` is called at most once per TTL
- * window regardless of how many sessions are being enriched.
+ * Bash script that translates Claude Code lifecycle hooks into AO
+ * activity-JSONL entries with `source: "hook"`.
+ *
+ * Event mapping is intentional and verified against the live Claude Code
+ * hooks reference (code.claude.com/docs/en/hooks):
+ *
+ * - SessionStart / Stop / SubagentStop                 → ready
+ * - UserPromptSubmit / PreToolUse / PostToolUse /
+ *   PostToolUseFailure / PreCompact / PostCompact /
+ *   SubagentStart / PostToolBatch                      → active
+ * - PermissionRequest                                  → waiting_input
+ * - Notification(permission_prompt | idle_prompt)      → waiting_input
+ * - Notification(auth_success | elicitation_*)         → no-op (the RFC's
+ *   blanket "Notification → waiting_input" would false-fire here)
+ * - StopFailure                                        → blocked
+ * - everything else (SessionEnd, TaskCreated, ...)     → no-op
+ *
+ * Event name comes from the stdin JSON payload's `hook_event_name`
+ * field. The script never blocks Claude (`exit 0` on every
+ * path, including parse failures and disk-full).
+ *
+ * Bash variant uses `node -p 'new Date().toISOString()'` for the timestamp
+ * because BSD date doesn't support `%3N`. Node is a hard runtime dep of
+ * Claude Code so this is always available.
+ *
+ * Notification is filtered by `notification_type` — only `permission_prompt`
+ * and `idle_prompt` map to `waiting_input`; `auth_success`/`elicitation_*` etc.
+ * are skipped because they don't represent a stuck-on-the-user transition.
+ *
+ * The script always exits 0 (never blocks Claude). Unknown events exit
+ * silently. Exported for integration testing.
  */
-let psCache: { output: string; timestamp: number; promise?: Promise<string> } | null = null;
-const PS_CACHE_TTL_MS = 5_000;
+export const ACTIVITY_UPDATER_SCRIPT = `#!/usr/bin/env bash
+# Activity Updater Hook for Agent Orchestrator
+#
+# Records Claude Code lifecycle events to {workspace}/.ao/activity.jsonl so
+# the dashboard / lifecycle reducer derives activity state from authoritative
+# platform events instead of regex over rendered terminal output. (#1941)
 
-/** Reset the ps cache. Exported for testing only. */
-export function resetPsCache(): void {
-  psCache = null;
+set -uo pipefail
+
+input=$(cat)
+
+if command -v jq &>/dev/null; then
+  event=$(printf '%s' "$input" | jq -r '.hook_event_name // empty')
+  notif_type=$(printf '%s' "$input" | jq -r '.notification_type // empty')
+  tool_name=$(printf '%s' "$input" | jq -r '.tool_name // empty')
+  error_type=$(printf '%s' "$input" | jq -r '.error_type // empty')
+else
+  event=$(printf '%s' "$input" | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+  notif_type=$(printf '%s' "$input" | grep -o '"notification_type"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+  tool_name=$(printf '%s' "$input" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+  error_type=$(printf '%s' "$input" | grep -o '"error_type"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+fi
+
+state=""
+trigger=""
+case "$event" in
+  SessionStart|Stop|SubagentStop)
+    state="ready"
+    trigger="$event"
+    ;;
+  UserPromptSubmit|PreToolUse|PostToolUse|PostToolUseFailure|PreCompact|PostCompact|SubagentStart|PostToolBatch)
+    state="active"
+    trigger="$event"
+    ;;
+  PermissionRequest)
+    state="waiting_input"
+    if [[ -n "$tool_name" ]]; then
+      trigger="PermissionRequest ($tool_name)"
+    else
+      trigger="PermissionRequest"
+    fi
+    ;;
+  Notification)
+    if [[ "$notif_type" == "permission_prompt" || "$notif_type" == "idle_prompt" ]]; then
+      state="waiting_input"
+      trigger="Notification ($notif_type)"
+    else
+      # auth_success / elicitation_* / unrecognized — not an activity transition
+      echo '{}'
+      exit 0
+    fi
+    ;;
+  StopFailure)
+    state="blocked"
+    if [[ -n "$error_type" ]]; then
+      trigger="StopFailure ($error_type)"
+    else
+      trigger="StopFailure"
+    fi
+    ;;
+  *)
+    echo '{}'
+    exit 0
+    ;;
+esac
+
+workspace="\${CLAUDE_PROJECT_DIR:-$(pwd)}"
+log_dir="$workspace/.ao"
+log_file="$log_dir/activity.jsonl"
+
+mkdir -p "$log_dir" 2>/dev/null || { echo '{}'; exit 0; }
+
+# Node is a hard runtime dep of Claude Code, so node -p is always available
+# and gives millisecond-precision ISO timestamps matching the rest of the
+# activity-JSONL log. Fall back to seconds-precision date for the unlikely
+# case where node is unavailable (still valid ISO 8601).
+ts=$(node -p 'new Date().toISOString()' 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Escape JSON-special characters in the trigger value. Triggers are bounded
+# today to event/tool/error names (no control chars in practice) but escape
+# defensively — \\\\ and " for content, plus the five common control chars
+# (\\n \\r \\t \\b \\f) so the JSONL line stays parseable for any future
+# trigger source. Matches what Node's JSON.stringify produces in the .cjs
+# variant so both implementations stay in lockstep.
+escape_json() {
+  local s="$1"
+  s="\${s//\\\\\\\\/\\\\\\\\\\\\\\\\}"
+  s="\${s//\\"/\\\\\\\\\\"}"
+  s="\${s//$'\\n'/\\\\n}"
+  s="\${s//$'\\r'/\\\\r}"
+  s="\${s//$'\\t'/\\\\t}"
+  s="\${s//$'\\b'/\\\\b}"
+  s="\${s//$'\\f'/\\\\f}"
+  printf '%s' "$s"
 }
 
-async function getCachedProcessList(): Promise<string> {
-  const now = Date.now();
-  if (psCache && now - psCache.timestamp < PS_CACHE_TTL_MS) {
-    // Cache hit — return resolved output or wait for in-flight request
-    if (psCache.promise) return psCache.promise;
-    return psCache.output;
-  }
+if [[ "$state" == "waiting_input" || "$state" == "blocked" ]]; then
+  esc_trigger=$(escape_json "$trigger")
+  printf '{"ts":"%s","state":"%s","source":"hook","trigger":"%s"}\\n' "$ts" "$state" "$esc_trigger" >> "$log_file"
+else
+  printf '{"ts":"%s","state":"%s","source":"hook"}\\n' "$ts" "$state" >> "$log_file"
+fi
 
-  // Cache miss or expired — start a single `ps` call and share the promise.
-  // Guard both callbacks so they only update psCache if it still belongs to
-  // this request — a newer request may have replaced it while we were waiting.
-  const promise = execFileAsync("ps", ["-eo", "pid,tty,args"], {
-    timeout: 5_000,
-  }).then(({ stdout }) => {
-    if (psCache?.promise === promise) {
-      psCache = { output: stdout, timestamp: Date.now() };
+echo '{}'
+exit 0
+`;
+
+/**
+ * Node.js equivalent of ACTIVITY_UPDATER_SCRIPT for Windows. No bash, no jq,
+ * no shebang interpretation; relies only on Node built-ins. Exported for
+ * testing.
+ */
+export const ACTIVITY_UPDATER_SCRIPT_NODE = `#!/usr/bin/env node
+// Activity Updater Hook for Agent Orchestrator (Node.js — Windows). See
+// ACTIVITY_UPDATER_SCRIPT for the canonical bash version. (#1941)
+
+const { appendFileSync, mkdirSync, readFileSync } = require("node:fs");
+const { join } = require("node:path");
+
+let inputRaw = "";
+try {
+  inputRaw = readFileSync(0, "utf-8");
+} catch {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+
+let payload;
+try {
+  payload = JSON.parse(inputRaw || "{}");
+} catch {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+
+const event = typeof payload.hook_event_name === "string" ? payload.hook_event_name : "";
+const notifType = typeof payload.notification_type === "string" ? payload.notification_type : "";
+const toolName = typeof payload.tool_name === "string" ? payload.tool_name : "";
+const errorType = typeof payload.error_type === "string" ? payload.error_type : "";
+
+let state = "";
+let trigger = "";
+switch (event) {
+  case "SessionStart":
+  case "Stop":
+  case "SubagentStop":
+    state = "ready";
+    trigger = event;
+    break;
+  case "UserPromptSubmit":
+  case "PreToolUse":
+  case "PostToolUse":
+  case "PostToolUseFailure":
+  case "PreCompact":
+  case "PostCompact":
+  case "SubagentStart":
+  case "PostToolBatch":
+    state = "active";
+    trigger = event;
+    break;
+  case "PermissionRequest":
+    state = "waiting_input";
+    trigger = toolName ? \`PermissionRequest (\${toolName})\` : "PermissionRequest";
+    break;
+  case "Notification":
+    if (notifType === "permission_prompt" || notifType === "idle_prompt") {
+      state = "waiting_input";
+      trigger = \`Notification (\${notifType})\`;
+    } else {
+      process.stdout.write("{}\\n");
+      process.exit(0);
     }
-    return stdout;
-  });
+    break;
+  case "StopFailure":
+    state = "blocked";
+    trigger = errorType ? \`StopFailure (\${errorType})\` : "StopFailure";
+    break;
+  default:
+    process.stdout.write("{}\\n");
+    process.exit(0);
+}
 
-  // Store the in-flight promise so concurrent callers share it
-  psCache = { output: "", timestamp: now, promise };
+const workspace = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const logDir = join(workspace, ".ao");
+const logFile = join(logDir, "activity.jsonl");
 
-  try {
-    return await promise;
-  } catch {
-    // On failure, clear cache so the next caller retries — but only if
-    // psCache still points to this request (avoid clobbering a newer entry)
-    if (psCache?.promise === promise) {
-      psCache = null;
-    }
-    return "";
-  }
+try {
+  mkdirSync(logDir, { recursive: true });
+} catch {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+
+const entry = {
+  ts: new Date().toISOString(),
+  state,
+  source: "hook",
+  ...(state === "waiting_input" || state === "blocked" ? { trigger } : {}),
+};
+
+try {
+  appendFileSync(logFile, JSON.stringify(entry) + "\\n", "utf-8");
+} catch {
+  // Disk full, permission denied, etc. — best-effort, never block Claude.
+}
+
+process.stdout.write("{}\\n");
+`;
+
+// =============================================================================
+// Hook Registration
+// =============================================================================
+
+/**
+ * Single hook registration: which event, which variant (matcher), which
+ * command to invoke, and a substring used to find-and-update an existing
+ * entry so repeated setup calls are idempotent.
+ */
+interface HookRegistration {
+  event: string;
+  matcher: string;
+  command: string;
+  timeout: number;
+  /** Substring(s) of `command` that identify a pre-existing entry to update. */
+  identifiers: ReadonlyArray<string>;
 }
 
 /**
- * Check if a process named "claude" is running in the given runtime handle's context.
- * Uses ps to find processes by TTY (for tmux) or by PID.
+ * Set the registration's hook in the `event`'s hook array, updating any
+ * existing entry whose command contains one of `identifiers` (idempotent).
+ *
+ * Tolerates malformed pre-existing settings: if `hooks[event]` is not an
+ * array (object, string, missing) we start a fresh array rather than
+ * throwing on `.push`.
+ *
+ * Only refreshes the entry-level `matcher` when the entry contains a single
+ * hook def (ours). When a user has co-located their own hook def in the
+ * same `{ matcher, hooks: [...] }` object, we leave their matcher alone and
+ * only update our def's `command`/`timeout` so their hook keeps firing on
+ * the matchers they chose.
  */
-async function findClaudeProcess(handle: RuntimeHandle): Promise<number | null> {
-  try {
-    // For tmux runtime, get the pane TTY and find claude on it
-    if (handle.runtimeName === "tmux" && handle.id) {
-      const { stdout: ttyOut } = await execFileAsync(
-        "tmux",
-        ["list-panes", "-t", handle.id, "-F", "#{pane_tty}"],
-        { timeout: 5_000 },
-      );
-      // Iterate all pane TTYs (multi-pane sessions) — succeed on any match
-      const ttys = ttyOut
-        .trim()
-        .split("\n")
-        .map((t) => t.trim())
-        .filter(Boolean);
-      if (ttys.length === 0) return null;
+function upsertHookEntry(
+  hooks: Record<string, unknown>,
+  reg: HookRegistration,
+): void {
+  const existing = hooks[reg.event];
+  const entries: Array<unknown> = Array.isArray(existing) ? existing : [];
 
-      const psOut = await getCachedProcessList();
-      if (!psOut) return null;
-
-      const ttySet = new Set(ttys.map((t) => t.replace(/^\/dev\//, "")));
-      // Match "claude" (and variants like claude.exe, claude-code) as a command,
-      // or "claude-code/cli.js" for npm shims.
-      // Prevents false positives on project directory names like "my-claude-project".
-      const processRe = /(?:^|\/)(?:claude(?:[-.][\w-]+)*|claude-code\/cli\.js)(?:\s|$)/;
-      for (const line of psOut.split("\n")) {
-        const cols = line.trimStart().split(/\s+/);
-        if (cols.length < 3 || !ttySet.has(cols[1] ?? "")) continue;
-        const args = cols.slice(2).join(" ");
-        if (processRe.test(args)) {
-          return parseInt(cols[0] ?? "0", 10);
-        }
-      }
-      return null;
-    }
-
-    // For process runtime, check if the PID stored in handle data is alive
-    const rawPid = handle.data["pid"];
-    const pid = typeof rawPid === "number" ? rawPid : Number(rawPid);
-    if (Number.isFinite(pid) && pid > 0) {
-      try {
-        process.kill(pid, 0); // Signal 0 = check existence
-        return pid;
-      } catch (err: unknown) {
-        // EPERM means the process exists but we lack permission to signal it
-        if (err instanceof Error && "code" in err && err.code === "EPERM") {
-          return pid;
-        }
-        return null;
+  let foundEntryIdx = -1;
+  let foundDefIdx = -1;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+    const hooksList = (entry as Record<string, unknown>)["hooks"];
+    if (!Array.isArray(hooksList)) continue;
+    for (let j = 0; j < hooksList.length; j++) {
+      const def = hooksList[j];
+      if (typeof def !== "object" || def === null || Array.isArray(def)) continue;
+      const cmd = (def as Record<string, unknown>)["command"];
+      if (typeof cmd === "string" && reg.identifiers.some((id) => cmd.includes(id))) {
+        foundEntryIdx = i;
+        foundDefIdx = j;
+        break;
       }
     }
-
-    // No reliable way to identify the correct process for this session
-    return null;
-  } catch {
-    return null;
+    if (foundEntryIdx >= 0) break;
   }
+
+  if (foundEntryIdx === -1) {
+    entries.push({
+      matcher: reg.matcher,
+      hooks: [{ type: "command", command: reg.command, timeout: reg.timeout }],
+    });
+  } else {
+    const entry = entries[foundEntryIdx] as Record<string, unknown>;
+    const hooksList = entry["hooks"] as Array<Record<string, unknown>>;
+    hooksList[foundDefIdx]!["command"] = reg.command;
+    hooksList[foundDefIdx]!["timeout"] = reg.timeout;
+    if (hooksList.length === 1) {
+      entry["matcher"] = reg.matcher;
+    }
+  }
+
+  hooks[reg.event] = entries;
 }
 
-const NOISE_JSONL_TYPES: ReadonlySet<string> = new Set([
-  "permission-mode",
-  "ai-title",
-  "agent-color",
-  "agent-name",
-  "custom-title",
-  "pr-link",
-]);
+/**
+ * Build the list of hooks to register for this workspace. Two scripts are
+ * installed:
+ *   - metadata-updater: PostToolUse(Bash) only — extracts gh/git side-effects.
+ *   - activity-updater: every event that carries activity information, so
+ *     dashboard / lifecycle reducer state derives from platform events
+ *     instead of regex over rendered terminal output (#1941).
+ *
+ * Activity events use matcher "" — match every variant. PermissionRequest's
+ * tool-name and Notification's notification_type are filtered inside the
+ * script itself so the registered set stays small.
+ */
+function buildHookRegistrations(
+  metadataCommand: string,
+  activityCommand: string,
+): HookRegistration[] {
+  const METADATA_IDS = [
+    "metadata-updater.sh",
+    "metadata-updater.cjs",
+    "metadata-updater.js",
+  ] as const;
+  const ACTIVITY_IDS = ["activity-updater.sh", "activity-updater.cjs"] as const;
 
-// =============================================================================
-// Terminal Output Patterns for detectActivity
-// =============================================================================
+  const regs: HookRegistration[] = [
+    {
+      event: "PreToolUse",
+      matcher: "Bash",
+      command: metadataCommand,
+      timeout: 5000,
+      identifiers: METADATA_IDS,
+    },
+    {
+      event: "PostToolUse",
+      matcher: "Bash",
+      command: metadataCommand,
+      timeout: 5000,
+      identifiers: METADATA_IDS,
+    },
+  ];
 
-const ACTIVE_SPINNER_RE = /[✻✶✳✽✾⠁⠂⠄⠈⠐⠠⡀⢀⣀]/;
-
-function classifyTerminalOutput(terminalOutput: string): ActivityState {
-  if (!terminalOutput.trim()) return "idle";
-
-  const lines = terminalOutput.trim().split("\n");
-  const lastLine = lines[lines.length - 1]?.trim() ?? "";
-
-  if (/^[❯>$#]\s*$/.test(lastLine)) {
-    // Only check the line immediately above the prompt for a spinner.
-    // Scanning too far back (e.g. 20 lines) lets stale spinner characters
-    // from earlier in the turn keep the session marked "active".
-    const previousLine = lines[lines.length - 2]?.trim() ?? "";
-    if (ACTIVE_SPINNER_RE.test(previousLine)) return "active";
-    return "idle";
+  // Activity-updater events. Every event that the activity-updater script
+  // knows how to map (see ACTIVITY_UPDATER_SCRIPT) must be registered here;
+  // unregistered events fire no hook, so unrecognized hooks waste no time.
+  const activityEvents = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "PostToolBatch",
+    "Notification",
+    "PermissionRequest",
+    "Stop",
+    "StopFailure",
+    "SubagentStart",
+    "SubagentStop",
+    "PreCompact",
+    "PostCompact",
+  ];
+  for (const event of activityEvents) {
+    regs.push({
+      event,
+      matcher: "",
+      command: activityCommand,
+      // Hook execution is best-effort and the activity-updater is intentionally
+      // O(few ms): JSON parse, one append, exit. A short timeout keeps a stuck
+      // hook from slowing a turn down.
+      timeout: 2000,
+      identifiers: ACTIVITY_IDS,
+    });
   }
 
-  const wideTail = lines.slice(-12).join("\n");
-
-  if (/Unable to connect to API/i.test(wideTail)) return "blocked";
-  if (/Retrying in \d+s.*attempt \d+\/\d+/i.test(wideTail)) return "blocked";
-
-  const tail = lines.slice(-5).join("\n");
-  if (/Do you want to proceed\?/i.test(tail)) return "waiting_input";
-  if (/\(Y\)es.*\(N\)o/i.test(tail)) return "waiting_input";
-  if (/bypass\s+all\s+future\s+permissions/i.test(tail)) return "waiting_input";
-
-  if (/\b\w+ing(?:\u2026|\.\.\.)/.test(wideTail)) return "active";
-  if (/\bGerminating/i.test(wideTail)) return "active";
-  if (/\b(?:Thinking|Working)\s*(?:…|\.\.\.)/i.test(wideTail)) return "active";
-  if (/\bReading\s+file/i.test(wideTail)) return "active";
-  if (/\bWriting\s+to\b/i.test(wideTail)) return "active";
-  if (/\bSearching\s+codebase/i.test(wideTail)) return "active";
-  if (/Press\s+up\s+to\s+edit\s+queued/i.test(wideTail)) return "active";
-
-  return "idle";
+  return regs;
 }
 
 // =============================================================================
 // Hook Setup Helper
 // =============================================================================
+// =============================================================================
 
 /**
- * Shared helper to setup PostToolUse hooks in a workspace.
- * Writes metadata-updater.sh script and updates settings.json.
- * The hook command is always workspace-relative so settings.json content is
- * identical across worktrees sharing the same .claude dir.
- *
- * @param workspacePath - Path to the workspace directory
+ * Install Claude Code workspace hooks. Writes both helper scripts
+ * (metadata-updater + activity-updater) and merges hook registrations into
+ * `.claude/settings.json` — preserving any user-installed hooks, updating our
+ * own in place on repeated calls.
  */
 async function setupHookInWorkspace(workspacePath: string): Promise<void> {
-  const hookCommand = ".claude/metadata-updater.sh";
   const claudeDir = join(workspacePath, ".claude");
   const settingsPath = join(claudeDir, "settings.json");
-  const hookScriptPath = join(claudeDir, "metadata-updater.sh");
 
-  // Check for symlinks — validate target is within workspace before writing
   try {
-    const claudeStat = await lstat(claudeDir);
-    if (claudeStat.isSymbolicLink()) {
-      try {
-        const resolved = realpathSync(claudeDir);
-        const wsReal = realpathSync(workspacePath);
-        if (!resolved.startsWith(wsReal + "/") && resolved !== wsReal) {
-          console.warn(`[agent-claude-code] .claude is a symlink pointing outside workspace (${resolved}) — skipping hook setup`);
-          return;
-        }
-      } catch {
-        // Can't resolve symlink (broken or test env) — skip to be safe
-        console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — cannot verify target, skipping hook setup`);
-        return;
-      }
-      console.warn(`[agent-claude-code] .claude is a symlink at ${claudeDir} — target within workspace, continuing`);
-    }
-    // Exists (real dir or symlink within workspace) — nothing to create
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    // Directory doesn't exist — create it
     await mkdir(claudeDir, { recursive: true });
-  }
-
-  // Guard: refuse to write through an existing symlink to avoid overwriting an arbitrary target file
-  let hookScriptIsSymlink = false;
-  try {
-    const scriptSt = await lstat(hookScriptPath);
-    hookScriptIsSymlink = scriptSt.isSymbolicLink();
-    if (hookScriptIsSymlink) {
-      console.warn(`[agent-claude-code] ${hookScriptPath} is a symlink — skipping hook script write to avoid clobbering target`);
-    }
   } catch {
-    // File does not exist — safe to write
+    // Directory may already exist; ignore
   }
 
-  // Write the metadata updater script only if content changed (idempotent) and not a symlink
-  if (!hookScriptIsSymlink && (!existsSync(hookScriptPath) || (await readFile(hookScriptPath, "utf-8")) !== METADATA_UPDATER_SCRIPT)) {
-    await writeFile(hookScriptPath, METADATA_UPDATER_SCRIPT, "utf-8");
-  }
-  // Always ensure execute bit is set, but skip if the hook script is itself a symlink
-  // (chmod follows symlinks and could alter permissions on an unrelated target file).
-  const hookStat = await lstat(hookScriptPath).catch(() => null);
-  if (hookStat && !hookStat.isSymbolicLink()) {
-    await chmod(hookScriptPath, 0o755);
+  let metadataCommand: string;
+  let activityCommand: string;
+  if (isWindows()) {
+    const metadataPath = join(claudeDir, "metadata-updater.cjs");
+    const activityPath = join(claudeDir, "activity-updater.cjs");
+    await writeFile(metadataPath, METADATA_UPDATER_SCRIPT_NODE, "utf-8");
+    await writeFile(activityPath, ACTIVITY_UPDATER_SCRIPT_NODE, "utf-8");
+    // .cjs forces CJS regardless of workspace package.json "type"; node
+    // invocation is required on Windows because shebangs aren't honoured.
+    metadataCommand = "node .claude/metadata-updater.cjs";
+    activityCommand = "node .claude/activity-updater.cjs";
+  } else {
+    const metadataPath = join(claudeDir, "metadata-updater.sh");
+    const activityPath = join(claudeDir, "activity-updater.sh");
+    await writeFile(metadataPath, METADATA_UPDATER_SCRIPT, "utf-8");
+    await writeFile(activityPath, ACTIVITY_UPDATER_SCRIPT, "utf-8");
+    await chmod(metadataPath, 0o755);
+    await chmod(activityPath, 0o755);
+    metadataCommand = ".claude/metadata-updater.sh";
+    activityCommand = ".claude/activity-updater.sh";
   }
 
-  // Read existing settings if present
   let existingSettings: Record<string, unknown> = {};
   if (existsSync(settingsPath)) {
     try {
@@ -737,84 +1026,13 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
     }
   }
 
-  // Merge hooks configuration — type-guard before casting to avoid runtime
-  // errors on malformed or older settings.json files (e.g. hooks is a string/array).
-  const rawHooks = existingSettings["hooks"];
-  const hooks: Record<string, unknown> =
-    typeof rawHooks === "object" && rawHooks !== null && !Array.isArray(rawHooks)
-      ? (rawHooks as Record<string, unknown>)
-      : {};
-  const postToolUse = Array.isArray(hooks["PostToolUse"]) ? (hooks["PostToolUse"] as Array<unknown>) : [];
-  const preToolUse = Array.isArray(hooks["PreToolUse"]) ? (hooks["PreToolUse"] as Array<unknown>) : [];
-
-  const ensureMetadataHook = (eventHooks: Array<unknown>): void => {
-    let hookIndex = -1;
-    let hookDefIndex = -1;
-    for (let i = 0; i < eventHooks.length; i++) {
-      const hook = eventHooks[i];
-      if (typeof hook !== "object" || hook === null || Array.isArray(hook)) continue;
-      const h = hook as Record<string, unknown>;
-      const hooksList = h["hooks"];
-      if (!Array.isArray(hooksList)) continue;
-      for (let j = 0; j < hooksList.length; j++) {
-        const hDef = hooksList[j];
-        if (typeof hDef !== "object" || hDef === null || Array.isArray(hDef)) continue;
-        const def = hDef as Record<string, unknown>;
-        if (typeof def["command"] === "string" && def["command"].includes("metadata-updater.sh")) {
-          hookIndex = i;
-          hookDefIndex = j;
-          break;
-        }
-      }
-      if (hookIndex >= 0) break;
-    }
-
-    const hookDef: Record<string, unknown> = {
-      type: "command",
-      command: hookCommand,
-      timeout: 5000,
-    };
-
-    if (hookIndex === -1) {
-      eventHooks.push({ matcher: "Bash", hooks: [hookDef] });
-      return;
-    }
-
-    const hook = eventHooks[hookIndex] as Record<string, unknown>;
-    const hooksList = hook["hooks"] as Array<Record<string, unknown>>;
-    const existingHookDef = hooksList[hookDefIndex];
-    const existingEnv = existingHookDef?.["env"] as Record<string, unknown> | undefined;
-    const existingDataDir = existingEnv?.["AO_DATA_DIR"];
-    const newCommandDropsDataDir = !hookDef["env"] && typeof existingDataDir === "string";
-    if (!newCommandDropsDataDir) {
-      hooksList[hookDefIndex] = hookDef;
-    }
-  };
-
-  ensureMetadataHook(postToolUse);
-  ensureMetadataHook(preToolUse);
-
-  hooks["PostToolUse"] = postToolUse;
-  hooks["PreToolUse"] = preToolUse;
+  const hooks = (existingSettings["hooks"] as Record<string, unknown>) ?? {};
+  for (const reg of buildHookRegistrations(metadataCommand, activityCommand)) {
+    upsertHookEntry(hooks, reg);
+  }
   existingSettings["hooks"] = hooks;
 
-  // Guard: refuse to write through an existing symlink to avoid clobbering an arbitrary target file
-  let settingsPathIsSymlink = false;
-  try {
-    const settingsStat = await lstat(settingsPath);
-    settingsPathIsSymlink = settingsStat.isSymbolicLink();
-    if (settingsPathIsSymlink) {
-      console.warn(`[agent-claude-code] ${settingsPath} is a symlink — skipping settings write to avoid clobbering target`);
-    }
-  } catch {
-    // File does not exist — safe to write
-  }
-
-  // Write settings only if content changed (idempotent) and not a symlink
-  const settingsBody = JSON.stringify(existingSettings, null, 2) + "\n";
-  if (!settingsPathIsSymlink && (!existsSync(settingsPath) || (await readFile(settingsPath, "utf-8")) !== settingsBody)) {
-    await writeFile(settingsPath, settingsBody, "utf-8");
-  }
+  await writeFile(settingsPath, JSON.stringify(existingSettings, null, 2) + "\n", "utf-8");
 }
 
 const DEFAULT_MINIMAX_ANTHROPIC_BASE_URL = "https://api.minimax.io/anthropic";
@@ -975,111 +1193,40 @@ function createClaudeCodeAgent(): Agent {
     },
 
     detectActivity(terminalOutput: string): ActivityState {
+      // #1941: Claude activity is derived from platform-event hooks
+      // (PermissionRequest / StopFailure / Notification / Stop / ...) which
+      // write directly to {workspace}/.ao/activity.jsonl. The terminal-regex
+      // layer was structurally fragile (every UI tweak in Claude regressed
+      // it; see the 15-commit churn in #1932) so it has been retired in
+      // favour of those authoritative events.
+      //
+      // detectActivity is kept on the Agent interface for other plugins
+      // (Aider, OpenCode, Codex fallback) that still rely on terminal output.
+      // For Claude, classifyTerminalOutput is a stable "idle" stub — the
+      // lifecycle manager only consults this method when getActivityState
+      // returned null (no Claude process / no JSONL / no hook entry yet),
+      // and in that no-signal case "idle" is the correct conservative
+      // answer (we don't write it back to JSONL — recordActivity is also
+      // intentionally omitted for Claude).
       return classifyTerminalOutput(terminalOutput);
     },
 
-    async recordActivity(session: Session, terminalOutput: string): Promise<void> {
-      if (!session.workspacePath) return;
-      await recordTerminalActivity(
-        session.workspacePath,
-        terminalOutput,
-        this.detectActivity.bind(this),
-      );
-    },
+    // recordActivity is intentionally NOT implemented for the Claude agent
+    // (#1941). Hooks write activity entries directly via the activity-updater
+    // script, so polling-driven terminal-output classification would only add
+    // stale duplicates to .ao/activity.jsonl.
 
-    async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
-      const pid = await findClaudeProcess(handle);
-      return pid !== null;
+    async isProcessRunning(handle: RuntimeHandle): Promise<ProcessProbeResult> {
+      return isClaudeProcessAlive(handle);
     },
 
     async getActivityState(
       session: Session,
       readyThresholdMs?: number,
     ): Promise<ActivityDetection | null> {
-      const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
-
-      const exitedAt = new Date();
-      if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
-      const running = await this.isProcessRunning(session.runtimeHandle);
-      if (!running) return { state: "exited", timestamp: exitedAt };
-
-      if (!session.workspacePath) return null;
-
-      const projectPath = toClaudeProjectPath(await resolveWorkspaceForClaude(session.workspacePath));
-      const projectDir = join(homedir(), ".claude", "projects", projectPath);
-
-      const rawUuid = session.metadata?.["claudeSessionUuid"] ?? session.agentInfo?.metadata?.["claudeSessionUuid"];
-      const preferredUuid =
-        typeof rawUuid === "string" && rawUuid.trim() ? rawUuid.trim() : undefined;
-      const sessionFile = await findLatestSessionFile(projectDir, preferredUuid);
-      let staleNativeState: ActivityDetection | null = null;
-      if (sessionFile) {
-        const entry = await readLastJsonlEntry(sessionFile);
-        if (entry) {
-          if (session.createdAt && entry.modifiedAt < session.createdAt) {
-            staleNativeState = { state: "idle", timestamp: session.createdAt };
-          } else {
-            const ageMs = Date.now() - entry.modifiedAt.getTime();
-            const timestamp = entry.modifiedAt;
-
-            if (entry.lastType === "permission_request") {
-              return { state: "waiting_input", timestamp };
-            }
-
-            if (entry.lastType === "error") {
-              return { state: "blocked", timestamp };
-            }
-
-            if (entry.lastType === "system" && entry.lastSubtype === "api_error" && entry.lastLevel === "error") {
-              return { state: "blocked", timestamp };
-            }
-
-            if (entry.lastType && NOISE_JSONL_TYPES.has(entry.lastType)) {
-              // Noise entries (bookkeeping) don't count as activity; use the entry's
-              // modification time as the idle timestamp.
-              staleNativeState = { state: "idle", timestamp: entry.modifiedAt };
-            } else {
-              const activeWindowMs = Math.min(DEFAULT_NATIVE_ACTIVE_WINDOW_MS, threshold);
-              switch (entry.lastType) {
-                case "user":
-                case "progress":
-                  if (ageMs <= activeWindowMs) return { state: "active", timestamp };
-                  return { state: ageMs > threshold ? "idle" : "ready", timestamp };
-
-                case "system":
-                  return { state: ageMs > threshold ? "idle" : "ready", timestamp };
-
-                case "assistant":
-                case "summary":
-                case "result":
-                  return { state: ageMs > threshold ? "idle" : "ready", timestamp };
-
-                case "file-history-snapshot":
-                case "attachment":
-                case "queue-operation":
-                case "last-prompt":
-                  return { state: ageMs > threshold ? "idle" : "ready", timestamp };
-
-                default:
-                  if (ageMs <= activeWindowMs) return { state: "active", timestamp };
-                  return { state: ageMs > threshold ? "idle" : "ready", timestamp };
-              }
-            }
-          }
-        }
-      }
-
-      const activityResult = await readLastActivityEntry(session.workspacePath);
-      const activityState = checkActivityLogState(activityResult);
-      if (activityState) return activityState;
-
-      if (staleNativeState) return staleNativeState;
-
-      const activeWindowMs = Math.min(DEFAULT_ACTIVE_WINDOW_MS, threshold);
-      const fallback = getActivityFallbackState(activityResult, activeWindowMs, threshold);
-      if (fallback) return fallback;
-
-      return null;
+      return getClaudeActivityState(session, readyThresholdMs, (handle) =>
+        this.isProcessRunning(handle),
+      );
     },
 
     async getSessionInfo(session: Session): Promise<AgentSessionInfo | null> {
@@ -1180,13 +1327,9 @@ function createClaudeCodeAgent(): Agent {
       await setupMcpMailInWorkspace(workspacePath, ".claude");
     },
 
-    async postLaunchSetup(session: Session): Promise<void> {
-      if (!session.workspacePath) return;
-
-      await setupHookInWorkspace(session.workspacePath);
-
-      // Also configure MCP mail server for agent coordination
-      await setupMcpMailInWorkspace(session.workspacePath, ".claude");
+    async postLaunchSetup(_session: Session): Promise<void> {
+      // Hooks are installed pre-launch via setupWorkspaceHooks so that
+      // PostToolUse hooks exist before the agent's first tool call.
     },
   };
 }

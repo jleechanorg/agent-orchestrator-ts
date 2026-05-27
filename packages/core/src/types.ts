@@ -124,11 +124,18 @@ export interface ActivityDetection {
 export interface ActivityLogEntry {
   /** ISO 8601 timestamp */
   ts: string;
-  /** Activity state derived from terminal output or agent-native data */
+  /**
+   * Activity state derived from terminal output, agent-native data, or a platform-event hook
+   */
   state: ActivityState;
-  /** What triggered this state classification */
-  source: "terminal" | "native";
-  /** Raw terminal snippet that caused waiting_input/blocked (for debugging) */
+  /**
+   * Provenance of this entry:
+   *   - "terminal": classified from terminal output (regex/heuristic; deprecated for hook-capable agents)
+   *   - "native":   read from the agent's own JSONL/API
+   *   - "hook":     emitted by an agent lifecycle hook (e.g. Claude Code's PermissionRequest, Stop, StopFailure)
+   */
+  source: "terminal" | "native" | "hook";
+  /** Raw terminal snippet, hook event name, or other context that caused waiting_input/blocked (for debugging) */
   trigger?: string;
 }
 
