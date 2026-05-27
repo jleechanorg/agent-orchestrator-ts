@@ -92,7 +92,7 @@ function buildGrokCommand(config: AgentLaunchConfig, sessionId?: string | null):
   if (restoreSessionId) {
     parts.push("--resume", shellEscape(restoreSessionId));
   }
-  if (config.prompt) {
+  if (config.prompt && !restoreSessionId) {
     parts.push("--", shellEscape(config.prompt));
   }
   return parts.join(" ");
@@ -154,6 +154,7 @@ function createGrokAgent(): Agent {
   return {
      name: pluginName,
      processName: pluginName,
+     promptDelivery: "inline" as const,
      supportsSystemPromptFile: true,
 
     getLaunchCommand(config: AgentLaunchConfig): string {

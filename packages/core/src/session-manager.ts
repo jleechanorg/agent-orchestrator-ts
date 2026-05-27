@@ -89,7 +89,7 @@ import { sessionFromMetadata } from "./utils/session-from-metadata.js";
 import { parsePrFromUrl } from "./utils/pr.js";
 import { safeJsonParse } from "./utils/validation.js";
 import { getWorkspaceChangedFiles } from "./utils/worktree-git.js";
-import { resolveAgentSelection, resolveAgentSelectionForSession, resolveSessionRole } from "./agent-selection.js";
+import { resolveAgentSelection, resolveAgentSelectionForSession } from "./agent-selection.js";
 import { getAllSessionPrefixes, getAoManagedSessionWorktreePattern } from "./session-prefixes.js";
 import { applySlashCommandRouting } from "./fork-slash-command-routing.js";
 import {

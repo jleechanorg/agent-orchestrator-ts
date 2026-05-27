@@ -59,7 +59,7 @@ import {
   detectAndApplyRateLimitPause,
 } from "./fork-lifecycle-manager.js";
 import { createCorrelationId, createProjectObserver } from "./observability.js";
-import { resolveSessionRole } from "./agent-selection.js";
+
 import type { OutcomeRecorder } from "./outcome-recorder.js";
 import {
   checkStuckWorker,
