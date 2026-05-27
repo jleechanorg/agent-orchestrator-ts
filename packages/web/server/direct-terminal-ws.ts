@@ -90,9 +90,7 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
     res.end("Not found");
   });
 
-  const wss = new WebSocketServer({
-    path: "/ws",
-  });
+  const wss = new WebSocketServer({ noServer: true });
 
   // Manual upgrade routing — accept both /ws (existing) and /ao-terminal-mux
   // (alias for reverse-proxy deployments) so path-routing reverse proxies
