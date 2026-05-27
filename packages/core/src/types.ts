@@ -150,6 +150,12 @@ export const DEFAULT_NATIVE_ACTIVE_WINDOW_MS = 30_000; // 30 seconds
  */
 export type ProcessProbeResult = boolean | "indeterminate";
 
+export function isProcessProbeIndeterminate(
+  result: ProcessProbeResult,
+): result is "indeterminate" {
+  return result === "indeterminate";
+}
+
 /** Session status constants */
 export const SESSION_STATUS = {
   SPAWNING: "spawning" as const,
@@ -426,7 +432,13 @@ export interface Agent {
    */
   getActivityState(session: Session, readyThresholdMs?: number): Promise<ActivityDetection | null>;
 
-  /** Check if agent process is running (given runtime handle) */
+  /**
+   * Check if agent process is running (given runtime handle).
+   *
+   * Returns "indeterminate" when the probe could not reliably determine
+   * liveness (for example, `ps`/`tmux` timed out or failed). Callers must
+   * treat that as no verdict, not as a missing process.
+   */
   isProcessRunning(handle: RuntimeHandle): Promise<ProcessProbeResult>;
 
   /** Extract information from agent's internal data (summary, cost, session ID) */
@@ -546,6 +558,12 @@ export interface Workspace {
   /** List existing workspaces for a project */
   list(projectId: string): Promise<WorkspaceInfo[]>;
 
+  /**
+   * Optional: find a pre-existing AO-managed workspace that already tracks the
+   * requested branch and can be adopted instead of creating a fresh workspace.
+   */
+  findManagedWorkspace?(config: WorkspaceCreateConfig): Promise<WorkspaceInfo | null>;
+
   /** Optional: run hooks after workspace creation (symlinks, installs, etc.) */
   postCreate?(info: WorkspaceInfo, project: ProjectConfig): Promise<void>;
 
@@ -561,6 +579,7 @@ export interface WorkspaceCreateConfig {
   project: ProjectConfig;
   sessionId: SessionId;
   branch: string;
+  worktreeDir?: string;
 }
 
 export interface WorkspaceInfo {

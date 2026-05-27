@@ -267,6 +267,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function isAgentProcessNotDefinitelyMissing(
+  agent: Agent,
+  handle: RuntimeHandle,
+): Promise<boolean> {
+  try {
+    return (await agent.isProcessRunning(handle)) !== false;
+  } catch {
+    return true;
+  }
+}
+
 /** Build the initial task message sent to an agent after it claims a PR. */
 export function buildInitialPRTaskMessage(pr: {
   number: number;
@@ -981,7 +992,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         data: {},
       };
     }
-    await enrichSessionWithRuntimeState(session, plugins, handleFromMetadata, sessionsDir);
+    await enrichSessionWithRuntimeState(session, plugins, handleFromMetadata, sessionsDir, false);
   }
 
   /**
@@ -996,6 +1007,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     plugins: ReturnType<typeof resolvePlugins>,
     handleFromMetadata: boolean,
     sessionsDir?: string,
+    persistToDisk: boolean = true,
   ): Promise<void> {
     // Skip all subprocess/IO work for sessions already known to be terminal.
     if (TERMINAL_SESSION_STATUSES.has(session.status)) {
@@ -1033,7 +1045,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           if (prevActivity && prevActivity !== "exited") {
             emitActivityTransition(session.projectId, session.id, prevActivity, "exited");
           }
-          if (sessionsDir) {
+          if (sessionsDir && persistToDisk) {
             try {
               updateMetadata(sessionsDir, session.id, {
                 status: "killed",
@@ -1225,14 +1237,20 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // Create workspace (if workspace plugin is available)
     let workspacePath = project.path;
     let workspaceRepoPath = project.path; // default to project path; workspace plugin overrides if it returns repoPath
+    let adoptedManagedWorkspace = false;
     if (plugins.workspace) {
       try {
-        const wsInfo = await plugins.workspace.create({
+        const workspaceConfig = {
           projectId: spawnConfig.projectId,
           project,
           sessionId,
           branch,
-        });
+        };
+        const adoptedInfo = plugins.workspace.findManagedWorkspace
+          ? await plugins.workspace.findManagedWorkspace(workspaceConfig)
+          : null;
+        const wsInfo = adoptedInfo ?? (await plugins.workspace.create(workspaceConfig));
+        if (adoptedInfo) adoptedManagedWorkspace = true;
         workspacePath = wsInfo.path;
         if (wsInfo.repoPath) workspaceRepoPath = wsInfo.repoPath;
         // Persist the owning repo path so destroy() can use it directly without
@@ -1278,6 +1296,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       if (
         plugins.workspace &&
         workspacePath &&
+        !adoptedManagedWorkspace &&
         shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
       ) {
         try {
@@ -2606,7 +2625,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       while (true) {
         const [runtimeAlive, processRunning, output, foregroundCommand] = await Promise.all([
           runtimePlugin.isAlive(handle).catch(() => true),
-          agentPlugin.isProcessRunning(handle).catch(() => true),
+          isAgentProcessNotDefinitelyMissing(agentPlugin, handle),
           captureOutput(handle),
           handle.runtimeName === "tmux"
             ? getTmuxForegroundCommand(handle.id)
@@ -2653,7 +2672,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       while (true) {
         const [runtimeAlive, processRunning, output, foregroundCommand] = await Promise.all([
           runtimePlugin.isAlive(handle).catch(() => true),
-          agentPlugin.isProcessRunning(handle).catch(() => true),
+          isAgentProcessNotDefinitelyMissing(agentPlugin, handle),
           captureOutput(handle),
           handle.runtimeName === "tmux"
             ? getTmuxForegroundCommand(handle.id)
@@ -2723,14 +2742,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
       let [runtimeAlive, processRunning] = await Promise.all([
         runtimePlugin.isAlive(handle).catch(() => true),
-        agentPlugin.isProcessRunning(handle).catch(() => true),
+        isAgentProcessNotDefinitelyMissing(agentPlugin, handle),
       ]);
 
       if (normalized.status === "spawning" && runtimeAlive) {
         await waitForInteractiveReadiness(normalized, SEND_BOOTSTRAP_READY_TIMEOUT_MS);
         [runtimeAlive, processRunning] = await Promise.all([
           runtimePlugin.isAlive(handle).catch(() => true),
-          agentPlugin.isProcessRunning(handle).catch(() => true),
+          isAgentProcessNotDefinitelyMissing(agentPlugin, handle),
         ]);
       }
 
@@ -3105,7 +3124,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     //    and isRestorable would reject it.
     const session = metadataToSession(sessionId, raw, projectId);
     const plugins = resolvePlugins(project, selection.agentName);
-    await enrichSessionWithRuntimeState(session, plugins, true, sessionsDir);
+    await enrichSessionWithRuntimeState(session, plugins, true, sessionsDir, true);
 
     // 3. Validate restorability
     if (!isRestorable(session)) {

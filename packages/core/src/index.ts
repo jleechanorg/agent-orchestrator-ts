@@ -84,7 +84,7 @@ export {
 } from "./activity-log.js";
 
 // Activity log thresholds (defined in types.ts)
-export { DEFAULT_NATIVE_ACTIVE_WINDOW_MS, DEFAULT_READY_THRESHOLD_MS } from "./types.js";
+export { DEFAULT_NATIVE_ACTIVE_WINDOW_MS, DEFAULT_READY_THRESHOLD_MS, isProcessProbeIndeterminate } from "./types.js";
 
 // Agent workspace hooks — path wrapper workspace setup
 export { setupPathWrapperWorkspace } from "./agent-workspace-hooks.js";

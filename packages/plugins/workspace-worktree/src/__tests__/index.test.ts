@@ -212,6 +212,7 @@ describe("workspace.create()", () => {
     // First call: git fetch origin --quiet
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["fetch", "origin", "--quiet"], {
       cwd: "/repo/path",
+      timeout: 30_000,
     });
 
     // Second call: git worktree add -b <branch> <path> <baseRef>
@@ -225,7 +226,7 @@ describe("workspace.create()", () => {
         "/mock-home/.worktrees/myproject/session-1",
         "origin/main",
       ],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 
@@ -279,7 +280,7 @@ describe("workspace.create()", () => {
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["worktree", "add", "/mock-home/.worktrees/myproject/session-1", "feat/TEST-1"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
 
     expect(info.branch).toBe("feat/TEST-1");
@@ -332,7 +333,7 @@ describe("workspace.create()", () => {
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["worktree", "remove", "--force", "/mock-home/.worktrees/myproject/session-1"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 
@@ -511,7 +512,7 @@ describe("workspace.create()", () => {
         "/mock-home/.worktrees/myproject/session-1",
         "origin/main",
       ],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 
@@ -662,7 +663,7 @@ describe("workspace.create()", () => {
       7,
       "git",
       ["worktree", "add", "-b", "feat/TEST-1", worktreePath, "origin/main"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 
@@ -802,6 +803,7 @@ describe("workspace.create()", () => {
     // fetch should use expanded path
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["fetch", "origin", "--quiet"], {
       cwd: "/mock-home/my-repo",
+      timeout: 30_000,
     });
   });
 });
@@ -826,7 +828,7 @@ describe("workspace.destroy()", () => {
       1,
       "git",
       ["branch", "--show-current"],
-      { cwd: "/mock-home/.worktrees/myproject/session-1" },
+      { cwd: "/mock-home/.worktrees/myproject/session-1", timeout: 30_000 },
     );
 
     // Second call: rev-parse
@@ -834,7 +836,7 @@ describe("workspace.destroy()", () => {
       2,
       "git",
       ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-      { cwd: "/mock-home/.worktrees/myproject/session-1" },
+      { cwd: "/mock-home/.worktrees/myproject/session-1", timeout: 30_000 },
     );
 
     // Third call: worktree remove (--force --force to bypass lock)
@@ -842,7 +844,7 @@ describe("workspace.destroy()", () => {
       3,
       "git",
       ["worktree", "remove", "--force", "--force", "/mock-home/.worktrees/myproject/session-1"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
 
     // Fourth call: branch -D (cleanup to prevent cascading fetch failures)
@@ -850,7 +852,7 @@ describe("workspace.destroy()", () => {
       4,
       "git",
       ["branch", "-D", "feat/TEST-1"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 
@@ -920,7 +922,7 @@ describe("workspace.destroy()", () => {
       10,
       "git",
       ["branch", "-D", "feat/TEST-1"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 

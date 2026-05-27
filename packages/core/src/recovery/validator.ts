@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import {
   TERMINAL_STATUSES as TERMINAL_STATUSES_SET,
+  isProcessProbeIndeterminate,
   type OrchestratorConfig,
   type PluginRegistry,
   type Runtime,
@@ -83,12 +84,16 @@ export async function validateSession(
   }
 
   let agentProcessRunning = false;
+  let processProbeSucceeded = true;
   const agentActivity: ActivityState | null = null;
   if (agent && runtimeHandle) {
     try {
-      agentProcessRunning = (await agent.isProcessRunning(runtimeHandle)) === true;
+      const processProbe = await agent.isProcessRunning(runtimeHandle);
+      agentProcessRunning = processProbe === true;
+      processProbeSucceeded = !isProcessProbeIndeterminate(processProbe);
     } catch {
       agentProcessRunning = false;
+      processProbeSucceeded = false;
     }
   }
 
@@ -98,6 +103,7 @@ export async function validateSession(
     workspaceExists,
     agentProcessRunning,
     metadataStatus,
+    processProbeSucceeded,
   );
   const action = determineAction(classification, metadataStatus, recoveryConfig);
 
@@ -124,9 +130,14 @@ function classifySession(
   workspaceExists: boolean,
   agentProcessRunning: boolean,
   metadataStatus: SessionStatus,
+  processProbeSucceeded: boolean,
 ): RecoveryClassification {
   if (runtimeAlive && workspaceExists && agentProcessRunning) {
     return "live";
+  }
+
+  if (runtimeAlive && workspaceExists && !agentProcessRunning && !processProbeSucceeded) {
+    return "partial";
   }
 
   if (!runtimeAlive && !workspaceExists) {
