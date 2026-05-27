@@ -32,7 +32,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat, realpath } from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, relative, isAbsolute } from "node:path";
 import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
@@ -685,7 +685,12 @@ async function setupHookInWorkspace(workspacePath: string): Promise<void> {
       try {
         const resolved = realpathSync(claudeDir);
         const wsReal = realpathSync(workspacePath);
-        if (!resolved.startsWith(wsReal + "/") && resolved !== wsReal) {
+        // Use path.relative for cross-platform containment check (Windows uses \ vs /)
+        const relativeTarget = relative(wsReal, resolved);
+        if (
+          relativeTarget !== "" &&
+          (relativeTarget.startsWith("..") || isAbsolute(relativeTarget))
+        ) {
           console.warn(`[agent-claude-code] .claude is a symlink pointing outside workspace (${resolved}) — skipping hook setup`);
           return;
         }
