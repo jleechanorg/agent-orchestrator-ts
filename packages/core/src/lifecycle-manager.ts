@@ -58,7 +58,7 @@ import {
   detectAndApplyRateLimitPause,
 } from "./fork-lifecycle-manager.js";
 import { createCorrelationId, createProjectObserver } from "./observability.js";
-import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
+import { resolveSessionRole } from "./agent-selection.js";
 import type { OutcomeRecorder } from "./outcome-recorder.js";
 import {
   checkStuckWorker,
@@ -582,13 +582,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const project = config.projects[session.projectId];
     if (!project) return { status: session.status, agentDead: false };
 
-    const agentName = resolveAgentSelection({
-      role: resolveSessionRole(session.id, session.metadata, project.sessionPrefix, allSessionPrefixes),
-      project,
-      defaults: config.defaults,
-      persistedAgent: session.metadata["agent"],
-    }).agentName;
-    const agent = registry.get<Agent>("agent", agentName);
+    const agentName = session.metadata["agent"];
+    const agent = agentName ? registry.get<Agent>("agent", agentName) : null;
     const scm = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
 
     const runtime = session.runtimeHandle

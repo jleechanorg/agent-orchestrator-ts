@@ -19,7 +19,7 @@ import {
   type RecoveryAction,
   type RecoveryConfig,
 } from "./types.js";
-import { resolveAgentSelection, resolveSessionRole } from "../agent-selection.js";
+import { resolveAgentSelectionForSession } from "../agent-selection.js";
 import { getAllSessionPrefixes } from "../session-prefixes.js";
 
 export async function validateSession(
@@ -32,22 +32,26 @@ export async function validateSession(
   const allSessionPrefixes = getAllSessionPrefixes(config.projects);
 
   const runtimeName = project.runtime ?? config.defaults.runtime;
-  const agentName = resolveAgentSelection({
-    role: resolveSessionRole(sessionId, rawMetadata, project.sessionPrefix, allSessionPrefixes),
+  const agentName = resolveAgentSelectionForSession({
+    sessionId,
+    metadata: rawMetadata,
     project,
     defaults: config.defaults,
-    persistedAgent: rawMetadata["agent"],
+    allSessionPrefixes,
   }).agentName;
+  const normalizedMetadata = rawMetadata["agent"]
+    ? rawMetadata
+    : { ...rawMetadata, agent: agentName };
   const workspaceName = project.workspace ?? config.defaults.workspace;
 
   const runtime = registry.get<Runtime>("runtime", runtimeName);
   const agent = registry.get<Agent>("agent", agentName);
   const workspace = registry.get<Workspace>("workspace", workspaceName);
 
-  const workspacePath = rawMetadata["worktree"] || null;
-  const runtimeHandleStr = rawMetadata["runtimeHandle"];
+  const workspacePath = normalizedMetadata["worktree"] || null;
+  const runtimeHandleStr = normalizedMetadata["runtimeHandle"];
   const runtimeHandle = runtimeHandleStr ? safeJsonParse<RuntimeHandle>(runtimeHandleStr) : null;
-  const metadataStatus = validateStatus(rawMetadata["status"]);
+  const metadataStatus = validateStatus(normalizedMetadata["status"]);
   const recoveryConfig: RecoveryConfig = {
     ...DEFAULT_RECOVERY_CONFIG,
     ...(recoveryConfigInput ?? {}),
@@ -88,7 +92,7 @@ export async function validateSession(
     }
   }
 
-  const metadataValid = Object.keys(rawMetadata).length > 0;
+  const metadataValid = Object.keys(normalizedMetadata).length > 0;
   const classification = classifySession(
     runtimeAlive,
     workspaceExists,
@@ -111,7 +115,7 @@ export async function validateSession(
     agentActivity,
     metadataValid,
     metadataStatus,
-    rawMetadata,
+    rawMetadata: normalizedMetadata,
   };
 }
 

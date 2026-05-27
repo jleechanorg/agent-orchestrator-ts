@@ -1,7 +1,6 @@
 import chalk from "chalk";
 import type { Command } from "commander";
 import {
-  type Agent,
   type SCM,
   type Session,
   type PRInfo,
@@ -46,7 +45,6 @@ interface SessionInfo {
 
 async function gatherSessionInfo(
   session: Session,
-  agent: Agent,
   scm: SCM,
   projectConfig: ReturnType<typeof loadConfig>,
 ): Promise<SessionInfo> {
@@ -71,8 +69,12 @@ async function gatherSessionInfo(
   // Get agent's auto-generated summary via introspection
   let claudeSummary: string | null = null;
   try {
-    const introspection = await agent.getSessionInfo(session);
-    claudeSummary = introspection?.summary ?? null;
+    const agentName = session.metadata["agent"];
+    if (agentName) {
+      const agent = getAgentByName(agentName);
+      const introspection = await agent.getSessionInfo(session);
+      claudeSummary = introspection?.summary ?? null;
+    }
   } catch {
     // Summary extraction failed — not critical
   }
@@ -230,6 +232,10 @@ export function registerStatus(program: Command): void {
       const sm = await getSessionManager(config);
       const sessions = await sm.list(opts.project);
 
+      const { createPluginRegistry } = await import("@jleechanorg/ao-core");
+      const registry = createPluginRegistry();
+      await registry.loadFromConfig(config, (pkg: string) => import(pkg));
+
       if (!opts.json) {
         console.log(banner("AGENT ORCHESTRATOR STATUS"));
         console.log();
@@ -257,9 +263,9 @@ export function registerStatus(program: Command): void {
           a.id.localeCompare(b.id),
         );
 
-        // Resolve agent and SCM for this project
-        const agentName = projectConfig.agent ?? config.defaults.agent;
-        const agent = getAgentByName(agentName);
+        // Resolve SCM for this project via the shared registry. Agents are
+        // resolved per session because historical metadata may record a
+        // different agent than the current project default.
         const scm = getSCM(config, projectId);
 
         if (!opts.json) {
@@ -275,7 +281,9 @@ export function registerStatus(program: Command): void {
         }
 
         // Gather all session info in parallel
-        const infoPromises = projectSessions.map((s) => gatherSessionInfo(s, agent, scm, config));
+        const infoPromises = projectSessions.map((s) =>
+          gatherSessionInfo(s, scm, config),
+        );
         const sessionInfos = await Promise.all(infoPromises);
 
         const orchestrators = sessionInfos.filter((info) => info.role === "orchestrator");
@@ -327,10 +335,6 @@ export function registerStatus(program: Command): void {
 
         // Check for issues awaiting verification across all projects
         try {
-          const { createPluginRegistry } = await import("@jleechanorg/ao-core");
-          const registry = createPluginRegistry();
-          await registry.loadFromConfig(config, (pkg: string) => import(pkg));
-
           let unverifiedTotal = 0;
           for (const projectId of projectIds) {
             const project: ProjectConfig | undefined = config.projects[projectId];
