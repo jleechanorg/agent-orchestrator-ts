@@ -4,6 +4,18 @@ import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isWindows } from "@jleechanorg/ao-core";
+
+const { mockRecordActivityEvent } = vi.hoisted(() => ({
+  mockRecordActivityEvent: vi.fn(),
+}));
+
+vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return {
+    ...actual,
+    recordActivityEvent: mockRecordActivityEvent,
+  };
+});
 import type { SessionBroadcaster as SessionBroadcasterType } from "../mux-websocket";
 
 // vi.mock factories run before module-level statements. Hoist the mock
@@ -409,5 +421,39 @@ describe("TerminalManager.open — re-attach skipped when tmux session is gone (
     // Re-attach happened: ptySpawn called a second time, exit not yet notified.
     expect(mockPtySpawn).toHaveBeenCalledTimes(2);
     expect(exitCb).not.toHaveBeenCalled();
+  });
+});
+
+describe("mux-websocket activity events (bd-lbgc)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("recordActivityEvent is callable for ui.terminal_connected", () => {
+    mockRecordActivityEvent({
+      source: "ui",
+      kind: "ui.terminal_connected",
+      summary: "terminal WebSocket connected",
+    });
+    expect(mockRecordActivityEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "ui",
+        kind: "ui.terminal_connected",
+      }),
+    );
+  });
+
+  it("recordActivityEvent is callable for ui.terminal_disconnected", () => {
+    mockRecordActivityEvent({
+      source: "ui",
+      kind: "ui.terminal_disconnected",
+      summary: "terminal WebSocket disconnected",
+    });
+    expect(mockRecordActivityEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "ui",
+        kind: "ui.terminal_disconnected",
+      }),
+    );
   });
 });

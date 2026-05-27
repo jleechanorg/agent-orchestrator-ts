@@ -26,6 +26,7 @@ import { basename, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { emitSpawnStarted, emitSpawnFailed, emitSpawned, emitKilled } from "./session-activity-events.js";
+import { emitActivityTransition } from "./lifecycle-activity-events.js";
 import {
   isIssueNotFoundError,
   isRestorable,
@@ -1025,8 +1026,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           // session running than to permanently mark it killed on a transient error.
           const confirmedAlive = await aliveRuntime.isAlive(session.runtimeHandle).catch(() => true);
           if (confirmedAlive) return; // Transient false negative or uncertain — skip this cycle
+          const prevActivity = session.activity;
           session.status = "killed";
           session.activity = "exited";
+          emitKilled(session.projectId, session.id, "runtime-dead-in-refresh");
+          if (prevActivity && prevActivity !== "exited") {
+            emitActivityTransition(session.projectId, session.id, prevActivity, "exited");
+          }
           if (sessionsDir) {
             try {
               updateMetadata(sessionsDir, session.id, {
@@ -1052,7 +1058,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       try {
         const detected = await plugins.agent.getActivityState(session, config.readyThresholdMs);
         if (detected !== null) {
+          const prevActivity = session.activity;
           session.activity = detected.state;
+          if (prevActivity && prevActivity !== detected.state) {
+            emitActivityTransition(session.projectId, session.id, prevActivity, detected.state);
+          }
           if (detected.timestamp && detected.timestamp > session.lastActivityAt) {
             session.lastActivityAt = detected.timestamp;
           }
@@ -1062,10 +1072,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           const terminalOutput = runtime ? await runtime.getOutput(session.runtimeHandle, 10) : "";
           if (terminalOutput) {
             const activity = plugins.agent.detectActivity(terminalOutput);
+            const prevActivity = session.activity;
             if (activity === "waiting_input" || activity === "idle") {
               session.activity = "ready";
+              if (prevActivity && prevActivity !== "ready") {
+                emitActivityTransition(session.projectId, session.id, prevActivity, "ready");
+              }
             } else {
               session.activity = activity;
+              if (prevActivity && prevActivity !== activity) {
+                emitActivityTransition(session.projectId, session.id, prevActivity, activity);
+              }
             }
           }
         }

@@ -36,6 +36,7 @@ import {
   isWindows,
   spawnManagedDaemonChild,
   sweepDaemonChildren,
+  recordActivityEvent,
   type OrchestratorConfig,
   type ProjectConfig,
   type ParsedRepoUrl,
@@ -808,6 +809,13 @@ async function runStartup(
 
   // Print summary
   console.log(chalk.bold.green("\n✓ Startup complete\n"));
+  recordActivityEvent({
+    projectId,
+    source: "cli",
+    kind: "cli.ao_started",
+    summary: `ao start completed for project ${projectId}`,
+    data: { port, projectId },
+  });
 
   if (opts?.dashboard !== false) {
     console.log(chalk.cyan("Dashboard:"), dashboardUrl(port));

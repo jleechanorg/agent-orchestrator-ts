@@ -12,6 +12,7 @@ import {
   enqueueSpawnRequest,
   resolveSpawnQueueConfig,
   expandHome,
+  recordActivityEvent,
   type OrchestratorConfig,
   type DecomposerConfig,
   DEFAULT_DECOMPOSER_CONFIG,
@@ -115,6 +116,13 @@ async function spawnSession(
 ): Promise<string> {
   const runtime = claimOptions?.runtime;
   const spinner = ora("Creating session").start();
+  recordActivityEvent({
+    projectId,
+    source: "cli",
+    kind: "cli.spawn_command",
+    summary: `spawn command invoked for project ${projectId}`,
+    data: { issueId, agent, prompt: prompt ? prompt.slice(0, 100) : undefined },
+  });
 
   try {
     const sm = await getSessionManager(config);
@@ -216,6 +224,14 @@ async function spawnSession(
     return session.id;
   } catch (err) {
     spinner.fail("Failed to create or initialize session");
+    recordActivityEvent({
+      projectId,
+      source: "cli",
+      kind: "cli.spawn_failed",
+      level: "error",
+      summary: `spawn command failed for project ${projectId}`,
+      data: { reason: err instanceof Error ? err.message : String(err), issueId },
+    });
     throw err;
   }
 }
