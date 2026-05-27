@@ -4,6 +4,7 @@ import {
   findPidByPort,
   getDefaultRuntime,
   getEnvDefaults,
+  getNodePtyPrebuildsSubdir,
   getShell,
   isMac,
   isLinux,
@@ -52,6 +53,15 @@ describe("platform", () => {
       const orig = process.platform;
       Object.defineProperty(process, "platform", { value: "win32", writable: true, configurable: true });
       expect(getDefaultRuntime()).toBe("process");
+      Object.defineProperty(process, "platform", { value: orig, writable: true, configurable: true });
+    });
+  });
+
+  describe("getNodePtyPrebuildsSubdir", () => {
+    it("centralizes node-pty prebuild platform/arch naming", () => {
+      const orig = process.platform;
+      Object.defineProperty(process, "platform", { value: "darwin", writable: true, configurable: true });
+      expect(getNodePtyPrebuildsSubdir()).toBe(`darwin-${process.arch}`);
       Object.defineProperty(process, "platform", { value: orig, writable: true, configurable: true });
     });
   });
