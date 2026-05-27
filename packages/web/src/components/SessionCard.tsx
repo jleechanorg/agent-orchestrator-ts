@@ -8,6 +8,7 @@ import {
   isPRRateLimited,
   TERMINAL_STATUSES,
   TERMINAL_ACTIVITIES,
+  NON_RESTORABLE_STATUSES,
 } from "@/lib/types";
 import { CI_STATUS } from "@jleechanorg/ao-core/types";
 import { cn } from "@/lib/cn";
@@ -59,7 +60,7 @@ function SessionCardView({ session, onSend, onKill, onMerge, onRestore }: Sessio
   const isTerminal =
     TERMINAL_STATUSES.has(session.status) ||
     (session.activity !== null && TERMINAL_ACTIVITIES.has(session.activity));
-  const isRestorable = isTerminal && session.status !== "merged";
+  const isRestorable = isTerminal && !NON_RESTORABLE_STATUSES.has(session.status);
 
   const title = getSessionTitle(session);
 
