@@ -1,0 +1,9 @@
+{
+  "verdict": "fail",
+  "passed": 0,
+  "total": 2,
+  "status_counts": {
+    "fail": 2
+  },
+  "sealed": true
+}

@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import chalk from "chalk";
 import {
   loadConfig,
@@ -7,10 +6,9 @@ import {
   isTerminalSession,
   recordActivityEvent,
   type Session,
-  type OrchestratorConfig,
 } from "@jleechanorg/ao-core";
 import { getSessionManager } from "./create-session-manager.js";
-import { getRunning, type RunningState } from "./running-state.js";
+import { getRunning } from "./running-state.js";
 
 export interface UpdateLifecyclePlan {
   runningBeforeUpdate: boolean;
@@ -23,7 +21,7 @@ function isWindows(): boolean {
 }
 
 export async function getUpdateLifecyclePlan(): Promise<UpdateLifecyclePlan> {
-  let sessions: Session[] = [];
+  let sessions: Session[];
   let primaryProjectId: string | undefined;
   let runningBeforeUpdate = false;
 
@@ -99,7 +97,7 @@ export async function pauseSupervisorsBeforeUpdate(
   return true;
 }
 
-export async function verifyUpdatePause(plan: UpdateLifecyclePlan): Promise<boolean> {
+export async function verifyUpdatePause(_plan: UpdateLifecyclePlan): Promise<boolean> {
   const afterStop = await getUpdateLifecyclePlan();
   if (afterStop.runningBeforeUpdate || afterStop.activeSessions.length > 0) {
     recordActivityEvent({

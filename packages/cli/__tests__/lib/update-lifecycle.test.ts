@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import chalk from "chalk";
 
 const mockLoadConfig = vi.fn();
 const mockFindManagedConfigFile = vi.fn();

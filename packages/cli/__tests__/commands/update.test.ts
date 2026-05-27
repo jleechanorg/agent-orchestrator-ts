@@ -5,8 +5,30 @@ const { mockExecuteScriptCommand } = vi.hoisted(() => ({
   mockExecuteScriptCommand: vi.fn(),
 }));
 
+const {
+  mockGetUpdateLifecyclePlan,
+  mockPauseSupervisorsBeforeUpdate,
+  mockVerifyUpdatePause,
+  mockShouldRestartAfterUpdate,
+  mockRestartAoAfterUpdate,
+} = vi.hoisted(() => ({
+  mockGetUpdateLifecyclePlan: vi.fn(),
+  mockPauseSupervisorsBeforeUpdate: vi.fn(),
+  mockVerifyUpdatePause: vi.fn(),
+  mockShouldRestartAfterUpdate: vi.fn(),
+  mockRestartAoAfterUpdate: vi.fn(),
+}));
+
 vi.mock("../../src/lib/script-runner.js", () => ({
   executeScriptCommand: (...args: unknown[]) => mockExecuteScriptCommand(...args),
+}));
+
+vi.mock("../../src/lib/update-lifecycle.js", () => ({
+  getUpdateLifecyclePlan: (...args: unknown[]) => mockGetUpdateLifecyclePlan(...args),
+  pauseSupervisorsBeforeUpdate: (...args: unknown[]) => mockPauseSupervisorsBeforeUpdate(...args),
+  verifyUpdatePause: (...args: unknown[]) => mockVerifyUpdatePause(...args),
+  shouldRestartAfterUpdate: (...args: unknown[]) => mockShouldRestartAfterUpdate(...args),
+  restartAoAfterUpdate: (...args: unknown[]) => mockRestartAoAfterUpdate(...args),
 }));
 
 import { registerUpdate } from "../../src/commands/update.js";
@@ -20,6 +42,11 @@ describe("update command", () => {
     registerUpdate(program);
     mockExecuteScriptCommand.mockReset();
     mockExecuteScriptCommand.mockResolvedValue(undefined);
+    mockGetUpdateLifecyclePlan.mockResolvedValue({ runningBeforeUpdate: false, activeSessions: [] });
+    mockPauseSupervisorsBeforeUpdate.mockResolvedValue(false);
+    mockVerifyUpdatePause.mockResolvedValue(true);
+    mockShouldRestartAfterUpdate.mockReturnValue(false);
+    mockRestartAoAfterUpdate.mockResolvedValue(undefined);
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "exit").mockImplementation((code) => {
       throw new Error(`process.exit(${code})`);

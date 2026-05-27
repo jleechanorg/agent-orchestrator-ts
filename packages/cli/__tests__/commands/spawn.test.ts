@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { type Session, type SessionManager, getProjectBaseDir } from "@jleechanorg/ao-core";
 
-const { mockExec, mockConfigRef, mockSessionManager, mockEnsureLifecycleWorker } = vi.hoisted(
+const { mockExec, mockConfigRef, mockSessionManager, mockEnsureLifecycleWorker, mockGetRunning } = vi.hoisted(
   () => ({
     mockExec: vi.fn(),
     mockConfigRef: { current: null as Record<string, unknown> | null },
@@ -19,6 +19,7 @@ const { mockExec, mockConfigRef, mockSessionManager, mockEnsureLifecycleWorker }
       claimPR: vi.fn(),
     },
     mockEnsureLifecycleWorker: vi.fn(),
+    mockGetRunning: vi.fn(),
   }),
 );
 
@@ -60,6 +61,10 @@ vi.mock("../../src/lib/create-session-manager.js", () => ({
 
 vi.mock("../../src/lib/lifecycle-service.js", () => ({
   ensureLifecycleWorker: (...args: unknown[]) => mockEnsureLifecycleWorker(...args),
+}));
+
+vi.mock("../../src/lib/running-state.js", () => ({
+  getRunning: mockGetRunning,
 }));
 
 vi.mock("../../src/lib/metadata.js", () => ({
@@ -131,6 +136,13 @@ beforeEach(() => {
     pid: 12345,
     pidFile: "/tmp/lifecycle-worker.pid",
     logFile: "/tmp/lifecycle-worker.log",
+  });
+  mockGetRunning.mockResolvedValue({
+    pid: 99999,
+    configPath,
+    port: 3000,
+    startedAt: new Date().toISOString(),
+    projects: ["my-app"],
   });
 });
 
@@ -314,6 +326,13 @@ describe("spawn command", () => {
       },
     };
     mkdirSync(join(tmpDir, "other-repo"), { recursive: true });
+    mockGetRunning.mockResolvedValue({
+      pid: 99999,
+      configPath,
+      port: 3000,
+      startedAt: new Date().toISOString(),
+      projects: ["my-app", "other"],
+    });
 
     const fakeSession: Session = {
       id: "oth-1",

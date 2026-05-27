@@ -404,6 +404,14 @@ export interface Agent {
    */
   readonly supportsSystemPromptFile?: boolean;
 
+  /**
+   * How the initial prompt is delivered to the agent.
+   * - "inline": appended after -- in the launch command
+   * - "post-launch": sent via sendMessage after the agent starts
+   * Undefined means the agent does not support prompt delivery (legacy behavior).
+   */
+  readonly promptDelivery?: "inline" | "post-launch";
+
   /** Get the shell command to launch this agent */
   getLaunchCommand(config: AgentLaunchConfig): string;
 
