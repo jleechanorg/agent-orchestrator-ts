@@ -1442,6 +1442,8 @@ describe("restore() ambiguous-ref disambiguation", () => {
     mockGitImpl({
       [`git,worktree,add,${worktreePath},feat/TEST-1,(cwd=/repo/path)`]:
         new Error("fatal: 'feat/TEST-1' is not a commit ref"),
+      [`git,rev-parse,--verify,--quiet,refs/heads/feat/TEST-1,(cwd=/repo/path)`]:
+        new Error("not a valid ref"),
       [`git,branch,--list,origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "  origin/feat/TEST-1" },
       [`git,branch,-m,origin/feat/TEST-1,backup/origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "" },
       [`git,worktree,add,-b,feat/TEST-1,${worktreePath},origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "" },
@@ -1478,6 +1480,8 @@ describe("restore() ambiguous-ref disambiguation", () => {
     mockGitImpl({
       [`git,worktree,add,${worktreePath},feat/TEST-1,(cwd=/repo/path)`]:
         new Error("fatal: 'feat/TEST-1' is not a commit ref"),
+      [`git,rev-parse,--verify,--quiet,refs/heads/feat/TEST-1,(cwd=/repo/path)`]:
+        new Error("not a valid ref"),
       [`git,branch,--list,origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "  origin/feat/TEST-1" },
       [`git,branch,-m,origin/feat/TEST-1,backup/origin/feat/TEST-1,(cwd=/repo/path)`]:
         new Error("fatal: ref renamed because ref 'backup/origin/feat/TEST-1' already exists"),
@@ -1496,6 +1500,8 @@ describe("restore() ambiguous-ref disambiguation", () => {
     mockGitImpl({
       [`git,worktree,add,${worktreePath},feat/TEST-1,(cwd=/repo/path)`]:
         new Error("fatal: 'feat/TEST-1' is not a commit ref"),
+      [`git,rev-parse,--verify,--quiet,refs/heads/feat/TEST-1,(cwd=/repo/path)`]:
+        new Error("not a valid ref"),
       [`git,branch,--list,origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "" },
       [`git,worktree,add,-b,feat/TEST-1,${worktreePath},origin/feat/TEST-1,(cwd=/repo/path)`]: { stdout: "" },
     });

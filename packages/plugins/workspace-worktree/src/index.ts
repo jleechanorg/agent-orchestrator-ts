@@ -146,6 +146,57 @@ async function cleanupStaleWorktree(repoPath: string, worktreePath: string): Pro
   }
 }
 
+async function isRegisteredWorktree(repoPath: string, worktreePath: string): Promise<boolean> {
+  try {
+    const output = await git(repoPath, "worktree", "list", "--porcelain");
+    // Normalize both sides so non-canonical inputs don't false-negative
+    // and let a subsequent rmSync delete a still-registered worktree
+    // (data loss). resolve() collapses trailing-slash / ".." segments.
+    const target = resolve(worktreePath);
+    return output
+      .split("\n")
+      .some(
+        (line) =>
+          line.startsWith("worktree ") &&
+          resolve(line.slice("worktree ".length)) === target,
+      );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Restore recovery: clear any stale worktree registration and/or stale
+ * directory at `workspacePath` so a subsequent `git worktree add` can
+ * succeed. Both restore recovery paths need this — without it, an
+ * `<path> already exists` failure repeats.
+ *
+ * Refuses to rmSync the path if it's still a registered worktree, which
+ * would silently destroy the user's work. The entry-point `worktree prune`
+ * in restore() already ran, so we don't prune again here.
+ *
+ * Ported from upstream a33b2ba0 (#1742).
+ */
+async function cleanupStaleWorkspacePath(
+  repoPath: string,
+  workspacePath: string,
+): Promise<void> {
+  try {
+    await git(repoPath, "worktree", "remove", "--force", workspacePath);
+  } catch {
+    // Best-effort — path may not be registered
+  }
+
+  if (existsSync(workspacePath)) {
+    if (await isRegisteredWorktree(repoPath, workspacePath)) {
+      throw new Error(
+        `Worktree path "${workspacePath}" already exists and is still registered with git`,
+      );
+    }
+    rmSync(workspacePath, { recursive: true, force: true });
+  }
+}
+
 /** Timeout for tmux queries (5 seconds) */
 const TMUX_TIMEOUT = 5_000;
 
@@ -831,17 +882,28 @@ export function create(config?: Record<string, unknown>): Workspace {
       try {
         await git(repoPath, "worktree", "add", workspacePath, cfg.branch);
       } catch {
-        // Branch might not exist locally — try from origin
-        const remoteBranch = `origin/${cfg.branch}`;
-        // bd-1483: Disambiguate before git worktree add (same shadowing risk as create())
-        await disambiguateBaseRef(repoPath, remoteBranch);
-        try {
-          await git(repoPath, "worktree", "add", "-b", cfg.branch, workspacePath, remoteBranch);
-        } catch {
-          // Last resort: create from default branch
-          const baseRef = `origin/${cfg.project.defaultBranch}`;
-          await disambiguateBaseRef(repoPath, baseRef);
-          await git(repoPath, "worktree", "add", "-b", cfg.branch, workspacePath, baseRef);
+        // The initial `worktree add <path> <branch>` failed. Two recovery
+        // paths: if the branch exists locally, clean up the stale path and
+        // re-attach (no -b/-B — -b would fail "branch already exists", and
+        // -B would force-reset and discard the session's commits). If the
+        // branch is missing locally, create it from the remote ref. Both
+        // paths clean up any stale dir at workspacePath first (a33b2ba0).
+        if (await refExists(repoPath, `refs/heads/${cfg.branch}`)) {
+          await cleanupStaleWorkspacePath(repoPath, workspacePath);
+          await git(repoPath, "worktree", "add", workspacePath, cfg.branch);
+        } else {
+          const remoteBranch = `origin/${cfg.branch}`;
+          // bd-1483: Disambiguate before git worktree add (same shadowing risk as create())
+          await disambiguateBaseRef(repoPath, remoteBranch);
+          await cleanupStaleWorkspacePath(repoPath, workspacePath);
+          try {
+            await git(repoPath, "worktree", "add", "-b", cfg.branch, workspacePath, remoteBranch);
+          } catch {
+            // Last resort: create from default branch
+            const baseRef = `origin/${cfg.project.defaultBranch}`;
+            await disambiguateBaseRef(repoPath, baseRef);
+            await git(repoPath, "worktree", "add", "-b", cfg.branch, workspacePath, baseRef);
+          }
         }
       }
 
