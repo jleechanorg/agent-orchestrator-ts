@@ -1592,11 +1592,11 @@ function createClaudeCodeAgent(): Agent {
       const activityState = checkActivityLogState(activityResult);
       if (activityState) return activityState;
 
-      if (staleNativeState) return staleNativeState;
-
       const activeWindowMs = Math.min(DEFAULT_ACTIVE_WINDOW_MS, threshold);
       const fallback = getActivityFallbackState(activityResult, activeWindowMs, threshold);
       if (fallback) return fallback;
+
+      if (staleNativeState) return staleNativeState;
 
       return null;
     },
