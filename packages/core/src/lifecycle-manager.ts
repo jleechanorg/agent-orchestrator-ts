@@ -49,6 +49,7 @@ import {
   type ActivityState,
   type ProjectConfig as _ProjectConfig,
   type AreaLock,
+  isProcessProbeIndeterminate,
 } from "./types.js";
 import { listMetadata, readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
@@ -683,6 +684,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (activity === "waiting_input") return { status: "needs_input", agentDead: false };
 
             const processAlive = await agent.isProcessRunning(session.runtimeHandle);
+            if (isProcessProbeIndeterminate(processAlive)) {
+              return { status: session.status, agentDead: false };
+            }
             if (processAlive === false) {
               if (!scm) return { status: "killed", agentDead: true };
               agentDead = true;
