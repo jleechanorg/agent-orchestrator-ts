@@ -151,9 +151,9 @@ describe("manifest", () => {
 describe("create", () => {
   it("uses grok as process name and post-launch prompt mode", () => {
     const agent = create();
-    expect(agent.name).toBe(pluginName);
-    expect(agent.processName).toBe(pluginName);
-    expect(agent.promptDelivery).toBe("post-launch");
+     expect(agent.name).toBe(pluginName);
+     expect(agent.processName).toBe(pluginName);
+     expect(agent).not.toHaveProperty("promptDelivery");
   });
 
   it("exports plugin module shape", () => {

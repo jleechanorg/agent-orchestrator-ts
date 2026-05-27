@@ -1090,10 +1090,9 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
   const processRe = new RegExp(`(?:^|/)${escapedProcessName}(?:\\s|$)`);
 
   return {
-    name: config.name,
-    processName: config.processName,
-    promptDelivery: "post-launch",
-    supportsSystemPromptFile: Boolean(config.systemPromptFlag || config.systemPromptEnvVar),
+     name: config.name,
+     processName: config.processName,
+     supportsSystemPromptFile: Boolean(config.systemPromptFlag || config.systemPromptEnvVar),
 
     getLaunchCommand(launchConfig: AgentLaunchConfig): string {
       const parts: string[] = [config.command];
@@ -1120,9 +1119,12 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
         }
       }
 
-      // NOTE: prompt is NOT included here — it's delivered post-launch via
-      // runtime.sendMessage() to keep the agent in interactive mode.
-      // Using -p / --prompt causes one-shot mode (agent exits after responding).
+      // The positional [prompt] argument auto-submits as the first user turn
+      // and keeps the agent in interactive mode. -p / --print is what triggers
+      // headless one-shot exit, not the presence of a prompt.
+      if (launchConfig.prompt) {
+        parts.push("--", shellEscape(launchConfig.prompt));
+      }
 
       return parts.join(" ");
     },

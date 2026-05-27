@@ -191,9 +191,9 @@ describe("plugin manifest & exports", () => {
 
   it("create() returns an agent with correct name and processName", () => {
     const agent = create();
-    expect(agent.name).toBe("claude-code");
-    expect(agent.processName).toBe("claude");
-    expect(agent.promptDelivery).toBe("post-launch");
+     expect(agent.name).toBe("claude-code");
+     expect(agent.processName).toBe("claude");
+     expect(agent).not.toHaveProperty("promptDelivery");
   });
 
   it("default export is a valid PluginModule", () => {
@@ -264,18 +264,19 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--strict-mcp-config '/mock/home/.claude/mcp-strict.json'");
   });
 
-  it("does not include -p flag (prompt delivered post-launch)", () => {
+  it("includes prompt as positional arg (keeps interactive mode, no -p flag)", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "Fix the bug" }));
     expect(cmd.split(/\s+/)).not.toContain("-p");
-    expect(cmd).not.toContain("Fix the bug");
+    expect(cmd).toContain("--");
+    expect(cmd).toContain("Fix the bug");
   });
 
-  it("combines all options without prompt", () => {
+  it("combines all options with prompt", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
     expect(cmd).toBe(
-      `${commandPrefix} --dangerously-skip-permissions ${strictMcpConfigArg} --model 'opus'`,
+      `${commandPrefix} --dangerously-skip-permissions ${strictMcpConfigArg} --model 'opus' -- 'Hello'`,
     );
   });
 
@@ -303,28 +304,33 @@ describe("getLaunchCommand", () => {
   it("omits optional flags when not provided", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
     expect(cmd).not.toContain("--model");
-    expect(cmd.split(/\s+/)).not.toContain("-p");
+    // -p as a standalone flag (not substring of --skip-permissions or mcp-config)
+    expect(cmd).not.toMatch(/(?:^|\s)-p(?:\s|$)/);
+    // No prompt = no trailing "--" separator
+    expect(cmd).not.toMatch(/\s--\s/);
   });
 
-  it("includes --append-system-prompt alongside omitted -p", () => {
+  it("includes --append-system-prompt alongside positional prompt arg", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPrompt: "You are a helper", prompt: "Do the task" }),
     );
     expect(cmd).toContain("--append-system-prompt");
     expect(cmd).toContain("You are a helper");
-    // -p as a standalone flag (not substring of --append-system-prompt)
+    // No -p flag — prompt is positional after --
     expect(cmd).not.toMatch(/\s-p\s/);
-    expect(cmd).not.toContain("Do the task");
+    expect(cmd).toContain("--");
+    expect(cmd).toContain("Do the task");
   });
 
-  it("uses systemPromptFile via shell substitution alongside omitted -p", () => {
+  it("uses systemPromptFile via shell substitution alongside positional prompt arg", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPromptFile: "/tmp/prompt.md", prompt: "Do the task" }),
     );
     expect(cmd).toContain('--append-system-prompt "$(cat');
     expect(cmd).toContain("/tmp/prompt.md");
     expect(cmd).not.toMatch(/\s-p\s/);
-    expect(cmd).not.toContain("Do the task");
+    expect(cmd).toContain("--");
+    expect(cmd).toContain("Do the task");
   });
 
   describe("MiniMax routing", () => {

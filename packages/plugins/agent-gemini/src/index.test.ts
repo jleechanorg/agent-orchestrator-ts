@@ -147,9 +147,9 @@ describe("plugin manifest & exports", () => {
 
   it("create() returns an agent with correct name and processName", () => {
     const agent = create();
-    expect(agent.name).toBe("gemini");
-    expect(agent.processName).toBe("gemini");
-    expect(agent.promptDelivery).toBe("post-launch");
+     expect(agent.name).toBe("gemini");
+     expect(agent.processName).toBe("gemini");
+     expect(agent).not.toHaveProperty("promptDelivery");
   });
 
   it("default export is a valid PluginModule", () => {
@@ -214,18 +214,19 @@ describe("getLaunchCommand", () => {
     expect(agentPart(cmd)).toContain("gemini-3-flash-preview");
   });
 
-  it("does not include -p flag (prompt delivered post-launch)", () => {
+  it("includes prompt as positional arg (keeps interactive mode, no -p flag)", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "Fix the bug" }));
-    expect(cmd).not.toContain("-p");
-    expect(cmd).not.toContain("Fix the bug");
+    expect(cmd).not.toMatch(/(?:^|\s)-p(?:\s|$)/);
+    expect(cmd).toContain("--");
+    expect(cmd).toContain("Fix the bug");
   });
 
-  it("combines all options — non-Gemini model stripped, prompt excluded", () => {
+  it("combines all options — non-Gemini model stripped, prompt included", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "flash", prompt: "Hello" }),
     );
     // "flash" is not a gemini-prefixed model ID, so it's stripped
-    expect(agentPart(cmd)).toBe("gemini --yolo");
+    expect(agentPart(cmd)).toBe("gemini --yolo -- 'Hello'");
   });
 
   it("combines all options — Gemini model passed through", () => {
@@ -244,7 +245,8 @@ describe("getLaunchCommand", () => {
   it("omits optional flags when not provided", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
     expect(cmd).not.toContain("--model");
-    expect(cmd).not.toContain("-p");
+    expect(cmd).not.toMatch(/(?:^|\s)-p(?:\s|$)/);
+    expect(cmd).not.toMatch(/\s--\s/); // no prompt = no -- separator
   });
 
   it("prepends trust-folder preamble to add workspace to trustedFolders.json before launch", () => {
@@ -257,14 +259,15 @@ describe("getLaunchCommand", () => {
     expect(agentPart(cmd)).toBe("gemini");
   });
 
-  it("does not include system prompt in launch command (delivered via env var)", () => {
+  it("does not include system prompt in launch command (delivered via env var) but includes prompt as positional arg", () => {
     // Gemini uses GEMINI_SYSTEM_MD env var, not a CLI flag
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPrompt: "You are a helper", prompt: "Do the task" }),
     );
     expect(cmd).not.toContain("system");
     expect(cmd).not.toContain("You are a helper");
-    expect(cmd).not.toContain("Do the task");
+    expect(cmd).toContain("--");
+    expect(cmd).toContain("Do the task");
   });
 });
 

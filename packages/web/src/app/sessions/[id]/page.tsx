@@ -1,17 +1,22 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { isOrchestratorSession } from "@jleechanorg/ao-core/types";
 import { SessionDetail } from "@/components/SessionDetail";
 import { type DashboardSession, getAttentionLevel, type AttentionLevel } from "@/lib/types";
 import { activityIcon } from "@/lib/activity-icons";
+import { fetchJsonWithTimeout } from "@/lib/client-fetch";
+
+const SESSION_FETCH_TIMEOUT_MS = 8000;
+const SESSION_LOAD_MAX_CONSECUTIVE_FAILURES = 4;
+const SESSION_LOAD_MAX_RETRY_ELAPSED_MS = 30_000;
+const SESSION_LOAD_RETRY_BACKOFF_MS = [1_000, 2_000, 4_000] as const;
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + "..." : s;
 }
 
-/** Build a descriptive tab title from session data. */
 function buildSessionTitle(session: DashboardSession): string {
   const id = session.id;
   const emoji = session.activity ? (activityIcon[session.activity] ?? "") : "";
@@ -30,6 +35,25 @@ function buildSessionTitle(session: DashboardSession): string {
   }
 
   return emoji ? `${emoji} ${id} | ${detail}` : `${id} | ${detail}`;
+}
+
+function isAbortLikeError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  if (error instanceof Error && error.message.toLowerCase().includes("aborted")) return true;
+  return false;
+}
+
+function isTransientSessionLoadError(error: unknown): boolean {
+  if (isAbortLikeError(error)) return true;
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("timed out") ||
+      message.includes("network") ||
+      message.includes("failed to fetch")
+    );
+  }
+  return false;
 }
 
 interface ZoneCounts {
@@ -52,7 +76,26 @@ export default function SessionPage() {
   const sessionProjectId = session?.projectId ?? null;
   const sessionIsOrchestrator = session ? isOrchestratorSession(session) : false;
 
-  // Update document title based on session data
+  const fetchingSessionRef = useRef(false);
+  const sessionFetchControllerRef = useRef<AbortController | null>(null);
+  const hasLoadedSessionRef = useRef(false);
+  const sessionLoadFailureCountRef = useRef(0);
+  const sessionLoadFirstFailureAtRef = useRef<number | null>(null);
+  const sessionLoadRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearSessionLoadRetry = useCallback(() => {
+    if (sessionLoadRetryTimerRef.current) {
+      clearTimeout(sessionLoadRetryTimerRef.current);
+      sessionLoadRetryTimerRef.current = null;
+    }
+  }, []);
+
+  const resetSessionLoadFailures = useCallback(() => {
+    sessionLoadFailureCountRef.current = 0;
+    sessionLoadFirstFailureAtRef.current = null;
+    clearSessionLoadRetry();
+  }, [clearSessionLoadRetry]);
+
   useEffect(() => {
     if (session) {
       document.title = buildSessionTitle(session);
@@ -61,33 +104,87 @@ export default function SessionPage() {
     }
   }, [session, id]);
 
-  // Fetch session data (memoized to avoid recreating on every render)
   const fetchSession = useCallback(async () => {
+    if (fetchingSessionRef.current) return;
+    fetchingSessionRef.current = true;
+    const controller = new AbortController();
+    sessionFetchControllerRef.current = controller;
+    let keepLoadingForRetry = false;
     try {
-      const res = await fetch(`/api/sessions/${encodeURIComponent(id)}`);
-      if (res.status === 404) {
-        setError("Session not found");
+      const data = await fetchJsonWithTimeout<DashboardSession | { error: string }>(
+        `/api/sessions/${encodeURIComponent(id)}`,
+        { timeoutMs: SESSION_FETCH_TIMEOUT_MS, signal: controller.signal },
+      );
+      if ("error" in data && typeof data.error === "string" && !("id" in data)) {
+        setError(data.error);
+        setSession(null);
         setLoading(false);
+        resetSessionLoadFailures();
         return;
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as DashboardSession;
-      setSession(data);
+      setSession(data as DashboardSession);
       setError(null);
+      hasLoadedSessionRef.current = true;
+      resetSessionLoadFailures();
     } catch (err) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Failed to load session";
+
+      if (!hasLoadedSessionRef.current && isTransientSessionLoadError(err)) {
+        const failureCount = sessionLoadFailureCountRef.current + 1;
+        sessionLoadFailureCountRef.current = failureCount;
+        sessionLoadFirstFailureAtRef.current ??= Date.now();
+        const elapsedMs = Date.now() - sessionLoadFirstFailureAtRef.current;
+        const shouldKeepRetrying =
+          failureCount < SESSION_LOAD_MAX_CONSECUTIVE_FAILURES &&
+          elapsedMs < SESSION_LOAD_MAX_RETRY_ELAPSED_MS;
+
+        if (shouldKeepRetrying) {
+          const delay =
+            SESSION_LOAD_RETRY_BACKOFF_MS[
+              Math.min(failureCount - 1, SESSION_LOAD_RETRY_BACKOFF_MS.length - 1)
+            ];
+          keepLoadingForRetry = true;
+          setLoading(true);
+          console.warn("Session fetch failed transiently; retrying", {
+            sessionId: id,
+            failureCount,
+            retryInMs: delay,
+            error: err,
+          });
+          clearSessionLoadRetry();
+          sessionLoadRetryTimerRef.current = setTimeout(() => {
+            sessionLoadRetryTimerRef.current = null;
+            void fetchSession();
+          }, delay);
+          return;
+        }
+      }
+
       console.error("Failed to fetch session:", err);
-      setError("Failed to load session");
+      if (!hasLoadedSessionRef.current) {
+        setError(message);
+      }
     } finally {
-      setLoading(false);
+      if (!keepLoadingForRetry) {
+        setLoading(false);
+      }
+      fetchingSessionRef.current = false;
+      if (sessionFetchControllerRef.current === controller) {
+        sessionFetchControllerRef.current = null;
+      }
     }
-  }, [id]);
+  }, [clearSessionLoadRetry, id, resetSessionLoadFailures]);
 
   const fetchZoneCounts = useCallback(async () => {
     if (!sessionIsOrchestrator || !sessionProjectId) return;
     try {
-      const res = await fetch(`/api/sessions?project=${encodeURIComponent(sessionProjectId)}`);
-      if (!res.ok) return;
-      const body = (await res.json()) as { sessions: DashboardSession[] };
+      const body = await fetchJsonWithTimeout<{ sessions: DashboardSession[] }>(
+        `/api/sessions?project=${encodeURIComponent(sessionProjectId)}`,
+        { timeoutMs: 5000 },
+      );
       const sessions = body.sessions ?? [];
       const counts: ZoneCounts = {
         merge: 0,
@@ -108,15 +205,12 @@ export default function SessionPage() {
     }
   }, [sessionIsOrchestrator, sessionProjectId]);
 
-  // Initial fetch — session first, zone counts after (avoids blocking on slow /api/sessions)
   useEffect(() => {
     fetchSession();
-    // Delay zone counts so the heavy /api/sessions call doesn't contend with session load
     const t = setTimeout(fetchZoneCounts, 2000);
     return () => clearTimeout(t);
   }, [fetchSession, fetchZoneCounts]);
 
-  // Poll every 5s
   useEffect(() => {
     const interval = setInterval(() => {
       fetchSession();
@@ -124,6 +218,13 @@ export default function SessionPage() {
     }, 5000);
     return () => clearInterval(interval);
   }, [fetchSession, fetchZoneCounts]);
+
+  useEffect(() => {
+    return () => {
+      clearSessionLoadRetry();
+      sessionFetchControllerRef.current?.abort();
+    };
+  }, [clearSessionLoadRetry]);
 
   if (loading) {
     return (

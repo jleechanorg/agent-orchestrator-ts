@@ -1343,7 +1343,6 @@ function createClaudeCodeAgent(): Agent {
   return {
     name: "claude-code",
     processName: "claude",
-    promptDelivery: "post-launch",
     supportsSystemPromptFile: true,
 
     getLaunchCommand(config: AgentLaunchConfig): string {
@@ -1402,9 +1401,12 @@ function createClaudeCodeAgent(): Agent {
         parts.push("--append-system-prompt", shellEscape(config.systemPrompt));
       }
 
-      // NOTE: prompt is NOT included here — it's delivered post-launch via
-      // runtime.sendMessage() to keep Claude in interactive mode.
-      // Using -p causes one-shot mode (Claude exits after responding).
+      // The positional [prompt] argument auto-submits as the first user turn
+      // and keeps Claude in interactive mode. -p / --print is what triggers
+      // headless one-shot exit, not the presence of a prompt.
+      if (config.prompt) {
+        parts.push("--", shellEscape(config.prompt));
+      }
 
       return parts.join(" ");
     },

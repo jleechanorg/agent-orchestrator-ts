@@ -1258,55 +1258,46 @@ describe("spawn", () => {
     expect(session.branch).not.toBe("main");
   });
 
-  it("sends the full prompt post-launch when a prompt-file agent needs post-launch delivery", async () => {
-    vi.useFakeTimers();
-    const postLaunchAgent = {
+  it("delivers prompt inline via launch command (no post-launch polling)", async () => {
+    const inlineAgent = {
       ...mockAgent,
-      promptDelivery: "post-launch" as const,
+      supportsSystemPromptFile: true,
     };
-    const registryWithPostLaunch: PluginRegistry = {
+    const registryWithInline: PluginRegistry = {
       ...mockRegistry,
       get: vi.fn().mockImplementation((slot: string) => {
         if (slot === "runtime") return mockRuntime;
-        if (slot === "agent") return postLaunchAgent;
+        if (slot === "agent") return inlineAgent;
         if (slot === "workspace") return mockWorkspace;
         return null;
       }),
     };
 
-    const sm = createSessionManager({ config, registry: registryWithPostLaunch });
-    const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
-    await vi.advanceTimersByTimeAsync(5_000);
-    await spawnPromise;
+    const sm = createSessionManager({ config, registry: registryWithInline });
+    const session = await sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
 
-    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ id: expect.any(String) }),
-      expect.stringContaining("Fix the bug"),
-    );
-    expect(mockRuntime.sendMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ id: expect.any(String) }),
-      WORKER_BOOT_PROMPT,
-    );
+    // Prompt is delivered inline via the launch command, not via sendMessage
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
     const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
+    // For systemPromptFile agents, launchPrompt is WORKER_BOOT_PROMPT;
+    // the full prompt is in the system prompt file
     expect(launchArgs.prompt).toBe(WORKER_BOOT_PROMPT);
     expect(readFileSync(launchArgs.systemPromptFile!, "utf-8")).toContain("Fix the bug");
-    vi.useRealTimers();
+    expect(session.id).toBe("app-1");
   });
 
   it("does not send prompt post-launch when agent.promptDelivery is not set", async () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
     await sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
 
-    // Default agent (no promptDelivery) should NOT trigger sendMessage for prompt
+    // No promptDelivery — sendMessage should NOT be called for prompt delivery
     expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("sends the full prompt post-launch for Cursor because Cursor ignores systemPromptFile", async () => {
-    vi.useFakeTimers();
+  it("delivers prompt inline for Cursor (no systemPromptFile support)", async () => {
     const cursorAgent = {
       ...mockAgent,
       name: "cursor",
-      promptDelivery: "post-launch" as const,
       supportsSystemPromptFile: false,
     };
     const registryWithCursor: PluginRegistry = {
@@ -1320,157 +1311,89 @@ describe("spawn", () => {
     };
 
     const sm = createSessionManager({ config, registry: registryWithCursor });
-    const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix cursor prompt delivery" });
-    await vi.advanceTimersByTimeAsync(5_000);
-    await spawnPromise;
+    const session = await sm.spawn({ projectId: "my-app", prompt: "Fix cursor prompt delivery" });
 
-    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+    // Prompt delivered inline via launch command, not via sendMessage
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ id: expect.any(String) }),
       expect.stringContaining("Fix cursor prompt delivery"),
     );
-    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ id: expect.any(String) }),
-      expect.stringContaining("ao session claim-pr"),
-    );
-    expect(mockRuntime.sendMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ id: expect.any(String) }),
-      WORKER_BOOT_PROMPT,
-    );
     const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
-    expect(readFileSync(launchArgs.systemPromptFile!, "utf-8")).toContain("Fix cursor prompt delivery");
-    vi.useRealTimers();
+    // Non-systemPromptFile agents get the full composed prompt as launchPrompt
+    expect(launchArgs.prompt).toContain("Fix cursor prompt delivery");
+    expect(session.id).toBe("app-1");
   });
 
-  it("sends the full prompt post-launch for agents without prompt-file support", async () => {
-    vi.useFakeTimers();
-    const postLaunchAgent = {
+  it("delivers prompt inline for agents without prompt-file support", async () => {
+    const minimaxAgent = {
       ...mockAgent,
       name: "minimax",
-      promptDelivery: "post-launch" as const,
       supportsSystemPromptFile: false,
     };
-    const registryWithPostLaunch: PluginRegistry = {
+    const registryWithMinimax: PluginRegistry = {
       ...mockRegistry,
       get: vi.fn().mockImplementation((slot: string) => {
         if (slot === "runtime") return mockRuntime;
-        if (slot === "agent") return postLaunchAgent;
+        if (slot === "agent") return minimaxAgent;
         if (slot === "workspace") return mockWorkspace;
         return null;
       }),
     };
 
-    const sm = createSessionManager({ config, registry: registryWithPostLaunch });
-    const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix minimax prompt delivery" });
-    await vi.advanceTimersByTimeAsync(5_000);
-    await spawnPromise;
+    const sm = createSessionManager({ config, registry: registryWithMinimax });
+    const session = await sm.spawn({ projectId: "my-app", prompt: "Fix minimax prompt delivery" });
 
-    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+    // Prompt is delivered inline via the launch command
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ id: expect.any(String) }),
       expect.stringContaining("Fix minimax prompt delivery"),
     );
-    expect(mockRuntime.sendMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ id: expect.any(String) }),
-      WORKER_BOOT_PROMPT,
-    );
-    vi.useRealTimers();
+    expect(session.id).toBe("app-1");
   });
 
-  it("sends AO guidance post-launch even when no explicit prompt is provided", async () => {
-    vi.useFakeTimers();
-    const postLaunchAgent = {
-      ...mockAgent,
-      promptDelivery: "post-launch" as const,
-    };
-    const registryWithPostLaunch: PluginRegistry = {
-      ...mockRegistry,
-      get: vi.fn().mockImplementation((slot: string) => {
-        if (slot === "runtime") return mockRuntime;
-        if (slot === "agent") return postLaunchAgent;
-        if (slot === "workspace") return mockWorkspace;
-        return null;
-      }),
-    };
+  it("delivers AO guidance inline even when no explicit prompt is provided", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const session = await sm.spawn({ projectId: "my-app" });
 
-    const sm = createSessionManager({ config, registry: registryWithPostLaunch });
-    const spawnPromise = sm.spawn({ projectId: "my-app" });
-    await vi.advanceTimersByTimeAsync(5_000);
-    await spawnPromise;
-
-    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+    // Prompt delivered inline — sendMessage is not used for initial prompt
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ id: expect.any(String) }),
       expect.stringContaining("ao session claim-pr"),
     );
-    expect(mockRuntime.sendMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ id: expect.any(String) }),
-      WORKER_BOOT_PROMPT,
-    );
-    const launchArgs = vi.mocked(mockAgent.getLaunchCommand).mock.calls[0][0];
-    expect(launchArgs.prompt).toBe(WORKER_BOOT_PROMPT);
-    expect(readFileSync(launchArgs.systemPromptFile!, "utf-8")).toContain("ao session claim-pr");
-    vi.useRealTimers();
+    expect(session.id).toBe("app-1");
   });
 
-  it("does not destroy session when post-launch prompt delivery fails", async () => {
-    vi.useFakeTimers();
+  it("does not destroy session when prompt delivery is inline (no race condition)", async () => {
     const failingRuntime: Runtime = {
       ...mockRuntime,
       sendMessage: vi.fn().mockRejectedValue(new Error("tmux send failed")),
-    };
-    const postLaunchAgent = {
-      ...mockAgent,
-      promptDelivery: "post-launch" as const,
     };
     const registryWithFailingSend: PluginRegistry = {
       ...mockRegistry,
       get: vi.fn().mockImplementation((slot: string) => {
         if (slot === "runtime") return failingRuntime;
-        if (slot === "agent") return postLaunchAgent;
+        if (slot === "agent") return mockAgent;
         if (slot === "workspace") return mockWorkspace;
         return null;
       }),
     };
 
     const sm = createSessionManager({ config, registry: registryWithFailingSend });
-    const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
-    await vi.advanceTimersByTimeAsync(5_000);
-    const session = await spawnPromise;
+    const session = await sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
 
-    // Session should still be returned successfully despite sendMessage failure
+    // Session succeeds — prompt is part of the launch command, not sendMessage
     expect(session.id).toBe("app-1");
     expect(session.status).toBe("spawning");
-    // Runtime should NOT have been destroyed
     expect(failingRuntime.destroy).not.toHaveBeenCalled();
-    vi.useRealTimers();
   });
 
-  it("waits before sending post-launch prompt", async () => {
-    vi.useFakeTimers();
-    const postLaunchAgent = {
-      ...mockAgent,
-      promptDelivery: "post-launch" as const,
-    };
-    const registryWithPostLaunch: PluginRegistry = {
-      ...mockRegistry,
-      get: vi.fn().mockImplementation((slot: string) => {
-        if (slot === "runtime") return mockRuntime;
-        if (slot === "agent") return postLaunchAgent;
-        if (slot === "workspace") return mockWorkspace;
-        return null;
-      }),
-    };
+  it("does not wait before delivering prompt (inline, no delay)", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    // Prompt delivery is immediate (inline via launch command), no 5s wait needed
+    const session = await sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
 
-    const sm = createSessionManager({ config, registry: registryWithPostLaunch });
-    const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
-
-    // Advance only 4s — not enough, message should not have been sent yet
-    await vi.advanceTimersByTimeAsync(4_000);
     expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
-
-    // Advance the remaining 1s — now it should fire
-    await vi.advanceTimersByTimeAsync(1_000);
-    await spawnPromise;
-    expect(mockRuntime.sendMessage).toHaveBeenCalled();
-    vi.useRealTimers();
+    expect(session.id).toBe("app-1");
   });
 });
 

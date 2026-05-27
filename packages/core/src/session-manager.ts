@@ -1563,40 +1563,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw err;
     }
 
-    // Send initial prompt post-launch for agents that need it (e.g. Claude Code
-    // exits after -p, so we send the prompt after it starts in interactive mode).
-    // This is intentionally outside the try/catch above — a prompt delivery failure
-    // should NOT destroy the session. The agent is running; user can retry with `ao send`.
-    if (plugins.agent.promptDelivery === "post-launch" && postLaunchPrompt) {
-      let deliverySuccess = false;
-      let deliveryError: string | undefined;
-
-      try {
-        // Wait for agent to start and be ready for input
-        await new Promise((resolve) => setTimeout(resolve, 5_000));
-        await plugins.runtime.sendMessage(handle, postLaunchPrompt);
-        deliverySuccess = true;
-      } catch (err) {
-        deliveryError = err instanceof Error ? err.message : String(err);
-        // Non-fatal: agent is running but didn't receive the initial prompt.
-        // User can retry with `ao send`.
-      }
-
-      // Log prompt delivery result
-      AOWorkerLogger.logPromptDelivery(
-        sessionId,
-        spawnConfig.projectId,
-        selection.agentName,
-        plugins.runtime.name,
-        {
-          prompt: postLaunchPrompt,
-          deliveryMethod: "post-launch",
-          success: deliverySuccess,
-          branch,
-          error: deliveryError,
-        },
-      );
-    }
+    // Prompt is delivered inline via the agent's launch command (positional argument).
+    // No post-launch polling needed — the prompt is part of process invocation.
 
     emitSpawned(spawnConfig.projectId, sessionId, plugins.agent.name, session.branch ?? undefined);
 
