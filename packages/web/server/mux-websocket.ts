@@ -11,19 +11,10 @@ import { homedir, userInfo } from "node:os";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
-import { type Socket, connect as netConnect } from "node:net";
 import { dirname, join } from "node:path";
 import {
-  DEFAULT_DASHBOARD_NOTIFICATION_LIMIT,
-  getEnvDefaults,
-  getDashboardNotificationStorePath,
   getNodePtyPrebuildsSubdir,
   isWindows,
-  loadConfig,
-  normalizeDashboardNotificationLimit,
-  recordActivityEvent,
-  readDashboardNotificationsFromFile,
-  type DashboardNotificationRecord,
 } from "@jleechanorg/ao-core";
 import {
   findTmux,
@@ -197,7 +188,6 @@ type IPty = import("node-pty").IPty;
 type PtySpawn = typeof import("node-pty").spawn;
 type PtySpawnOptions = Parameters<PtySpawn>[2];
 let ptySpawn: PtySpawn | undefined;
-/* eslint-enable @typescript-eslint/consistent-type-imports */
 const nodePtyRequire = createRequire(import.meta.url);
 
 export function resolveNodePtySpawnHelperPath(): string | null {

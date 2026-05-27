@@ -3,9 +3,7 @@ import { EventEmitter } from "node:events";
 import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Socket } from "node:net";
-import { WebSocket } from "ws";
-import { appendDashboardNotification, isWindows, type OrchestratorEvent } from "@jleechanorg/ao-core";
+import { isWindows } from "@jleechanorg/ao-core";
 import type { SessionBroadcaster as SessionBroadcasterType } from "../mux-websocket";
 
 // vi.mock factories run before module-level statements. Hoist the mock

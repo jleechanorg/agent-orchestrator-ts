@@ -47,10 +47,10 @@ let cachedShell: ShellInfo | null = null;
  * Default to PowerShell args (the historical behaviour) for unknown shells.
  */
 function inferShellArgsFlag(cmd: string): (command: string) => string[] {
-  const base = cmd
+  const base = (cmd
     .replace(/\\/g, "/")
     .split("/")
-    .pop()!
+    .pop() ?? "")
     .toLowerCase()
     .replace(/\.exe$/, "");
   if (base === "cmd") return (c) => ["/c", c];
