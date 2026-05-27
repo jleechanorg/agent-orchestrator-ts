@@ -169,8 +169,8 @@ describe("toClaudeProjectPath", () => {
     );
   });
 
-  it("maps Windows drive colons to dashes and folds backslashes", () => {
-    expect(toClaudeProjectPath("C:\\Users\\dev\\foo")).toBe("C--Users-dev-foo");
+  it("strips Windows drive colons and folds backslashes", () => {
+    expect(toClaudeProjectPath("C:\\Users\\dev\\foo")).toBe("C-Users-dev-foo");
   });
 
   it("collapses any other non-alphanumeric character into a dash", () => {
@@ -499,9 +499,9 @@ describe("isProcessRunning", () => {
     expect(mockExecFileAsync).not.toHaveBeenCalled();
   });
 
-  it("returns indeterminate when tmux command fails", async () => {
+  it("returns false when tmux command fails", async () => {
     mockExecFileAsync.mockRejectedValue(new Error("fail"));
-    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe("indeterminate");
+    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(false);
   });
 
   it("returns true when PID exists but throws EPERM", async () => {
@@ -531,44 +531,33 @@ describe("isProcessRunning", () => {
 });
 
 // ==================================================================
-// detectActivity — retired terminal-regex (#1941)
+// detectActivity — terminal output classification
 // ==================================================================
 describe("detectActivity", () => {
   const agent = create();
 
-  it("always returns idle — terminal-regex retired in favour of hooks (#1941)", () => {
-    const previouslyActive: string[] = [
-      "Working... esc to interrupt\n",
-      "Thinking...\n",
-      "Reading file src/index.ts\n",
-      "Writing to src/main.ts\n",
-      "Searching codebase...\n",
-      "Press up to edit queued messages\n",
-      "✻ Fluttering… (6m 49s · ↓ 26.9k tokens)\n",
-      "✻ Working...\n❯\n",
-    ];
-    const previouslyWaitingInput: string[] = [
-      "Do you want to proceed? (Y)es / (N)o\n",
-      "Do you want to proceed?\n",
-      "bypass all future permissions for this session\n",
-      "(Y)es / (N)o\n",
-    ];
-    const previouslyBlocked: string[] = [
-      "  ⎿  Unable to connect to API (ConnectionRefused)\n",
-      "     Retrying in 19s · attempt 7/10\n",
-    ];
-    for (const input of [...previouslyActive, ...previouslyWaitingInput, ...previouslyBlocked]) {
-      expect(agent.detectActivity(input)).toBe("idle");
-    }
+  it("returns idle for empty terminal output", () => {
+    expect(agent.detectActivity("")).toBe("idle");
   });
 
-  it("returns idle for empty/whitespace output", () => {
-    expect(agent.detectActivity("")).toBe("idle");
+  it("returns idle for whitespace-only terminal output", () => {
     expect(agent.detectActivity("   \n  \n  ")).toBe("idle");
   });
 
-  it("recordActivity is NOT implemented on the Claude agent (#1941)", () => {
-    expect((agent as Record<string, unknown>)["recordActivity"]).toBeUndefined();
+  it.each([
+    "Working... esc to interrupt\n",
+    "Thinking...\n",
+    "Reading file src/index.ts\n",
+    "Writing to src/main.ts\n",
+    "Searching codebase...\n",
+    "Do you want to proceed? (Y)es / (N)o\n",
+    "bypass all future permissions for this session\n",
+    "  ⎿  Unable to connect to API (ConnectionRefused)\n",
+    "     Retrying in 19s · attempt 7/10\n",
+    "✻ Fluttering… (6m 49s · ↓ 26.9k tokens)\n",
+    "some random terminal output\n",
+  ])("returns idle for ALL non-empty input (no terminal-regex active/waiting_input/blocked): %s", (input) => {
+    expect(agent.detectActivity(input)).toBe("idle");
   });
 });
 
@@ -966,7 +955,7 @@ describe("hook setup — relative path (symlink-safe)", () => {
     expect(hookCommand).not.toMatch(/^\//);
   });
 
-  it("registers metadata hook for PostToolUse and activity hooks for all activity events", async () => {
+  it("registers metadata hook for both PostToolUse and PreToolUse", async () => {
     await agent.setupWorkspaceHooks!(
       "/Users/equinox/.worktrees/integrator/integrator-5",
       {} as WorkspaceHooksConfig,
@@ -976,25 +965,18 @@ describe("hook setup — relative path (symlink-safe)", () => {
       ([path]: unknown[]) => typeof path === "string" && path.endsWith("settings.json"),
     );
     const parsed = JSON.parse(settingsWrite![1] as string);
-    expect(parsed.hooks.PostToolUse).toBeDefined();
-    // Activity hooks are registered on multiple events
-    expect(parsed.hooks.PermissionRequest).toBeDefined();
-    expect(parsed.hooks.Stop).toBeDefined();
-    expect(parsed.hooks.Notification).toBeDefined();
+    expect(parsed.hooks.PostToolUse[0].hooks[0].command).toBe(".claude/metadata-updater.sh");
+    expect(parsed.hooks.PreToolUse[0].hooks[0].command).toBe(".claude/metadata-updater.sh");
   });
 
-  it("postLaunchSetup is a no-op (hooks installed pre-launch) (#1941)", async () => {
+  it("postLaunchSetup writes a relative hook command (not absolute)", async () => {
     await agent.postLaunchSetup!(
       makeSession({ workspacePath: "/Users/equinox/.worktrees/integrator/integrator-10" }),
     );
 
-    // postLaunchSetup is intentionally a no-op — hooks are installed
-    // pre-launch via setupWorkspaceHooks so that PostToolUse hooks exist
-    // before the agent's first tool call.
-    const settingsWrite = mockWriteFile.mock.calls.find(
-      ([path]: unknown[]) => typeof path === "string" && path.endsWith("settings.json"),
-    );
-    expect(settingsWrite).toBeUndefined();
+    const hookCommand = getWrittenHookCommand();
+    expect(hookCommand).toBe(".claude/metadata-updater.sh");
+    expect(hookCommand).not.toMatch(/^\//);
   });
 
   it("different worktree paths produce identical settings.json content", async () => {
@@ -1067,18 +1049,18 @@ describe("hook setup — relative path (symlink-safe)", () => {
     );
   });
 
-  it("proceeds without warnings for symlinked .claude directory (#1941)", async () => {
-    // The upstream Phase 5-B refactor removed symlink guards from
-    // setupHookInWorkspace — the new upsertHookEntry approach is
-    // idempotent and doesn't need symlink protection.
-    // Note: setupMcpMailInWorkspace still has its own symlink guard,
-    // so we don't mock lstat as symlink here to avoid that separate check.
+  it("warns (does not throw) for symlinked .claude directory", async () => {
+    mockLstat.mockResolvedValueOnce({ isSymbolicLink: () => true });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     await expect(
       agent.setupWorkspaceHooks!(
         "/Users/equinox/.worktrees/integrator/integrator-5",
         {} as WorkspaceHooksConfig,
       ),
     ).resolves.not.toThrow();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/symlink/i));
+    warnSpy.mockRestore();
   });
 
   it("skips postLaunchSetup when workspacePath is null", async () => {
