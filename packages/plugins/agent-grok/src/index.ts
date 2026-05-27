@@ -22,17 +22,10 @@ import {
   type WorkspaceHooksConfig,
 } from "@jleechanorg/ao-core";
 import { execFile } from "node:child_process";
-import { createRequire } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 import which from "which";
-
-const require = createRequire(import.meta.url);
-const packageJson = require("../package.json") as {
-  name: string;
-  version: string;
-  description: string;
-};
+import packageJson from "../package.json" with { type: "json" };
 const PACKAGE_NAME_PREFIX = "@jleechanorg/ao-plugin-agent-";
 const pluginName = packageJson.name.startsWith(PACKAGE_NAME_PREFIX)
   ? packageJson.name.slice(PACKAGE_NAME_PREFIX.length)
