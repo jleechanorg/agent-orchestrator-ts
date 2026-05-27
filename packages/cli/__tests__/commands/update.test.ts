@@ -20,15 +20,15 @@ const {
 }));
 
 vi.mock("../../src/lib/script-runner.js", () => ({
-  executeScriptCommand: (...args: unknown[]) => mockExecuteScriptCommand(...args),
+  executeScriptCommand: (script: unknown, args: unknown) => mockExecuteScriptCommand(script, args),
 }));
 
 vi.mock("../../src/lib/update-lifecycle.js", () => ({
-  getUpdateLifecyclePlan: (...args: unknown[]) => mockGetUpdateLifecyclePlan(...args),
-  pauseSupervisorsBeforeUpdate: (...args: unknown[]) => mockPauseSupervisorsBeforeUpdate(...args),
-  verifyUpdatePause: (...args: unknown[]) => mockVerifyUpdatePause(...args),
-  shouldRestartAfterUpdate: (...args: unknown[]) => mockShouldRestartAfterUpdate(...args),
-  restartAoAfterUpdate: (...args: unknown[]) => mockRestartAoAfterUpdate(...args),
+  getUpdateLifecyclePlan: () => mockGetUpdateLifecyclePlan(),
+  pauseSupervisorsBeforeUpdate: (plan: unknown) => mockPauseSupervisorsBeforeUpdate(plan),
+  verifyUpdatePause: (plan: unknown) => mockVerifyUpdatePause(plan),
+  shouldRestartAfterUpdate: (plan: unknown, didStop: unknown) => mockShouldRestartAfterUpdate(plan, didStop),
+  restartAoAfterUpdate: (plan: unknown, opts: unknown) => mockRestartAoAfterUpdate(plan, opts),
 }));
 
 import { registerUpdate } from "../../src/commands/update.js";
