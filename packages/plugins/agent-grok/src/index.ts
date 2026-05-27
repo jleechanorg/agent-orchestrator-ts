@@ -154,7 +154,7 @@ function createGrokAgent(): Agent {
   return {
      name: pluginName,
      processName: pluginName,
-
+     supportsSystemPromptFile: true,
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       return buildGrokCommand(config);
