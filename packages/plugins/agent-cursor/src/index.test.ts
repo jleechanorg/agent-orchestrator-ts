@@ -137,9 +137,9 @@ describe("plugin manifest & exports", () => {
 
   it("create() returns an agent with correct name and processName", () => {
     const agent = create();
-    expect(agent.name).toBe("cursor");
-    expect(agent.processName).toBe("cursor-agent");
-    expect(agent.promptDelivery).toBe("post-launch");
+     expect(agent.name).toBe("cursor");
+     expect(agent.processName).toBe("cursor-agent");
+     expect(agent).not.toHaveProperty("promptDelivery");
   });
 
   it("default export is a valid PluginModule", () => {
@@ -216,19 +216,20 @@ describe("getLaunchCommand", () => {
     expect(agentPart(legacyCmd)).toContain("--model 'composer-2-fast'");
   });
 
-  it("does not include -p flag (prompt delivered post-launch)", () => {
+  it("includes prompt as positional arg (keeps interactive mode, no -p flag)", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "Fix the bug" }));
     const agentCmd = agentPart(cmd);
-    expect(agentCmd).not.toContain("-p");
-    expect(agentCmd).not.toContain("Fix the bug");
+    expect(agentCmd).not.toMatch(/(?:^|\s)-p(?:\s|$)/);
+    expect(agentCmd).toContain("--");
+    expect(agentCmd).toContain("Fix the bug");
   });
 
-  it("combines all options without prompt", () => {
+  it("combines all options with prompt", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "opus", prompt: "Hello" }),
     );
     // invalid models are normalized to Composer 2 fast
-    expect(agentPart(cmd)).toBe("cursor-agent --force --model 'composer-2-fast'");
+    expect(agentPart(cmd)).toBe("cursor-agent --force --model 'composer-2-fast' -- 'Hello'");
   });
 
   it("omits --force when permissions=default", () => {
@@ -240,7 +241,8 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
     const agentCmd = agentPart(cmd);
     expect(agentCmd).toContain("--model");
-    expect(agentCmd).not.toContain("-p");
+    expect(agentCmd).not.toMatch(/(?:^|\s)-p(?:\s|$)/);
+    expect(agentCmd).not.toMatch(/\s--\s/); // no prompt = no -- separator
   });
 
   it("prepends trust-file preamble to create .workspace-trusted before launch", () => {
@@ -250,22 +252,23 @@ describe("getLaunchCommand", () => {
     expect(cmd).toMatch(/^\( .+ \); cursor-agent/);
   });
 
-  it("ignores systemPrompt (no --append-system-prompt flag on Cursor)", () => {
+  it("ignores systemPrompt but includes prompt as positional arg", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPrompt: "You are a helper", prompt: "Do the task" }),
     );
     expect(cmd).not.toContain("--append-system-prompt");
     expect(cmd).not.toContain("You are a helper");
-    expect(cmd).not.toContain("Do the task");
+    expect(cmd).toContain("--");
+    expect(cmd).toContain("Do the task");
   });
 
-  it("ignores systemPromptFile (no --append-system-prompt flag on Cursor)", () => {
+  it("ignores systemPromptFile but includes prompt as positional arg", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ systemPromptFile: "/tmp/prompt.md", prompt: "Do the task" }),
     );
     expect(cmd).not.toContain("--append-system-prompt");
-    expect(cmd).not.toContain("/tmp/prompt.md");
-    expect(cmd).not.toContain("Do the task");
+    expect(cmd).toContain("--");
+    expect(cmd).toContain("Do the task");
   });
 });
 

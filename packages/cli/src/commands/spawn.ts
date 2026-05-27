@@ -22,6 +22,7 @@ import { banner } from "../lib/format.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
 import { ensureLifecycleWorker } from "../lib/lifecycle-service.js";
 import { preflight } from "../lib/preflight.js";
+import { getRunning } from "../lib/running-state.js";
 
 /**
  * Auto-detect the project ID from the config.
@@ -74,6 +75,28 @@ function resolveSpawnProjectId(
     return explicitProjectId;
   }
   return autoDetectProject(config);
+}
+
+/**
+ * Refuse to spawn if no `ao start` is running, or if the running instance is
+ * not polling this project. Without an active daemon, sessions get worktrees
+ * and tmux panes but no lifecycle reactions (CI-failure routing, review
+ * comments, revive transitions, event log). That silent blackout is a
+ * worse failure mode than creating no session at all — so fail fast with
+ * an actionable error.
+ */
+async function ensureAOPollingProject(projectId: string): Promise<void> {
+  const running = await getRunning();
+  if (!running) {
+    throw new Error(
+      `AO is not running — lifecycle polling is inactive. Run \`ao start\` before spawning sessions so they get CI/review routing and state advancement.`,
+    );
+  }
+  if (!running.projects.includes(projectId)) {
+    throw new Error(
+      `The running AO instance (pid ${running.pid}) is not polling project "${projectId}". Run \`ao start ${projectId}\` before spawning so sessions get tracked.`,
+    );
+  }
 }
 
 interface SpawnClaimOptions {
@@ -326,6 +349,7 @@ export function registerSpawn(program: Command): void {
 
         try {
           await runSpawnPreflight(config, projectId, claimOptions);
+          await ensureAOPollingProject(projectId);
           await ensureLifecycleWorker(config, projectId);
 
           if (opts.decompose && issueId) {
@@ -460,6 +484,7 @@ export function registerBatchSpawn(program: Command): void {
       // Pre-flight once before the loop so a missing prerequisite fails fast
       try {
         await runSpawnPreflight(config, projectId);
+        await ensureAOPollingProject(projectId);
         await ensureLifecycleWorker(config, projectId);
       } catch (err) {
         console.error(chalk.red(`✗ ${err instanceof Error ? err.message : String(err)}`));

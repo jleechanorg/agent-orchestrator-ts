@@ -399,15 +399,6 @@ export interface Agent {
   readonly processName: string;
 
   /**
-   * How the initial prompt should be delivered to the agent.
-   * - "inline" (default): prompt is included in the launch command (e.g. -p flag)
-   * - "post-launch": prompt is sent via runtime.sendMessage() after the agent starts,
-   *   keeping the agent in interactive mode. Use this for agents where inlining
-   *   the prompt causes one-shot/exit behavior (e.g. Claude Code's -p flag).
-   */
-  readonly promptDelivery?: "inline" | "post-launch";
-
-  /**
    * True when the agent launch command actually consumes AgentLaunchConfig.systemPromptFile.
    * Agents without this capability must receive the full composed worker prompt via `prompt`.
    */

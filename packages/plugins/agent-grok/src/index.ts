@@ -149,9 +149,9 @@ export const manifest = {
 
 function createGrokAgent(): Agent {
   return {
-    name: pluginName,
-    processName: pluginName,
-    promptDelivery: "post-launch",
+     name: pluginName,
+     processName: pluginName,
+
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       return buildGrokCommand(config);
