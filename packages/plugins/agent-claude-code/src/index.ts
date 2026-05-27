@@ -923,6 +923,13 @@ function buildHookRegistrations(
 
   const regs: HookRegistration[] = [
     {
+      event: "PreToolUse",
+      matcher: "Bash",
+      command: metadataCommand,
+      timeout: 5000,
+      identifiers: METADATA_IDS,
+    },
+    {
       event: "PostToolUse",
       matcher: "Bash",
       command: metadataCommand,
