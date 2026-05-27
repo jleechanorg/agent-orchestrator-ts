@@ -64,6 +64,7 @@ import { killExistingDaemon } from "../lib/daemon.js";
 import { isHumanCaller, promptSelect } from "../lib/caller-context.js";
 import { detectEnvironment } from "../lib/detect-env.js";
 import { detectDefaultBranch } from "../lib/git-utils.js";
+import { dashboardUrl } from "../lib/dashboard-url.js";
 import {
   detectProjectType,
   generateRulesFromTemplates,
@@ -752,7 +753,7 @@ async function runStartup(
       config.terminalPort,
       config.directTerminalPort,
     );
-    spinner.succeed(`Dashboard starting on http://localhost:${port}`);
+    spinner.succeed(`Dashboard starting on ${dashboardUrl(port)}`);
     console.log(chalk.dim("  (Dashboard will be ready in a few seconds)\n"));
   }
 
@@ -809,7 +810,7 @@ async function runStartup(
   console.log(chalk.bold.green("\n✓ Startup complete\n"));
 
   if (opts?.dashboard !== false) {
-    console.log(chalk.cyan("Dashboard:"), `http://localhost:${port}`);
+    console.log(chalk.cyan("Dashboard:"), dashboardUrl(port));
   }
 
   if (shouldStartLifecycle && lifecycleStatus) {
@@ -842,7 +843,7 @@ async function runStartup(
   let openAbort: AbortController | undefined;
   if (opts?.dashboard !== false) {
     openAbort = new AbortController();
-    const orchestratorUrl = `http://localhost:${port}/sessions/${sessionId}`;
+    const orchestratorUrl = `${dashboardUrl(port)}/sessions/${sessionId}`;
     void waitForPortAndOpen(port, orchestratorUrl, openAbort.signal);
   }
 
@@ -958,7 +959,7 @@ export function registerStart(program: Command): void {
                 const earlyRunning = await isAlreadyRunning();
                 if (earlyRunning) {
                   console.log(`AO is already running.`);
-                  console.log(`Dashboard: http://localhost:${earlyRunning.port}`);
+                  console.log(`Dashboard: ${dashboardUrl(earlyRunning.port)}`);
                   console.log(`PID: ${earlyRunning.pid}`);
                   console.log(`Projects: ${earlyRunning.projects.join(", ")}`);
                   process.exit(0);
@@ -990,7 +991,7 @@ export function registerStart(program: Command): void {
                 const earlyRunning = await isAlreadyRunning();
                 if (earlyRunning && earlyRunning.projects.includes(projectId)) {
                   console.log(`AO is already running.`);
-                  console.log(`Dashboard: http://localhost:${earlyRunning.port}`);
+                  console.log(`Dashboard: ${dashboardUrl(earlyRunning.port)}`);
                   console.log(`PID: ${earlyRunning.pid}`);
                   console.log(`Projects: ${earlyRunning.projects.join(", ")}`);
                   console.log(`${projectId} already registered and running`);
@@ -1002,7 +1003,7 @@ export function registerStart(program: Command): void {
                   const earlyRunning = await isAlreadyRunning();
                   if (earlyRunning) {
                     console.log(`AO is already running.`);
-                    console.log(`Dashboard: http://localhost:${earlyRunning.port}`);
+                    console.log(`Dashboard: ${dashboardUrl(earlyRunning.port)}`);
                     console.log(`PID: ${earlyRunning.pid}`);
                     console.log(`Projects: ${earlyRunning.projects.join(", ")}`);
                     process.exit(0);
@@ -1021,7 +1022,7 @@ export function registerStart(program: Command): void {
                   await sm.ensureOrchestrator?.({ projectId, systemPrompt });
                   console.log(chalk.green(`Orchestrator session ready`));
                   console.log(
-                    chalk.dim(`Opening dashboard at http://localhost:${liveRunning.port}`),
+                    chalk.dim(`Opening dashboard at ${dashboardUrl(liveRunning.port)}`),
                   );
                   process.exit(0);
                 }
@@ -1061,7 +1062,7 @@ export function registerStart(program: Command): void {
           if (running) {
             if (isHumanCaller()) {
               console.log(chalk.cyan(`\nℹ AO is already running.`));
-              console.log(`  Dashboard: ${chalk.cyan(`http://localhost:${running.port}`)}`);
+              console.log(`  Dashboard: ${chalk.cyan(dashboardUrl(running.port))}`);
               console.log(`  PID: ${running.pid} | Up since: ${running.startedAt}`);
               console.log(`  Projects: ${running.projects.join(", ")}\n`);
 
@@ -1087,7 +1088,7 @@ export function registerStart(program: Command): void {
               const choice = await promptSelect("\nWhat would you like to do?", menuOptions);
 
               if (choice === "open") {
-                const url = `http://localhost:${running.port}`;
+                const url = dashboardUrl(running.port);
                 const [cmd, args]: [string, string[]] =
                   process.platform === "win32"
                     ? ["cmd.exe", ["/c", "start", "", url]]
@@ -1107,7 +1108,7 @@ export function registerStart(program: Command): void {
                 const systemPrompt = generateOrchestratorPrompt({ config, projectId, project });
                 await sm.ensureOrchestrator?.({ projectId, systemPrompt });
                 console.log(chalk.green(`Orchestrator session ready`));
-                console.log(chalk.dim(`Opening dashboard at http://localhost:${running.port}`));
+                console.log(chalk.dim(`Opening dashboard at ${dashboardUrl(running.port)}`));
                 process.exit(0);
               } else if (choice === "new") {
                 // Generate unique orchestrator: same project, new session
@@ -1149,7 +1150,7 @@ export function registerStart(program: Command): void {
             } else {
               // Agent/non-TTY caller — print info and exit
               console.log(`AO is already running.`);
-              console.log(`Dashboard: http://localhost:${running.port}`);
+              console.log(`Dashboard: ${dashboardUrl(running.port)}`);
               console.log(`PID: ${running.pid}`);
               console.log(`Projects: ${running.projects.join(", ")}`);
               console.log(`To restart: ao stop && ao start`);
