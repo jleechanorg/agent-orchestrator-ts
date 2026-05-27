@@ -9,6 +9,13 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { homedir, userInfo } from "node:os";
 import { spawn } from "node:child_process";
+import * as fs from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import {
+  getNodePtyPrebuildsSubdir,
+  isWindows,
+} from "@jleechanorg/ao-core";
 import {
   findTmux,
   resolveTmuxSession,
@@ -178,7 +185,37 @@ export class SessionBroadcaster {
 
 // node-pty is an optionalDependency — load dynamically
 type IPty = import("node-pty").IPty;
-let ptySpawn: typeof import("node-pty").spawn | undefined;
+type PtySpawn = typeof import("node-pty").spawn;
+type PtySpawnOptions = Parameters<PtySpawn>[2];
+let ptySpawn: PtySpawn | undefined;
+const nodePtyRequire = createRequire(import.meta.url);
+
+export function resolveNodePtySpawnHelperPath(): string | null {
+  const override = process.env.AO_NODE_PTY_SPAWN_HELPER_PATH;
+  if (override) return override;
+
+  try {
+    const packageJsonPath = nodePtyRequire.resolve("node-pty/package.json");
+    return join(dirname(packageJsonPath), "prebuilds", getNodePtyPrebuildsSubdir(), "spawn-helper");
+  } catch {
+    return null;
+  }
+}
+
+function isPosixSpawnpFailure(err: unknown): boolean {
+  return err instanceof Error && err.message.includes("posix_spawnp");
+}
+
+function repairNodePtySpawnHelper(): string | null {
+  if (isWindows()) return null;
+
+  const spawnHelperPath = resolveNodePtySpawnHelperPath();
+  if (!spawnHelperPath || !fs.existsSync(spawnHelperPath)) return null;
+
+  fs.chmodSync(spawnHelperPath, 0o755);
+  return spawnHelperPath;
+}
+
 try {
   const nodePty = await import("node-pty");
   ptySpawn = nodePty.spawn;
@@ -228,6 +265,7 @@ const REATTACH_RESET_GRACE_MS = 5_000;
 export class TerminalManager {
   private terminals = new Map<string, ManagedTerminal>();
   private TMUX: string;
+  private spawnHelperRepairAttempted = false;
 
   constructor(tmuxPath?: string) {
     this.TMUX = tmuxPath ?? findTmux();
@@ -235,6 +273,41 @@ export class TerminalManager {
 
   private terminalKey(id: string, projectId?: string): string {
     return projectId ? `${projectId}:${id}` : id;
+  }
+
+  private spawnTmuxPty(args: string[], options: PtySpawnOptions): IPty {
+    if (!ptySpawn) {
+      throw new Error("node-pty not available");
+    }
+
+    try {
+      return ptySpawn(this.TMUX, args, options);
+    } catch (err) {
+      if (this.spawnHelperRepairAttempted || !isPosixSpawnpFailure(err)) {
+        throw err;
+      }
+
+      this.spawnHelperRepairAttempted = true;
+      try {
+        const repairedPath = repairNodePtySpawnHelper();
+        if (repairedPath) {
+          console.warn(
+            `[MuxServer] node-pty posix_spawnp failed; set executable bit on ${repairedPath} and retrying once.`,
+          );
+        } else {
+          console.warn(
+            "[MuxServer] node-pty posix_spawnp failed; spawn-helper was not found, retrying once.",
+          );
+        }
+      } catch (repairErr) {
+        const message = repairErr instanceof Error ? repairErr.message : String(repairErr);
+        console.warn(
+          `[MuxServer] node-pty posix_spawnp failed; chmod spawn-helper failed (${message}), retrying once.`,
+        );
+      }
+
+      return ptySpawn(this.TMUX, args, options);
+    }
   }
 
   /**
@@ -308,12 +381,7 @@ export class TerminalManager {
       TMPDIR: process.env.TMPDIR || "/tmp",
     };
 
-    if (!ptySpawn) {
-      throw new Error("node-pty not available");
-    }
-
-// Spawn PTY — reuse the exact-match target from above.
-    const pty = ptySpawn(this.TMUX, ["attach-session", "-t", exactTmuxTarget], {
+    const pty = this.spawnTmuxPty(["attach-session", "-t", exactTmuxTarget], {
       name: "xterm-256color",
       cols: 80,
       rows: 24,

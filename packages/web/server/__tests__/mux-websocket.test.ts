@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
+import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { isWindows } from "@jleechanorg/ao-core";
 import type { SessionBroadcaster as SessionBroadcasterType } from "../mux-websocket";
 
 // vi.mock factories run before module-level statements. Hoist the mock
@@ -311,6 +315,41 @@ describe("TerminalManager.open — tmux target args (regression for #1714)", () 
     expect(mockPtySpawn).toHaveBeenCalledTimes(1);
     const [, args] = mockPtySpawn.mock.calls[0];
     expect(args).toEqual(["attach-session", "-t", "=ao-177"]);
+  });
+
+  it("repairs node-pty spawn-helper when applicable and retries once after posix_spawnp failure", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-mux-spawn-helper-"));
+    const helperPath = join(tempRoot, "spawn-helper");
+    writeFileSync(helperPath, "#!/bin/sh\nexit 0\n");
+    chmodSync(helperPath, 0o644);
+    process.env.AO_NODE_PTY_SPAWN_HELPER_PATH = helperPath;
+
+    const pty = {
+      onData: vi.fn(),
+      onExit: vi.fn(),
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill: vi.fn(),
+    };
+
+    mockPtySpawn
+      .mockImplementationOnce(() => {
+        throw new Error("posix_spawnp failed.");
+      })
+      .mockImplementationOnce(() => pty);
+
+    try {
+      const mgr = new TerminalManager("/usr/bin/tmux");
+      mgr.open("ao-177");
+
+      expect(mockPtySpawn).toHaveBeenCalledTimes(2);
+      if (!isWindows()) {
+        expect((statSync(helperPath).mode & 0o111) !== 0).toBe(true);
+      }
+    } finally {
+      delete process.env.AO_NODE_PTY_SPAWN_HELPER_PATH;
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });
 
