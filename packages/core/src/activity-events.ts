@@ -121,6 +121,10 @@ export type ActivityEventKind =
   | "ui.terminal_pty_lost"
   | "ui.terminal_protocol_error"
   | "ui.session_broadcast_failed"
+  // CLI commands
+  | "cli.ao_started"
+  | "cli.spawn_command"
+  | "cli.spawn_failed"
   // Recovery/forensic instrumentation
   | "recovery.session_failed"
   | "recovery.action_failed"

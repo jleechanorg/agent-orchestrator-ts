@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import {
   getNodePtyPrebuildsSubdir,
   isWindows,
+  recordActivityEvent,
 } from "@jleechanorg/ao-core";
 import {
   findTmux,
@@ -594,6 +595,11 @@ export function createMuxWebSocket(tmuxPath?: string): WebSocketServer | null {
 
   wss.on("connection", (ws) => {
     console.log("[MuxServer] New mux connection");
+    recordActivityEvent({
+      source: "ui",
+      kind: "ui.terminal_connected",
+      summary: "terminal WebSocket connected",
+    });
 
     const subscriptions = new Map<string, () => void>();
     let sessionUnsubscribe: (() => void) | null = null;
@@ -760,6 +766,11 @@ export function createMuxWebSocket(tmuxPath?: string): WebSocketServer | null {
      */
     ws.on("close", () => {
       console.log("[MuxServer] Mux connection closed");
+      recordActivityEvent({
+        source: "ui",
+        kind: "ui.terminal_disconnected",
+        summary: "terminal WebSocket disconnected",
+      });
       clearInterval(heartbeatInterval);
       sessionUnsubscribe?.();
       sessionUnsubscribe = null;
