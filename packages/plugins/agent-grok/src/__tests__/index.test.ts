@@ -149,11 +149,12 @@ describe("manifest", () => {
 });
 
 describe("create", () => {
-  it("uses grok as process name and post-launch prompt mode", () => {
+  it("uses grok as process name and inline prompt delivery", () => {
     const agent = create();
-     expect(agent.name).toBe(pluginName);
-     expect(agent.processName).toBe(pluginName);
-     expect(agent).not.toHaveProperty("promptDelivery");
+    expect(agent.name).toBe(pluginName);
+    expect(agent.processName).toBe(pluginName);
+    expect(agent.promptDelivery).toBe("inline");
+    expect(agent.supportsSystemPromptFile).toBe(true);
   });
 
   it("exports plugin module shape", () => {
@@ -221,6 +222,29 @@ describe("getLaunchCommand", () => {
     expect(cmd).not.toContain("-p");
     expect(cmd).not.toContain("--single");
     expect(cmd).not.toContain("--prompt");
+  });
+
+  it("appends prompt after -- in buildGrokCommand", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({
+        prompt: "Fix the bug in auth.ts",
+      }),
+    );
+    expect(cmd).toContain("-- 'Fix the bug in auth.ts'");
+  });
+
+  it("does not append prompt during --resume", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({
+        prompt: "Continue working",
+        projectConfig: {
+          ...makeLaunchConfig().projectConfig,
+          agentConfig: { grokSessionId: "01HXGROKSESSION" },
+        },
+      }),
+    );
+    expect(cmd).toContain("--resume '01HXGROKSESSION'");
+    expect(cmd).not.toContain("-- 'Continue working'");
   });
 });
 
