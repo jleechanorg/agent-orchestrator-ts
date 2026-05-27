@@ -92,6 +92,9 @@ function buildGrokCommand(config: AgentLaunchConfig, sessionId?: string | null):
   if (restoreSessionId) {
     parts.push("--resume", shellEscape(restoreSessionId));
   }
+  if (config.prompt) {
+    parts.push("--", shellEscape(config.prompt));
+  }
   return parts.join(" ");
 }
 
