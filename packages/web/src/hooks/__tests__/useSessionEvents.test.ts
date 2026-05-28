@@ -15,7 +15,7 @@ describe("useSessionEvents", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     eventSourceInstances = [];
-    const eventSourceConstructor = vi.fn(() => {
+    const eventSourceConstructor = function (this: any, _url?: string) {
       const instance = {
         onmessage: null as ((event: MessageEvent) => void) | null,
         onerror: null as (() => void) | null,
@@ -24,12 +24,11 @@ describe("useSessionEvents", () => {
       eventSourceInstances.push(instance);
       eventSourceMock = instance;
       return instance as unknown as EventSource;
-    });
-    global.EventSource = Object.assign(eventSourceConstructor, {
-      CONNECTING: 0,
-      OPEN: 1,
-      CLOSED: 2,
-    }) as unknown as typeof EventSource;
+    } as any as typeof EventSource;
+    eventSourceConstructor.CONNECTING = 0;
+    eventSourceConstructor.OPEN = 1;
+    eventSourceConstructor.CLOSED = 2;
+    global.EventSource = eventSourceConstructor;
     global.fetch = vi.fn();
   });
 

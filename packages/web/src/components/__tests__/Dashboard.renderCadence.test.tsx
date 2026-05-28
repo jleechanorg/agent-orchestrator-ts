@@ -28,12 +28,13 @@ describe("Dashboard render cadence", () => {
       onerror: null,
       close: vi.fn(),
     };
-    const eventSourceConstructor = vi.fn(() => eventSourceMock as unknown as EventSource);
-    global.EventSource = Object.assign(eventSourceConstructor, {
-      CONNECTING: 0,
-      OPEN: 1,
-      CLOSED: 2,
-    }) as unknown as typeof EventSource;
+    const eventSourceConstructor = function (_url?: string) {
+      return eventSourceMock as unknown as EventSource;
+    } as any as typeof EventSource;
+    eventSourceConstructor.CONNECTING = 0;
+    eventSourceConstructor.OPEN = 1;
+    eventSourceConstructor.CLOSED = 2;
+    global.EventSource = eventSourceConstructor;
     global.fetch = vi.fn();
   });
 

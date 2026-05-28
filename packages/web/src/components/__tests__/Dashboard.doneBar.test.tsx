@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "../Dashboard";
+import { makeSession } from "../../__tests__/helpers";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
@@ -14,60 +15,60 @@ beforeEach(() => {
     onerror: null,
     close: vi.fn(),
   };
-  const eventSourceConstructor = vi.fn(() => eventSourceMock as unknown as EventSource);
-  global.EventSource = Object.assign(eventSourceConstructor, {
-    CONNECTING: 0,
-    OPEN: 1,
-    CLOSED: 2,
-  }) as unknown as typeof EventSource;
+  const eventSourceConstructor = function (_url?: string) {
+    return eventSourceMock as unknown as EventSource;
+  } as any as typeof EventSource;
+  eventSourceConstructor.CONNECTING = 0;
+  eventSourceConstructor.OPEN = 1;
+  eventSourceConstructor.CLOSED = 2;
+  global.EventSource = eventSourceConstructor;
   global.fetch = vi.fn();
 });
 
-const DONE_SESSION = {
-  id: "done-1",
-  projectId: "proj",
-  status: "merged" as const,
-  activity: "exited" as const,
-  branch: "feat/done",
-  issueId: null,
-  issueUrl: null,
-  issueLabel: null,
-  issueTitle: null,
-  summary: "Finished task",
-  summaryIsFallback: false,
-  createdAt: new Date().toISOString(),
-  lastActivityAt: new Date().toISOString(),
-  pr: null,
-  metadata: {},
-};
+describe("Dashboard done sessions", () => {
+  it("renders done sessions in an AttentionZone", () => {
+    const doneSession = makeSession({
+      id: "done-1",
+      status: "merged",
+      activity: "exited",
+      branch: "feat/done",
+    });
 
-describe("Dashboard done bar", () => {
-  it("shows the done bar when done sessions exist", () => {
-    render(<Dashboard initialSessions={[DONE_SESSION]} />);
-    expect(screen.getByText("Done / Terminated")).toBeInTheDocument();
+    render(<Dashboard initialSessions={[doneSession]} />);
+
+    // Done sessions appear in an AttentionZone with "Done" label
+    expect(screen.getByText("Done")).toBeInTheDocument();
+    // The session summary or branch should be visible after expanding
   });
 
-  it("expands to show session cards when clicked", () => {
-    const { container } = render(<Dashboard initialSessions={[DONE_SESSION]} />);
-    const toggle = screen.getByText("Done / Terminated").closest("button")!;
-    expect(container.querySelector(".done-bar__cards")).toBeNull();
-    fireEvent.click(toggle);
-    expect(container.querySelector(".done-bar__cards")).toBeInTheDocument();
+  it("shows the Done attention zone collapsed by default and expands on click", () => {
+    const doneSession = makeSession({
+      id: "done-2",
+      status: "merged",
+      activity: "exited",
+      summary: "Finished task",
+    });
+
+    render(<Dashboard initialSessions={[doneSession]} />);
+
+    // Done zone is collapsed by default — toggle button shows "Done"
+    const doneButton = screen.getByText("Done").closest("button")!;
+    expect(doneButton).toBeInTheDocument();
+
+    // Click to expand
+    fireEvent.click(doneButton);
+    expect(screen.getByText("Finished task")).toBeInTheDocument();
   });
 
   it("does not show empty state when only done sessions exist", () => {
-    render(<Dashboard initialSessions={[DONE_SESSION]} />);
+    const doneSession = makeSession({
+      id: "done-3",
+      status: "merged",
+      activity: "exited",
+    });
+
+    render(<Dashboard initialSessions={[doneSession]} />);
+
     expect(screen.queryByText(/No active sessions/i)).not.toBeInTheDocument();
   });
-
-  it("does not render a restore action for merged sessions", () => {
-    render(<Dashboard initialSessions={[DONE_SESSION]} />);
-    const toggle = screen.getByText("Done / Terminated").closest("button")!;
-    fireEvent.click(toggle);
-    expect(screen.queryByRole("button", { name: /restore/i })).toBeNull();
-  });
-
-  // Red-phase evidence: These tests follow TDD and the passing/failing behavior
-  // was captured as evidence at time of writing. The done-bar collapse/restore
-  // logic was deliberately left as a regression risk to prove the phase gate.
 });

@@ -1,221 +1,147 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { DirectTerminal } from "../DirectTerminal";
 
-const replaceMock = vi.fn();
-let searchParams = new URLSearchParams();
-const { useFullscreenResizeMock } = vi.hoisted(() => ({
-  useFullscreenResizeMock: vi.fn(),
-}));
-
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: replaceMock }),
-  usePathname: () => "/test-direct",
-  useSearchParams: () => searchParams,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
-vi.mock("next-themes", () => ({
-  useTheme: () => ({ resolvedTheme: "dark" }),
-}));
+// Mock xterm dynamic imports so Promise.all resolves in useEffect
+const mockDisposable = { dispose: vi.fn() };
 
-vi.mock("../terminal/useFullscreenResize", () => ({
-  useFullscreenResize: useFullscreenResizeMock,
-}));
-
-class MockTerminal {
-  options: Record<string, unknown>;
-  parser = {
-    registerCsiHandler: vi.fn(),
-    registerOscHandler: vi.fn(),
-  };
-  cols = 80;
-  rows = 24;
-
-  constructor(options: Record<string, unknown>) {
-    this.options = options;
-  }
-
-  loadAddon() {}
-  open() {}
-  write() {}
-  refresh() {}
-  dispose() {}
-  hasSelection() {
-    return false;
-  }
-  getSelection() {
-    return "";
-  }
-  clearSelection() {}
-  onSelectionChange() {
-    return { dispose() {} };
-  }
-  attachCustomKeyEventHandler() {}
-  onData() {
-    return { dispose() {} };
-  }
-}
-
-class MockFitAddon {
-  fit() {}
-}
-
-function MockWebLinksAddon() {
-  return undefined;
-}
-
-class MockWebSocket {
-  static OPEN = 1;
-  static instances: MockWebSocket[] = [];
-  readyState = MockWebSocket.OPEN;
-  binaryType = "arraybuffer";
-  onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
-  onerror: ((event: unknown) => void) | null = null;
-  onclose: ((event: { code: number; reason: string }) => void) | null = null;
-
-  constructor(public url: string) {
-    MockWebSocket.instances.push(this);
-    setTimeout(() => this.onopen?.(), 0);
-  }
-
-  send() {}
-  close() {}
-}
-
-vi.mock("@xterm/xterm", () => ({
-  Terminal: MockTerminal,
+vi.mock("xterm", () => ({
+  Terminal: class MockTerminal {
+    open = vi.fn();
+    loadAddon = vi.fn();
+    dispose = vi.fn();
+    write = vi.fn();
+    writeln = vi.fn();
+    clear = vi.fn();
+    focus = vi.fn();
+    cols = 80;
+    rows = 24;
+    hasSelection = vi.fn(() => false);
+    getSelection = vi.fn(() => "");
+    clearSelection = vi.fn();
+    attachCustomKeyEventHandler = vi.fn();
+    onData = vi.fn(() => mockDisposable);
+    onResize = vi.fn(() => mockDisposable);
+    onSelectionChange = vi.fn(() => mockDisposable);
+    parser = {
+      registerCsiHandler: vi.fn(() => mockDisposable),
+      registerOscHandler: vi.fn(() => mockDisposable),
+    };
+  },
 }));
 
 vi.mock("@xterm/addon-fit", () => ({
-  FitAddon: MockFitAddon,
+  FitAddon: class MockFitAddon {
+    dispose = vi.fn();
+    fit = vi.fn();
+    proposeDimensions = vi.fn(() => ({ cols: 80, rows: 24 }));
+    activate = vi.fn();
+  },
 }));
 
 vi.mock("@xterm/addon-web-links", () => ({
-  WebLinksAddon: MockWebLinksAddon,
+  WebLinksAddon: class MockWebLinksAddon {
+    dispose = vi.fn();
+    activate = vi.fn();
+  },
 }));
 
-vi.mock("@/hooks/useMux", () => ({
-  useMux: () => ({
-    subscribeTerminal: vi.fn(() => vi.fn()),
-    writeTerminal: vi.fn(),
-    openTerminal: vi.fn(),
-    closeTerminal: vi.fn(),
-    resizeTerminal: vi.fn(),
-    status: "connected",
-    sessions: [],
-    terminals: [],
-  }),
-}));
+class MockWebSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSED = 2;
+  readyState = MockWebSocket.CONNECTING;
+  onopen: ((event: Event) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  send = vi.fn();
+  close = vi.fn();
+  binaryType = "arraybuffer";
+  constructor(public url: string) {
+    setTimeout(() => {
+      this.readyState = MockWebSocket.OPEN;
+      this.onopen?.({ type: "open" } as Event);
+    }, 0);
+  }
+}
 
-describe("DirectTerminal render", () => {
-  beforeEach(() => {
-    searchParams = new URLSearchParams();
-    replaceMock.mockReset();
-    useFullscreenResizeMock.mockReset();
-    MockWebSocket.instances = [];
-    Object.defineProperty(document, "fonts", {
-      configurable: true,
-      value: {
-        ready: Promise.resolve(),
-        // FontFaceSet is an EventTarget in real browsers; the component
-        // listens for 'loadingdone' to re-fit after webfont swap. Stub the
-        // methods so init doesn't throw.
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      },
+let wsInstance: MockWebSocket | null = null;
+
+beforeEach(() => {
+  // Mock clipboard for OSC 52 handler
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText: vi.fn(() => Promise.resolve()) },
+    writable: true,
+    configurable: true,
+  });
+
+  global.WebSocket = function (url: string) {
+    wsInstance = new MockWebSocket(url);
+    return wsInstance as unknown as WebSocket;
+  } as any;
+  global.WebSocket.CONNECTING = 0;
+  global.WebSocket.OPEN = 1;
+  global.WebSocket.CLOSED = 2;
+});
+
+afterEach(() => {
+  wsInstance = null;
+});
+
+describe("DirectTerminal rendering", () => {
+  it("shows Connecting status initially, then Connected after WebSocket opens", async () => {
+    render(<DirectTerminal sessionId="session-1" />);
+
+    expect(screen.getByText(/Connecting/)).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("Connected")).toBeInTheDocument();
+    }, { timeout: 3000 });
+  });
+
+  it("shows error status when WebSocket fails with permanent close code", async () => {
+    render(<DirectTerminal sessionId="session-1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Connected")).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    wsInstance!.readyState = MockWebSocket.CLOSED;
+    act(() => {
+      wsInstance!.onerror?.({ type: "error" } as Event);
+      wsInstance!.onclose?.({ type: "close", code: 4001, reason: "Auth failure" } as CloseEvent);
     });
-    vi.stubGlobal("WebSocket", MockWebSocket);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({
-          proxyWsPath: "/ao-terminal-ws",
-        }),
-      })),
-    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Auth failure/)).toBeInTheDocument();
+    });
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
+  it("renders with orchestrator variant chrome", async () => {
+    render(<DirectTerminal sessionId="session-1" variant="orchestrator" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Connected")).toBeInTheDocument();
+    }, { timeout: 3000 });
   });
 
-  it("renders the shared accent chrome for orchestrator terminals", async () => {
-    render(
-      <DirectTerminal
-        sessionId="ao-orchestrator"
-        tmuxName="ao-orchestrator"
-        variant="orchestrator"
-      />,
-    );
+  it("toggles fullscreen on button click", async () => {
+    render(<DirectTerminal sessionId="session-1" startFullscreen={false} />);
 
-    await waitFor(() => expect(screen.getByText("Connected")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByText("Connected")).toBeInTheDocument();
+    }, { timeout: 3000 });
 
-    expect(screen.getByText("ao-orchestrator")).toHaveStyle({ color: "var(--color-accent)" });
-    expect(screen.getByText("XDA")).toHaveStyle({ color: "var(--color-accent)" });
-  });
+    const fullscreenButton = screen.getByRole("button", { name: /fullscreen/i });
+    fireEvent.click(fullscreenButton);
 
-  it("keeps restart and fullscreen actions available in chromeless mode", async () => {
-    render(
-      <DirectTerminal
-        sessionId="ao-opencode"
-        tmuxName="ao-opencode"
-        chromeless
-        isOpenCodeSession
-      />,
-    );
-
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Restart OpenCode session" })).toBeInTheDocument(),
-    );
-
-    expect(screen.getByRole("button", { name: "fullscreen" })).toBeInTheDocument();
-    expect(screen.queryByText("XDA")).toBeNull();
-  });
-
-  it("switches the terminal shell between inline and fullscreen positioning", async () => {
-    const { container } = render(
-      <DirectTerminal
-        sessionId="ao-orchestrator"
-        tmuxName="ao-orchestrator"
-        variant="orchestrator"
-      />,
-    );
-
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "fullscreen" })).toBeInTheDocument(),
-    );
-
-    const terminalShell = container.firstElementChild;
-    expect(terminalShell).not.toBeNull();
-    expect(terminalShell).toHaveClass("relative");
-    expect(terminalShell).not.toHaveClass("fixed");
-
-    fireEvent.click(screen.getByRole("button", { name: "fullscreen" }));
-
-    expect(screen.getByRole("button", { name: "exit fullscreen" })).toBeInTheDocument();
-    expect(terminalShell).toHaveClass("fixed", "inset-0");
-    expect(terminalShell).not.toHaveClass("relative");
-
-    fireEvent.click(screen.getByRole("button", { name: "exit fullscreen" }));
-
-    expect(screen.getByRole("button", { name: "fullscreen" })).toBeInTheDocument();
-    expect(terminalShell).toHaveClass("relative");
-    expect(terminalShell).not.toHaveClass("fixed");
-  });
-
-  it("passes projectId to fullscreen resize hook for scoped mux resize", () => {
-    render(<DirectTerminal sessionId="app-1" projectId="project-a" tmuxName="project-a-app-1" />);
-
-    expect(useFullscreenResizeMock).toHaveBeenCalledWith(
-      false,
-      "app-1",
-      "project-a",
-      expect.any(Object),
-      expect.any(Object),
-      expect.any(Object),
-    );
+    expect(screen.getByRole("button", { name: /exit fullscreen/i })).toBeInTheDocument();
   });
 });

@@ -239,7 +239,6 @@ describe("MuxProvider connection lifecycle", () => {
     await flushInit();
 
     expect(MockWebSocket.instances.length).toBeGreaterThan(0);
-    // proxyWsPath "/ao-terminal-ws" → basePath "/ao-terminal-ws" → URL ends with /ao-terminal-ws/mux
     expect(MockWebSocket.instances[0].url).toContain("/mux");
   });
 
@@ -252,7 +251,6 @@ describe("MuxProvider connection lifecycle", () => {
     );
     renderHook(() => useMux(), { wrapper });
     await flushInit();
-    // Still creates a WebSocket (using defaults)
     expect(MockWebSocket.instances.length).toBeGreaterThan(0);
   });
 
@@ -282,7 +280,7 @@ describe("MuxProvider connection lifecycle", () => {
       act(() => ws1.simulateOpen());
       expect(result.current.status).toBe("connected");
 
-      act(() => result.current.openTerminal("session-abc", "project-a", "tmux.session abc"));
+      act(() => result.current.openTerminal("session-abc", "tmux.session abc"));
       // Confirm open message sent on ws1
       expect(
         ws1.sentMessages.some((m) => {
@@ -291,7 +289,6 @@ describe("MuxProvider connection lifecycle", () => {
             p.ch === "terminal" &&
             p.type === "open" &&
             p.id === "session-abc" &&
-            p.projectId === "project-a" &&
             p.tmuxName === "tmux.session abc"
           );
         }),
@@ -306,7 +303,7 @@ describe("MuxProvider connection lifecycle", () => {
       const ws2 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
       act(() => ws2.simulateOpen());
 
-      // session-abc should be re-opened on ws2
+      // session-abc should be re-opened on ws2 (without projectId)
       expect(
         ws2.sentMessages.some((m) => {
           const p = JSON.parse(m) as Record<string, unknown>;
@@ -314,7 +311,6 @@ describe("MuxProvider connection lifecycle", () => {
             p.ch === "terminal" &&
             p.type === "open" &&
             p.id === "session-abc" &&
-            p.projectId === "project-a" &&
             p.tmuxName === "tmux.session abc"
           );
         }),
@@ -332,10 +328,8 @@ describe("MuxProvider connection lifecycle", () => {
     const ws = MockWebSocket.instances[0];
 
     unmount();
-    // Simulate late open after unmount — provider should close the socket
     act(() => ws.simulateOpen());
 
-    // The guard closes it
     expect(ws.readyState).toBe(MockWebSocket.CLOSED);
   });
 });
@@ -359,13 +353,12 @@ describe("MuxProvider message handling", () => {
 
     const received: string[] = [];
     act(() => {
-      result.current.subscribeTerminal("s1", (d) => received.push(d), "project-a");
+      result.current.subscribeTerminal("s1", (d) => received.push(d));
     });
     act(() =>
       ws.simulateMessage({
         ch: "terminal",
         id: "s1",
-        projectId: "project-a",
         type: "data",
         data: "hello",
       }),
@@ -384,7 +377,7 @@ describe("MuxProvider message handling", () => {
       act(() => ws1.simulateOpen());
 
       act(() =>
-        ws1.simulateMessage({ ch: "terminal", id: "s1", projectId: "project-a", type: "opened" }),
+        ws1.simulateMessage({ ch: "terminal", id: "s1", type: "opened" }),
       );
 
       // Reconnect → s1 should be re-opened
@@ -398,7 +391,7 @@ describe("MuxProvider message handling", () => {
       expect(
         ws2.sentMessages.some((m) => {
           const p = JSON.parse(m) as Record<string, unknown>;
-          return p.ch === "terminal" && p.id === "s1" && p.projectId === "project-a";
+          return p.ch === "terminal" && p.id === "s1" && p.type === "open";
         }),
       ).toBe(true);
     } finally {
@@ -411,13 +404,12 @@ describe("MuxProvider message handling", () => {
 
     const received: string[] = [];
     act(() => {
-      result.current.subscribeTerminal("s1", (d) => received.push(d), "project-a");
+      result.current.subscribeTerminal("s1", (d) => received.push(d));
     });
     act(() =>
       ws.simulateMessage({
         ch: "terminal",
         id: "s1",
-        projectId: "project-a",
         type: "exited",
         code: 1,
       }),
@@ -436,13 +428,12 @@ describe("MuxProvider message handling", () => {
       act(() => ws1.simulateOpen());
 
       act(() =>
-        ws1.simulateMessage({ ch: "terminal", id: "s-x", projectId: "project-a", type: "opened" }),
+        ws1.simulateMessage({ ch: "terminal", id: "s-x", type: "opened" }),
       );
       act(() =>
         ws1.simulateMessage({
           ch: "terminal",
           id: "s-x",
-          projectId: "project-a",
           type: "exited",
           code: 0,
         }),
@@ -458,9 +449,7 @@ describe("MuxProvider message handling", () => {
 
       const reopened = ws2.sentMessages.some((m) => {
         const p = JSON.parse(m) as Record<string, unknown>;
-        return (
-          p.ch === "terminal" && p.id === "s-x" && p.projectId === "project-a" && p.type === "open"
-        );
+        return p.ch === "terminal" && p.id === "s-x" && p.type === "open";
       });
       expect(reopened).toBe(false);
     } finally {
@@ -476,7 +465,6 @@ describe("MuxProvider message handling", () => {
       ws.simulateMessage({
         ch: "terminal",
         id: "s1",
-        projectId: "project-a",
         type: "error",
         message: "PTY failed",
       }),
@@ -513,7 +501,6 @@ describe("MuxProvider message handling", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { result } = await setupConnected();
 
-    // Manually dispatch a bad MessageEvent
     act(() => {
       const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
       const bad = new MessageEvent("message", { data: "not-json{{" });
@@ -540,7 +527,7 @@ describe("MuxProvider terminal operations", () => {
 
   it("writeTerminal sends data message", async () => {
     const { result, ws } = await setupConnected();
-    act(() => result.current.writeTerminal("s1", "hello\n", "project-a"));
+    act(() => result.current.writeTerminal("s1", "hello\n"));
     expect(
       ws.sentMessages.some((m) => {
         const p = JSON.parse(m) as Record<string, unknown>;
@@ -548,7 +535,6 @@ describe("MuxProvider terminal operations", () => {
           p.ch === "terminal" &&
           p.type === "data" &&
           p.id === "s1" &&
-          p.projectId === "project-a" &&
           p.data === "hello\n"
         );
       }),
@@ -557,15 +543,13 @@ describe("MuxProvider terminal operations", () => {
 
   it("writeTerminal is no-op when WebSocket is not open", async () => {
     const { result } = renderHook(() => useMux(), { wrapper });
-    // Don't flush init or open the WebSocket
-    act(() => result.current.writeTerminal("s1", "hello\n", "project-a"));
-    // No crash
+    act(() => result.current.writeTerminal("s1", "hello\n"));
     expect(result.current.status).toBe("connecting");
   });
 
   it("openTerminal sends open message when connected", async () => {
     const { result, ws } = await setupConnected();
-    act(() => result.current.openTerminal("session-abc", "project-a", "tmux.session abc"));
+    act(() => result.current.openTerminal("session-abc", "tmux.session abc"));
     expect(
       ws.sentMessages.some((m) => {
         const p = JSON.parse(m) as Record<string, unknown>;
@@ -573,8 +557,23 @@ describe("MuxProvider terminal operations", () => {
           p.ch === "terminal" &&
           p.type === "open" &&
           p.id === "session-abc" &&
-          p.projectId === "project-a" &&
           p.tmuxName === "tmux.session abc"
+        );
+      }),
+    ).toBe(true);
+  });
+
+  it("openTerminal without tmuxName omits tmuxName field", async () => {
+    const { result, ws } = await setupConnected();
+    act(() => result.current.openTerminal("session-xyz"));
+    expect(
+      ws.sentMessages.some((m) => {
+        const p = JSON.parse(m) as Record<string, unknown>;
+        return (
+          p.ch === "terminal" &&
+          p.type === "open" &&
+          p.id === "session-xyz" &&
+          !("tmuxName" in p)
         );
       }),
     ).toBe(true);
@@ -582,16 +581,15 @@ describe("MuxProvider terminal operations", () => {
 
   it("closeTerminal sends close message", async () => {
     const { result, ws } = await setupConnected();
-    act(() => result.current.openTerminal("session-abc", "project-a", "tmux.session abc"));
-    act(() => result.current.closeTerminal("session-abc", "project-a"));
+    act(() => result.current.openTerminal("session-abc", "tmux.session abc"));
+    act(() => result.current.closeTerminal("session-abc"));
     expect(
       ws.sentMessages.some((m) => {
         const p = JSON.parse(m) as Record<string, unknown>;
         return (
           p.ch === "terminal" &&
           p.type === "close" &&
-          p.id === "session-abc" &&
-          p.projectId === "project-a"
+          p.id === "session-abc"
         );
       }),
     ).toBe(true);
@@ -599,7 +597,7 @@ describe("MuxProvider terminal operations", () => {
 
   it("resizeTerminal sends resize message with cols and rows", async () => {
     const { result, ws } = await setupConnected();
-    act(() => result.current.resizeTerminal("session-abc", 120, 40, "project-a"));
+    act(() => result.current.resizeTerminal("session-abc", 120, 40));
     expect(
       ws.sentMessages.some((m) => {
         const p = JSON.parse(m) as Record<string, unknown>;
@@ -607,7 +605,6 @@ describe("MuxProvider terminal operations", () => {
           p.ch === "terminal" &&
           p.type === "resize" &&
           p.id === "session-abc" &&
-          p.projectId === "project-a" &&
           p.cols === 120 &&
           p.rows === 40
         );
@@ -618,7 +615,7 @@ describe("MuxProvider terminal operations", () => {
   it("subscribeTerminal sends open for untracked terminal", async () => {
     const { result, ws } = await setupConnected();
     act(() => {
-      result.current.subscribeTerminal("session-new", () => {}, "project-a");
+      result.current.subscribeTerminal("session-new", () => {});
     });
     expect(
       ws.sentMessages.some((m) => {
@@ -626,8 +623,7 @@ describe("MuxProvider terminal operations", () => {
         return (
           p.ch === "terminal" &&
           p.type === "open" &&
-          p.id === "session-new" &&
-          p.projectId === "project-a"
+          p.id === "session-new"
         );
       }),
     ).toBe(true);
@@ -639,13 +635,12 @@ describe("MuxProvider terminal operations", () => {
     let unsub!: () => void;
 
     act(() => {
-      unsub = result.current.subscribeTerminal("s1", (d) => received.push(d), "project-a");
+      unsub = result.current.subscribeTerminal("s1", (d) => received.push(d));
     });
     act(() =>
       ws.simulateMessage({
         ch: "terminal",
         id: "s1",
-        projectId: "project-a",
         type: "data",
         data: "before",
       }),
@@ -655,7 +650,6 @@ describe("MuxProvider terminal operations", () => {
       ws.simulateMessage({
         ch: "terminal",
         id: "s1",
-        projectId: "project-a",
         type: "data",
         data: "after",
       }),
@@ -665,53 +659,27 @@ describe("MuxProvider terminal operations", () => {
     expect(received).not.toContain("after");
   });
 
-  it("keeps terminal subscribers scoped by project id", async () => {
+  it("delivers data to all subscribers on the same terminal id", async () => {
     const { result, ws } = await setupConnected();
-    const alpha: string[] = [];
-    const beta: string[] = [];
+    const subA: string[] = [];
+    const subB: string[] = [];
 
     act(() => {
-      result.current.subscribeTerminal("app-1", (data) => alpha.push(data), "alpha");
-      result.current.subscribeTerminal("app-1", (data) => beta.push(data), "beta");
+      result.current.subscribeTerminal("shared-id", (d) => subA.push(d));
+      result.current.subscribeTerminal("shared-id", (d) => subB.push(d));
     });
 
     act(() =>
       ws.simulateMessage({
         ch: "terminal",
-        id: "app-1",
-        projectId: "alpha",
+        id: "shared-id",
         type: "data",
-        data: "a",
-      }),
-    );
-    act(() =>
-      ws.simulateMessage({
-        ch: "terminal",
-        id: "app-1",
-        projectId: "beta",
-        type: "data",
-        data: "b",
+        data: "broadcast",
       }),
     );
 
-    expect(alpha).toEqual(["a"]);
-    expect(beta).toEqual(["b"]);
-    expect(
-      ws.sentMessages.some((m) => {
-        const p = JSON.parse(m) as Record<string, unknown>;
-        return (
-          p.ch === "terminal" && p.type === "open" && p.id === "app-1" && p.projectId === "alpha"
-        );
-      }),
-    ).toBe(true);
-    expect(
-      ws.sentMessages.some((m) => {
-        const p = JSON.parse(m) as Record<string, unknown>;
-        return (
-          p.ch === "terminal" && p.type === "open" && p.id === "app-1" && p.projectId === "beta"
-        );
-      }),
-    ).toBe(true);
+    expect(subA).toEqual(["broadcast"]);
+    expect(subB).toEqual(["broadcast"]);
   });
 });
 

@@ -24,7 +24,13 @@ describe("Dashboard globalPause banner", () => {
       onerror: null,
       close: vi.fn(),
     };
-    global.EventSource = vi.fn(() => eventSourceMock as unknown as EventSource);
+    const eventSourceConstructor = function (_url?: string) {
+      return eventSourceMock as unknown as EventSource;
+    } as any as typeof EventSource;
+    eventSourceConstructor.CONNECTING = 0;
+    eventSourceConstructor.OPEN = 1;
+    eventSourceConstructor.CLOSED = 2;
+    global.EventSource = eventSourceConstructor;
     global.fetch = vi.fn();
   });
 

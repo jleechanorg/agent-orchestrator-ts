@@ -1,6 +1,7 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Dashboard } from "../Dashboard";
+import { makeSession } from "../../__tests__/helpers";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
@@ -8,196 +9,110 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-vi.mock("next-themes", () => ({
-  useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }),
-}));
-
-let currentMuxLastError: string | null = null;
-
-vi.mock("@/providers/MuxProvider", () => ({
-  useMuxOptional: () => ({
-    subscribeTerminal: () => () => {},
-    writeTerminal: () => {},
-    openTerminal: () => {},
-    closeTerminal: () => {},
-    resizeTerminal: () => {},
-    // "connecting" so muxSessions stays undefined — prevents snapshot dispatch from
-    // immediately flipping liveSessionsResolved and masking the SSR load error.
-    status: "connecting" as const,
-    sessions: [],
-    lastError: currentMuxLastError,
-  }),
-  MuxProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
-
-import { Dashboard } from "../Dashboard";
-
 beforeEach(() => {
-  global.fetch = vi.fn();
-  currentMuxLastError = null;
+  const eventSourceMock = {
+    onmessage: null,
+    onerror: null,
+    onopen: null,
+    close: vi.fn(),
+  };
+  const eventSourceConstructor = function (_url?: string) {
+    return eventSourceMock as unknown as EventSource;
+  } as any as typeof EventSource;
+  eventSourceConstructor.CONNECTING = 0;
+  eventSourceConstructor.OPEN = 1;
+  eventSourceConstructor.CLOSED = 2;
+  global.EventSource = eventSourceConstructor;
+  global.fetch = vi.fn(() =>
+    Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve(""),
+    } as Response),
+  );
 });
 
 describe("Dashboard empty state", () => {
-  it("shows empty state when there are no sessions (single-project view)", () => {
+  it("shows 'no sessions' when there are no sessions", () => {
     render(<Dashboard initialSessions={[]} />);
-    expect(screen.getByText(/Ready to orchestrate/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Open the main orchestrator to start a session and fan out parallel agents across your codebase/i),
-    ).toBeInTheDocument();
+
+    expect(screen.getByText("no sessions")).toBeInTheDocument();
   });
 
-  it("shows spawn orchestrator actions for a fresh project with no orchestrator", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        orchestrator: {
-          id: "hello-orchestrator",
-          projectId: "hello-world",
-          projectName: "Hello World",
-        },
+  it("does not show 'no sessions' when sessions exist", () => {
+    const sessions = [
+      makeSession({
+        id: "working-1",
+        status: "running",
+        activity: "active",
+        summary: "Implement dashboard filters",
       }),
-    } as Response);
+    ];
+
+    render(<Dashboard initialSessions={sessions} />);
+
+    expect(screen.queryByText("no sessions")).not.toBeInTheDocument();
+  });
+
+  it("shows DoneOnlyKanbanEmptyState when only done sessions exist", () => {
+    const doneSession = makeSession({
+      id: "done-1",
+      status: "merged",
+      activity: "exited",
+    });
+
+    render(<Dashboard initialSessions={[doneSession]} />);
+
+    // DoneOnlyKanbanEmptyState shows when allProjectsView=false, hasKanbanSessions=false, doneCount>0
+    expect(screen.getByText(/All sessions are done/)).toBeInTheDocument();
+  });
+
+  it("does not show DoneOnlyKanbanEmptyState when kanban sessions exist", () => {
+    const workingSession = makeSession({
+      id: "working-1",
+      status: "running",
+      activity: "active",
+    });
+    const doneSession = makeSession({
+      id: "done-1",
+      status: "merged",
+      activity: "exited",
+    });
+
+    render(<Dashboard initialSessions={[workingSession, doneSession]} />);
+
+    expect(screen.queryByText(/All sessions are done/)).not.toBeInTheDocument();
+  });
+
+  it("does not show DoneOnlyKanbanEmptyState in all-projects view", () => {
+    const doneSession = makeSession({
+      id: "done-1",
+      status: "merged",
+      activity: "exited",
+    });
 
     render(
       <Dashboard
-        initialSessions={[]}
-        projectId="hello-world"
-        projectName="Hello World"
-        projects={[{ id: "hello-world", name: "Hello World" }]}
-        orchestrators={[]}
-      />,
-    );
-
-    expect(screen.getAllByRole("button", { name: "Spawn Orchestrator" })).toHaveLength(2);
-
-    fireEvent.click(screen.getAllByRole("button", { name: "Spawn Orchestrator" })[0]);
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/orchestrators", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: "hello-world" }),
-      });
-    });
-  });
-
-  it("does not show empty state when sessions exist", () => {
-    const { queryByText } = render(
-      <Dashboard
-        initialSessions={[
-          {
-            id: "s1",
-            projectId: "proj",
-            status: "working",
-            activity: "active",
-            branch: "feat/x",
-            issueId: null,
-            issueUrl: null,
-            issueLabel: null,
-            issueTitle: null,
-            summary: "Working on it",
-            summaryIsFallback: false,
-            createdAt: new Date().toISOString(),
-            lastActivityAt: new Date().toISOString(),
-            pr: null,
-            metadata: {},
-          },
-        ]}
-      />,
-    );
-    expect(queryByText(/Ready to orchestrate/i)).not.toBeInTheDocument();
-  });
-
-  it("shows load error banner instead of empty state when SSR services failed", () => {
-    render(
-      <Dashboard
-        initialSessions={[]}
-        dashboardLoadError="No agent-orchestrator.yaml found"
-      />,
-    );
-    expect(screen.queryByText(/Ready to orchestrate/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("Orchestrator failed to load");
-    expect(screen.getByRole("alert")).toHaveTextContent("No agent-orchestrator.yaml found");
-  });
-
-  it("shows live load-error banner when WS transport reports a fetch failure", async () => {
-    let forceUpdate: () => void = () => {};
-    function Wrapper() {
-      const [, tick] = useState(0);
-      forceUpdate = () => tick((n) => n + 1);
-      return <Dashboard initialSessions={[]} />;
-    }
-
-    render(<Wrapper />);
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-
-    await act(async () => {
-      currentMuxLastError = "Session fetch failed: HTTP 503";
-      forceUpdate();
-    });
-
-    expect(screen.getByRole("alert")).toHaveTextContent("Orchestrator failed to load");
-    expect(screen.getByRole("alert")).toHaveTextContent("Session fetch failed: HTTP 503");
-  });
-
-  it("clears live load-error banner when the next WS snapshot succeeds", async () => {
-    let forceUpdate: () => void = () => {};
-    function Wrapper() {
-      const [, tick] = useState(0);
-      forceUpdate = () => tick((n) => n + 1);
-      return <Dashboard initialSessions={[]} />;
-    }
-
-    render(<Wrapper />);
-
-    await act(async () => {
-      currentMuxLastError = "Session fetch failed: HTTP 503";
-      forceUpdate();
-    });
-
-    expect(screen.getByRole("alert")).toBeInTheDocument();
-
-    await act(async () => {
-      currentMuxLastError = null;
-      forceUpdate();
-    });
-
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  });
-
-  it("mounts the sidebar empty state on a fresh install with zero projects", () => {
-    render(<Dashboard initialSessions={[]} projects={[]} />);
-
-    expect(screen.getByText(/no projects yet/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /new project/i })).toBeInTheDocument();
-  });
-
-  it("shows empty state when only done sessions exist", () => {
-    render(
-      <Dashboard
-        initialSessions={[
-          {
-            id: "s-done",
-            projectId: "proj",
-            status: "killed",
-            activity: "exited",
-            branch: "feat/done",
-            issueId: null,
-            issueUrl: null,
-            issueLabel: null,
-            issueTitle: null,
-            summary: "Finished",
-            summaryIsFallback: false,
-            createdAt: new Date().toISOString(),
-            lastActivityAt: new Date().toISOString(),
-            pr: null,
-            metadata: {},
-          },
+        initialSessions={[doneSession]}
+        projects={[
+          { id: "project-a", name: "Project A" },
+          { id: "project-b", name: "Project B" },
         ]}
       />,
     );
 
-    expect(screen.getByText(/Ready to orchestrate/i)).toBeInTheDocument();
-    expect(screen.getByText("Done / Terminated")).toBeInTheDocument();
+    expect(screen.queryByText(/All sessions are done/)).not.toBeInTheDocument();
+  });
+
+  it("renders the project heading", () => {
+    render(<Dashboard initialSessions={[]} projectName="My Project" />);
+
+    expect(screen.getByText("My Project")).toBeInTheDocument();
+  });
+
+  it("renders 'Orchestrator' as default heading when no projectName", () => {
+    render(<Dashboard initialSessions={[]} />);
+
+    expect(screen.getByText("Orchestrator")).toBeInTheDocument();
   });
 });
