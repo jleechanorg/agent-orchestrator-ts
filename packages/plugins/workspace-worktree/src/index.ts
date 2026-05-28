@@ -4,7 +4,7 @@ import { existsSync, lstatSync, symlinkSync, rmSync, mkdirSync, readdirSync, rea
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve, basename, dirname } from "node:path";
 import { homedir } from "node:os";
-import { findRepoPathForWorktree, type PluginModule, type Workspace, type WorkspaceCreateConfig, type WorkspaceInfo, type ProjectConfig } from "@jleechanorg/ao-core";
+import { findRepoPathForWorktree, recordActivityEvent, type PluginModule, type Workspace, type WorkspaceCreateConfig, type WorkspaceInfo, type ProjectConfig } from "@jleechanorg/ao-core";
 
 /** Timeout for git commands (30 seconds) */
 const GIT_TIMEOUT = 30_000;
@@ -316,7 +316,18 @@ async function reuseExistingBranch(
 ): Promise<boolean> {
   // Branch already exists. It may be a stale session branch left behind
   // from an earlier spawn, so compare it with the freshly-resolved base
-  // before reusing it.
+  // before reusing it. Surface the collision shape for RCA before the
+  // recovery path decides whether to reuse or reset the local branch.
+  recordActivityEvent({
+    source: "workspace",
+    kind: "workspace.branch_collision",
+    level: "warn",
+    summary: `branch "${branch}" already exists; falling back to worktree recovery`,
+    data: {
+      plugin: "workspace-worktree",
+      branch,
+    },
+  });
   const baseSha = await git(repoPath, "rev-parse", baseRef);
   const branchRef = `refs/heads/${branch}`;
   const existingBranchSha = (await refExists(repoPath, branchRef))
@@ -692,13 +703,27 @@ export function create(config?: Record<string, unknown>): Workspace {
         // The first --force allows removal of dirty worktrees; the second
         // bypasses the lock that prevents accidental `git worktree prune` deletion.
         await git(repoPath!, "worktree", "remove", "--force", "--force", workspacePath);
-      } catch {
+      } catch (err: unknown) {
         // If the directory was deleted externally but git still has a locked
         // worktree entry, find the repo path by scanning .git/worktrees/ and
         // then unlock + remove the entry directly.
         // Also run this recovery when checkedOutBranch is empty even if
         // repoPath was provided by the caller — we still need the branch name
         // to clean up the local branch at the end of destroy().
+        // Surface the fallback so RCA can explain why a path was deleted but
+        // `git worktree list` still references it.
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        recordActivityEvent({
+          source: "workspace",
+          kind: "workspace.destroy_fell_back",
+          level: "warn",
+          summary: "destroy fell back to rmSync; git worktree metadata may be stale",
+          data: {
+            plugin: "workspace-worktree",
+            workspacePath,
+            errorMessage,
+          },
+        });
         if (repoPath === null || !checkedOutBranch) {
           const result = await findRepoPathForWorktree(workspacePath);
           if (result) {
@@ -977,7 +1002,24 @@ export function create(config?: Record<string, unknown>): Workspace {
       // NOTE: commands run with full shell privileges — they come from trusted YAML config
       if (project.postCreate) {
         for (const command of project.postCreate) {
-          await execFileAsync("sh", ["-c", command], { cwd: info.path });
+          try {
+            await execFileAsync("sh", ["-c", command], { cwd: info.path });
+          } catch (err) {
+            recordActivityEvent({
+              projectId: info.projectId,
+              sessionId: info.sessionId,
+              source: "workspace",
+              kind: "workspace.post_create_failed",
+              level: "error",
+              summary: `postCreate command failed for session ${info.sessionId}`,
+              data: {
+                plugin: "workspace-worktree",
+                command,
+                errorMessage: err instanceof Error ? err.message : String(err),
+              },
+            });
+            throw err;
+          }
         }
       }
     },

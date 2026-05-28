@@ -33,6 +33,7 @@ import {
   type BatchPRStatus,
   logAoAction,
   isFailedCICheck,
+  recordActivityEvent,
 } from "@jleechanorg/ao-core";
 import {
   isRetryableHttpStatus,
@@ -696,6 +697,18 @@ async function execCli(
     });
     return stdout.trim();
   } catch (err) {
+    if (bin === "gh" && (err as NodeJS.ErrnoException).code === "ENOENT") {
+      recordActivityEvent({
+        source: "scm",
+        kind: "scm.gh_unavailable",
+        level: "error",
+        summary: "gh CLI not found (ENOENT)",
+        data: {
+          plugin: "scm-github",
+          errorMessage: (err as Error).message,
+        },
+      });
+    }
     throw new Error(`${bin} ${args.slice(0, 3).join(" ")} failed: ${(err as Error).message}`, {
       cause: err,
     });
@@ -2316,10 +2329,23 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         if (isRateLimitError(err)) {
           try {
             checks = await getCIChecksFromStatusRollup(pr);
-          } catch {
+          } catch (fallbackErr) {
             // If the secondary fallback also fails (rate-limited), we cannot
             // determine CI status. Fail-closed for open PRs: report "failing"
             // rather than "none" (which getMergeability treats as passing).
+            recordActivityEvent({
+              source: "scm",
+              kind: "scm.ci_summary_failclosed",
+              level: "warn",
+              summary: `getCISummary rate-limited, fallback failed for PR #${pr.number}`,
+              data: {
+                plugin: "scm-github",
+                prNumber: pr.number,
+                prOwner: pr.owner,
+                prRepo: pr.repo,
+                errorMessage: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+              },
+            });
             return "failing";
           }
         } else {
@@ -2333,7 +2359,21 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             // Can't determine state either; fall through to fail-closed.
           }
           // Fail closed for open PRs: report as failing rather than
-          // "none" (which getMergeability treats as passing).
+          // "none" (which getMergeability treats as passing). Emit so RCA
+          // can distinguish "really failing" from "we couldn't tell".
+          recordActivityEvent({
+            source: "scm",
+            kind: "scm.ci_summary_failclosed",
+            level: "warn",
+            summary: `getCISummary failed-closed for PR #${pr.number}`,
+            data: {
+              plugin: "scm-github",
+              prNumber: pr.number,
+              prOwner: pr.owner,
+              prRepo: pr.repo,
+              errorMessage: err instanceof Error ? err.message : String(err),
+            },
+          });
           return "failing";
         }
       }

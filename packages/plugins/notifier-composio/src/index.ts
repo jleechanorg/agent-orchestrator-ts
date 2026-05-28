@@ -1,11 +1,14 @@
-import type {
-  PluginModule,
-  Notifier,
-  OrchestratorEvent,
-  NotifyAction,
-  NotifyContext,
-  EventPriority,
+import {
+  recordActivityEvent,
+  type PluginModule,
+  type Notifier,
+  type OrchestratorEvent,
+  type NotifyAction,
+  type NotifyContext,
+  type EventPriority,
 } from "@jleechanorg/ao-core";
+
+let depMissingEmitted = false;
 
 export const manifest = {
   name: "composio",
@@ -71,6 +74,20 @@ async function loadComposioSDK(apiKey: string): Promise<ComposioToolkit | null> 
       message.includes("MODULE_NOT_FOUND") ||
       code === "ERR_MODULE_NOT_FOUND"
     ) {
+      if (!depMissingEmitted) {
+        depMissingEmitted = true;
+        recordActivityEvent({
+          source: "notifier",
+          kind: "notifier.dep_missing",
+          level: "error",
+          summary: "Composio SDK (composio-core) is not installed",
+          data: {
+            plugin: "notifier-composio",
+            package: "composio-core",
+            installHint: "pnpm add composio-core",
+          },
+        });
+      }
       return null;
     }
     throw err;

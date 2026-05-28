@@ -3,12 +3,13 @@ import { promisify } from "node:util";
 import { existsSync, rmSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import type {
-  PluginModule,
-  Workspace,
-  WorkspaceCreateConfig,
-  WorkspaceInfo,
-  ProjectConfig,
+import {
+  recordActivityEvent,
+  type PluginModule,
+  type Workspace,
+  type WorkspaceCreateConfig,
+  type WorkspaceInfo,
+  type ProjectConfig,
 } from "@jleechanorg/ao-core";
 
 const execFileAsync = promisify(execFile);
@@ -103,7 +104,23 @@ export function create(config?: Record<string, unknown>): Workspace {
       // Create and checkout the feature branch
       try {
         await git(clonePath, "checkout", "-b", cfg.branch);
-      } catch {
+      } catch (branchErr: unknown) {
+        const branchErrMsg = branchErr instanceof Error ? branchErr.message : String(branchErr);
+        if (branchErrMsg.toLowerCase().includes("already exists")) {
+          recordActivityEvent({
+            projectId: cfg.projectId,
+            sessionId: cfg.sessionId,
+            source: "workspace",
+            kind: "workspace.branch_collision",
+            level: "warn",
+            summary: `branch "${cfg.branch}" already exists; falling back to checkout`,
+            data: {
+              plugin: "workspace-clone",
+              branch: cfg.branch,
+              errorMessage: branchErrMsg,
+            },
+          });
+        }
         // Branch may exist on remote — try plain checkout
         try {
           await git(clonePath, "checkout", cfg.branch);
@@ -148,10 +165,23 @@ export function create(config?: Record<string, unknown>): Workspace {
         try {
           branch = await git(clonePath, "branch", "--show-current");
         } catch (err: unknown) {
-          // Warn about corrupted clones instead of silently skipping
+          // Warn about corrupted clones instead of silently skipping.
           const msg = err instanceof Error ? err.message : String(err);
           // eslint-disable-next-line no-console -- expected diagnostic for corrupted clones
           console.warn(`[workspace-clone] Skipping "${entry.name}": not a valid git repo (${msg})`);
+          recordActivityEvent({
+            projectId,
+            sessionId: entry.name,
+            source: "workspace",
+            kind: "workspace.corrupt_clone_skipped",
+            level: "warn",
+            summary: `skipped corrupt clone "${entry.name}"`,
+            data: {
+              plugin: "workspace-clone",
+              clonePath,
+              errorMessage: msg,
+            },
+          });
           continue;
         }
 
