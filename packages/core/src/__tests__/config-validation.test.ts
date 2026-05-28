@@ -413,7 +413,7 @@ describe("Config Schema Validation", () => {
     };
 
     expect(() => validateConfig(missingPath)).toThrow();
-    expect(() => validateConfig(missingRepo)).toThrow();
+    expect(() => validateConfig(missingRepo)).not.toThrow();
     // missingBranch should work (defaults to "main")
     expect(() => validateConfig(missingBranch)).not.toThrow();
   });

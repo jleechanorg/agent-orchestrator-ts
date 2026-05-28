@@ -411,8 +411,8 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
 
   // Build config with smart defaults
   const projectId = env.isGitRepo ? basename(workingDir) : "my-project";
-  const repo = env.ownerRepo || "owner/repo";
-  const path = env.isGitRepo ? workingDir : `~/${projectId}`;
+  const repo = env.ownerRepo || undefined;
+  const path = workingDir;
   const defaultBranch = env.defaultBranch || "main";
 
   const agent = "codex";
@@ -440,7 +440,7 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
       [projectId]: {
         name: projectId,
         sessionPrefix: generateSessionPrefix(projectId),
-        repo,
+        ...(repo ? { repo } : {}),
         path,
         defaultBranch,
         ...(agentRules ? { agentRules } : {}),
@@ -460,9 +460,9 @@ export async function autoCreateConfig(workingDir: string): Promise<Orchestrator
 
   console.log(chalk.green(`✓ Config created: ${outputPath}\n`));
 
-  if (repo === "owner/repo") {
+  if (!repo) {
     console.log(chalk.yellow("⚠ Could not detect GitHub remote."));
-    console.log(chalk.dim("  Update the 'repo' field in the config before spawning agents.\n"));
+    console.log(chalk.dim("  Add a 'repo' field (owner/repo) to the config before spawning agents.\n"));
   }
 
   if (!env.hasTmux) {
@@ -556,7 +556,7 @@ async function addProjectToConfig(
 
   rawConfig.projects[projectId] = {
     name: projectId,
-    repo: ownerRepo || "owner/repo",
+    ...(ownerRepo ? { repo: ownerRepo } : {}),
     path: resolvedPath,
     defaultBranch,
     sessionPrefix: prefix,
@@ -568,7 +568,7 @@ async function addProjectToConfig(
 
   if (!ownerRepo) {
     console.log(chalk.yellow("⚠ Could not detect GitHub remote."));
-    console.log(chalk.dim("  Update the 'repo' field in the config before spawning agents.\n"));
+    console.log(chalk.dim("  Add a 'repo' field (owner/repo) to the config before spawning agents.\n"));
   }
 
   // If this is a global registry config, also write a minimal repo-local config
