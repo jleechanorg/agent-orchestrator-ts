@@ -569,7 +569,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   let allCompleteEmitted = false; // guard against repeated all_complete
   let everHadSessions = false; // tracks whether any sessions have ever been observed
   let lastSweepTime = 0; // timestamp of last orphan tmux sweep
+  let lastWorktreeGCTime = 0; // timestamp of last worktree garbage collection
   const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // run orphan sweep every 5 minutes
+  const WORKTREE_GC_INTERVAL_MS = 10 * 60 * 1000; // run worktree GC every 10 minutes
 
   /** Check if idle time exceeds the agent-stuck threshold. */
   function isIdleBeyondThreshold(session: Session, idleTimestamp: Date): boolean {
@@ -2826,6 +2828,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
+      // Worktree GC: periodically prune orphaned worktrees whose tmux sessions
+      // are dead. These accumulate after crashes, forced kills, or lifecycle
+      // restarts and block branches in the owning repo.
+      if (nowMs - lastWorktreeGCTime >= WORKTREE_GC_INTERVAL_MS) {
+        lastWorktreeGCTime = nowMs;
+        try {
+          await sessionManager.pruneStaleWorktrees();
+        } catch {
+          // Non-fatal: worktree GC must not break the poll cycle
+        }
+      }
+
       // Check if all sessions are complete (trigger reaction only once).
       // Use everHadSessions to avoid spurious all_complete on startup when no
       // sessions have ever existed. Since list() filters out terminal sessions,
@@ -2938,6 +2952,25 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   return {
     start(intervalMs = 30_000): void {
       if (pollTimer) return; // Already running
+      // Clean up stale tmux sessions at startup before the first poll cycle.
+      // Orphans from previous crashes or forced kills accumulate and block
+      // the spawn gate (>20 sessions threshold).
+      try {
+        const projectPrefixes = new Set(allSessionPrefixes);
+        const sweepConfig = {
+          ...DEFAULT_TMUX_SWEEPER_CONFIG,
+          aoSessionPrefixes: projectPrefixes.size > 0 ? projectPrefixes : DEFAULT_TMUX_SWEEPER_CONFIG.aoSessionPrefixes,
+        };
+        void sweepOrphanTmuxSessions(sweepConfig, { sessionManager }).then((result) => {
+          if (result.killed.length > 0) {
+            console.log(
+              `[tmux-sweeper] startup: killed ${result.killed.length} orphan tmux session(s)`,
+            );
+          }
+        }).catch(() => {});
+      } catch {
+        // Non-fatal: startup sweep must not prevent the lifecycle from starting
+      }
       pollTimer = setInterval(() => void pollAll(), intervalMs);
       // Start MCP mail inbox polling (separate 5-min interval)
       if (getMcpMailClientConfig()) {
