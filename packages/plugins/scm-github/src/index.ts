@@ -1535,7 +1535,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async listOpenPRs(project: ProjectConfig): Promise<PRInfo[]> {
-      const [owner, repo] = parseProjectRepo(project.repo);
+      if (!project.repo) return [];
+      const repoFull = project.repo;
+      const [owner, repo] = parseProjectRepo(repoFull);
       type RestPull = {
         number: number;
         html_url: string;
@@ -1564,14 +1566,15 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             isDraft: pr.draft,
             author: pr.user.login,
           },
-          project.repo,
+          repoFull,
         ),
       );
     },
 
     async detectPR(session: Session, project: ProjectConfig): Promise<PRInfo | null> {
-      if (!session.branch) return null;
-      const [owner, repo] = parseProjectRepo(project.repo);
+      if (!session.branch || !project.repo) return null;
+      const repoFull = project.repo;
+      const [owner, repo] = parseProjectRepo(repoFull);
 
       // Primary: gh pr list --head (GraphQL-backed) — finds PRs regardless of
       // which fork owner the head branch lives on, unlike the owner-scoped REST
@@ -1582,7 +1585,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
           "pr",
           "list",
           "--repo",
-          project.repo,
+          repoFull,
           "--head",
           session.branch,
           "--json",
@@ -1604,7 +1607,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         if (listPrs.length > 0) {
           return prInfoFromView(
             { ...listPrs[0]!, author: listPrs[0].author?.login ?? undefined },
-            project.repo,
+            repoFull,
           );
         }
 
@@ -1644,7 +1647,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                 isDraft: pr.draft,
                 author: pr.user.login,
               },
-              project.repo,
+              repoFull,
             );
           }
         } catch {
@@ -1656,6 +1659,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
     },
 
     async resolvePR(reference: string, project: ProjectConfig): Promise<PRInfo> {
+      if (!project.repo) {
+        throw new Error("Cannot resolve PR: project has no repo configured");
+      }
       // Use REST API to avoid GraphQL rate limits
       const [owner, repo] = parseProjectRepo(project.repo);
       const raw = await gh(["api", `repos/${owner}/${repo}/pulls/${reference}`]);
