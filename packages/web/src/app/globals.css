@@ -1238,6 +1238,11 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
     color 100ms ease,
     transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
 }
+.dashboard-app-btn--icon {
+  width: 27px;
+  padding: 0;
+  justify-content: center;
+}
 
 .dashboard-app-btn:hover {
   background: var(--color-bg-subtle);
@@ -1335,6 +1340,12 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
 }
 .topbar-status-pill__label {
   color: inherit;
+}
+.topbar-status-pill__dot--working {
+  background: var(--color-status-working);
+}
+.topbar-status-pill__dot--attention {
+  background: var(--color-status-attention);
 }
 
 /* Branch pill — compact topbar variant */
@@ -1499,7 +1510,6 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
   padding: 0 16px 16px;
 }
 
-.dashboard-main__body .kanban-board-wrap,
 .dashboard-main__body .board-wrapper {
   flex: 1;
   min-height: 0;
@@ -3854,7 +3864,8 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px 8px;
+  height: 48px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--sidebar-border);
   flex-shrink: 0;
 }
@@ -4491,6 +4502,8 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
 
 .project-sidebar__sess-row--active {
   background: transparent;
+  border-left: 2px solid var(--color-accent-amber);
+  padding-left: 24px;
 }
 
 /* Session label */
@@ -4633,6 +4646,13 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
   text-align: center;
   color: var(--color-text-muted);
   font-size: 11px;
+}
+
+.project-sidebar__empty-hint {
+  display: block;
+  font-size: 10px;
+  margin-top: 3px;
+  color: var(--color-text-muted);
 }
 
 .project-sidebar__footer {
@@ -5101,6 +5121,7 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
   position: relative;
   margin-top: 14px;
   overflow-x: auto;
+  flex-shrink: 0;
 }
 
 .board-section-head {
@@ -5234,6 +5255,10 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
 
 /* ── Done / Terminated collapsible bar ────────────────────────────────── */
 
+.done-bar {
+  flex-shrink: 0;
+}
+
 .done-bar__toggle {
   display: flex;
   align-items: center;
@@ -5289,22 +5314,6 @@ html.light .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb:active {
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 8px;
   margin-top: 12px;
-  /* 320px ≈ dashboard header + subhead + body padding + done-bar toggle/margins.
-     Mirrors the .kanban-board viewport-anchored height pattern (line 5107). */
-  max-height: calc(100vh - 320px);
-  max-height: calc(100dvh - 320px);
-  overflow-y: auto;
-}
-
-.done-bar__cards::-webkit-scrollbar {
-  width: 4px;
-}
-.done-bar__cards::-webkit-scrollbar-track {
-  background: transparent;
-}
-.done-bar__cards::-webkit-scrollbar-thumb {
-  background: var(--color-scrollbar);
-  border-radius: 0;
 }
 
 /* ── Done card (compact grid card) ──────────────────────────────────── */
