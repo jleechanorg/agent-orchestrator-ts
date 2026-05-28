@@ -353,11 +353,9 @@ export class TerminalManager {
 
     // tmux 3.4 only honours the `=` exact-match prefix on has-session and
     // attach-session; set-option silently ignores it, so we use the bare id
-    // here. The `=`-prefixed form is built here and reused for attach-session.
+    // here. The `=`-prefixed form is built below for attach-session.
 
     // Enable mouse mode
-    const exactTmuxTarget = `=${tmuxSessionId}`;
-
     const mouseProc = spawn(this.TMUX, ["set-option", "-t", tmuxSessionId, "mouse", "on"]);
     mouseProc.on("error", (err) => {
       console.error(`[MuxServer] Failed to set mouse mode for ${tmuxSessionId}:`, err.message);
@@ -382,6 +380,9 @@ export class TerminalManager {
       TMPDIR: process.env.TMPDIR || "/tmp",
     };
 
+    // Spawn PTY — use `=`-prefixed exact-match target so we never attach to
+    // a session whose name happens to be a prefix of the requested id.
+    const exactTmuxTarget = `=${tmuxSessionId}`;
     const pty = this.spawnTmuxPty(["attach-session", "-t", exactTmuxTarget], {
       name: "xterm-256color",
       cols: 80,

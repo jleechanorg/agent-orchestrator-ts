@@ -27,6 +27,7 @@ export interface WorkerPromptArtifactConfig {
   composedPromptPath?: string;
   skipPrBoilerplate?: boolean;
   overlappingSessions?: OverlappingSession[];
+  orchestratorSessionId?: SessionId;
 }
 
 export function agentSupportsPromptFile(agent: Agent): boolean {
@@ -70,6 +71,7 @@ export function buildWorkerPromptArtifact(config: WorkerPromptArtifactConfig): W
     siblings: config.spawnConfig.siblings,
     skipPrBoilerplate: config.skipPrBoilerplate ?? config.spawnConfig.skipPrBoilerplate ?? false,
     overlappingSessions: config.overlappingSessions,
+    orchestratorSessionId: config.orchestratorSessionId,
   });
 
   const composedPromptPath =

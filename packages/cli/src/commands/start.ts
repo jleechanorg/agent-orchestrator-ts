@@ -61,7 +61,7 @@ import {
   getRunning,
   writeLastStop,
 } from "../lib/running-state.js";
-import { killExistingDaemon } from "../lib/daemon.js";
+import { attachToDaemon, killExistingDaemon } from "../lib/daemon.js";
 import { isHumanCaller, promptSelect } from "../lib/caller-context.js";
 import { detectEnvironment } from "../lib/detect-env.js";
 import { detectDefaultBranch } from "../lib/git-utils.js";
@@ -1149,6 +1149,14 @@ export function registerStart(program: Command): void {
                 // Register cwd as a new project in the running AO instance
                 ({ projectId, project } = await addProjectToConfig(config, cwdPath));
                 config = loadConfig(config.configPath);
+                const notifyResult = await attachToDaemon(running).notifyProjectChange();
+                if (!notifyResult.ok) {
+                  console.log(
+                    chalk.yellow(
+                      `  ⚠ ${notifyResult.reason}. Refresh the page if the project doesn't show up.`,
+                    ),
+                  );
+                }
                 const sm = await getSessionManager(config);
                 const systemPrompt = generateOrchestratorPrompt({ config, projectId, project });
                 await sm.ensureOrchestrator?.({ projectId, systemPrompt });

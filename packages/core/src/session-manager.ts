@@ -1394,6 +1394,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     composedPromptPath = getWorkerPromptArtifactPath(config.configPath, project, sessionId);
     let promptArtifact: WorkerPromptArtifact;
     try {
+      const orchestratorSessionId = `${project.sessionPrefix}-orchestrator`;
+      const orchestratorExists = readMetadataRaw(sessionsDir, orchestratorSessionId) !== null;
       promptArtifact = buildWorkerPromptArtifact({
         agent: plugins.agent,
         composedPromptPath,
@@ -1405,6 +1407,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         sessionId,
         spawnConfig,
         skipPrBoilerplate: spawnConfig.skipPrBoilerplate,
+        ...(orchestratorExists && { orchestratorSessionId }),
       });
       composedPromptPath = promptArtifact.composedPromptPath;
     } catch (err) {

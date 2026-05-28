@@ -274,3 +274,21 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
   // ── Working: agents doing their thing ─────────────────────────────
   return "working";
 }
+
+export function isDashboardSessionTerminated(session: DashboardSession): boolean {
+  if ("lifecycle" in session && session.lifecycle) {
+    return (session.lifecycle as { sessionState: string }).sessionState === "terminated";
+  }
+  return session.status === "terminated" || session.status === "killed";
+}
+
+export function isDashboardSessionTerminal(session: DashboardSession): boolean {
+  return TERMINAL_STATUSES.has(session.status) || isDashboardSessionTerminated(session);
+}
+
+export function isDashboardSessionRestorable(session: DashboardSession): boolean {
+  if (isDashboardSessionTerminated(session) && session.status === "merged") {
+    return false;
+  }
+  return !NON_RESTORABLE_STATUSES.has(session.status) && isDashboardSessionTerminal(session);
+}
