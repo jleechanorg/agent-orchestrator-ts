@@ -70,15 +70,23 @@ export async function GET(request: Request) {
       dashboardSessions = activeIndices.map((index) => dashboardSessions[index]);
     }
 
+    const totalSessions = dashboardSessions.length;
+    const paginatedWorkerSessions = limit != null
+      ? workerSessions.slice(offset, offset + limit)
+      : workerSessions;
+    const paginatedSessions = limit != null
+      ? dashboardSessions.slice(offset, offset + limit)
+      : dashboardSessions;
+
     const metadataSettled = await settlesWithin(
-      enrichSessionsMetadata(workerSessions, dashboardSessions, config, registry),
+      enrichSessionsMetadata(paginatedWorkerSessions, paginatedSessions, config, registry),
       METADATA_ENRICH_TIMEOUT_MS,
     );
 
     if (metadataSettled) {
       const prDeadlineAt = Date.now() + PR_ENRICH_TIMEOUT_MS;
-      for (let i = 0; i < workerSessions.length; i++) {
-        const core = workerSessions[i];
+      for (let i = 0; i < paginatedWorkerSessions.length; i++) {
+        const core = paginatedWorkerSessions[i];
         if (!core?.pr) continue;
 
         const remainingMs = prDeadlineAt - Date.now();
@@ -89,16 +97,11 @@ export async function GET(request: Request) {
         if (!scm) continue;
 
         await settlesWithin(
-          enrichSessionPR(dashboardSessions[i], scm, core.pr),
+          enrichSessionPR(paginatedSessions[i], scm, core.pr),
           Math.min(remainingMs, PER_PR_ENRICH_TIMEOUT_MS),
         );
       }
     }
-
-    const totalSessions = dashboardSessions.length;
-    const paginatedSessions = limit != null
-      ? dashboardSessions.slice(offset, offset + limit)
-      : dashboardSessions;
 
     recordApiObservation({
       config,

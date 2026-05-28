@@ -124,9 +124,9 @@ export default function SessionPage() {
         resetSessionLoadFailures();
         return;
       }
+      if (currentSessionIdRef.current !== fetchId) return;
       setSession(data as DashboardSession);
       setError(null);
-      if (currentSessionIdRef.current !== fetchId) return;
       hasLoadedSessionRef.current = true;
       resetSessionLoadFailures();
     } catch (err) {
