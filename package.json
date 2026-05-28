@@ -10,7 +10,7 @@
   "packageManager": "pnpm@9.15.9",
   "pnpm": {
     "overrides": {
-      "axios": "^1.15.0",
+      "axios": ">=1.15.1 <2",
       "flatted": "3.4.2",
       "handlebars": ">=4.7.9",
       "langsmith": ">=0.6.0",
