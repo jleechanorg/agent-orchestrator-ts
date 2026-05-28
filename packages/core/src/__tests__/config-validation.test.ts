@@ -232,6 +232,48 @@ describe("Config Validation - Session Prefix Uniqueness", () => {
 
     expect(() => validateConfig(config)).toThrow(/Duplicate session prefix/);
   });
+
+  it("ac9ab7d: rejects prefix boundary collision where one prefix is a prefix of another", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/main-app",
+          repo: "org/main-app",
+          defaultBranch: "main",
+          sessionPrefix: "ao",
+        },
+        proj2: {
+          path: "/repos/staging",
+          repo: "org/staging",
+          defaultBranch: "main",
+          sessionPrefix: "ao-staging",
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).toThrow(/prefix boundary collision/i);
+  });
+
+  it("ac9ab7d: accepts prefixes that are distinct even when one is a substring", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/app1",
+          repo: "org/app1",
+          defaultBranch: "main",
+          sessionPrefix: "app1",
+        },
+        proj2: {
+          path: "/repos/app2",
+          repo: "org/app2",
+          defaultBranch: "main",
+          sessionPrefix: "app2",
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).not.toThrow();
+  });
 });
 
 describe("Config Validation - Session Prefix Regex", () => {
