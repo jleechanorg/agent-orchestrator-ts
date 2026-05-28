@@ -22,7 +22,6 @@ describe("LifecycleManager - Area Lock Reservation", () => {
   let sessionsDir: string;
   let mockSessionManager: any;
   let mockRegistry: any;
-  let mockEventBus: any;
   let mockLock: any;
   let mockAgent: any;
   let config: OrchestratorConfig;
@@ -83,10 +82,6 @@ describe("LifecycleManager - Area Lock Reservation", () => {
       getModule: vi.fn().mockReturnValue(null),
     };
 
-    mockEventBus = {
-      emit: vi.fn(),
-    };
-
     vi.mocked(worktreeGit.getWorkspaceChangedFiles).mockResolvedValue(["file1.ts"]);
   });
 
@@ -139,7 +134,6 @@ describe("LifecycleManager - Area Lock Reservation", () => {
       config,
       sessionManager: mockSessionManager,
       registry: mockRegistry,
-      eventBus: mockEventBus,
     });
 
     await lm.check(session.id);
@@ -174,7 +168,6 @@ describe("LifecycleManager - Area Lock Reservation", () => {
       config,
       sessionManager: mockSessionManager,
       registry: mockRegistry,
-      eventBus: mockEventBus,
     });
 
     await lm.check(session.id);
@@ -207,7 +200,6 @@ describe("LifecycleManager - Area Lock Reservation", () => {
       config,
       sessionManager: mockSessionManager,
       registry: mockRegistry,
-      eventBus: mockEventBus,
     });
 
     await lm.check(session.id);
