@@ -21,7 +21,7 @@ import {
 } from "@jleechanorg/ao-core";
 import { execFile, execFileSync } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { writeFile, mkdir, readFile, readdir, rename, stat, lstat, open } from "node:fs/promises";
+import { writeFile, mkdir, readFile, readdir, rename, stat, lstat, open, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -505,8 +505,18 @@ interface CodexJsonlLine {
  */
 const MAX_SESSION_SCAN_DEPTH = 4;
 
-async function collectJsonlFiles(dir: string, depth = 0): Promise<string[]> {
+async function collectJsonlFiles(dir: string, depth = 0, visited?: Set<string>): Promise<string[]> {
   if (depth > MAX_SESSION_SCAN_DEPTH) return [];
+
+  // e7033048: Track visited directories to prevent infinite loops from
+  // symlink cycles. Even though lstat is used (symlinks to directories
+  // are not followed), a visited-Set provides defense-in-depth if a symlink
+  // somehow gets resolved (e.g., OS-level directory hard links, or a future
+  // code change that switches lstat to stat).
+  const visitedDirs = visited ?? new Set<string>();
+  const realDir = await realpath(dir).catch(() => dir);
+  if (visitedDirs.has(realDir)) return [];
+  visitedDirs.add(realDir);
 
   let entries: string[];
   try {
@@ -526,7 +536,7 @@ async function collectJsonlFiles(dir: string, depth = 0): Promise<string[]> {
       try {
         const s = await lstat(fullPath);
         if (s.isDirectory()) {
-          const nested = await collectJsonlFiles(fullPath, depth + 1);
+          const nested = await collectJsonlFiles(fullPath, depth + 1, visitedDirs);
           results.push(...nested);
         }
       } catch {

@@ -211,7 +211,8 @@ Your role is to coordinate and manage worker agent sessions. You do NOT write co
 - Investigations from the orchestrator session are **read-only**. Inspect status, logs, metadata, PR state, and worker output, but do not edit repository files or implement fixes from the orchestrator session.
 - Any code change, test run tied to implementation, git branch work, or PR takeover must be delegated to a **worker session**.
 - The orchestrator session must never own a PR. Never claim a PR into the orchestrator session, and never treat the orchestrator as the worker responsible for implementation.
-- If an investigation discovers follow-up work, either spawn a worker session or direct an existing worker session with clear instructions.`);
+- If an investigation discovers follow-up work, either spawn a worker session or direct an existing worker session with clear instructions.
+- **Never use \`tmux send-keys\` to communicate with worker sessions.** Always use \`ao send <session> <message>\` instead. Raw tmux send-keys bypasses AO's message tracking, activity detection, and reaction system — it is banned for orchestrator-to-worker communication.`);
 
   // Project Info
   sections.push(`## Project Info

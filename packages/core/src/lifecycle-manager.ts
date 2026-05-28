@@ -566,12 +566,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   /** Determine current status for a session by polling plugins. */
   async function determineStatus(session: Session): Promise<{ status: SessionStatus; agentDead: boolean }> {
-    // bd-85r: Startup grace period — skip all liveness/activity probes for
-    // sessions created within the grace window. Agent CLIs need time to
-    // initialize; polling before they're ready sees "exited"/"idle" and kills
-    // the session. During the grace period, we trust the session is starting up.
+    // bd-85r + a7b0c85: Skip all liveness/activity probes for sessions still
+    // in "spawning" status. Agent CLIs need time to initialize; polling before
+    // they're ready sees "exited"/"idle" and kills the session. The grace period
+    // is a secondary safety net — but as long as status is "spawning", the agent
+    // CLI may still be initializing, so we must skip probes entirely regardless
+    // of age. A session stuck in "spawning" past the grace period is an anomaly
+    // that lifecycle will handle via timeout elsewhere.
     const sessionAgeMs = Date.now() - session.createdAt.getTime();
-    if (session.status === "spawning" && sessionAgeMs < (config.startupGracePeriodMs ?? 120_000)) {
+    if (session.status === "spawning") {
       return { status: "spawning", agentDead: false };
     }
 
@@ -618,15 +621,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // whether to reset the counter (only reset on genuine SCM success).
     let scmErrorOccurred = false;
 
-    // 1. Check if runtime is alive — but skip probes for sessions still
-    // within the startup grace period. A false negative from isAlive during
-    // agent CLI init would kill the session before it ever gets a chance to
-    // write its first activity marker.
-    if (
-      session.runtimeHandle &&
-      runtime &&
-      (session.status !== "spawning" || sessionAgeMs >= (config.startupGracePeriodMs ?? 120_000))
-    ) {
+    // 1. Check if runtime is alive. a7b0c85: Sessions in "spawning" status
+    // are already excluded by the early-return above, so this condition only
+    // fires for sessions past the spawning phase.
+    if (session.runtimeHandle && runtime) {
       const alive = await runtime.isAlive(session.runtimeHandle).catch(() => true);
       if (!alive) {
         // Don't return "killed" yet — if the session has a PR (or might have
@@ -1004,7 +1002,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     // 6. Default: if agent is active, it's working
     if (
-      session.status === "spawning" ||
       session.status === SESSION_STATUS.STUCK ||
       session.status === SESSION_STATUS.NEEDS_INPUT
     ) {

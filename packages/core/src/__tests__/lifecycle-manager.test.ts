@@ -212,16 +212,16 @@ describe("start / stop", () => {
 describe("sequential session polling (bd-wse)", () => {
   it("pollAll processes later sessions after one checkSession rejects", async () => {
     const sessions = [
-      makeSession({ id: "app-1", status: "spawning" }),
-      makeSession({ id: "app-2", status: "spawning" }),
-      makeSession({ id: "app-3", status: "spawning" }),
+      makeSession({ id: "app-1", status: "working" }),
+      makeSession({ id: "app-2", status: "working" }),
+      makeSession({ id: "app-3", status: "working" }),
     ];
 
     for (const s of sessions) {
       writeMetadata(sessionsDir, s.id, {
         worktree: "/tmp",
         branch: "main",
-        status: "spawning",
+        status: "working",
         project: "my-app",
       });
     }
@@ -261,11 +261,10 @@ describe("sequential session polling (bd-wse)", () => {
 });
 
 describe("check (single session)", () => {
-  it("detects transition from spawning to working", async () => {
+  it("a7b0c85: spawning sessions skip all probes — status stays spawning", async () => {
     const session = makeSession({ status: "spawning" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
-    // Write metadata so updateMetadata works
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
@@ -281,11 +280,10 @@ describe("check (single session)", () => {
 
     await lm.check("app-1");
 
-    expect(lm.getStates().get("app-1")).toBe("working");
+    expect(lm.getStates().get("app-1")).toBe("spawning");
 
-    // Metadata should be updated
     const meta = readMetadataRaw(sessionsDir, "app-1");
-    expect(meta!["status"]).toBe("working");
+    expect(meta!["status"]).toBe("spawning");
   });
 
   it("uses persisted session agent even when worker config differs", async () => {
@@ -3100,13 +3098,13 @@ describe("reactions", () => {
 
 describe("getStates", () => {
   it("returns copy of states map", async () => {
-    const session = makeSession({ status: "spawning" });
+    const session = makeSession({ status: "working" });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
 
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
       branch: "main",
-      status: "spawning",
+      status: "working",
       project: "my-app",
     });
 

@@ -545,6 +545,36 @@ function validateProjectUniqueness(config: OrchestratorConfig): void {
     prefixes.add(prefix);
     prefixToProject[prefix] = configKey;
   }
+
+  // ac9ab7d: Check for prefix boundary collisions — one prefix must not be a
+  // prefix of another prefix with the "-" separator. E.g., "ao" and "ao-staging"
+  // would collide because session "ao-staging-1" could match both prefixes.
+  const sortedPrefixes = [...prefixes].sort();
+  for (let i = 0; i < sortedPrefixes.length; i++) {
+    for (let j = i + 1; j < sortedPrefixes.length; j++) {
+      const shorter = sortedPrefixes[i]!;
+      const longer = sortedPrefixes[j]!;
+      if (longer.startsWith(`${shorter}-`)) {
+        const firstKey = prefixToProject[shorter]!;
+        const secondKey = prefixToProject[longer]!;
+        const firstProject = config.projects[firstKey];
+        const secondProject = config.projects[secondKey];
+        throw new Error(
+          `Session prefix boundary collision: "${shorter}" is a prefix of "${longer}"\n` +
+            `Sessions like "${longer}-1" would be ambiguous between ` +
+            `project "${firstKey}" (prefix: ${shorter}) and project "${secondKey}" (prefix: ${longer}).\n\n` +
+            `To fix this, rename one of the prefixes so neither is a prefix of the other:\n\n` +
+            `projects:\n` +
+            `  ${firstKey}:\n` +
+            `    path: ${firstProject?.path}\n` +
+            `    sessionPrefix: ${firstProject?.sessionPrefix ?? shorter}  # Already explicit\n` +
+            `  ${secondKey}:\n` +
+            `    path: ${secondProject?.path}\n` +
+            `    sessionPrefix: ${longer.replace(`${shorter}-`, `${shorter}_`)}  # Rename to avoid collision\n`,
+        );
+      }
+    }
+  }
 }
 
 /** Apply default reactions */

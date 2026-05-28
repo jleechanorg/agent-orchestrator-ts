@@ -57,6 +57,7 @@ vi.mock("node:fs/promises", () => ({
   stat: mockStat,
   lstat: mockLstat,
   open: mockOpen,
+  realpath: vi.fn((p: string) => Promise.resolve(p)),
 }));
 
 vi.mock("node:crypto", () => ({
