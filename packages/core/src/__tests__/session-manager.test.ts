@@ -404,7 +404,7 @@ describe("spawn", () => {
   it("falls back to sessionId when issueId sanitizes to empty string", async () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
 
-    const session = await sm.spawn({ projectId: "my-app", issueId: "!!!" });
+    const session = await sm.spawn({ projectId: "my-app", issueId: "~~~" });
 
     // Slug is empty after sanitization, falls back to sessionId
     expect(session.branch).toMatch(/^feat\/app-\d+$/);

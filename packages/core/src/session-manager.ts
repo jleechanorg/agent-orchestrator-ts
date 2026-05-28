@@ -88,6 +88,7 @@ import {
 import { sessionFromMetadata } from "./utils/session-from-metadata.js";
 import { parsePrFromUrl } from "./utils/pr.js";
 import { safeJsonParse } from "./utils/validation.js";
+import { isGitBranchNameSafe } from "./utils.js";
 import { getWorkspaceChangedFiles } from "./utils/worktree-git.js";
 import { resolveAgentSelection, resolveAgentSelectionForSession } from "./agent-selection.js";
 import { getAllSessionPrefixes, getAoManagedSessionWorktreePattern } from "./session-prefixes.js";
@@ -1214,6 +1215,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     // Determine branch name — explicit branch always takes priority
     let branch: string;
     if (spawnConfig.branch) {
+      if (!isGitBranchNameSafe(spawnConfig.branch)) {
+        throw new Error(`Invalid branch name: ${spawnConfig.branch}`);
+      }
       branch = spawnConfig.branch;
     } else if (spawnConfig.issueId && plugins.tracker && resolvedIssue) {
       branch = plugins.tracker.branchName(spawnConfig.issueId, project);
@@ -1221,7 +1225,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       // If the issueId is already branch-safe (e.g. "INT-9999"), use as-is.
       // Otherwise sanitize free-text (e.g. "fix login bug") into a valid slug.
       const id = spawnConfig.issueId;
-      const isBranchSafe = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && !id.includes("..");
+      const isBranchSafe = isGitBranchNameSafe(id);
       const slug = isBranchSafe
         ? id
         : id
