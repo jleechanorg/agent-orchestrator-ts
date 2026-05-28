@@ -34,6 +34,8 @@ import {
 import { join, dirname } from "node:path";
 import { VALID_PR_STATES, type SessionId, type SessionMetadata, type PRState } from "./types.js";
 import { atomicWriteFileSync } from "./atomic-write.js";
+import { validateStatusTransition } from "./session-status-validator.js";
+import type { SessionStatus } from "./types.js";
 import { parseKeyValueContent } from "./key-value.js";
 
 /** Serialize a record back to key=value format. Newlines in values are replaced to prevent injection. */
@@ -200,6 +202,19 @@ export function updateMetadata(
       existing = rest;
     } else {
       existing[key] = value;
+    }
+  }
+
+  if (updates["status"] && existing["status"] && updates["status"] !== existing["status"]) {
+    const result = validateStatusTransition(
+      existing["status"] as SessionStatus,
+      updates["status"] as SessionStatus,
+    );
+    if (!result.valid) {
+      console.warn(
+        `[metadata] Invalid status transition: ${result.from} → ${result.to}: ${result.reason}. ` +
+          `Allowing write but logging for diagnostics.`,
+      );
     }
   }
 
