@@ -126,6 +126,10 @@ export type {
   SpawnQueueConfigResolved,
 } from "./spawn-queue.js";
 
+// Spawn guard — prevent concurrent ao spawn for the same project
+export { acquireSpawnLock } from "./spawn-guard.js";
+export type { AcquireResult, AcquireBlockedResult } from "./spawn-guard.js";
+
 // Poller manager — outer initiation loop (bd-uxs.2)
 export { createPollerManager } from "./poller-manager.js";
 export type { PollerManagerDeps } from "./poller-manager.js";

@@ -78,6 +78,35 @@ const DEFAULT_PORT = 3000;
 // HELPERS
 // =============================================================================
 
+interface ConfigValidationProblem {
+  field: string;
+  message: string;
+}
+
+function validateConfigBeforeWrite(config: OrchestratorConfig): ConfigValidationProblem[] {
+  const problems: ConfigValidationProblem[] = [];
+  const projectIds = Object.keys(config.projects);
+
+  if (projectIds.length === 0) {
+    problems.push({ field: "projects", message: "Config has no projects defined" });
+  }
+
+  for (const [id, project] of Object.entries(config.projects)) {
+    if (!project.path) {
+      problems.push({ field: `projects.${id}.path`, message: "Missing required project path" });
+    }
+    if (!project.sessionPrefix) {
+      problems.push({ field: `projects.${id}.sessionPrefix`, message: "Missing session prefix" });
+    }
+  }
+
+  if (config.port !== undefined && (config.port < 1 || config.port > 65535)) {
+    problems.push({ field: "port", message: `Invalid port: ${config.port} (must be 1–65535)` });
+  }
+
+  return problems;
+}
+
 function ensureConfigDirectory(configPath: string): void {
   mkdirSync(dirname(configPath), { recursive: true });
 }
@@ -139,7 +168,15 @@ function migrateRepoLocalConfig(sourcePath: string, stagingConfigPath: string): 
 function writeYamlConfig(configPath: string, yamlContent: string): OrchestratorConfig {
   ensureConfigDirectory(configPath);
   writeFileSync(configPath, yamlContent, { mode: 0o600 });
-  return loadConfig(configPath);
+  const config = loadConfig(configPath);
+  const problems = validateConfigBeforeWrite(config);
+  if (problems.length > 0) {
+    const details = problems.map((p) => `  - ${p.field}: ${p.message}`).join("\n");
+    console.warn(
+      chalk.yellow(`⚠ Config validation warnings:\n${details}`),
+    );
+  }
+  return config;
 }
 
 function resolveLocalPathConfigPath(): string | undefined {

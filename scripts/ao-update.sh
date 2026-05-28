@@ -58,6 +58,27 @@ run_cmd() {
   "$@"
 }
 
+# Retry wrapper for commands prone to npm registry flakiness.
+# Retries up to N times with exponential backoff (1s, 2s, 4s).
+retry_cmd() {
+  local max_attempts="${1}"
+  shift
+  local attempt=1
+  while [ "$attempt" -le "$max_attempts" ]; do
+    if run_cmd "$@"; then
+      return 0
+    fi
+    if [ "$attempt" -lt "$max_attempts" ]; then
+      local delay=$(( 2 ** (attempt - 1) ))
+      printf '  Attempt %d/%d failed. Retrying in %ds...\n' "$attempt" "$max_attempts" "$delay" >&2
+      sleep "$delay"
+    fi
+    attempt=$((attempt + 1))
+  done
+  printf '  All %d attempts failed.\n' "$max_attempts" >&2
+  return 1
+}
+
 run_smoke_tests() {
   printf '\nRunning smoke tests...\n'
   local ao_entry="$REPO_ROOT/packages/cli/dist/index.js"
@@ -235,7 +256,7 @@ if [ "$SMOKE_ONLY" = false ]; then
 
   run_cmd git fetch origin "$TARGET_BRANCH"
   run_cmd git pull --ff-only origin "$TARGET_BRANCH"
-  run_cmd pnpm install
+  retry_cmd 3 pnpm install
 
   run_cmd pnpm --filter @jleechanorg/ao-core clean
   run_cmd pnpm --filter @jleechanorg/ao-cli clean

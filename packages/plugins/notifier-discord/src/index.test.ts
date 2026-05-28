@@ -16,6 +16,10 @@ function makeEvent(overrides: Partial<OrchestratorEvent> = {}): OrchestratorEven
   };
 }
 
+function immediateConfig(extra?: Record<string, unknown>): Record<string, unknown> {
+  return { webhookUrl: "https://discord.com/api/webhooks/123/abc", batchWindowMs: 0, ...extra };
+}
+
 describe("notifier-discord", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -35,7 +39,7 @@ describe("notifier-discord", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    const notifier = create(immediateConfig());
     await notifier.notify(makeEvent());
 
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -46,7 +50,7 @@ describe("notifier-discord", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    const notifier = create(immediateConfig());
     await notifier.notify(makeEvent());
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -57,7 +61,7 @@ describe("notifier-discord", () => {
     expect(embed.title).toContain("ao-5");
     expect(embed.title).toContain("reaction.escalated");
     expect(embed.description).toBe("CI failed after 5 retries");
-    expect(embed.color).toBe(0xed4245); // red for urgent
+    expect(embed.color).toBe(0xed4245);
     expect(embed.timestamp).toBe("2026-03-20T12:00:00.000Z");
     expect(embed.footer.text).toBe("Agent Orchestrator");
   });
@@ -66,7 +70,7 @@ describe("notifier-discord", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    const notifier = create(immediateConfig());
     await notifier.notify(makeEvent());
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -79,7 +83,7 @@ describe("notifier-discord", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    const notifier = create(immediateConfig());
     await notifier.notify(makeEvent({ data: { prUrl: "https://github.com/org/repo/pull/42" } }));
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -91,7 +95,7 @@ describe("notifier-discord", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    const notifier = create(immediateConfig());
     await notifier.notify(makeEvent({ data: { ciStatus: "passing" } }));
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -103,7 +107,7 @@ describe("notifier-discord", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    const notifier = create(immediateConfig());
     const actions: NotifyAction[] = [
       { label: "View PR", url: "https://github.com/org/repo/pull/42" },
       { label: "retry" },
@@ -120,7 +124,7 @@ describe("notifier-discord", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    const notifier = create(immediateConfig());
     await notifier.post!("Session ao-5 completed successfully");
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -132,7 +136,7 @@ describe("notifier-discord", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc", username: "AO Bot" });
+    const notifier = create(immediateConfig({ username: "AO Bot" }));
     await notifier.notify(makeEvent());
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -143,10 +147,7 @@ describe("notifier-discord", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({
-      webhookUrl: "https://discord.com/api/webhooks/123/abc",
-      avatarUrl: "https://example.com/avatar.png",
-    });
+    const notifier = create(immediateConfig({ avatarUrl: "https://example.com/avatar.png" }));
     await notifier.notify(makeEvent());
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -157,13 +158,9 @@ describe("notifier-discord", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({
-      webhookUrl: "https://discord.com/api/webhooks/123/abc",
-      threadId: "1234567890",
-    });
+    const notifier = create(immediateConfig({ threadId: "1234567890" }));
     await notifier.notify(makeEvent());
 
-    // Discord requires thread_id as a URL query param, not in the JSON body
     const calledUrl = fetchMock.mock.calls[0][0];
     expect(calledUrl).toBe("https://discord.com/api/webhooks/123/abc?thread_id=1234567890");
   });
@@ -184,22 +181,22 @@ describe("notifier-discord", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    const notifier = create(immediateConfig());
 
-    await notifier.notify(makeEvent({ priority: "info" }));
+    await notifier.notify(makeEvent({ priority: "info", message: "info event" }));
     let body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.embeds[0].color).toBe(0x57f287); // green
+    expect(body.embeds[0].color).toBe(0x57f287);
 
-    await notifier.notify(makeEvent({ priority: "warning" }));
+    await notifier.notify(makeEvent({ priority: "warning", message: "warning event" }));
     body = JSON.parse(fetchMock.mock.calls[1][1].body);
-    expect(body.embeds[0].color).toBe(0xfee75c); // yellow
+    expect(body.embeds[0].color).toBe(0xfee75c);
   });
 
   it("handles 204 No Content as success", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
     vi.stubGlobal("fetch", fetchMock);
 
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    const notifier = create(immediateConfig());
     await expect(notifier.notify(makeEvent())).resolves.toBeUndefined();
   });
 
@@ -212,7 +209,7 @@ describe("notifier-discord", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const notifier = create({
-      webhookUrl: "https://discord.com/api/webhooks/123/abc",
+      ...immediateConfig(),
       retries: 1,
       retryDelayMs: 50,
     });
@@ -235,11 +232,11 @@ describe("notifier-discord", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const notifier = create({
-      webhookUrl: "https://discord.com/api/webhooks/123/abc",
+      ...immediateConfig(),
       retries: 2,
       retryDelayMs: 1,
     });
-    await expect(notifier.notify(makeEvent())).rejects.toThrow("Discord webhook failed (401)");
+    await expect(notifier.post!("test")).rejects.toThrow("Discord webhook failed (401)");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -264,17 +261,15 @@ describe("notifier-discord", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const notifier = create({
-      webhookUrl: "https://discord.com/api/webhooks/123/abc",
+      ...immediateConfig(),
       retries: 1,
       retryDelayMs: 50,
     });
     const promise = notifier.notify(makeEvent());
 
-    // First call happens immediately
     await vi.advanceTimersByTimeAsync(0);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // Advance past the Retry-After delay (1 second)
     await vi.advanceTimersByTimeAsync(1000);
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
@@ -286,12 +281,12 @@ describe("notifier-discord", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const longSessionId = "a".repeat(300);
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    const notifier = create(immediateConfig());
     await notifier.notify(makeEvent({ sessionId: longSessionId }));
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.embeds[0].title.length).toBeLessThanOrEqual(256);
-    expect(body.embeds[0].title.endsWith("…")).toBe(true);
+    expect(body.embeds[0].title.endsWith("\u2026")).toBe(true);
   });
 
   it("truncates post content to 2000 chars", async () => {
@@ -299,11 +294,140 @@ describe("notifier-discord", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const longMsg = "x".repeat(2500);
-    const notifier = create({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+    const notifier = create(immediateConfig());
     await notifier.post!(longMsg);
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.content.length).toBeLessThanOrEqual(2000);
-    expect(body.content.endsWith("…")).toBe(true);
+    expect(body.content.endsWith("\u2026")).toBe(true);
+  });
+
+  describe("batch window", () => {
+    it("batches multiple notifications within the window", async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({
+        webhookUrl: "https://discord.com/api/webhooks/123/abc",
+        batchWindowMs: 500,
+      });
+
+      await notifier.notify(makeEvent({ id: "evt-1", message: "first" }));
+      await notifier.notify(makeEvent({ id: "evt-2", message: "second" }));
+
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(600);
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.embeds).toHaveLength(2);
+      vi.useRealTimers();
+    });
+
+    it("sends immediately when batchWindowMs is 0", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create(immediateConfig());
+
+      await notifier.notify(makeEvent());
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it("splits into multiple messages when more than 10 embeds", async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({
+        webhookUrl: "https://discord.com/api/webhooks/123/abc",
+        batchWindowMs: 500,
+      });
+
+      for (let i = 0; i < 12; i++) {
+        await notifier.notify(makeEvent({ id: `evt-${i}`, message: `event-${i}`, sessionId: `s-${i}` }));
+      }
+
+      await vi.advanceTimersByTimeAsync(600);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const body1 = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const body2 = JSON.parse(fetchMock.mock.calls[1][1].body);
+      expect(body1.embeds).toHaveLength(10);
+      expect(body2.embeds).toHaveLength(2);
+      vi.useRealTimers();
+    });
+  });
+
+  describe("dedup", () => {
+    it("collapses duplicate notifications with the same dedupe key", async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({
+        webhookUrl: "https://discord.com/api/webhooks/123/abc",
+        batchWindowMs: 500,
+      });
+
+      const event = makeEvent({ id: "evt-1", message: "CI failed" });
+      await notifier.notify(event);
+      await notifier.notify(event);
+      await notifier.notify(event);
+
+      await vi.advanceTimersByTimeAsync(600);
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.embeds).toHaveLength(1);
+      vi.useRealTimers();
+    });
+
+    it("allows different events through", async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({
+        webhookUrl: "https://discord.com/api/webhooks/123/abc",
+        batchWindowMs: 500,
+      });
+
+      await notifier.notify(makeEvent({ id: "evt-1", message: "first" }));
+      await notifier.notify(makeEvent({ id: "evt-2", message: "second" }));
+
+      await vi.advanceTimersByTimeAsync(600);
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.embeds).toHaveLength(2);
+      vi.useRealTimers();
+    });
+
+    it("allows duplicate after dedup TTL expires", async () => {
+      vi.useFakeTimers({ now: new Date("2026-01-01T00:00:00Z") });
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create(immediateConfig());
+
+      const event = makeEvent({ id: "evt-1", message: "CI failed" });
+      await notifier.notify(event);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Same event within TTL should be deduped
+      await notifier.notify(event);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Advance past dedup TTL (60s)
+      vi.setSystemTime(new Date("2026-01-01T00:01:01Z"));
+
+      await notifier.notify(event);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      vi.useRealTimers();
+    });
   });
 });

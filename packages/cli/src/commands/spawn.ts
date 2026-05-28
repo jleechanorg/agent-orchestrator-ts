@@ -13,6 +13,7 @@ import {
   resolveSpawnQueueConfig,
   expandHome,
   recordActivityEvent,
+  acquireSpawnLock,
   type OrchestratorConfig,
   type DecomposerConfig,
   DEFAULT_DECOMPOSER_CONFIG,
@@ -352,7 +353,20 @@ export function registerSpawn(program: Command): void {
           await ensureAOPollingProject(projectId);
           await ensureLifecycleWorker(config, projectId);
 
-          if (opts.decompose && issueId) {
+          const project = config.projects[projectId];
+          const projectPath = project?.path ?? "";
+          const lockResult = acquireSpawnLock(config.configPath, projectPath);
+          if (!lockResult.acquired) {
+            console.error(
+              chalk.red(
+                `✗ Another ao spawn is in progress for project "${projectId}" (PID ${lockResult.blockingPid}, started ${lockResult.acquiredAt}). Wait for it to finish.`,
+              ),
+            );
+            process.exit(1);
+          }
+
+          try {
+            if (opts.decompose && issueId) {
             // Decompose the issue before spawning
             const project = config.projects[projectId];
             const decompConfig: DecomposerConfig = {
@@ -437,6 +451,9 @@ export function registerSpawn(program: Command): void {
           } else {
             await spawnSession(config, projectId, issueId, opts.open, opts.agent, claimOptions);
           }
+          } finally {
+            lockResult.release();
+          }
         } catch (err) {
           console.error(chalk.red(`✗ ${err instanceof Error ? err.message : String(err)}`));
           process.exit(1);
@@ -490,6 +507,18 @@ export function registerBatchSpawn(program: Command): void {
         console.error(chalk.red(`✗ ${err instanceof Error ? err.message : String(err)}`));
         process.exit(1);
       }
+
+      const batchProject = config.projects[projectId];
+      const batchLock = acquireSpawnLock(config.configPath, batchProject?.path ?? "");
+      if (!batchLock.acquired) {
+        console.error(
+          chalk.red(
+            `✗ Another ao spawn is in progress for project "${projectId}" (PID ${batchLock.blockingPid}, started ${batchLock.acquiredAt}). Wait for it to finish.`,
+          ),
+        );
+        process.exit(1);
+      }
+      try {
 
       const sm = await getSessionManager(config);
       const created: Array<{ session: string; issue: string }> = [];
@@ -588,5 +617,8 @@ export function registerBatchSpawn(program: Command): void {
         for (const item of failed) console.log(`  ${item.issue}: ${item.error}`);
       }
       console.log();
+      } finally {
+        batchLock.release();
+      }
     });
 }
