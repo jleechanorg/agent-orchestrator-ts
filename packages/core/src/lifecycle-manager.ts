@@ -452,6 +452,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   const TERMINAL_EXIT_PROOF_RECORDED_AT_KEY = "terminalExitProofRecordedAt";
   const pendingTerminalExitProofRecordedAt = new Map<string, string>();
 
+  /** Cache for batch PR status results to avoid re-querying during rate-limit periods. */
+  const BATCH_PR_CACHE_TTL_MS = 60_000;
+  const batchPrResultCache = new Map<string, { result: unknown; timestamp: number }>();
+
+  function getCachedBatchResult(cacheKey: string): unknown | null {
+    const entry = batchPrResultCache.get(cacheKey);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > BATCH_PR_CACHE_TTL_MS) {
+      batchPrResultCache.delete(cacheKey);
+      return null;
+    }
+    return entry.result;
+  }
+
+  function setCachedBatchResult(cacheKey: string, result: unknown): void {
+    batchPrResultCache.set(cacheKey, { result, timestamp: Date.now() });
+  }
+
   function isLifecycleOrchestratorSession(session: Pick<Session, "id" | "metadata" | "projectId">): boolean {
     const project = config.projects[session.projectId];
     return isOrchestratorSessionForPrefix(session, project?.sessionPrefix, allSessionPrefixes);
@@ -815,8 +833,44 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         let usedBatch = false;
         if (scm.getBatchPRStatus) {
           try {
+            const prCacheKey = `${session.pr?.owner}/${session.pr?.repo}/${session.pr?.number}`;
+            const cached = getCachedBatchResult(prCacheKey);
+            if (cached) {
+              const batch = cached as Awaited<ReturnType<NonNullable<typeof scm.getBatchPRStatus>>>;
+              usedBatch = true;
+              const prevPrState = session.pr?.state;
+              if (batch.state !== prevPrState) {
+                persistPrState({ session, state: batch.state, projectPath: project.path });
+              }
+              if (batch.state === PR_STATE.MERGED) {
+                logAoAction({
+                  ts: new Date().toISOString(),
+                  session: session.id,
+                  action: "pr_merge",
+                  pr: session.pr?.number,
+                  repo: session.pr ? `${session.pr.owner}/${session.pr.repo}` : undefined,
+                  reason: "merged-transition-cached",
+                });
+                return { status: "merged", agentDead };
+              }
+              if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
+              if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
+              if (batch.reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
+              if (batch.reviewDecision === "approved" || batch.reviewDecision === "none") {
+                if (batch.ciStatus === CI_STATUS.PENDING) {
+                  if (batch.reviewDecision === "approved") return { status: "approved", agentDead };
+                  return { status: "pr_open", agentDead };
+                }
+                if (batch.mergeReadiness.mergeable) return { status: "mergeable", agentDead };
+                if (!batch.mergeReadiness.noConflicts) return { status: "merge_conflicts", agentDead };
+                if (batch.reviewDecision === "approved") return { status: "approved", agentDead };
+              }
+              if (batch.reviewDecision === "pending") return { status: "review_pending", agentDead };
+            } else {
             const batch = await scm.getBatchPRStatus(session.pr);
             usedBatch = true;
+            const prCacheKeyForStore = `${session.pr?.owner}/${session.pr?.repo}/${session.pr?.number}`;
+            setCachedBatchResult(prCacheKeyForStore, batch);
             // bd-s4t.2: persist PR state so the session-reaper can detect zombies
             // without SCM access. Only update if state has changed.
             const prevPrState = session.pr?.state;
@@ -851,11 +905,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             if (batch.reviewDecision === "pending") return { status: "review_pending", agentDead };
             // bd-fisn: batch.reviewDecision is null when CR was DISMISSED (no outstanding request).
             // Fall through to individual calls below, which have the bd-fisn null→CR-reviews fix.
+            }
           } catch (err) {
             // bd-att: If batch failed due to a GitHub API rate limit (or network error),
-            // DO NOT fall back. Rethrow so determineStatus exits immediately.
-            // Failing back would cause an immediate 4-5x thundering herd of individual queries!
-            if (isGhRateLimitError(err)) throw err;
+            // serve cached result if available, otherwise rethrow to avoid the
+            // 4-5x thundering herd of individual queries.
+            if (isGhRateLimitError(err)) {
+              const prCacheKey = `${session.pr?.owner}/${session.pr?.repo}/${session.pr?.number}`;
+              const staleCached = getCachedBatchResult(prCacheKey);
+              if (staleCached) {
+                const batch = staleCached as Awaited<ReturnType<NonNullable<typeof scm.getBatchPRStatus>>>;
+                usedBatch = true;
+                if (batch.state === PR_STATE.MERGED) return { status: "merged", agentDead };
+                if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
+                return { status: session.status, agentDead };
+              }
+              throw err;
+            }
             // Otherwise, batch failed (e.g. unsupported) — fall through to individual calls
           }
         }

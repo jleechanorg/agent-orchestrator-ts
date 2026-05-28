@@ -4,6 +4,7 @@ import { join, dirname } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID, createHash } from "node:crypto";
 import { createSessionManager } from "../session-manager.js";
+import { hashProjectId } from "../fork-project-isolation.js";
 import {
   type OrchestratorConfig,
   type PluginRegistry,
@@ -288,7 +289,7 @@ describe("pruneStaleWorktrees", () => {
     const sessionsDir = join(
       homedir(),
       ".agent-orchestrator",
-      `${configHash}-my-app`,
+      `${configHash}-my-app-${hashProjectId("my-app")}`,
       "sessions",
     );
     mkdirSync(sessionsDir, { recursive: true });
@@ -348,7 +349,7 @@ describe("pruneStaleWorktrees", () => {
     const sessionsDir = join(
       homedir(),
       ".agent-orchestrator",
-      `${configHash}-my-app`,
+      `${configHash}-my-app-${hashProjectId("my-app")}`,
       "sessions",
     );
     mkdirSync(sessionsDir, { recursive: true });
@@ -401,7 +402,7 @@ describe("pruneStaleWorktrees", () => {
     const sessionsDir = join(
       homedir(),
       ".agent-orchestrator",
-      `${configHash}-my-app`,
+      `${configHash}-my-app-${hashProjectId("my-app")}`,
       "sessions",
     );
     mkdirSync(sessionsDir, { recursive: true });

@@ -139,7 +139,7 @@ describe("Instance ID Generation", () => {
   it("combines hash and project ID correctly", () => {
     const instanceId = generateInstanceId(configPath, "/repos/integrator");
 
-    expect(instanceId).toMatch(/^[a-f0-9]{12}-integrator$/);
+    expect(instanceId).toMatch(/^[a-f0-9]{12}-integrator-[a-f0-9]{8}$/);
   });
 
   it("same config + same project = same instance ID", () => {
@@ -257,37 +257,37 @@ describe("Path Construction", () => {
   it("getProjectBaseDir returns correct format", () => {
     const baseDir = getProjectBaseDir(configPath, "/repos/integrator");
 
-    expect(baseDir).toMatch(/^.*\/.agent-orchestrator\/[a-f0-9]{12}-integrator$/);
+    expect(baseDir).toMatch(/^.*\/.agent-orchestrator\/[a-f0-9]{12}-integrator-[a-f0-9]{8}$/);
   });
 
   it("getSessionsDir returns {baseDir}/sessions", () => {
     const sessionsDir = getSessionsDir(configPath, "/repos/integrator");
 
-    expect(sessionsDir).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator\/sessions$/);
+    expect(sessionsDir).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator-[a-f0-9]{8}\/sessions$/);
   });
 
   it("getWorktreesDir returns {baseDir}/worktrees", () => {
     const worktreesDir = getWorktreesDir(configPath, "/repos/integrator");
 
-    expect(worktreesDir).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator\/worktrees$/);
+    expect(worktreesDir).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator-[a-f0-9]{8}\/worktrees$/);
   });
 
   it("getFeedbackReportsDir returns {baseDir}/feedback-reports", () => {
     const reportsDir = getFeedbackReportsDir(configPath, "/repos/integrator");
 
-    expect(reportsDir).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator\/feedback-reports$/);
+    expect(reportsDir).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator-[a-f0-9]{8}\/feedback-reports$/);
   });
 
   it("getArchiveDir returns {baseDir}/sessions/archive", () => {
     const archiveDir = getArchiveDir(configPath, "/repos/integrator");
 
-    expect(archiveDir).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator\/sessions\/archive$/);
+    expect(archiveDir).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator-[a-f0-9]{8}\/sessions\/archive$/);
   });
 
   it("getOriginFilePath returns {baseDir}/.origin", () => {
     const originPath = getOriginFilePath(configPath, "/repos/integrator");
 
-    expect(originPath).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator\/\.origin$/);
+    expect(originPath).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator-[a-f0-9]{8}\/\.origin$/);
   });
 
   it("all paths share the same base directory", () => {

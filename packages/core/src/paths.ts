@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { dirname, basename, join } from "node:path";
 import { homedir } from "node:os";
 import { realpathSync, existsSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import { isolateProjectId } from "./fork-project-isolation.js";
 
 /**
  * Generate a 12-character hash from a config directory path.
@@ -40,7 +41,8 @@ export function generateProjectId(projectPath: string): string {
 export function generateInstanceId(configPath: string, projectPath: string): string {
   const hash = generateConfigHash(configPath);
   const projectId = generateProjectId(projectPath);
-  return `${hash}-${projectId}`;
+  const isolated = isolateProjectId(projectId);
+  return `${hash}-${isolated}`;
 }
 
 /**

@@ -18,6 +18,40 @@ export { isPackageResolutionFailure, tryMonorepoFallback } from "./plugin-regist
 import { isPackageResolutionFailure, tryMonorepoFallback } from "./plugin-registry-fallback.js";
 import { applyForkExtensions } from "./plugin-registry-extensions.js";
 
+/**
+ * Validate that a plugin name is safe for use as a directory name and
+ * cannot be exploited for path traversal or code injection.
+ *
+ * Rejection criteria:
+ * - Path traversal: .. or / or \ or null byte
+ * - Code injection: characters that could break import paths or eval contexts
+ * - Must be non-empty and match a safe subset of characters
+ */
+const SAFE_PLUGIN_NAME_RE = /^[a-zA-Z0-9_-]+$/;
+const PATH_TRAVERSAL_RE = /\.\.|[/\\\x00]/;
+
+export class UnsafePluginNameError extends Error {
+  constructor(public readonly name: string, reason: string) {
+    super(`Unsafe plugin name "${name}": ${reason}`);
+    this.name = "UnsafePluginNameError";
+  }
+}
+
+export function validatePluginName(name: string): void {
+  if (!name || name.length === 0) {
+    throw new UnsafePluginNameError(name, "name must be non-empty");
+  }
+  if (PATH_TRAVERSAL_RE.test(name)) {
+    throw new UnsafePluginNameError(name, "contains path traversal characters");
+  }
+  if (!SAFE_PLUGIN_NAME_RE.test(name)) {
+    throw new UnsafePluginNameError(
+      name,
+      "contains characters that could enable code injection; only a-z, A-Z, 0-9, hyphens, and underscores are allowed",
+    );
+  }
+}
+
 /** Map from "slot:name" → plugin instance */
 type PluginMap = Map<string, { manifest: PluginManifest; instance: unknown; module?: PluginModule }>;
 
@@ -128,6 +162,7 @@ export function createPluginRegistry(): PluginRegistry {
   const registry: PluginRegistry = {
     register(plugin: PluginModule, config?: Record<string, unknown>): void {
       const { manifest } = plugin;
+      validatePluginName(manifest.name);
       const key = makeKey(manifest.slot, manifest.name);
       const instance = plugin.create(config);
       plugins.set(key, { manifest, instance, module: plugin });
@@ -162,6 +197,7 @@ export function createPluginRegistry(): PluginRegistry {
       const selfUrl = import.meta.url; // plugin-registry.js URL for fallback resolution
       const doFallback = fallbackImportFn ?? tryMonorepoFallback;
       for (const builtin of BUILTIN_PLUGINS) {
+        validatePluginName(builtin.name);
         let mod: PluginModule | null = null;
         try {
           mod = (await doImport(builtin.pkg)) as PluginModule;
