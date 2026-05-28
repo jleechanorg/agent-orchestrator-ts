@@ -297,7 +297,7 @@ export function useXtermTerminal(
           if (safetyTimer) clearTimeout(safetyTimer);
           window.removeEventListener("resize", handleResize);
         if (fontsListenerAttached && fontsFace) {
-          fontsFace.addEventListener("loadingdone", handleFontsLoadingDone);
+          fontsFace.removeEventListener("loadingdone", handleFontsLoadingDone);
         }
           scrollDisposable.dispose();
           inputDisposable?.dispose();
