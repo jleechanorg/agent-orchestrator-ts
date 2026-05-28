@@ -102,6 +102,7 @@ import {
 } from "./prompt-artifact-builder.js";
 import { AOWorkerLogger } from "./ao-worker-logger.js";
 import { deriveDisplayName } from "./upstream-session-header.js";
+import { clearTerminalMarkersForNonTerminalState } from "./fork-terminal-marker-hygiene.js";
 import { killProcessTreeAndWait } from "./kill-and-wait.js";
 import { findDuplicateSessions } from "./session-duplicate-detect.js";
 import { validateStatusTransition } from "./session-status-validator.js";
@@ -327,9 +328,11 @@ function metadataToSession(
   projectId: string,
   createdAt?: Date,
   modifiedAt?: Date,
+  workspacePathFallback?: string,
 ): Session {
   return sessionFromMetadata(sessionId, meta, {
     projectId,
+    workspacePathFallback,
     createdAt,
     lastActivityAt: modifiedAt ?? new Date(),
   });
@@ -1900,6 +1903,50 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return session;
   }
 
+  const relaunchOrchestratorPromises = new Map<string, Promise<Session>>();
+
+  async function relaunchOrchestratorInternal(
+    orchestratorConfig: OrchestratorSpawnConfig,
+  ): Promise<Session> {
+    const project = config.projects[orchestratorConfig.projectId];
+    if (!project) {
+      throw new Error(`Unknown project: ${orchestratorConfig.projectId}`);
+    }
+    const sessionId = `${project.sessionPrefix}-orchestrator`;
+    const sessionsDir = getProjectSessionsDir(project);
+
+    const existing = await get(sessionId);
+    if (existing) {
+      const selection = resolveSelectionForSession(
+        project,
+        sessionId,
+        readMetadataRaw(sessionsDir, sessionId) ?? {},
+      );
+      const existingAgent = selection.agentName;
+      await kill(sessionId, { purgeOpenCode: existingAgent === "opencode" });
+      deleteMetadata(sessionsDir, sessionId, false);
+    }
+    return spawnOrchestrator(orchestratorConfig);
+  }
+
+  async function relaunchOrchestrator(
+    orchestratorConfig: OrchestratorSpawnConfig,
+  ): Promise<Session> {
+    const project = config.projects[orchestratorConfig.projectId];
+    if (!project) {
+      throw new Error(`Unknown project: ${orchestratorConfig.projectId}`);
+    }
+    const sessionId = `${project.sessionPrefix}-orchestrator`;
+    const existingPromise = relaunchOrchestratorPromises.get(sessionId);
+    if (existingPromise) return existingPromise;
+
+    const promise = relaunchOrchestratorInternal(orchestratorConfig).finally(() => {
+      relaunchOrchestratorPromises.delete(sessionId);
+    });
+    relaunchOrchestratorPromises.set(sessionId, promise);
+    return promise;
+  }
+
   async function list(projectId?: string): Promise<Session[]> {
     const allSessions = Object.entries(config.projects).flatMap(([entryProjectId, project]) => {
       if (projectId && entryProjectId !== projectId) return [];
@@ -1928,7 +1975,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         // If stat fails, timestamps will fall back to current time
       }
 
-      const session = metadataToSession(sessionName, raw, sessionProjectId, createdAt, modifiedAt);
+      const session = metadataToSession(sessionName, raw, sessionProjectId, createdAt, modifiedAt, project?.path);
       const selection = resolveSelectionForSession(project, sessionName, raw);
       const effectiveAgentName = selection.agentName;
       const plugins = resolvePlugins(project, effectiveAgentName);
@@ -1999,7 +2046,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         project,
       );
 
-      const session = metadataToSession(sessionId, repaired.raw, projectId, createdAt, modifiedAt);
+      const session = metadataToSession(sessionId, repaired.raw, projectId, createdAt, modifiedAt, project?.path);
 
       const selection = resolveSelectionForSession(project, sessionId, repaired.raw);
       const effectiveAgentName = selection.agentName;
@@ -3149,7 +3196,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     //    metadataToSession sets activity: null, so without enrichment a crashed
     //    session (status "working", agent exited) would not be detected as terminal
     //    and isRestorable would reject it.
-    const session = metadataToSession(sessionId, raw, projectId);
+    const session = metadataToSession(sessionId, raw, projectId, undefined, undefined, project?.path);
     const plugins = resolvePlugins(project, selection.agentName);
     await enrichSessionWithRuntimeState(session, plugins, true, sessionsDir, true);
 
@@ -3295,7 +3342,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const restoreCmd = await plugins.agent.getRestoreCommand(session, agentLaunchConfig.projectConfig);
       if (restoreCmd) {
         launchCommand = restoreCmd;
+        updateMetadata(sessionsDir, sessionId, { restoreFallbackReason: "" });
       } else {
+        const reason = `${plugins.agent.name}.getRestoreCommand returned null`;
+        updateMetadata(sessionsDir, sessionId, {
+          restoreFallbackReason: reason,
+        });
         if (restoredPromptArtifactMissing && !restoredPrompt) {
           throw new SessionNotRestorableError(
             sessionId,
@@ -3354,12 +3406,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     // 9. Update metadata — merge updates, preserving existing fields
     const now = new Date().toISOString();
-    updateMetadata(sessionsDir, sessionId, {
+    const metaUpdates: Record<string, string> = {
       status: "spawning",
       runtimeHandle: JSON.stringify(handle),
       agent: selection.agentName,
       restoredAt: now,
-    });
+    };
+    clearTerminalMarkersForNonTerminalState(metaUpdates);
+    updateMetadata(sessionsDir, sessionId, metaUpdates);
 
     // 10. Run postLaunchSetup (non-fatal)
     const restoredSession: Session = {
@@ -3418,6 +3472,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   return {
     spawn,
     spawnOrchestrator,
+    relaunchOrchestrator,
     restore,
     list,
     get,

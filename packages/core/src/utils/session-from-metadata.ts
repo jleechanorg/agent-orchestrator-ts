@@ -4,6 +4,7 @@ import { safeJsonParse, validateStatus } from "./validation.js";
 
 interface SessionFromMetadataOptions {
   projectId?: string;
+  workspacePathFallback?: string;
   status?: SessionStatus;
   activity?: Session["activity"];
   runtimeHandle?: RuntimeHandle | null;
@@ -46,7 +47,7 @@ export function sessionFromMetadata(
           };
         })()
       : null,
-    workspacePath: meta["worktree"] || null,
+    workspacePath: meta["worktree"] || options.workspacePathFallback || null,
     runtimeHandle:
       options.runtimeHandle !== undefined
         ? options.runtimeHandle

@@ -70,6 +70,8 @@ export function sessionToDashboard(session: Session): DashboardSession {
     userPrompt: session.metadata["userPrompt"] ?? null,
     requestedTask: session.metadata["requestedTask"] ?? null,
     hasPromptArtifact: Boolean(session.metadata["composedPromptPath"]),
+    displayName: session.metadata["displayName"] ?? null,
+    displayNameUserSet: session.metadata["displayNameUserSet"] === "true",
     createdAt: session.createdAt.toISOString(),
     lastActivityAt: session.lastActivityAt.toISOString(),
     pr: session.pr ? basicPRToDashboard(session.pr) : null,
