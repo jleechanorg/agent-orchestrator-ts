@@ -1173,24 +1173,6 @@ export interface OrchestratorEvent {
   data: Record<string, unknown>;
 }
 
-/** In-process pub/sub bus for orchestrator events. */
-export interface EventBus {
-  emit(event: OrchestratorEvent): void;
-  on(event: EventType | "*", handler: (event: OrchestratorEvent) => void): void;
-  off(event: EventType | "*", handler: (event: OrchestratorEvent) => void): void;
-  getHistory(filter?: EventFilter): OrchestratorEvent[];
-}
-
-/** Filter criteria for querying event history. */
-export interface EventFilter {
-  sessionId?: SessionId;
-  projectId?: string;
-  type?: EventType;
-  priority?: EventPriority;
-  since?: Date;
-  limit?: number;
-}
-
 // =============================================================================
 // REACTIONS
 // =============================================================================
