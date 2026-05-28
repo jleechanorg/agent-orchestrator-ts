@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { type DashboardSession, type DashboardPR, isPRMergeReady } from "@/lib/types";
+import { type DashboardSession, type DashboardPR, isPRMergeReady, isPRUnenriched } from "@/lib/types";
 import { CI_STATUS } from "@jleechanorg/ao-core/types";
 import { cn } from "@/lib/cn";
 import { CICheckList } from "./CIBadge";
@@ -539,10 +539,12 @@ function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
           PR #{pr.number}: {pr.title}
         </a>
         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
-          <span>
-            <span className="text-[var(--color-status-ready)]">+{pr.additions}</span>{" "}
-            <span className="text-[var(--color-status-error)]">-{pr.deletions}</span>
-          </span>
+          {!isPRUnenriched(pr) ? (
+            <span>
+              <span className="text-[var(--color-status-ready)]">+{pr.additions}</span>{" "}
+              <span className="text-[var(--color-status-error)]">-{pr.deletions}</span>
+            </span>
+          ) : null}
           {pr.isDraft && (
             <>
               <span className="text-[var(--color-text-tertiary)]">&middot;</span>

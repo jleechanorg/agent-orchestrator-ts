@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import {
   getAttentionLevel,
   isPRMergeReady,
+  isPRUnenriched,
   TERMINAL_STATUSES,
   TERMINAL_ACTIVITIES,
   NON_RESTORABLE_STATUSES,
@@ -585,5 +586,42 @@ describe("constants sync with core", () => {
 
   it("NON_RESTORABLE_STATUSES matches core", () => {
     expect(NON_RESTORABLE_STATUSES).toBe(CORE_NON_RESTORABLE_STATUSES);
+  });
+});
+
+describe("isPRUnenriched", () => {
+  it("returns true for unenriched PR with default placeholders", () => {
+    const pr = createPR({
+      ciStatus: "none",
+      reviewDecision: "none",
+      mergeability: {
+        mergeable: false,
+        ciPassing: false,
+        approved: false,
+        noConflicts: true,
+        blockers: ["Data not loaded"],
+      },
+    });
+    expect(isPRUnenriched(pr)).toBe(true);
+  });
+
+  it("returns false for enriched PR", () => {
+    const pr = createPR();
+    expect(isPRUnenriched(pr)).toBe(false);
+  });
+
+  it("returns false for PR with CI status but no review", () => {
+    const pr = createPR({
+      ciStatus: "failing",
+      reviewDecision: "none",
+      mergeability: {
+        mergeable: false,
+        ciPassing: false,
+        approved: false,
+        noConflicts: true,
+        blockers: ["CI is failing"],
+      },
+    });
+    expect(isPRUnenriched(pr)).toBe(false);
   });
 });
