@@ -11,6 +11,6 @@ export function clearTerminalMarkersForNonTerminalState(
 ): void {
   const status = metadata["status"];
   if (!status || TERMINAL_SESSION_STATES.has(status)) return;
-  delete metadata["completedAt"];
-  delete metadata["terminatedAt"];
+  metadata["completedAt"] = "";
+  metadata["terminatedAt"] = "";
 }
