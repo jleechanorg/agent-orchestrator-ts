@@ -194,6 +194,9 @@ export function updateMetadata(
     existing = parseKeyValueContent(readFileSync(path, "utf-8"));
   }
 
+  // Capture old status before merge for validation
+  const oldStatus = existing["status"];
+
   // Merge updates — remove keys set to empty string
   for (const [key, value] of Object.entries(updates)) {
     if (value === undefined) continue;
@@ -205,9 +208,9 @@ export function updateMetadata(
     }
   }
 
-  if (updates["status"] && existing["status"] && updates["status"] !== existing["status"]) {
+  if (updates["status"] && oldStatus && updates["status"] !== oldStatus) {
     const result = validateStatusTransition(
-      existing["status"] as SessionStatus,
+      oldStatus as SessionStatus,
       updates["status"] as SessionStatus,
     );
     if (!result.valid) {
