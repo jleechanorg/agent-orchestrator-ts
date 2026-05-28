@@ -54,17 +54,11 @@ import {
 import { listMetadata, readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 import { getWorkspaceChangedFiles } from "./utils/worktree-git.js";
-import {
-  clearProjectPause,
-  detectAndApplyRateLimitPause,
-} from "./fork-lifecycle-manager.js";
+import { clearProjectPause, detectAndApplyRateLimitPause } from "./fork-lifecycle-manager.js";
 import { createCorrelationId, createProjectObserver } from "./observability.js";
 
 import type { OutcomeRecorder } from "./outcome-recorder.js";
-import {
-  checkStuckWorker,
-  resetIdleCycles,
-} from "./stuck-worker-detector.js";
+import { checkStuckWorker, resetIdleCycles } from "./stuck-worker-detector.js";
 import {
   capturePane as tmuxCapturePane,
   killSession as tmuxKillSession,
@@ -81,7 +75,11 @@ import { resolveScmFailureThreshold } from "./scm-failure-threshold.js";
 import { getAllSessionPrefixes, isOrchestratorSessionForPrefix } from "./session-prefixes.js";
 import { updateSessionMetadataHelper } from "./fork-utils.js";
 import { checkMergeGate, type MergeGateResult } from "./merge-gate.js";
-import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from "./global-pause.js";
+import {
+  GLOBAL_PAUSE_UNTIL_KEY,
+  GLOBAL_PAUSE_REASON_KEY,
+  parsePauseUntil,
+} from "./global-pause.js";
 import { isGhRateLimitError } from "./gh-rate-limit.js";
 import { enrichCIFailureReaction } from "./upstream-ci-failure-context.js";
 import { sweepOrphanTmuxSessions, DEFAULT_TMUX_SWEEPER_CONFIG } from "./tmux-session-sweeper.js";
@@ -386,9 +384,7 @@ export async function triggerSkepticReactionImpl(
     // bd-jzan: also dispatch claim-verification after skeptic fires
     const claimGlobal = config.reactions["claim-verification"];
     const claimProject = project?.reactions?.["claim-verification"];
-    const claimCfg = claimProject
-      ? { ...claimGlobal, ...claimProject }
-      : claimGlobal;
+    const claimCfg = claimProject ? { ...claimGlobal, ...claimProject } : claimGlobal;
     if (claimCfg?.action && claimCfg.auto !== false) {
       try {
         await executeReaction(
@@ -452,7 +448,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   const TERMINAL_EXIT_PROOF_RECORDED_AT_KEY = "terminalExitProofRecordedAt";
   const pendingTerminalExitProofRecordedAt = new Map<string, string>();
 
-  function isLifecycleOrchestratorSession(session: Pick<Session, "id" | "metadata" | "projectId">): boolean {
+  function isLifecycleOrchestratorSession(
+    session: Pick<Session, "id" | "metadata" | "projectId">,
+  ): boolean {
     const project = config.projects[session.projectId];
     return isOrchestratorSessionForPrefix(session, project?.sessionPrefix, allSessionPrefixes);
   }
@@ -484,9 +482,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       // Filter to active (non-terminal) sessions, excluding paused projects.
       const active = sessions.filter(
-        (s: Session) =>
-          !TERMINAL_STATUSES.has(s.status) &&
-          !pausedProjects.has(s.projectId),
+        (s: Session) => !TERMINAL_STATUSES.has(s.status) && !pausedProjects.has(s.projectId),
       );
       const tmux = await import("./tmux.js");
       const { runProductivityChecks } = await import("./productivity-checker.js");
@@ -499,7 +495,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       });
     } catch (err) {
       // non-fatal — productivity check failure should not crash the main loop
-      console.warn("[lifecycle-manager] productivity check failed:", err instanceof Error ? err.message : String(err));
+      console.warn(
+        "[lifecycle-manager] productivity check failed:",
+        err instanceof Error ? err.message : String(err),
+      );
     } finally {
       productivityRunning = false;
     }
@@ -521,7 +520,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       inboxPolling = true;
       try {
         if (getMcpMailClientConfig()) {
-          await pollMcpMailInbox().catch(() => {/* non-fatal */});
+          await pollMcpMailInbox().catch(() => {
+            /* non-fatal */
+          });
         }
       } finally {
         inboxPolling = false;
@@ -565,7 +566,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   }
 
   /** Determine current status for a session by polling plugins. */
-  async function determineStatus(session: Session): Promise<{ status: SessionStatus; agentDead: boolean }> {
+  async function determineStatus(
+    session: Session,
+  ): Promise<{ status: SessionStatus; agentDead: boolean }> {
     // bd-85r + a7b0c85: Skip all liveness/activity probes for sessions still
     // in "spawning" status. Agent CLIs need time to initialize; polling before
     // they're ready sees "exited"/"idle" and kills the session. The grace period
@@ -609,8 +612,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const SCM_FAILURE_THRESHOLD = resolveScmFailureThreshold(project, config);
     const SCM_FAILURE_COUNT_MAX = 1_000_000; // bd-ara.2: cap overflow from legacy values
     const rawCount = session.metadata["scmFailureCount"];
-    let scmFailureCount =
-      typeof rawCount === "string" ? parseInt(rawCount, 10) : Number(rawCount);
+    let scmFailureCount = typeof rawCount === "string" ? parseInt(rawCount, 10) : Number(rawCount);
     if (Number.isNaN(scmFailureCount)) scmFailureCount = 0;
     // Clamp persisted overflow values from prior lifecycle-manager versions
     // that accumulated without resetting on success. Only affects pathological/
@@ -635,7 +637,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       if (!agentDead) {
-        await detectAndApplyRateLimitPause(config.configPath, session, project, runtime, sessionManager);
+        await detectAndApplyRateLimitPause(
+          config.configPath,
+          session,
+          project,
+          runtime,
+          sessionManager,
+        );
       }
     }
 
@@ -650,9 +658,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           const prevActivity = activityStateCache.get(session.id) ?? session.activity ?? undefined;
           activityStateCache.set(session.id, activityState.state);
           if (prevActivity !== undefined && prevActivity !== activityState.state) {
-            emitActivityTransition(session.projectId, session.id, prevActivity, activityState.state);
+            emitActivityTransition(
+              session.projectId,
+              session.id,
+              prevActivity,
+              activityState.state,
+            );
           }
-          if (activityState.state === "waiting_input") return { status: "needs_input", agentDead: false };
+          if (activityState.state === "waiting_input")
+            return { status: "needs_input", agentDead: false };
           if (activityState.state === "exited") {
             // Don't return "killed" yet — defer to step 3 (branch-based PR
             // auto-detect) and step 4 (PR state checks) before giving up.
@@ -733,19 +747,32 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             try {
               const baseBranch = detectedPR.baseBranch ?? project.defaultBranch;
               if (!baseBranch) {
-                console.warn(`[lifecycle-manager] Skipping lock reservation for PR #${detectedPR.number}: no base branch resolved`);
+                console.warn(
+                  `[lifecycle-manager] Skipping lock reservation for PR #${detectedPR.number}: no base branch resolved`,
+                );
               } else {
-                const changedFiles = await getWorkspaceChangedFiles(session.workspacePath, baseBranch);
+                const changedFiles = await getWorkspaceChangedFiles(
+                  session.workspacePath,
+                  baseBranch,
+                );
                 if (changedFiles.length > 0) {
                   const agentName = session.metadata["agent"] ?? "worker";
-                  await lock.reserve(detectedPR.number, changedFiles, agentName, session.branch, session.workspacePath);
+                  await lock.reserve(
+                    detectedPR.number,
+                    changedFiles,
+                    agentName,
+                    session.branch,
+                    session.workspacePath,
+                  );
                   // Mark lock as reserved to avoid re-reserving on subsequent polls
                   session.metadata["lockReserved"] = "true";
                   updateMetadata(sessionsDir, session.id, { lockReserved: "true" });
                 }
               }
             } catch (err) {
-              console.error(`[lifecycle-manager] Failed to reserve domain locks for PR #${detectedPR.number}: ${err}`);
+              console.error(
+                `[lifecycle-manager] Failed to reserve domain locks for PR #${detectedPR.number}: ${err}`,
+              );
             }
           }
         }
@@ -789,12 +816,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         try {
           const baseBranch = session.pr.baseBranch ?? project.defaultBranch;
           if (!baseBranch) {
-            console.warn(`[lifecycle-manager] Skipping lock reservation for PR #${session.pr.number}: no base branch resolved`);
+            console.warn(
+              `[lifecycle-manager] Skipping lock reservation for PR #${session.pr.number}: no base branch resolved`,
+            );
           } else {
             const changedFiles = await getWorkspaceChangedFiles(session.workspacePath, baseBranch);
             if (changedFiles.length > 0) {
               const agentName = session.metadata["agent"] ?? "worker";
-              await lock.reserve(session.pr.number, changedFiles, agentName, session.branch, session.workspacePath);
+              await lock.reserve(
+                session.pr.number,
+                changedFiles,
+                agentName,
+                session.branch,
+                session.workspacePath,
+              );
               // Mark lock as reserved to avoid re-reserving on subsequent polls
               session.metadata["lockReserved"] = "true";
               const sessionsDir = getSessionsDir(config.configPath, project.path);
@@ -802,7 +837,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             }
           }
         } catch (err) {
-          console.error(`[lifecycle-manager] Failed to reserve domain locks for PR #${session.pr.number}: ${err}`);
+          console.error(
+            `[lifecycle-manager] Failed to reserve domain locks for PR #${session.pr.number}: ${err}`,
+          );
         }
       }
     }
@@ -836,7 +873,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             }
             if (batch.state === PR_STATE.CLOSED) return { status: "killed", agentDead };
             if (batch.ciStatus === CI_STATUS.FAILING) return { status: "ci_failed", agentDead };
-            if (batch.reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
+            if (batch.reviewDecision === "changes_requested")
+              return { status: "changes_requested", agentDead };
             if (batch.reviewDecision === "approved" || batch.reviewDecision === "none") {
               // orch-7kf: When batch reports CI pending, return "approved" (not "mergeable")
               // to prevent the approved-and-green reaction from firing before CI completes.
@@ -845,7 +883,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 return { status: "pr_open", agentDead };
               }
               if (batch.mergeReadiness.mergeable) return { status: "mergeable", agentDead };
-              if (!batch.mergeReadiness.noConflicts) return { status: "merge_conflicts", agentDead };
+              if (!batch.mergeReadiness.noConflicts)
+                return { status: "merge_conflicts", agentDead };
               if (batch.reviewDecision === "approved") return { status: "approved", agentDead };
             }
             if (batch.reviewDecision === "pending") return { status: "review_pending", agentDead };
@@ -890,7 +929,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // twice in the same poll causes the verdict gate to see a different decision than
           // determineStatus did (e.g. when the mock alternates return values).
           session.metadata["_reviewDecision"] = reviewDecision;
-          if (reviewDecision === "changes_requested") return { status: "changes_requested", agentDead };
+          if (reviewDecision === "changes_requested")
+            return { status: "changes_requested", agentDead };
           if (reviewDecision === "approved" || reviewDecision === "none") {
             // bd-wg5: Skip getMergeability when CI is pending
             if (ciStatus === CI_STATUS.PENDING) {
@@ -911,8 +951,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (reviewDecision === null && scm) {
             try {
               const rawReviews = await scm.getReviews(session.pr);
-              const reviews: Array<{ author?: string; state?: string; commit_id?: string }> = rawReviews;
-              const crReviews = reviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
+              const reviews: Array<{ author?: string; state?: string; commit_id?: string }> =
+                rawReviews;
+              const crReviews = reviews.filter((r) =>
+                String(r.author ?? "").endsWith("coderabbitai[bot]"),
+              );
               // bd-rfr: SCM normalizes state to lowercase; use toLowerCase() for safety.
               let crApproved = crReviews.some((r) => (r.state ?? "").toLowerCase() === "approved");
               // Restrict to current head SHA if SCM supports it and at least one CR approval exists.
@@ -990,7 +1033,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     // 5. Post-all stuck detection: if we detected idle in step 2 but had no PR,
     // still check stuck threshold. This handles agents that finish without creating a PR.
-    if (!agentDead && detectedIdleTimestamp && isIdleBeyondThreshold(session, detectedIdleTimestamp)) {
+    if (
+      !agentDead &&
+      detectedIdleTimestamp &&
+      isIdleBeyondThreshold(session, detectedIdleTimestamp)
+    ) {
       return { status: "stuck", agentDead: false };
     }
 
@@ -1002,6 +1049,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     // 6. Default: if agent is active, it's working
     if (
+      session.status === SESSION_STATUS.SPAWNING ||
       session.status === SESSION_STATUS.STUCK ||
       session.status === SESSION_STATUS.NEEDS_INPUT
     ) {
@@ -1083,7 +1131,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     if (reactionConfig.action === "send-to-agent" && reactionConfig.message && session) {
       try {
         if (reactionConfig.message.includes("{{context}}")) {
-          dedupContext = await buildReactionContext(reactionKey, session, projectId, config, registry);
+          dedupContext = await buildReactionContext(
+            reactionKey,
+            session,
+            projectId,
+            config,
+            registry,
+          );
         }
         let finalMessage = reactionConfig.message;
         if (dedupContext !== undefined) {
@@ -1105,10 +1159,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           }
         }
         const lastSha = getLastSentHeadSha(projectId, sessionId, reactionKey);
-        const shaUnchanged = currentSha !== undefined
-          ? (lastSha !== undefined && currentSha === lastSha)
-          : true; // SHA unavailable — fall back to message-hash-only dedup
-        const messageUnchanged = getLastSentMessageHash(projectId, sessionId, reactionKey) === messageHash;
+        const shaUnchanged =
+          currentSha !== undefined ? lastSha !== undefined && currentSha === lastSha : true; // SHA unavailable — fall back to message-hash-only dedup
+        const messageUnchanged =
+          getLastSentMessageHash(projectId, sessionId, reactionKey) === messageHash;
 
         if (shaUnchanged && messageUnchanged) {
           deduped = true;
@@ -1288,7 +1342,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       case "request-merge": {
         return handleRequestMerge(sessionId, projectId, reactionKey, reactionConfig, {
-          sessionManager, config, registry, notifyHuman, createEvent,
+          sessionManager,
+          config,
+          registry,
+          notifyHuman,
+          createEvent,
         });
       }
 
@@ -1419,7 +1477,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             sessionId,
             projectId,
             message: `Reaction '${reactionKey}' failed: ${error instanceof Error ? error.message : String(error)}`,
-            data: { reactionKey, action, error: error instanceof Error ? error.message : String(error) },
+            data: {
+              reactionKey,
+              action,
+              error: error instanceof Error ? error.message : String(error),
+            },
           });
           await notifyHuman(errorEvent, "action");
           return {
@@ -1433,7 +1495,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       case "parallel-retry": {
         return handleParallelRetry(sessionId, projectId, reactionKey, reactionConfig, {
-          sessionManager, config, registry, notifyHuman, createEvent,
+          sessionManager,
+          config,
+          registry,
+          notifyHuman,
+          createEvent,
         });
       }
 
@@ -1475,14 +1541,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       // bd-rfr: Delegate to fork-reaction-rfr.ts — extracted for upstream isolation
       case "respawn-for-review": {
-        return handleRespawnForReview(sessionId, projectId, reactionKey, reactionConfig, session!, agentDead, reactionCorrelationId, {
-          sessionManager,
-          config,
-          registry,
-          notifyHuman,
-          createEvent,
-          observer,
-        });
+        return handleRespawnForReview(
+          sessionId,
+          projectId,
+          reactionKey,
+          reactionConfig,
+          session!,
+          agentDead,
+          reactionCorrelationId,
+          {
+            sessionManager,
+            config,
+            registry,
+            notifyHuman,
+            createEvent,
+            observer,
+          },
+        );
       }
 
       // Agent fallback: when agent dies with quota/rate-limit, respawn with next agent in chain
@@ -1495,13 +1570,22 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             escalated: false,
           };
         }
-        return handleAgentFallback(sessionId, projectId, reactionKey, reactionConfig, session, agentDead, reactionCorrelationId, {
-          sessionManager,
-          config,
-          notifyHuman,
-          createEvent,
-          observer,
-        });
+        return handleAgentFallback(
+          sessionId,
+          projectId,
+          reactionKey,
+          reactionConfig,
+          session,
+          agentDead,
+          reactionCorrelationId,
+          {
+            sessionManager,
+            config,
+            notifyHuman,
+            createEvent,
+            observer,
+          },
+        );
       }
 
       default: {
@@ -1563,7 +1647,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       reactionKey === "approved-and-green" &&
       reactionConfig.action === "notify" &&
       !projectReaction &&
-      !(config._hasExplicitGlobalReaction?.[reactionKey])
+      !config._hasExplicitGlobalReaction?.[reactionKey]
     ) {
       return { ...(reactionConfig as ReactionConfig), action: "auto-merge", auto: true };
     }
@@ -1598,7 +1682,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         sessionCurrentTask.delete(session.id);
         // MCP mail: send session-end to global inbox before exit proof.
         if (getMcpMailClientConfig()) {
-          await sendMcpMailSessionEnd(doneTask).catch(() => {/* non-fatal */});
+          await sendMcpMailSessionEnd(doneTask).catch(() => {
+            /* non-fatal */
+          });
         }
       }
 
@@ -1620,7 +1706,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           correlationId: createCorrelationId("lifecycle-exit-proof"),
           projectId: session.projectId,
           sessionId: session.id,
-          data: { error: exitProofErr instanceof Error ? exitProofErr.message : String(exitProofErr) },
+          data: {
+            error: exitProofErr instanceof Error ? exitProofErr.message : String(exitProofErr),
+          },
           level: "warn",
         });
       }
@@ -1639,8 +1727,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           } catch (pendingPersistErr) {
             console.warn(
               `[lifecycle-manager] failed to persist pending terminal exit proof ` +
-              `for session=${session.id}: ` +
-              `${pendingPersistErr instanceof Error ? pendingPersistErr.message : String(pendingPersistErr)}`,
+                `for session=${session.id}: ` +
+                `${pendingPersistErr instanceof Error ? pendingPersistErr.message : String(pendingPersistErr)}`,
             );
           }
         }
@@ -1690,7 +1778,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       try {
-        updateSessionMetadata(session, { [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: pendingRecordedAt });
+        updateSessionMetadata(session, {
+          [TERMINAL_EXIT_PROOF_RECORDED_AT_KEY]: pendingRecordedAt,
+        });
         pendingTerminalExitProofRecordedAt.delete(session.id);
         if (projectPath) {
           deletePendingTerminalExitProofRecordedAt(config.configPath, projectPath, session.id);
@@ -1699,8 +1789,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       } catch (persistErr) {
         console.warn(
           `[lifecycle-manager] failed to persist ${TERMINAL_EXIT_PROOF_RECORDED_AT_KEY} ` +
-          `for session=${session.id} — cleanup deferred until durable: ` +
-          `${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
+            `for session=${session.id} — cleanup deferred until durable: ` +
+            `${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
         );
         return;
       }
@@ -1765,7 +1855,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
    * Owns its own best-effort try/catch and warn-level logging so callers stay
    * straight-line. Returns true on success, false if the metadata write failed.
    */
-  function persistPrState({ session, state, projectPath }: {
+  function persistPrState({
+    session,
+    state,
+    projectPath,
+  }: {
     session: Session;
     state: PRState;
     projectPath: string;
@@ -1783,19 +1877,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     } catch (err) {
       console.warn(
         `[lifecycle-manager] persistPrState: failed to persist prState=${state} ` +
-        `for session=${session.id} — best-effort, continuing: ${err instanceof Error ? err.message : String(err)}`,
+          `for session=${session.id} — best-effort, continuing: ${err instanceof Error ? err.message : String(err)}`,
       );
       return false;
     }
   }
 
-
   /** Send a notification to all configured notifiers. */
   async function notifyHuman(event: OrchestratorEvent, priority: EventPriority): Promise<void> {
     const eventWithPriority = { ...event, priority };
-    const notifierNames = (config.notificationRouting[priority]?.length ?? 0) > 0
-      ? config.notificationRouting[priority]!
-      : config.defaults.notifiers;
+    const notifierNames =
+      (config.notificationRouting[priority]?.length ?? 0) > 0
+        ? config.notificationRouting[priority]!
+        : config.defaults.notifiers;
     for (const name of notifierNames) {
       const notifier = registry.get<Notifier>("notifier", name);
       if (notifier) {
@@ -1840,7 +1934,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     const { status: determinedStatus, agentDead } = await determineStatus(session);
     let newStatus: SessionStatus = determinedStatus;
-    let transitionReaction: { key: string; result: ReactionResult | null; messageEnriched?: boolean } | undefined;
+    let transitionReaction:
+      | { key: string; result: ReactionResult | null; messageEnriched?: boolean }
+      | undefined;
 
     // bd-kki: check if PR is merged before recording "killed" status.
     // If the SCM call fails (transient error), the session stays in its previous
@@ -1849,11 +1945,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // bd-6jc: skip this absorption when killConfirmed is already set — the kill
     // was confirmed by the consecutive-failure counter in determineStatus and should
     // not be re-checked (re-querying SCM could throw or absorb on a stale PR).
-    if (
-      newStatus === "killed" &&
-      session.pr &&
-      !session.metadata["killConfirmed"]
-    ) {
+    if (newStatus === "killed" && session.pr && !session.metadata["killConfirmed"]) {
       try {
         const merged = await isPRMerged(session, config, registry);
         if (merged) {
@@ -1875,9 +1967,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     // Track current task for MCP mail heartbeat messaging — update when task changes,
     // delete when it clears or session exits so heartbeats never send stale work
-    const task = typeof session.metadata?.["task"] === "string"
-      ? session.metadata["task"]
-      : undefined;
+    const task =
+      typeof session.metadata?.["task"] === "string" ? session.metadata["task"] : undefined;
     if (task) {
       sessionCurrentTask.set(session.id, task);
     } else if (newStatus === "merged" || newStatus === "killed") {
@@ -1893,7 +1984,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       TERMINAL_STATUSES.has(oldStatus!) &&
       !TERMINAL_STATUSES.has(newStatus)
     ) {
-      await sendMcpMailSessionStart(task).catch(() => {/* non-fatal */});
+      await sendMcpMailSessionStart(task).catch(() => {
+        /* non-fatal */
+      });
     }
     if (newStatus !== oldStatus) {
       const correlationId = createCorrelationId("lifecycle-transition");
@@ -1903,11 +1996,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // in determineStatus may have fired before the SCM PR-state check.  If SCM is
       // unreachable, skip persisting so the next poll can retry.
       let effectiveStatus = newStatus;
-      if (
-        newStatus === "killed" &&
-        session.pr &&
-        !session.metadata["killConfirmed"]
-      ) {
+      if (newStatus === "killed" && session.pr && !session.metadata["killConfirmed"]) {
         const project = config.projects[session.projectId];
         const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
         if (scm) {
@@ -1933,11 +2022,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // skipped but never cleaned up.  SCM-only reactions (auto-merge, notify,
       // request-merge) don't require a live agent and proceed normally.
       // Extracted to fork-dead-agent.ts per CR (bd-5o1).
-      const override = await applyDeadAgentOverride(agentDead, effectiveStatus, oldStatus, newStatus, session, {
-        statusToEventType,
-        eventToReactionKey,
-        getReactionConfigForSession,
-      });
+      const override = await applyDeadAgentOverride(
+        agentDead,
+        effectiveStatus,
+        oldStatus,
+        newStatus,
+        session,
+        {
+          statusToEventType,
+          eventToReactionKey,
+          getReactionConfigForSession,
+        },
+      );
       effectiveStatus = override.effectiveStatus;
       newStatus = override.newStatus;
 
@@ -1958,14 +2054,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // CR (bd-xxx): still dispatch review backlog on absorbed polls so steady-state
         // PR sessions continue receiving comment notifications even when the killed
         // transition is absorbed and no status change is persisted.
-        await maybeDispatchReviewBacklog(session, oldStatus, effectiveStatus, {
-          config,
-          registry,
-          clearReactionTracker,
-          getReactionConfigForSession,
-          executeReaction,
-          agentDead: true, // killed-status absorbed block: agent is confirmed dead
-        }, undefined);
+        await maybeDispatchReviewBacklog(
+          session,
+          oldStatus,
+          effectiveStatus,
+          {
+            config,
+            registry,
+            clearReactionTracker,
+            getReactionConfigForSession,
+            executeReaction,
+            agentDead: true, // killed-status absorbed block: agent is confirmed dead
+          },
+          undefined,
+        );
 
         // Dispatch agent-fallback for dead agents with open PRs (absorbed killed transition).
         // Without this, a dead agent that still has an open PR stays in its prior state
@@ -1973,7 +2075,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // never triggers. Check for the "agent-fallback" reaction config explicitly.
         if (agentDead) {
           const fallbackKey = eventToReactionKey("session.killed");
-          const fallbackConfig = fallbackKey ? getReactionConfigForSession(session, fallbackKey) : null;
+          const fallbackConfig = fallbackKey
+            ? getReactionConfigForSession(session, fallbackKey)
+            : null;
           if (fallbackConfig && fallbackConfig.action === "agent-fallback") {
             await executeReaction(
               session.id,
@@ -2060,7 +2164,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   // CR verdict gate: block only on COMMENTED or DISMISSED.
                   // These states mean CR has posted inline suggestions but no formal CHANGES_REQUESTED.
                   // Allow all other states (null, CHANGES_REQUESTED, APPROVED, etc.) — fail open.
-                  skipVerdictGate = cachedDecision !== "commented" && cachedDecision !== "dismissed";
+                  skipVerdictGate =
+                    cachedDecision !== "commented" && cachedDecision !== "dismissed";
                 } else {
                   // Fallback for code paths that bypass determineStatus (e.g. direct executeReaction calls).
                   // In normal poll-cycle operation, cachedDecision is always set by determineStatus.
@@ -2071,9 +2176,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                   if (verdictScm) {
                     const rawReviews = await verdictScm.getReviews(session.pr);
                     const reviews: Array<{ author?: string; state?: string }> = rawReviews;
-                    const crReviews = reviews.filter((r) => String(r.author ?? "").endsWith("coderabbitai[bot]"));
+                    const crReviews = reviews.filter((r) =>
+                      String(r.author ?? "").endsWith("coderabbitai[bot]"),
+                    );
                     const crVerdict = crReviews[crReviews.length - 1]?.state ?? null;
-                    skipVerdictGate = crVerdict === null || (crVerdict !== "commented" && crVerdict !== "dismissed");
+                    skipVerdictGate =
+                      crVerdict === null ||
+                      (crVerdict !== "commented" && crVerdict !== "dismissed");
                   }
                 }
               }
@@ -2085,7 +2194,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               skipVerdictGate = true;
               console.warn(
                 `[lifecycle-manager] verdict gate getReviews failed for session=${session.id}: ` +
-                `${verdictErr instanceof Error ? verdictErr.message : String(verdictErr)} — allowing reaction`,
+                  `${verdictErr instanceof Error ? verdictErr.message : String(verdictErr)} — allowing reaction`,
               );
             }
 
@@ -2106,7 +2215,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 : null;
               if (ciScm) {
                 const enriched = await enrichCIFailureReaction(
-                  ciScm, session.pr, reactionConfig, true,
+                  ciScm,
+                  session.pr,
+                  reactionConfig,
+                  true,
                 );
                 effectiveReactionConfig = enriched.config;
                 ciMessageEnriched = enriched.enriched;
@@ -2120,7 +2232,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
             // auto: false skips automated agent actions but still allows notifications
             if (
-              (effectiveReactionConfig.auto !== false || effectiveReactionConfig.action === "notify") &&
+              (effectiveReactionConfig.auto !== false ||
+                effectiveReactionConfig.action === "notify") &&
               !skipForDead &&
               skipVerdictGate
             ) {
@@ -2135,7 +2248,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 false, // isPeriodic: transition-driven, not a periodic nudge
                 agentDead,
               );
-              transitionReaction = { key: reactionKey, result: reactionResult, messageEnriched: ciMessageEnriched || undefined };
+              transitionReaction = {
+                key: reactionKey,
+                result: reactionResult,
+                messageEnriched: ciMessageEnriched || undefined,
+              };
               // Seed stuck retry cooldown from the initial transition nudge (bd-sbr.2)
               if (reactionKey === "agent-stuck") {
                 const key = `stuck-retry-${session.id}`;
@@ -2173,8 +2290,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 projectId: session.projectId,
                 sessionId: session.id,
                 data: skipForDead
-                  ? { reactionKey, reason: "agent_dead", auto: reactionConfig.auto, action: reactionConfig.action }
-                  : { reactionKey, reason: "auto_disabled", auto: reactionConfig.auto, action: reactionConfig.action },
+                  ? {
+                      reactionKey,
+                      reason: "agent_dead",
+                      auto: reactionConfig.auto,
+                      action: reactionConfig.action,
+                    }
+                  : {
+                      reactionKey,
+                      reason: "auto_disabled",
+                      auto: reactionConfig.auto,
+                      action: reactionConfig.action,
+                    },
                 level: "info",
               });
             }
@@ -2186,7 +2313,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               correlationId,
               projectId: session.projectId,
               sessionId: session.id,
-              data: { reactionKey, reason: "no_action", hasConfig: !!reactionConfig, action: reactionConfig?.action },
+              data: {
+                reactionKey,
+                reason: "no_action",
+                hasConfig: !!reactionConfig,
+                action: reactionConfig?.action,
+              },
               level: "info",
             });
           }
@@ -2235,14 +2367,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         }
       }
 
-      await maybeDispatchReviewBacklog(session, oldStatus, effectiveStatus, {
-        config,
-        registry,
-        clearReactionTracker,
-        getReactionConfigForSession,
-        executeReaction,
-        agentDead,
-      }, transitionReaction);
+      await maybeDispatchReviewBacklog(
+        session,
+        oldStatus,
+        effectiveStatus,
+        {
+          config,
+          registry,
+          clearReactionTracker,
+          getReactionConfigForSession,
+          executeReaction,
+          agentDead,
+        },
+        transitionReaction,
+      );
     } else {
       // No transition but track current state
       states.set(session.id, newStatus);
@@ -2259,7 +2397,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Here in the no-transition path we catch sessions we have never tracked before.
       if (tracked === undefined && newStatus === "pr_open") {
         const completionReactionKey = "worker-signals-completion";
-        const completionReactionConfig = getReactionConfigForSession(session, completionReactionKey);
+        const completionReactionConfig = getReactionConfigForSession(
+          session,
+          completionReactionKey,
+        );
         if (completionReactionConfig?.action && completionReactionConfig.auto !== false) {
           let skepticDispatched = false;
           try {
@@ -2374,14 +2515,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (newStatus === "mergeable") {
         const reactionKey = "approved-and-green";
         const reactionConfig = getReactionConfigForSession(session, reactionKey);
-        if (
-          reactionConfig?.action === "auto-merge" &&
-          reactionConfig.auto !== false
-        ) {
+        if (reactionConfig?.action === "auto-merge" && reactionConfig.auto !== false) {
           const MERGE_RETRY_COOLDOWN_MS = 5 * 60_000;
           const lastAttemptKey = `merge-retry-${session.id}`;
           const now = Date.now();
-          const lastAttempt = (mergeRetryTimestamps as Map<string, number>).get(lastAttemptKey) ?? 0;
+          const lastAttempt =
+            (mergeRetryTimestamps as Map<string, number>).get(lastAttemptKey) ?? 0;
           if (now - lastAttempt >= MERGE_RETRY_COOLDOWN_MS) {
             // Guard: skip merge retry if auto-merge is disabled at any config level.
             const autoMergeEnabled =
@@ -2433,7 +2572,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         if (isCustomReaction) {
           const reactionKey = "agent-stuck";
           const reactionConfig = getReactionConfigForSession(session, reactionKey);
-          if (reactionConfig?.action && reactionConfig.action !== "notify" && reactionConfig.auto !== false) {
+          if (
+            reactionConfig?.action &&
+            reactionConfig.action !== "notify" &&
+            reactionConfig.auto !== false
+          ) {
             const thresholdMs =
               typeof reactionConfig.threshold === "string"
                 ? parseDuration(reactionConfig.threshold)
@@ -2522,14 +2665,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    await maybeDispatchReviewBacklog(session, oldStatus, newStatus, {
-      config,
-      registry,
-      clearReactionTracker,
-      getReactionConfigForSession,
-      executeReaction,
-      agentDead,
-    }, transitionReaction);
+    await maybeDispatchReviewBacklog(
+      session,
+      oldStatus,
+      newStatus,
+      {
+        config,
+        registry,
+        clearReactionTracker,
+        getReactionConfigForSession,
+        executeReaction,
+        agentDead,
+      },
+      transitionReaction,
+    );
 
     // Fork: /skeptic manual trigger — fire skeptic review when user posts /skeptic comment.
     await detectAndTriggerSkepticComment(
@@ -2545,18 +2694,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     // MCP mail: notify when session becomes blocked waiting for human input (non-terminal state)
     // Fires on the transition INTO needs_input so the global inbox gets alerted promptly.
-    if (
-      newStatus === "needs_input" &&
-      oldStatus !== "needs_input" &&
-      getMcpMailClientConfig()
-    ) {
+    if (newStatus === "needs_input" && oldStatus !== "needs_input" && getMcpMailClientConfig()) {
       // Send session-start if this is the first time seeing this session (no prior tracked state)
       // so the inbox gets a coherent start→blocked lifecycle rather than orphan end messages.
       if (tracked === undefined) {
-        await sendMcpMailSessionStart(task).catch(() => {/* non-fatal */});
+        await sendMcpMailSessionStart(task).catch(() => {
+          /* non-fatal */
+        });
       }
       const blockedTask = sessionCurrentTask.get(session.id);
-      await sendMcpMailSessionEnd(blockedTask, "human input").catch(() => {/* non-fatal */});
+      await sendMcpMailSessionEnd(blockedTask, "human input").catch(() => {
+        /* non-fatal */
+      });
     }
 
     await reconcileTerminalSessionExit(session, newStatus);
@@ -2625,7 +2774,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Skip non-orchestrator sessions if project is currently paused.
         // Terminal sessions bypass so exit proof, outcome recording, and cleanup
         // are not delayed (bd-e4t).
-        if (pausedProjects.has(s.projectId) && !isLifecycleOrchestratorSession(s) && !TERMINAL_STATUSES.has(s.status)) {
+        if (
+          pausedProjects.has(s.projectId) &&
+          !isLifecycleOrchestratorSession(s) &&
+          !TERMINAL_STATUSES.has(s.status)
+        ) {
           continue;
         }
         await checkSession(s).catch((err) => {
@@ -2739,7 +2892,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           const projectPrefixes = new Set(allSessionPrefixes);
           const sweepConfig = {
             ...DEFAULT_TMUX_SWEEPER_CONFIG,
-            aoSessionPrefixes: projectPrefixes.size > 0 ? projectPrefixes : DEFAULT_TMUX_SWEEPER_CONFIG.aoSessionPrefixes,
+            aoSessionPrefixes:
+              projectPrefixes.size > 0
+                ? projectPrefixes
+                : DEFAULT_TMUX_SWEEPER_CONFIG.aoSessionPrefixes,
           };
           const sweepResult = await sweepOrphanTmuxSessions(sweepConfig, { sessionManager });
           if (sweepResult.killed.length > 0) {
@@ -2767,7 +2923,12 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // against the empty-at-startup case.
       // Skip when a project cron spawned work: activeSessions is stale (computed
       // before the spawn) and would incorrectly trigger all_complete.
-      if (!projectCronSpawned && everHadSessions && activeSessions.length === 0 && !allCompleteEmitted) {
+      if (
+        !projectCronSpawned &&
+        everHadSessions &&
+        activeSessions.length === 0 &&
+        !allCompleteEmitted
+      ) {
         allCompleteEmitted = true;
 
         // Execute all-complete reaction if configured
@@ -2790,10 +2951,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // MCP mail: send periodic worker heartbeat listing active sessions
       if (getMcpMailClientConfig()) {
         const activeTasks = Array.from(sessionCurrentTask.values()).filter(Boolean);
-        const heartbeatBody = activeTasks.length > 0
-          ? `Active sessions (${activeTasks.length}): ${activeTasks.join("; ")}`
-          : "No active sessions";
-        await sendMcpMailHeartbeat(heartbeatBody).catch(() => {/* non-fatal */});
+        const heartbeatBody =
+          activeTasks.length > 0
+            ? `Active sessions (${activeTasks.length}): ${activeTasks.join("; ")}`
+            : "No active sessions";
+        await sendMcpMailHeartbeat(heartbeatBody).catch(() => {
+          /* non-fatal */
+        });
       }
 
       if (scopedProjectId) {
