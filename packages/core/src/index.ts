@@ -173,6 +173,7 @@ export {
   readLastJsonlEntry,
   readLastJsonEntry,
   resolveProjectIdForSessionId,
+  isGitBranchNameSafe,
 } from "./utils.js";
 export {
   getWebhookHeader,

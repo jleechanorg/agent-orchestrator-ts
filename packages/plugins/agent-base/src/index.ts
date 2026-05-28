@@ -16,7 +16,7 @@ import {
 } from "@jleechanorg/ao-core";
 import { execFile } from "node:child_process";
 import { readdir, readFile, stat, open, writeFile, mkdir, chmod, lstat } from "node:fs/promises";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -1108,12 +1108,28 @@ export function createAgentPlugin(config: AgentPluginConfig, overrides?: Partial
 
       if (config.systemPromptFlag) {
         if (launchConfig.systemPromptFile) {
-          // Use shell command substitution to read from file at launch time.
-          // This avoids tmux truncation when inlining 2000+ char prompts.
-          parts.push(
-            config.systemPromptFlag,
-            `"$(cat ${shellEscape(launchConfig.systemPromptFile)})"`,
-          );
+          // Security: reject symlinks to prevent path traversal attacks
+          let useSystemPromptFile = true;
+          try {
+            const lstats = lstatSync(launchConfig.systemPromptFile);
+            if (lstats.isSymbolicLink()) {
+              useSystemPromptFile = false;
+            }
+          } catch {
+            // File doesn't exist or can't be accessed — fall through to inline handling
+            useSystemPromptFile = false;
+          }
+
+          if (useSystemPromptFile) {
+            // Use shell command substitution to read from file at launch time.
+            // This avoids tmux truncation when inlining 2000+ char prompts.
+            parts.push(
+              config.systemPromptFlag,
+              `"$(cat ${shellEscape(launchConfig.systemPromptFile)})"`,
+            );
+          } else if (launchConfig.systemPrompt) {
+            parts.push(config.systemPromptFlag, shellEscape(launchConfig.systemPrompt));
+          }
         } else if (launchConfig.systemPrompt) {
           parts.push(config.systemPromptFlag, shellEscape(launchConfig.systemPrompt));
         }

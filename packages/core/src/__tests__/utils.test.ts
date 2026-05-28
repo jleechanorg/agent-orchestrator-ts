@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { isRetryableHttpStatus, normalizeRetryConfig, readLastJsonlEntry, readLastJsonEntry } from "../utils.js";
+import { isRetryableHttpStatus, normalizeRetryConfig, readLastJsonlEntry, readLastJsonEntry, isGitBranchNameSafe } from "../utils.js";
 import { parsePrFromUrl } from "../utils/pr.js";
 
 describe("readLastJsonlEntry", () => {
@@ -255,5 +255,64 @@ describe("parsePrFromUrl", () => {
 
   it("returns null when the URL has no PR number", () => {
     expect(parsePrFromUrl("https://example.com/foo/bar/pull/not-a-number")).toBeNull();
+  });
+});
+
+describe("isGitBranchNameSafe", () => {
+  it("accepts valid branch names", () => {
+    expect(isGitBranchNameSafe("feature/foo-bar-123")).toBe(true);
+    expect(isGitBranchNameSafe("feat/INT-123")).toBe(true);
+    expect(isGitBranchNameSafe("main")).toBe(true);
+    expect(isGitBranchNameSafe("session/abc-123")).toBe(true);
+  });
+
+  it("rejects empty string", () => {
+    expect(isGitBranchNameSafe("")).toBe(false);
+  });
+
+  it("rejects @ alone", () => {
+    expect(isGitBranchNameSafe("@")).toBe(false);
+  });
+
+  it("rejects .lock suffix", () => {
+    expect(isGitBranchNameSafe("foo.lock")).toBe(false);
+  });
+
+  it("rejects double dots (path traversal)", () => {
+    expect(isGitBranchNameSafe("a..b")).toBe(false);
+  });
+
+  it("rejects dot-prefixed names", () => {
+    expect(isGitBranchNameSafe(".hidden")).toBe(false);
+  });
+
+  it("rejects consecutive slashes and dot-prefixed components", () => {
+    expect(isGitBranchNameSafe("feat//bar")).toBe(false);
+    expect(isGitBranchNameSafe("feat/.hidden")).toBe(false);
+  });
+
+  it("rejects characters invalid in git refs", () => {
+    expect(isGitBranchNameSafe("bad branch")).toBe(false);
+    expect(isGitBranchNameSafe("x:y")).toBe(false);
+    expect(isGitBranchNameSafe("x~y")).toBe(false);
+    expect(isGitBranchNameSafe("x?y")).toBe(false);
+    expect(isGitBranchNameSafe("x[y]")).toBe(false);
+  });
+
+  it("rejects control characters", () => {
+    expect(isGitBranchNameSafe("a\nb")).toBe(false);
+  });
+
+  it("rejects leading slash", () => {
+    expect(isGitBranchNameSafe("/leading")).toBe(false);
+  });
+
+  it("rejects trailing dot or slash", () => {
+    expect(isGitBranchNameSafe("trailing.")).toBe(false);
+    expect(isGitBranchNameSafe("trailing/")).toBe(false);
+  });
+
+  it("rejects @{ sequence", () => {
+    expect(isGitBranchNameSafe("foo@{bar")).toBe(false);
   });
 });
