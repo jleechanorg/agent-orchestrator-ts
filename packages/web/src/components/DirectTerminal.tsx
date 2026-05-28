@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useTheme } from "next-themes";
 import { cn } from "@/lib/cn";
 
 // Import xterm CSS (must be imported in client component)
@@ -14,13 +15,10 @@ import type { FitAddon as FitAddonType } from "@xterm/addon-fit";
 interface DirectTerminalProps {
   sessionId: string;
   projectId?: string;
-  /** Actual tmux session name. When provided, the terminal server uses it directly instead of resolving from sessionId. */
   tmuxName?: string;
   startFullscreen?: boolean;
-  /** Visual variant. "orchestrator" uses violet accent; "agent" (default) uses blue. */
   variant?: "agent" | "orchestrator";
-  /** CSS height for the terminal container in normal (non-fullscreen) mode.
-   *  Defaults to "max(440px, calc(100vh - 440px))". */
+  appearance?: "theme" | "dark";
   height?: string;
   isOpenCodeSession?: boolean;
   reloadCommand?: string;
@@ -76,6 +74,7 @@ export function DirectTerminal({
   tmuxName: _tmuxName,
   startFullscreen = false,
   variant = "agent",
+  appearance = "theme",
   height = "max(440px, calc(100vh - 440px))",
   isOpenCodeSession = false,
   reloadCommand,
@@ -83,6 +82,7 @@ export function DirectTerminal({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { resolvedTheme } = useTheme();
 
   const terminalRef = useRef<HTMLDivElement>(null);
   const terminalInstance = useRef<TerminalType | null>(null);
@@ -179,36 +179,61 @@ export function DirectTerminal({
         const selectionColor =
           variant === "orchestrator" ? "rgba(163, 113, 247, 0.25)" : "rgba(91, 126, 248, 0.3)";
 
-        // Initialize xterm.js Terminal
+        const isDark = appearance === "dark" || resolvedTheme !== "light";
+        const terminalTheme = isDark
+          ? {
+              background: "#0a0a0f",
+              foreground: "#d4d4d8",
+              cursor: cursorColor,
+              cursorAccent: "#0a0a0f",
+              selectionBackground: selectionColor,
+              black: "#1a1a24",
+              red: "#ef4444",
+              green: "#22c55e",
+              yellow: "#f59e0b",
+              blue: "#5b7ef8",
+              magenta: "#a371f7",
+              cyan: "#22d3ee",
+              white: "#d4d4d8",
+              brightBlack: "#50506a",
+              brightRed: "#f87171",
+              brightGreen: "#4ade80",
+              brightYellow: "#fbbf24",
+              brightBlue: "#7b9cfb",
+              brightMagenta: "#c084fc",
+              brightCyan: "#67e8f9",
+              brightWhite: "#eeeef5",
+            }
+          : {
+              background: "#fafafa",
+              foreground: "#1a1a24",
+              cursor: cursorColor,
+              cursorAccent: "#fafafa",
+              selectionBackground: selectionColor,
+              black: "#1a1a24",
+              red: "#dc2626",
+              green: "#16a34a",
+              yellow: "#d97706",
+              blue: "#2563eb",
+              magenta: "#9333ea",
+              cyan: "#0891b2",
+              white: "#1a1a24",
+              brightBlack: "#6b7280",
+              brightRed: "#ef4444",
+              brightGreen: "#22c55e",
+              brightYellow: "#f59e0b",
+              brightBlue: "#3b82f6",
+              brightMagenta: "#a855f7",
+              brightCyan: "#06b6d4",
+              brightWhite: "#f3f4f6",
+            };
+
         const terminal = new Terminal({
           cursorBlink: true,
           fontSize: 13,
           fontFamily: '"IBM Plex Mono", "SF Mono", Menlo, Monaco, "Courier New", monospace',
-          theme: {
-            background: "#0a0a0f",
-            foreground: "#d4d4d8",
-            cursor: cursorColor,
-            cursorAccent: "#0a0a0f",
-            selectionBackground: selectionColor,
-            // ANSI colors — slightly warmer than pure defaults
-            black: "#1a1a24",
-            red: "#ef4444",
-            green: "#22c55e",
-            yellow: "#f59e0b",
-            blue: "#5b7ef8",
-            magenta: "#a371f7",
-            cyan: "#22d3ee",
-            white: "#d4d4d8",
-            brightBlack: "#50506a",
-            brightRed: "#f87171",
-            brightGreen: "#4ade80",
-            brightYellow: "#fbbf24",
-            brightBlue: "#7b9cfb",
-            brightMagenta: "#c084fc",
-            brightCyan: "#67e8f9",
-            brightWhite: "#eeeef5",
-          },
-          scrollback: 10000,
+          theme: terminalTheme,
+          scrollback: 0,
           allowProposedApi: true,
           fastScrollModifier: "alt",
           fastScrollSensitivity: 3,
@@ -548,6 +573,32 @@ export function DirectTerminal({
       clearTimeout(timer2);
     };
   }, [fullscreen]);
+
+  useEffect(() => {
+    const t = terminalInstance.current;
+    if (!t || appearance === "dark") return;
+    const isDark = resolvedTheme !== "light";
+    const cursorColor = variant === "orchestrator" ? "#a371f7" : "#5b7ef8";
+    const selectionColor =
+      variant === "orchestrator" ? "rgba(163, 113, 247, 0.25)" : "rgba(91, 126, 248, 0.3)";
+    if (isDark) {
+      t.options.theme = {
+        background: "#0a0a0f",
+        foreground: "#d4d4d8",
+        cursor: cursorColor,
+        cursorAccent: "#0a0a0f",
+        selectionBackground: selectionColor,
+      };
+    } else {
+      t.options.theme = {
+        background: "#fafafa",
+        foreground: "#1a1a24",
+        cursor: cursorColor,
+        cursorAccent: "#fafafa",
+        selectionBackground: selectionColor,
+      };
+    }
+  }, [appearance, resolvedTheme, variant]);
 
   const accentColor =
     variant === "orchestrator" ? "var(--color-accent-violet)" : "var(--color-accent)";

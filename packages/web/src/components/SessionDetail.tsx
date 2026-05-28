@@ -394,6 +394,7 @@ export function SessionDetail({
             sessionId={session.id}
             startFullscreen={startFullscreen}
             variant={terminalVariant}
+            appearance="theme"
             height={terminalHeight}
             isOpenCodeSession={isOpenCodeSession}
             reloadCommand={isOpenCodeSession ? reloadCommand : undefined}

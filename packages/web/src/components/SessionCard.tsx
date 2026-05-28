@@ -6,9 +6,9 @@ import {
   type AttentionLevel,
   getAttentionLevel,
   isPRRateLimited,
-  TERMINAL_STATUSES,
+  isDashboardSessionTerminal,
+  isDashboardSessionRestorable,
   TERMINAL_ACTIVITIES,
-  NON_RESTORABLE_STATUSES,
 } from "@/lib/types";
 import { CI_STATUS } from "@jleechanorg/ao-core/types";
 import { cn } from "@/lib/cn";
@@ -57,10 +57,9 @@ function SessionCardView({ session, onSend, onKill, onMerge, onRestore }: Sessio
   const rateLimited = pr ? isPRRateLimited(pr) : false;
   const alerts = getAlerts(session);
   const isReadyToMerge = !rateLimited && pr?.mergeability.mergeable && pr.state === "open";
-  const isTerminal =
-    TERMINAL_STATUSES.has(session.status) ||
+  const isTerminal = isDashboardSessionTerminal(session) ||
     (session.activity !== null && TERMINAL_ACTIVITIES.has(session.activity));
-  const isRestorable = isTerminal && !NON_RESTORABLE_STATUSES.has(session.status);
+  const isRestorable = isDashboardSessionRestorable(session);
 
   const title = getSessionTitle(session);
 

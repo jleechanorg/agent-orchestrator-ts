@@ -135,7 +135,11 @@ export function registerSend(program: Command): void {
           sessionManager,
         } = await resolveSessionContext(session);
 
-        const message = await readMessageInput(opts, messageParts);
+        const rawMessage = await readMessageInput(opts, messageParts);
+        const senderSessionId = process.env["AO_SESSION_ID"];
+        const message = senderSessionId
+          ? `[from ${senderSessionId}] ${rawMessage}`
+          : rawMessage;
 
         const parsedTimeout = parseInt(opts.timeout || "600", 10);
         const timeoutMs = (isNaN(parsedTimeout) || parsedTimeout <= 0 ? 600 : parsedTimeout) * 1000;
