@@ -13,23 +13,22 @@ import { isRetryableHttpStatus, normalizeRetryConfig } from "@jleechanorg/ao-cor
 export const manifest = {
   name: "discord",
   slot: "notifier" as const,
-  description: "Notifier plugin: Discord webhook notifications with rich embeds",
-  version: "0.1.0",
+  description: "Notifier plugin: Discord webhook notifications with rich embeds, batching, and dedup",
+  version: "0.2.0",
 };
 
-// Discord embed color codes (decimal)
 const PRIORITY_COLOR: Record<EventPriority, number> = {
-  urgent: 0xed4245, // red
-  action: 0x5865f2, // blurple
-  warning: 0xfee75c, // yellow
-  info: 0x57f287, // green
+  urgent: 0xed4245,
+  action: 0x5865f2,
+  warning: 0xfee75c,
+  info: 0x57f287,
 };
 
 const PRIORITY_EMOJI: Record<EventPriority, string> = {
-  urgent: "\u{1F6A8}", // rotating light
-  action: "\u{1F449}", // point right
-  warning: "\u{26A0}\u{FE0F}", // warning
-  info: "\u{2139}\u{FE0F}", // info
+  urgent: "\u{1F6A8}",
+  action: "\u{1F449}",
+  warning: "\u{26A0}\u{FE0F}",
+  info: "\u{2139}\u{FE0F}",
 };
 
 const DISCORD_WEBHOOK_URL_RE =
@@ -39,6 +38,9 @@ const EMBED_DESCRIPTION_MAX = 4096;
 const EMBED_TITLE_MAX = 256;
 const EMBED_FIELD_VALUE_MAX = 1024;
 const POST_CONTENT_MAX = 2000;
+
+const DEFAULT_BATCH_WINDOW_MS = 2_000;
+const DEDUP_TTL_MS = 60_000;
 
 function truncate(text: string, maxLen: number): string {
   return text.length > maxLen ? text.slice(0, maxLen - 1) + "\u2026" : text;
@@ -68,13 +70,11 @@ function buildEmbed(event: OrchestratorEvent, actions?: NotifyAction[]): Discord
     footer: { text: "Agent Orchestrator" },
   };
 
-  // Add PR link if available
   const prUrl = typeof event.data.prUrl === "string" ? event.data.prUrl : undefined;
   if (prUrl) {
     embed.fields!.push({ name: "Pull Request", value: truncate(`[View PR](${prUrl})`, EMBED_FIELD_VALUE_MAX), inline: false });
   }
 
-  // Add CI status if available
   const ciStatus = typeof event.data.ciStatus === "string" ? event.data.ciStatus : undefined;
   if (ciStatus) {
     const ciEmoji =
@@ -84,11 +84,10 @@ function buildEmbed(event: OrchestratorEvent, actions?: NotifyAction[]): Discord
           ? "\u{23F3}"
           : ciStatus === CI_STATUS.NONE
             ? "\u{2B55}"
-            : "\u{274C}"; // FAILING or unknown
+            : "\u{274C}";
     embed.fields!.push({ name: "CI", value: truncate(`${ciEmoji} ${ciStatus}`, EMBED_FIELD_VALUE_MAX), inline: true });
   }
 
-  // Add actions as a field
   if (actions && actions.length > 0) {
     const actionLinks = actions.map((a) => {
       if (a.url) return `[${a.label}](${a.url})`;
@@ -115,7 +114,6 @@ function capEmbedTotalChars(embed: DiscordEmbed): DiscordEmbed {
     fieldChars +
     count(embed.footer?.text);
   if (total <= EMBED_TOTAL_CHARS_MAX) return embed;
-  // Trim description to bring total within limit
   const overhead = total - count(embed.description);
   const maxDesc = Math.max(0, EMBED_TOTAL_CHARS_MAX - overhead - 1);
   return {
@@ -134,8 +132,6 @@ async function postWithRetry(
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<void> {
   let lastError: Error | undefined;
-  // Separate counter for 429 Retry-After waits so they don't consume the error
-  // retry budget — a server-mandated wait shouldn't cost a retry slot.
   let rateLimitRetries = 0;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -151,19 +147,15 @@ async function postWithRetry(
 
       if (response.ok || response.status === 204) return;
 
-      // Handle rate limiting: wait then retry without burning an error retry slot.
-      // Use Retry-After if present, otherwise fall back to retryDelayMs.
       if (response.status === 429) {
         if (rateLimitRetries < retries) {
           const retryAfter = response.headers.get("Retry-After");
           const waitMs = retryAfter ? (parseFloat(retryAfter) || 1) * 1000 : retryDelayMs;
           await new Promise((resolve) => setTimeout(resolve, waitMs));
           rateLimitRetries++;
-          attempt--; // undo the for-loop increment so error budget is preserved
+          attempt--;
           continue;
         }
-        // Rate-limit budget exhausted — fail immediately rather than falling through
-        // to the error retry path (which would compound the two counters).
         const body = await response.text().catch(() => "");
         lastError = new Error(`Discord webhook rate-limited (HTTP 429)${body ? `: ${body.trim()}` : ""}`);
         throw lastError;
@@ -191,6 +183,16 @@ async function postWithRetry(
   throw lastError;
 }
 
+function eventDedupeKey(event: OrchestratorEvent): string {
+  return `${event.type}:${event.sessionId}:${event.projectId}:${event.message}`;
+}
+
+interface PendingItem {
+  embed: DiscordEmbed;
+  dedupeKey: string;
+  enqueuedAt: number;
+}
+
 export function create(config?: Record<string, unknown>): Notifier {
   if (config?.webhookUrl !== undefined && typeof config.webhookUrl !== "string") {
     throw new Error("[notifier-discord] webhookUrl must be a string");
@@ -203,6 +205,9 @@ export function create(config?: Record<string, unknown>): Notifier {
   }
   if (config?.threadId !== undefined && typeof config.threadId !== "string") {
     throw new Error("[notifier-discord] threadId must be a string");
+  }
+  if (config?.batchWindowMs !== undefined && typeof config.batchWindowMs !== "number") {
+    throw new Error("[notifier-discord] batchWindowMs must be a number");
   }
 
   const webhookUrl = typeof config?.webhookUrl === "string" ? config.webhookUrl : undefined;
@@ -219,6 +224,9 @@ export function create(config?: Record<string, unknown>): Notifier {
     throw new Error("[notifier-discord] timeoutMs must be a positive finite number");
   }
   const timeoutMs = typeof rawTimeoutMs === "number" ? rawTimeoutMs : DEFAULT_TIMEOUT_MS;
+  const batchWindowMs = typeof config?.batchWindowMs === "number" && config.batchWindowMs >= 0
+    ? config.batchWindowMs
+    : DEFAULT_BATCH_WINDOW_MS;
 
   if (!webhookUrl) {
     console.warn(
@@ -235,7 +243,6 @@ export function create(config?: Record<string, unknown>): Notifier {
     }
   }
 
-  // Discord requires thread_id as a URL query param, not in the JSON body
   const effectiveUrl = webhookUrl && threadId
     ? `${webhookUrl}${webhookUrl.includes("?") ? "&" : "?"}thread_id=${encodeURIComponent(threadId)}`
     : webhookUrl;
@@ -246,26 +253,89 @@ export function create(config?: Record<string, unknown>): Notifier {
     return payload;
   }
 
+  // ── Batch + dedup state ──
+  const pending: PendingItem[] = [];
+  const seenKeys = new Map<string, number>();
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flush(): Promise<void> {
+    flushTimer = null;
+
+    const now = Date.now();
+    for (const [key, ts] of seenKeys) {
+      if (now - ts >= DEDUP_TTL_MS) seenKeys.delete(key);
+    }
+
+    if (pending.length === 0) return Promise.resolve();
+
+    const batches: DiscordEmbed[][] = [];
+    let current: DiscordEmbed[] = [];
+    for (const item of pending) {
+      current.push(item.embed);
+      if (current.length >= 10) {
+        batches.push(current);
+        current = [];
+      }
+    }
+    if (current.length > 0) batches.push(current);
+
+    pending.splice(0);
+
+    const promises = batches.map((batch) => {
+      const payload = buildPayload(batch);
+      return postWithRetry(effectiveUrl!, payload, retries, retryDelayMs, timeoutMs).catch(() => {});
+    });
+    return Promise.all(promises).then(() => {});
+  }
+
+  function scheduleFlush(): void {
+    if (flushTimer !== null) return;
+    flushTimer = setTimeout(() => void flush(), batchWindowMs);
+    if (flushTimer && typeof flushTimer === "object" && "unref" in flushTimer) {
+      flushTimer.unref();
+    }
+  }
+
+  function enqueue(event: OrchestratorEvent, actions?: NotifyAction[]): Promise<void> {
+    if (!effectiveUrl) return Promise.resolve();
+
+    const dedupeKey = eventDedupeKey(event);
+    const now = Date.now();
+    const lastSeen = seenKeys.get(dedupeKey);
+    if (lastSeen !== undefined && now - lastSeen < DEDUP_TTL_MS) {
+      return Promise.resolve();
+    }
+    seenKeys.set(dedupeKey, now);
+
+    pending.push({
+      embed: buildEmbed(event, actions),
+      dedupeKey,
+      enqueuedAt: now,
+    });
+
+    if (batchWindowMs <= 0) {
+      return flush();
+    } else {
+      scheduleFlush();
+      return Promise.resolve();
+    }
+  }
+
   return {
     name: "discord",
 
     async notify(event: OrchestratorEvent): Promise<void> {
-      if (!effectiveUrl) return;
-      const payload = buildPayload([buildEmbed(event)]);
-      await postWithRetry(effectiveUrl, payload, retries, retryDelayMs, timeoutMs);
+      await enqueue(event);
     },
 
     async notifyWithActions(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void> {
-      if (!effectiveUrl) return;
-      const payload = buildPayload([buildEmbed(event, actions)]);
-      await postWithRetry(effectiveUrl, payload, retries, retryDelayMs, timeoutMs);
+      await enqueue(event, actions);
     },
 
     async post(message: string, _context?: NotifyContext): Promise<string | null> {
       if (!effectiveUrl) return null;
       const payload: Record<string, unknown> = { username, content: truncate(message, POST_CONTENT_MAX) };
       if (avatarUrl) payload.avatar_url = avatarUrl;
-      // thread_id is already passed as a URL query param via effectiveUrl
       await postWithRetry(effectiveUrl, payload, retries, retryDelayMs, timeoutMs);
       return null;
     },
