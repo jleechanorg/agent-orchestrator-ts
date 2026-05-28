@@ -300,6 +300,16 @@ export function create(): Runtime {
         });
       }
 
+      // Prevent tmux from renaming windows automatically (e.g. on process
+      // changes). The dashboard and AO rely on stable window names for
+      // session tracking — automatic renames break pane targeting.
+      try {
+        await tmux("set-option", "-t", sessionName, "allow-rename", "off");
+        await tmux("set-option", "-t", sessionName, "automatic-rename", "off");
+      } catch {
+        // Non-fatal: window naming is cosmetic, not critical for functionality
+      }
+
       // Wait for agy/Gemini to reach its ready prompt before returning the handle
       // (orch-f3ok). Without this, the lifecycle manager calls sendMessage()
       // immediately and the initial task keystrokes land during the splash screen
@@ -374,6 +384,15 @@ export function create(): Runtime {
     async isAlive(handle: RuntimeHandle): Promise<boolean> {
       try {
         await tmux("has-session", "-t", handle.id);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    async isAvailable(): Promise<boolean> {
+      try {
+        await tmux("list-sessions", "-F", "#{session_name}");
         return true;
       } catch {
         return false;

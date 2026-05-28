@@ -1478,6 +1478,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         },
       );
 
+      // Pre-spawn runtime health check: verify the runtime server (e.g. tmux)
+      // is available before creating any resources. Fail fast instead of
+      // creating orphaned worktrees/metadata when the runtime is dead.
+      if (plugins.runtime.isAvailable) {
+        const available = await plugins.runtime.isAvailable().catch(() => false);
+        if (!available) {
+          throw new Error(
+            `Runtime "${plugins.runtime.name}" is not available. ` +
+              `Ensure the runtime server is running before spawning.`,
+          );
+        }
+      }
+
       handle = await plugins.runtime.create({
         sessionId: tmuxName ?? sessionId, // Use tmux name for runtime if available
         workspacePath,

@@ -31,6 +31,8 @@ async function settlesWithin(promise: Promise<unknown>, timeoutMs: number): Prom
   }
 }
 
+const DEFAULT_PAGE_LIMIT = 100;
+
 export async function GET(request: Request) {
   const correlationId = getCorrelationId(request);
   const startedAt = Date.now();
@@ -38,6 +40,10 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const projectFilter = searchParams.get("project");
     const activeOnly = searchParams.get("active") === "true";
+    const limitParam = searchParams.get("limit");
+    const offsetParam = searchParams.get("offset");
+    const limit = limitParam ? Math.max(1, Math.min(parseInt(limitParam, 10) || DEFAULT_PAGE_LIMIT, 500)) : undefined;
+    const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10) || 0) : 0;
 
     const { config, registry, sessionManager } = await getServices();
     const requestedProjectId =
@@ -89,6 +95,11 @@ export async function GET(request: Request) {
       }
     }
 
+    const totalSessions = dashboardSessions.length;
+    const paginatedSessions = limit != null
+      ? dashboardSessions.slice(offset, offset + limit)
+      : dashboardSessions;
+
     recordApiObservation({
       config,
       method: "GET",
@@ -97,16 +108,17 @@ export async function GET(request: Request) {
       startedAt,
       outcome: "success",
       statusCode: 200,
-      data: { sessionCount: dashboardSessions.length, activeOnly },
+      data: { sessionCount: totalSessions, activeOnly, limit, offset },
     });
 
     return jsonWithCorrelation(
       {
-        sessions: dashboardSessions,
+        sessions: paginatedSessions,
         stats: computeStats(dashboardSessions),
         orchestratorId,
         orchestrators,
         globalPause,
+        ...(limit != null ? { pagination: { total: totalSessions, limit, offset } } : {}),
       },
       { status: 200 },
       correlationId,

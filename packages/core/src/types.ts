@@ -329,6 +329,13 @@ export interface Runtime {
   /** Check if the session environment is still alive */
   isAlive(handle: RuntimeHandle): Promise<boolean>;
 
+  /**
+   * Check if the runtime server is available before attempting to spawn.
+   * Returns true if the runtime backend (e.g. tmux server) is responsive.
+   * If not implemented, the runtime is assumed available.
+   */
+  isAvailable?(): Promise<boolean>;
+
   /** Get resource metrics (uptime, memory, etc.) */
   getMetrics?(handle: RuntimeHandle): Promise<RuntimeMetrics>;
 
@@ -2020,6 +2027,7 @@ export interface SessionManager {
   send(sessionId: SessionId, message: string): Promise<void>;
   claimPR(sessionId: SessionId, prRef: string, options?: ClaimPROptions): Promise<ClaimPRResult>;
   ensureOrchestrator?(opts: { projectId: string; systemPrompt: string }): Promise<void>;
+  pruneStaleWorktrees(): Promise<void>;
 }
 
 /** OpenCode-specific session manager with remap capability */

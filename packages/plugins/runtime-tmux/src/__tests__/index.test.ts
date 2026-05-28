@@ -90,7 +90,9 @@ describe("runtime.create()", () => {
   it("calls new-session with correct args", async () => {
     const runtime = create();
 
-    // Happy path (no collision): 1: new-session, 2: set-option
+    // Happy path (no collision): 1: new-session, 2: set-option status, 3: set-option allow-rename, 4: set-option automatic-rename
+    mockTmuxSuccess();
+    mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -126,11 +128,13 @@ describe("runtime.create()", () => {
   it("kills stale session and retries when new-session reports duplicate", async () => {
     const runtime = create();
 
-    // Collision path: 1: new-session → duplicate error, 2: kill-session, 3: new-session (retry), 4: set-option
+    // Collision path: 1: new-session → duplicate error, 2: kill-session, 3: new-session (retry), 4: set-option, 5-6: allow-rename/automatic-rename
     mockTmuxError("duplicate session: dup-session");
     mockTmuxSuccess(); // kill-session
     mockTmuxSuccess(); // new-session retry
-    mockTmuxSuccess(); // set-option
+    mockTmuxSuccess(); // set-option status
+    mockTmuxSuccess(); // set-option allow-rename
+    mockTmuxSuccess(); // set-option automatic-rename
 
     const handle = await runtime.create({
       sessionId: "dup-session",
@@ -140,8 +144,8 @@ describe("runtime.create()", () => {
     });
 
     expect(handle.id).toBe("dup-session");
-    // 4 calls: new-session (fail), kill-session, new-session (retry), set-option
-    expect(mockExecFileCustom).toHaveBeenCalledTimes(4);
+    // 6 calls: new-session (fail), kill-session, new-session (retry), set-option status, allow-rename, automatic-rename
+    expect(mockExecFileCustom).toHaveBeenCalledTimes(6);
     expect((mockExecFileCustom.mock.calls[1][1] as string[])[0]).toBe("kill-session");
     expect((mockExecFileCustom.mock.calls[2][1] as string[])[0]).toBe("new-session");
   });
@@ -168,7 +172,9 @@ describe("runtime.create()", () => {
   it("stores launchCommand in handle.data for restart capability (bd-tln)", async () => {
     const runtime = create();
 
-    // Happy path: 1: new-session, 2: set-option
+    // Happy path: new-session, set-option status, allow-rename, automatic-rename
+    mockTmuxSuccess();
+    mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -185,7 +191,8 @@ describe("runtime.create()", () => {
   it("includes -e KEY=VALUE flags for environment variables", async () => {
     const runtime = create();
 
-    // Happy path: 1: new-session, 2: set-option
+    mockTmuxSuccess();
+    mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -208,7 +215,8 @@ describe("runtime.create()", () => {
   it("sends launch command via send-keys", async () => {
     const runtime = create();
 
-    // Happy path: 1: new-session, 2: set-option
+    mockTmuxSuccess();
+    mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -239,7 +247,8 @@ describe("runtime.create()", () => {
   it("appends an interactive shell tail so the tmux pane survives agent exit (regression for #1756)", async () => {
     const runtime = create();
 
-    // Happy path: 1: new-session, 2: set-option
+    mockTmuxSuccess();
+    mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -259,7 +268,8 @@ describe("runtime.create()", () => {
     const runtime = create();
     const longCommand = "x".repeat(250);
 
-    // Happy path: 1: new-session (with bash invocation as initial command), 2: set-option
+    mockTmuxSuccess();
+    mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -354,7 +364,8 @@ describe("runtime.create()", () => {
   it("accepts valid session IDs with hyphens and underscores", async () => {
     const runtime = create();
 
-    // Happy path: 1: new-session, 2: set-option
+    mockTmuxSuccess();
+    mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -371,7 +382,8 @@ describe("runtime.create()", () => {
   it("handles no environment (undefined)", async () => {
     const runtime = create();
 
-    // Happy path: 1: new-session, 2: set-option
+    mockTmuxSuccess();
+    mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -392,6 +404,33 @@ describe("runtime.create()", () => {
       "/tmp/ws",
       'echo hi\nexec "${SHELL:-/bin/bash}" -i',
     ]);
+  });
+
+  it("sets allow-rename and automatic-rename to off on create", async () => {
+    const runtime = create();
+
+    mockTmuxSuccess(); // new-session
+    mockTmuxSuccess(); // set-option status off
+    mockTmuxSuccess(); // set-option allow-rename off
+    mockTmuxSuccess(); // set-option automatic-rename off
+
+    await runtime.create({
+      sessionId: "rename-test",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: {},
+    });
+
+    expect(mockExecFileCustom).toHaveBeenCalledWith(
+      "tmux",
+      ["set-option", "-t", "rename-test", "allow-rename", "off"],
+      expectedTmuxOptions,
+    );
+    expect(mockExecFileCustom).toHaveBeenCalledWith(
+      "tmux",
+      ["set-option", "-t", "rename-test", "automatic-rename", "off"],
+      expectedTmuxOptions,
+    );
   });
 });
 
@@ -419,6 +458,20 @@ describe("runtime.destroy()", () => {
 
     // Should not throw
     await expect(runtime.destroy(handle)).resolves.toBeUndefined();
+  });
+});
+
+describe("runtime.isAvailable()", () => {
+  it("returns true when tmux server is running", async () => {
+    const runtime = create();
+    mockTmuxSuccess("session1\nsession2");
+    await expect(runtime.isAvailable!()).resolves.toBe(true);
+  });
+
+  it("returns false when tmux server is unavailable", async () => {
+    const runtime = create();
+    mockTmuxError("no server running");
+    await expect(runtime.isAvailable!()).resolves.toBe(false);
   });
 });
 

@@ -82,6 +82,7 @@ export default function SessionPage() {
   const sessionLoadFailureCountRef = useRef(0);
   const sessionLoadFirstFailureAtRef = useRef<number | null>(null);
   const sessionLoadRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentSessionIdRef = useRef(id);
 
   const clearSessionLoadRetry = useCallback(() => {
     if (sessionLoadRetryTimerRef.current) {
@@ -109,6 +110,7 @@ export default function SessionPage() {
     fetchingSessionRef.current = true;
     const controller = new AbortController();
     sessionFetchControllerRef.current = controller;
+    const fetchId = id;
     let keepLoadingForRetry = false;
     try {
       const data = await fetchJsonWithTimeout<DashboardSession | { error: string }>(
@@ -124,6 +126,7 @@ export default function SessionPage() {
       }
       setSession(data as DashboardSession);
       setError(null);
+      if (currentSessionIdRef.current !== fetchId) return;
       hasLoadedSessionRef.current = true;
       resetSessionLoadFailures();
     } catch (err) {
@@ -206,10 +209,14 @@ export default function SessionPage() {
   }, [sessionIsOrchestrator, sessionProjectId]);
 
   useEffect(() => {
+    currentSessionIdRef.current = id;
+    sessionFetchControllerRef.current?.abort();
+    fetchingSessionRef.current = false;
+    resetSessionLoadFailures();
     fetchSession();
     const t = setTimeout(fetchZoneCounts, 2000);
     return () => clearTimeout(t);
-  }, [fetchSession, fetchZoneCounts]);
+  }, [fetchSession, fetchZoneCounts, id, resetSessionLoadFailures]);
 
   useEffect(() => {
     const interval = setInterval(() => {
