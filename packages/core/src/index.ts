@@ -587,4 +587,45 @@ export {
   emitLifecycleTransition,
   emitActivityTransition,
 } from "./lifecycle-activity-events.js";
+
+// Config hot-reload — watch agent-orchestrator.yaml and auto-reload
+export {
+  startConfigHotReload,
+  type ConfigHotReloadOptions,
+  type ConfigHotReloadHandle,
+} from "./config-hot-reload.js";
+
+// Config env var expansion — ${VAR} and ${VAR:-default} in YAML values
+export { expandEnvVars } from "./config-env-expand.js";
+
+// Config reaction validation — warn on missing required fields
+export {
+  validateReactionDefinitions,
+  type ReactionValidationIssue,
+} from "./config-reaction-validation.js";
+
+// Plugin load order — topological sort for dependency-first loading
+export {
+  computeLoadOrder,
+  type LoadOrderEntry,
+  type PluginDependency,
+} from "./plugin-load-order.js";
+
+// Plugin version check — warn on major version mismatch with core
+export {
+  checkPluginVersionMismatch,
+  formatVersionMismatchWarning,
+  isCompatibleMajorVersion,
+  type VersionMismatchWarning,
+} from "./plugin-version-check.js";
+
+// Agent plugin timeout — configurable startup timeout
+export {
+  resolveAgentStartupTimeout,
+  augmentAgentConfigWithTimeout,
+  DEFAULT_AGENT_STARTUP_TIMEOUT_MS,
+} from "./plugin-agent-timeout.js";
+
+// SCM retry 5xx — retry transient server errors for GitHub API calls
+export { withScmRetry, type ScmRetryOptions } from "./scm-retry-5xx.js";
 // force coderabbit review
