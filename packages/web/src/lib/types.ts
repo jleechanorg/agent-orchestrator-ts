@@ -77,6 +77,10 @@ export interface DashboardSession {
   userPrompt: string | null;
   requestedTask: string | null;
   hasPromptArtifact: boolean;
+  /** User-set display name; promoted above PR/issue titles only when displayNameUserSet is true */
+  displayName: string | null;
+  /** True when displayName was explicitly set by the user via the rename UI */
+  displayNameUserSet: boolean;
   createdAt: string;
   lastActivityAt: string;
   pr: DashboardPR | null;

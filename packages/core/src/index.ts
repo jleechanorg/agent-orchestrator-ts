@@ -372,6 +372,7 @@ export type { ReviewBacklogDeps } from "./review-backlog.js";
 
 // Shared fork utility: session metadata update helper
 export { updateSessionMetadataHelper } from "./fork-utils.js";
+export { clearTerminalMarkersForNonTerminalState } from "./fork-terminal-marker-hygiene.js";
 
 // Review judgment policy matrix — objective vs subjective comment classification
 export {

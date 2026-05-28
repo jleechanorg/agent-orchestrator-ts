@@ -2029,6 +2029,7 @@ export interface SessionManager {
   send(sessionId: SessionId, message: string): Promise<void>;
   claimPR(sessionId: SessionId, prRef: string, options?: ClaimPROptions): Promise<ClaimPRResult>;
   ensureOrchestrator?(opts: { projectId: string; systemPrompt: string }): Promise<void>;
+  relaunchOrchestrator(config: OrchestratorSpawnConfig): Promise<Session>;
   pruneStaleWorktrees(): Promise<void>;
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { type DashboardSession, type DashboardPR, isPRMergeReady } from "@/lib/types";
 import { CI_STATUS } from "@jleechanorg/ao-core/types";
@@ -196,6 +196,7 @@ export function SessionDetail({
 }: SessionDetailProps) {
   const searchParams = useSearchParams();
   const startFullscreen = searchParams.get("fullscreen") === "true";
+  const [relaunchError, setRelaunchError] = useState<string | null>(null);
   const pr = session.pr;
   const activity = (session.activity && activityMeta[session.activity]) ?? {
     label: session.activity ?? "unknown",
@@ -215,6 +216,38 @@ export function SessionDetail({
   const reloadCommand = opencodeSessionId
     ? `/exit\nopencode --session ${opencodeSessionId}\n`
     : undefined;
+
+  const handleRelaunchClean = useCallback(async () => {
+    const confirmed = window.confirm(
+      "This will discard the current orchestrator's conversation and state. Continue?",
+    );
+    if (!confirmed) return;
+    setRelaunchError(null);
+    try {
+      const res = await fetch("/api/orchestrators", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: session.projectId, clean: true }),
+      });
+      if (!res.ok) {
+        let message = "";
+        try {
+          const data = (await res.json()) as { error?: string };
+          message = data.error ?? "";
+        } catch {
+          message = await res.text().catch(() => "");
+        }
+        throw new Error(message || `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as { orchestrator?: { id: string } };
+      const newId = data.orchestrator?.id ?? session.id;
+      window.location.href = `/projects/${session.projectId}/sessions/${newId}`;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to relaunch orchestrator";
+      console.error("Failed to relaunch orchestrator:", err);
+      setRelaunchError(message);
+    }
+  }, [session.id, session.projectId]);
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-base)]">
@@ -251,6 +284,34 @@ export function SessionDetail({
             >
               orchestrator
             </span>
+          )}
+          {isOrchestrator && (
+            <button
+              type="button"
+              className="ml-auto rounded px-2 py-0.5 text-[10px] font-semibold transition-colors"
+              style={{
+                color: "var(--color-accent-amber, #f59e0b)",
+                background: "color-mix(in srgb, var(--color-accent-amber, #f59e0b) 10%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--color-accent-amber, #f59e0b) 20%, transparent)",
+              }}
+              onClick={handleRelaunchClean}
+              aria-label="Launch Orchestrator (clean context)"
+            >
+              <svg
+                className="mr-1 inline h-3 w-3"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path d="M20 11a8 8 0 0 0-14.9-3.98" />
+                <path d="M4 5v4h4" />
+                <path d="M4 13a8 8 0 0 0 14.9 3.98" />
+                <path d="M20 19v-4h-4" />
+              </svg>
+              Relaunch (clean)
+            </button>
           )}
         </div>
       </nav>
@@ -381,6 +442,30 @@ export function SessionDetail({
 
         {/* ── Terminal ─────────────────────────────────────────────── */}
         <div className={pr ? "mt-6" : ""}>
+          {relaunchError && (
+            <div
+              className="mb-3 rounded-[6px] border border-[color-mix(in_srgb,var(--color-status-error)_28%,transparent)] bg-[color-mix(in_srgb,var(--color-status-error)_10%,transparent)] px-4 py-2 text-[12px] text-[var(--color-status-error)]"
+              role="alert"
+              aria-live="assertive"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <span className="font-semibold">Relaunch failed:</span> {relaunchError}
+                  <div className="mt-1 text-[var(--color-text-secondary)]">
+                    The previous orchestrator may already be terminated. Try again from the project dashboard.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRelaunchError(null)}
+                  className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                  aria-label="Dismiss"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
           <div className="mb-3 flex items-center gap-2">
             <div
               className="h-3 w-0.5 rounded-full"
