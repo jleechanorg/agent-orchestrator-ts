@@ -137,6 +137,7 @@ async function labelIssuesForVerification(
   );
 
   for (const session of mergedSessions) {
+    if (!session.issueId) continue;
     const key = `${session.projectId}:${session.issueId}`;
     const project = config.projects[session.projectId];
     if (!project?.tracker) {
@@ -152,7 +153,7 @@ async function labelIssuesForVerification(
 
     try {
       await tracker.updateIssue(
-        session.issueId!,
+        session.issueId,
         {
           labels: ["merged-unverified"],
           removeLabels: ["agent:backlog", "agent:in-progress"],
@@ -225,7 +226,7 @@ export async function pollBacklog(): Promise<void> {
       (session) => !isOrchestratorSession(session) && !TERMINAL_STATUSES.has(session.status),
     );
     const activeIssueIds = new Set(
-      workerSessions.filter((s) => s.issueId).map((s) => s.issueId!.toLowerCase()),
+      workerSessions.filter((s) => s.issueId).map((s) => s.issueId as string).map((id) => id.toLowerCase()),
     );
 
     // Auto-scaling: respect max concurrent agents

@@ -96,7 +96,7 @@ export async function GET(request: Request) {
     }
 
     const totalSessions = dashboardSessions.length;
-    const paginatedSessions = limit != null
+    const paginatedSessions = typeof limit === "number"
       ? dashboardSessions.slice(offset, offset + limit)
       : dashboardSessions;
 
@@ -118,7 +118,7 @@ export async function GET(request: Request) {
         orchestratorId,
         orchestrators,
         globalPause,
-        ...(limit != null ? { pagination: { total: totalSessions, limit, offset } } : {}),
+        ...(typeof limit === "number" ? { pagination: { total: totalSessions, limit, offset } } : {}),
       },
       { status: 200 },
       correlationId,

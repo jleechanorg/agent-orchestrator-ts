@@ -162,8 +162,8 @@ export function useXtermTerminal(
           typeof document !== "undefined" ? document.fonts : undefined;
         const fontsListenerAttached =
           !!fontsFace && typeof fontsFace.addEventListener === "function";
-        if (fontsListenerAttached) {
-          fontsFace!.addEventListener("loadingdone", handleFontsLoadingDone);
+        if (fontsListenerAttached && fontsFace) {
+          fontsFace.addEventListener("loadingdone", handleFontsLoadingDone);
         }
 
         // Touch scroll on mobile — disables follow-output while user scrolls.
@@ -296,9 +296,9 @@ export function useXtermTerminal(
           selectionDisposable.dispose();
           if (safetyTimer) clearTimeout(safetyTimer);
           window.removeEventListener("resize", handleResize);
-          if (fontsListenerAttached && fontsFace) {
-            fontsFace.removeEventListener("loadingdone", handleFontsLoadingDone);
-          }
+        if (fontsListenerAttached && fontsFace) {
+          fontsFace.addEventListener("loadingdone", handleFontsLoadingDone);
+        }
           scrollDisposable.dispose();
           inputDisposable?.dispose();
           inputDisposable = null;
