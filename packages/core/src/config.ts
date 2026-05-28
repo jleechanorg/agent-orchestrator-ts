@@ -23,6 +23,8 @@ import {
   getLegacyConfigPaths,
 } from "./config-topology.js";
 import { deepMerge } from "./deep-merge.js";
+import { expandEnvVars } from "./config-env-expand.js";
+import { validateReactionDefinitions } from "./config-reaction-validation.js";
 import { generateSessionPrefix, expandHome } from "./paths.js";
 
 /** Ensures envSource is bootstrapped exactly once per process lifetime. */
@@ -148,6 +150,7 @@ const AgentSpecificConfigSchema = z
     model: z.string().optional(),
     orchestratorModel: z.string().optional(),
     opencodeSessionId: z.string().optional(),
+    startupTimeoutMs: z.number().int().positive().optional(),
   })
   .passthrough();
 
@@ -159,6 +162,7 @@ const RoleAgentSpecificConfigSchema = z
     model: z.string().optional(),
     orchestratorModel: z.string().optional(),
     opencodeSessionId: z.string().optional(),
+    startupTimeoutMs: z.number().int().positive().optional(),
   })
   .passthrough();
 
@@ -887,13 +891,14 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
 
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
+  const expanded = expandEnvVars(parsed);
 
   // Config overlay: when the primary config is a managed config (staging/prod),
   // search for a repo-local config and deep-merge it on top. Repo-local wins
   // for overlapping keys — this makes per-repo project overrides work even when
   // a managed config shadows the walk-up search.
   const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
-  const merged = overlayPath ? mergeConfigOverlay(parsed, overlayPath) : parsed;
+  const merged = overlayPath ? mergeConfigOverlay(expanded, overlayPath) : expanded;
 
   const config = validateConfig(merged);
 
@@ -919,9 +924,10 @@ export function loadConfigWithPath(configPath?: string): {
 
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
+  const expanded = expandEnvVars(parsed);
 
   const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
-  const merged = overlayPath ? mergeConfigOverlay(parsed, overlayPath) : parsed;
+  const merged = overlayPath ? mergeConfigOverlay(expanded, overlayPath) : expanded;
 
   const config = validateConfig(merged);
 
@@ -985,6 +991,12 @@ export function validateConfig(raw: unknown): OrchestratorConfig {
 
   // Validate project uniqueness and prefix collisions
   validateProjectUniqueness(config);
+
+  // Warn on reaction definitions missing required fields
+  const reactionIssues = validateReactionDefinitions(config);
+  for (const issue of reactionIssues) {
+    console.warn(`[config] ${issue.message}`);
+  }
 
   return config;
 }

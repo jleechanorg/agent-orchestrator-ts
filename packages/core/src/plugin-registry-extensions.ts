@@ -9,31 +9,23 @@
  */
 
 import type { PluginRegistry } from "./types.js";
+import { computeLoadOrder, type LoadOrderEntry } from "./plugin-load-order.js";
+import {
+  checkPluginVersionMismatch,
+  formatVersionMismatchWarning,
+} from "./plugin-version-check.js";
 
-/**
- * Fork-only BUILTIN_PLUGINS additions (upstream doesn't have these):
- * - minimax agent plugin
- * - gemini agent plugin
- * - beads tracker plugin
- * - mcp-mail notifier plugin
- * - antigravity runtime plugin
- * - poller runtime plugin
- * - prose-polish runtime plugin
- *
- * These are NOT added here because the upstream BUILTIN_PLUGINS array
- * already contains these entries. This file is the target for future
- * fork-specific migrations so that plugin-registry.ts stays pure.
- */
+export function applyForkExtensions(registry: PluginRegistry): void {
+  const origRegister = registry.register.bind(registry);
 
-/* fork-only: extractPluginConfig override — currently inline in plugin-registry.ts */
-/* fork-only: any additional fork-specific plugin registration logic goes here */
-
-export function applyForkExtensions(_registry: PluginRegistry): void {
-  // TODO: migrate fork-specific BUILTIN_PLUGINS entries here
-  // TODO: migrate extractPluginConfig fork override here
-
-  // Currently a no-op because all fork plugins are already in upstream BUILTIN_PLUGINS.
-  // This function exists as the extension point so plugin-registry.ts stays
-  // identical to upstream — fork-specific logic can be added here without
-  // modifying the upstream file.
+  registry.register = (plugin, config) => {
+    const warning = checkPluginVersionMismatch(plugin.manifest);
+    if (warning) {
+      console.warn(formatVersionMismatchWarning(warning));
+    }
+    origRegister(plugin, config);
+  };
 }
+
+export { computeLoadOrder, type LoadOrderEntry };
+export { checkPluginVersionMismatch, formatVersionMismatchWarning } from "./plugin-version-check.js";

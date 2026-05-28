@@ -1871,6 +1871,8 @@ export interface AgentSpecificConfig {
   permissions?: AgentPermissionMode | LegacyAgentPermissionMode;
   model?: string;
   orchestratorModel?: string;
+  /** Maximum time in ms to wait for agent startup before considering it timed out (default: 120000) */
+  startupTimeoutMs?: number;
   [key: string]: unknown;
 }
 

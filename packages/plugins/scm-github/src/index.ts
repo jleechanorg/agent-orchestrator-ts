@@ -35,6 +35,9 @@ import {
   isFailedCICheck,
 } from "@jleechanorg/ao-core";
 import {
+  isRetryableHttpStatus,
+} from "@jleechanorg/ao-core/utils";
+import {
   getWebhookHeader,
   parseWebhookBranchRef,
   parseWebhookJsonObject,
@@ -111,7 +114,7 @@ function collectErrorText(error: unknown): string {
 }
 
 function parseHttpStatusCode(error: unknown): number | undefined {
-  const match = collectErrorText(error).match(/\b(?:error|status)\D+(401|429)\b/i);
+  const match = collectErrorText(error).match(/\b(?:error|status)\D*(\d{3})\b/i);
   if (!match) return undefined;
   return Number(match[1]);
 }
@@ -125,6 +128,12 @@ function isRateLimitError(error: unknown): boolean {
   }
   const status = parseHttpStatusCode(error);
   return status === 429;
+}
+
+function isServer5xxError(error: unknown): boolean {
+  const status = parseHttpStatusCode(error);
+  if (status === undefined) return false;
+  return isRetryableHttpStatus(status);
 }
 
 function isAuthError(error: unknown): boolean {
@@ -386,7 +395,7 @@ async function fetchPrViewFallbackAsJson(
 
 /**
  * Execute gh CLI with rate limit retry and fallback to REST API.
- * Uses exponential backoff for rate limit errors, then falls back to curl-based REST calls.
+ * Uses exponential backoff for rate limit errors and 5xx server errors, then falls back to curl-based REST calls.
  */
 async function ghWithRetry(
   args: string[],
@@ -402,18 +411,19 @@ async function ghWithRetry(
     } catch (err) {
       lastError = err;
 
-      // Check if it's a rate limit error
-      if (isRateLimitError(err)) {
-        // Skip sleep on final attempt - no more retries anyway
+      const isRateLimit = isRateLimitError(err);
+      const is5xx = isServer5xxError(err);
+
+      if (isRateLimit || is5xx) {
         if (attempt < maxRetries - 1) {
-          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000); // Max 30s backoff
+          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000);
+          const reason = isRateLimit ? "rate limit" : "5xx server error";
           console.warn(
-            `GitHub rate limit detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`,
+            `GitHub ${reason} detected, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`,
           );
           await sleep(backoffMs);
         }
       } else {
-        // Non-rate-limit error, don't retry
         throw err;
       }
     }
