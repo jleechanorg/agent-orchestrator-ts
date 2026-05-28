@@ -6,8 +6,9 @@
  * with a stale timeout so crashes don't permanently block spawns.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, closeSync, openSync } from "node:fs";
 import { join } from "node:path";
+import { O_EXCL, O_WRONLY, O_CREAT } from "node:constants";
 import { getProjectBaseDir } from "./paths.js";
 
 const LOCK_FILE_NAME = "spawn.lock";
@@ -84,7 +85,7 @@ export function acquireSpawnLock(
     const pidAlive = isProcessRunning(existing.pid);
     const stale = isStale(existing.acquiredAt);
 
-    if (pidAlive && !stale) {
+    if (pidAlive) {
       return {
         acquired: false,
         blockingPid: existing.pid,
@@ -92,7 +93,7 @@ export function acquireSpawnLock(
       };
     }
 
-    // Stale or dead PID — clean up
+    // Dead PID — clean up stale lock
     try {
       rmSync(lockPath, { force: true });
     } catch {
@@ -104,7 +105,23 @@ export function acquireSpawnLock(
     pid: process.pid,
     acquiredAt: new Date().toISOString(),
   };
-  writeFileSync(lockPath, JSON.stringify(lockInfo, null, 2), "utf-8");
+  // Atomic create-with-exclusive to prevent race between concurrent acquire calls
+  let fd: number;
+  try {
+    fd = openSync(lockPath, O_EXCL | O_WRONLY | O_CREAT, 0o644);
+  } catch {
+    // Another process won the race between our cleanup and our create
+    return {
+      acquired: false,
+      blockingPid: -1,
+      acquiredAt: new Date().toISOString(),
+    };
+  }
+  try {
+    writeFileSync(fd, JSON.stringify(lockInfo, null, 2), "utf-8");
+  } finally {
+    closeSync(fd);
+  }
 
   let released = false;
   return {
