@@ -71,6 +71,9 @@ export { createEventBus, createEvent } from "./event-bus.js";
 // Session manager — session CRUD
 export { createSessionManager } from "./session-manager.js";
 export type { SessionManagerDeps } from "./session-manager.js";
+export { killProcessTreeAndWait } from "./kill-and-wait.js";
+export { findDuplicateSessions, type DuplicateMatch } from "./session-duplicate-detect.js";
+export { validateStatusTransition, type TransitionValidationResult } from "./session-status-validator.js";
 
 // Activity log — terminal activity detection and recording
 export {

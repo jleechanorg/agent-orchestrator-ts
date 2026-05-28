@@ -102,6 +102,9 @@ import {
 } from "./prompt-artifact-builder.js";
 import { AOWorkerLogger } from "./ao-worker-logger.js";
 import { deriveDisplayName } from "./upstream-session-header.js";
+import { killProcessTreeAndWait } from "./kill-and-wait.js";
+import { findDuplicateSessions } from "./session-duplicate-detect.js";
+import { validateStatusTransition } from "./session-status-validator.js";
 
 const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -1155,6 +1158,20 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       );
     }
 
+    const duplicates = findDuplicateSessions(
+      allProjectSessions,
+      spawnConfig.projectId,
+      spawnConfig.issueId,
+      spawnConfig.prompt,
+    );
+    if (duplicates.length > 0) {
+      const dup = duplicates[0];
+      throw new Error(
+        `Duplicate session detected: ${dup.sessionId} (${dup.status}, ${dup.reason}). ` +
+          `Kill it first or use --claim-pr if targeting the same PR.`,
+      );
+    }
+
     const selection = resolveAgentSelection({
       role: "worker",
       project,
@@ -1993,13 +2010,35 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
    * cannot be called, so we fall back to a direct tmux kill.
    */
   async function killTmuxSessionFallback(tmuxName: string): Promise<void> {
+    let pid: number | undefined;
     try {
-      await execFileAsync("tmux", ["kill-session", "-t", tmuxName], { timeout: 5_000 });
+      const { stdout } = await _execFileAsync(
+        "tmux",
+        ["list-panes", "-t", tmuxName, "-F", "#{pane_pid}"],
+        { timeout: 3_000 },
+      );
+      const pids = stdout.trim().split("\n").map(Number).filter((p) => p > 0);
+      if (pids.length > 0) pid = pids[0];
+    } catch {
+      // Session may already be dead
+    }
+
+    try {
+      await _execFileAsync("tmux", ["kill-session", "-t", tmuxName], { timeout: 5_000 });
     } catch {
       // Session may already be dead — that's fine
     }
+
+    if (pid) {
+      try {
+        await killProcessTreeAndWait(pid);
+      } catch {
+        // Process may already be gone
+      }
+    }
   }
 
+  /**
   /**
    * Prune stale worktrees whose tmux sessions are dead.
    *
