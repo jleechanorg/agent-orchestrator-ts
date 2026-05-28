@@ -333,7 +333,7 @@ const ProjectConfigSchema = z.object({
 
 const DefaultPluginsSchema = z.object({
   runtime: z.string().default("tmux"),
-  agent: z.string().default("codex"),
+  agent: z.string().default("antigravity"),
   workspace: z.string().default("worktree"),
   lock: z.string().default("area-lock"),
   notifiers: z.array(z.string()).default(["composio"]),
