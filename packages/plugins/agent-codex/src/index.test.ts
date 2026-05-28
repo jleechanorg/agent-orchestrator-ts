@@ -271,21 +271,21 @@ describe("getLaunchCommand", () => {
 
   it("defaults missing permissions to permissionless mode", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).toContain("--full-auto");
   });
 
-  it("includes bypass flag when permissions=permissionless", () => {
+  it("includes --full-auto flag when permissions=permissionless", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "permissionless" }));
-    expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).toContain("--full-auto");
     expect(cmd).not.toContain("--ask-for-approval");
-    expect(cmd).not.toContain("--full-auto");
+    expect(cmd).not.toContain("--dangerously-bypass-approvals-and-sandbox");
   });
 
   it("treats legacy permissions=skip as permissionless", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "skip" as unknown as AgentLaunchConfig["permissions"] }),
     );
-    expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).toContain("--full-auto");
   });
 
   it("includes --ask-for-approval never when permissions=auto-edit", () => {
@@ -300,9 +300,9 @@ describe("getLaunchCommand", () => {
 
   it("omits approval flags when permissions=default", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).not.toContain("--dangerously-bypass-approvals-and-sandbox");
-    expect(cmd).not.toContain("--ask-for-approval");
     expect(cmd).not.toContain("--full-auto");
+    expect(cmd).not.toContain("--ask-for-approval");
+    expect(cmd).not.toContain("--dangerously-bypass-approvals-and-sandbox");
   });
 
   it("includes --model with shell-escaped value", () => {
@@ -319,7 +319,7 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "permissionless", model: "o3", prompt: "Go" }),
     );
-    expect(cmd).toBe("'codex' -c check_for_update_on_startup=false --dangerously-bypass-approvals-and-sandbox --model 'o3' -c model_reasoning_effort=high -- 'Go'");
+    expect(cmd).toBe("'codex' -c check_for_update_on_startup=false --full-auto --model 'o3' -c model_reasoning_effort=high -- 'Go'");
   });
 
   it("escapes single quotes in prompt (POSIX shell escaping)", () => {
@@ -367,7 +367,7 @@ describe("getLaunchCommand", () => {
 
   it("omits optional flags when not provided", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).not.toContain("--full-auto");
     expect(cmd).not.toContain("--ask-for-approval");
     expect(cmd).not.toContain("--model");
     expect(cmd).toContain("-c check_for_update_on_startup=false");
@@ -1398,7 +1398,7 @@ describe("getRestoreCommand", () => {
       agentConfig: { permissions: "permissionless" },
     }));
 
-    expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).toContain("--full-auto");
     expect(cmd).not.toContain("--ask-for-approval");
   });
 
@@ -1418,7 +1418,7 @@ describe("getRestoreCommand", () => {
       agentConfig: { permissions: "skip" as unknown as AgentSpecificConfig["permissions"] },
     }));
 
-    expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).toContain("--full-auto");
   });
 
   it("includes --ask-for-approval never from project config", async () => {
@@ -1438,7 +1438,7 @@ describe("getRestoreCommand", () => {
     }));
 
     expect(cmd).toContain("--ask-for-approval never");
-    expect(cmd).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(cmd).not.toContain("--full-auto");
   });
 
   it("includes --ask-for-approval untrusted from project config", async () => {

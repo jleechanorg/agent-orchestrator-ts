@@ -837,7 +837,7 @@ export async function resolveCodexBinary(options: { nodeExecPath?: string } = {}
 function appendApprovalFlags(parts: string[], permissions: string | undefined): void {
   const mode = normalizePermissionMode(permissions);
   if (mode === "permissionless") {
-    parts.push("--dangerously-bypass-approvals-and-sandbox");
+    parts.push("--full-auto");
   } else if (mode === "auto-edit") {
     parts.push("--ask-for-approval", "never");
   } else if (mode === "suggest") {
