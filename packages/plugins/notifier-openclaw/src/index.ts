@@ -5,6 +5,7 @@ import {
   type NotifyContext,
   type OrchestratorEvent,
   type PluginModule,
+  recordActivityEvent,
 } from "@jleechanorg/ao-core";
 import { isRetryableHttpStatus, normalizeRetryConfig, validateUrl } from "@jleechanorg/ao-core/utils";
 
@@ -46,6 +47,26 @@ async function postWithRetry(
       if (response.ok) return;
 
       const body = await response.text();
+
+      if (response.status === 401 || response.status === 403) {
+        recordActivityEvent({
+          sessionId: context.sessionId,
+          source: "notifier",
+          kind: "notifier.auth_failed",
+          level: "error",
+          summary: `OpenClaw rejected auth token (HTTP ${response.status})`,
+          data: {
+            plugin: "notifier-openclaw",
+            status: response.status,
+            url,
+          },
+        });
+        lastError = new Error(
+          `OpenClaw rejected the auth token (HTTP ${response.status}). Check hooks.token in OpenClaw config.`,
+        );
+        throw lastError;
+      }
+
       lastError = new Error(`OpenClaw webhook failed (${response.status}): ${body}`);
 
       if (!isRetryableHttpStatus(response.status)) {
@@ -60,6 +81,28 @@ async function postWithRetry(
     } catch (err) {
       if (err === lastError) throw err;
       lastError = err instanceof Error ? err : new Error(String(err));
+
+      if (
+        lastError.message.includes("ECONNREFUSED") ||
+        lastError.message.includes("ETIMEDOUT") ||
+        lastError.message.includes("ENOTFOUND")
+      ) {
+        recordActivityEvent({
+          sessionId: context.sessionId,
+          source: "notifier",
+          kind: "notifier.unreachable",
+          level: "warn",
+          summary: `OpenClaw gateway unreachable at ${url}`,
+          data: {
+            plugin: "notifier-openclaw",
+            url,
+            errorMessage: lastError.message,
+          },
+        });
+        throw new Error(
+          `Can't reach OpenClaw gateway at ${url}. Is OpenClaw running?`,
+        );
+      }
 
       if (attempt < retries) {
         console.warn(

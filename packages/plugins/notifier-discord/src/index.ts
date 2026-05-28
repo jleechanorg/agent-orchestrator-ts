@@ -1,4 +1,5 @@
 import {
+  recordActivityEvent,
   validateUrl,
   type PluginModule,
   type Notifier,
@@ -157,6 +158,17 @@ async function postWithRetry(
           continue;
         }
         const body = await response.text().catch(() => "");
+        recordActivityEvent({
+          source: "notifier",
+          kind: "notifier.rate_limited",
+          level: "warn",
+          summary: `Discord webhook rate-limit retry budget exhausted`,
+          data: {
+            plugin: "notifier-discord",
+            status: 429,
+            rateLimitRetries,
+          },
+        });
         lastError = new Error(`Discord webhook rate-limited (HTTP 429)${body ? `: ${body.trim()}` : ""}`);
         throw lastError;
       }
