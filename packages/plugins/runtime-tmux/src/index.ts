@@ -12,11 +12,7 @@ import {
   type AttachInfo,
   shellEscape,
 } from "@jleechanorg/ao-core";
-import {
-  AGENT_ALIVE_PATTERNS,
-  isAgentAliveInPane,
-  restartAgentCli,
-} from "./agent-liveness.js";
+import { AGENT_ALIVE_PATTERNS, isAgentAliveInPane, restartAgentCli } from "./agent-liveness.js";
 import { tmux } from "./tmux-utils.js";
 
 // Re-export fork-only liveness utilities so tests and external consumers
@@ -40,7 +36,9 @@ const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]+$/;
 function isGeminiAgent(handle: RuntimeHandle): boolean {
   const launchCommand =
     typeof handle.data?.launchCommand === "string" ? handle.data.launchCommand : "";
-  return launchCommand.toLowerCase().includes("gemini") || launchCommand.toLowerCase().includes("agy");
+  return (
+    launchCommand.toLowerCase().includes("gemini") || launchCommand.toLowerCase().includes("agy")
+  );
 }
 
 /**
@@ -184,9 +182,7 @@ async function doSendWithRetry(handle: RuntimeHandle, message: string): Promise<
   // Gemini: use longer delay since it processes slower
   const byteLen = Buffer.byteLength(message, "utf8");
   const baseDelay = forGemini ? 2000 : 300;
-  const delayMs = isLong
-    ? Math.min(1000 + Math.ceil(byteLen / 1000) * 200, 2000)
-    : baseDelay;
+  const delayMs = isLong ? Math.min(1000 + Math.ceil(byteLen / 1000) * 200, 2000) : baseDelay;
   await sleep(delayMs);
   await tmux("send-keys", "-t", handle.id, "Enter");
 
@@ -213,7 +209,10 @@ async function doSendWithRetry(handle: RuntimeHandle, message: string): Promise<
       const hasQueuedMessage = trimmedOutput.includes("Press up to edit queued messages");
       // Agent has started if: any RECENT activity token is present (last 5 lines),
       // OR the pane no longer ends with our message tail.
-      const recentLines = trimmedOutput.split("\n").filter((l) => l.trim().length > 0).slice(-5);
+      const recentLines = trimmedOutput
+        .split("\n")
+        .filter((l) => l.trim().length > 0)
+        .slice(-5);
       const hasRecentActivity = recentLines.some((line) =>
         AGENT_ALIVE_PATTERNS.some((p) => p.test(line)),
       );
@@ -256,15 +255,22 @@ export function create(): Runtime {
       // tail is appended in both code paths — see KEEP_ALIVE_SHELL.
       const launchCmd = config.launchCommand;
       const shellCommand =
-        launchCmd.length > 200
-          ? writeLaunchScript(launchCmd)
-          : withKeepAliveShell(launchCmd);
+        launchCmd.length > 200 ? writeLaunchScript(launchCmd) : withKeepAliveShell(launchCmd);
 
       // Try creating the session first. If tmux reports a duplicate session name,
       // kill the stale session and retry. This avoids destroying a live session
       // before we know the replacement can be created successfully.
       const createSession = (): Promise<string> =>
-        tmux("new-session", "-d", "-s", sessionName, "-c", config.workspacePath, ...envArgs, shellCommand);
+        tmux(
+          "new-session",
+          "-d",
+          "-s",
+          sessionName,
+          "-c",
+          config.workspacePath,
+          ...envArgs,
+          shellCommand,
+        );
       try {
         await createSession();
       } catch (createErr: unknown) {
@@ -392,7 +398,7 @@ export function create(): Runtime {
 
     async isAvailable(): Promise<boolean> {
       try {
-        await tmux("list-sessions", "-F", "#{session_name}");
+        await tmux("-V");
         return true;
       } catch {
         return false;
