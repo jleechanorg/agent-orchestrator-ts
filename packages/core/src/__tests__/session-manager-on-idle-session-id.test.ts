@@ -15,11 +15,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createSessionManager } from "../session-manager.js";
-import {
-  readMetadata,
-  writeMetadata,
-  updateMetadata,
-} from "../metadata.js";
+import { readMetadata, writeMetadata } from "../metadata.js";
 import {
   getSessionsDir,
   getProjectBaseDir,
