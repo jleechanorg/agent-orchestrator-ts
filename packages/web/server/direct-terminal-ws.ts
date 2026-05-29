@@ -91,6 +91,7 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
   });
 
   const wss = new WebSocketServer({
+    noServer: true,
     path: "/ws",
   });
 
