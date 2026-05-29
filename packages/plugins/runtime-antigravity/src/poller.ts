@@ -62,6 +62,14 @@ function detectStateFromLabel(label: string): DetectedState {
   return "unknown";
 }
 
+interface ConversationDetection {
+  state: DetectedState;
+  /** True when the state came from a conversation-row that matched conversationTitle.
+   *  False when it came from the fallback scan (any element). onIdle must only fire
+   *  when this is true — the fallback scan cannot confirm which session is idle. */
+  conversationFound: boolean;
+}
+
 /**
  * Determine conversation status from the Manager window snapshot.
  *
@@ -71,7 +79,7 @@ function detectStateFromLabel(label: string): DetectedState {
 function detectConversationState(
   conversationTitle: string,
   elements: readonly PeekabooUIElement[],
-): DetectedState {
+): ConversationDetection {
   // First, try to find an element that references this conversation.
   // The Manager window shows conversation titles with status info.
   for (const el of elements) {
@@ -81,23 +89,24 @@ function detectConversationState(
 
     if (matchesConversation) {
       const fromTitle = detectStateFromLabel(el.title);
-      if (fromTitle !== "unknown") return fromTitle;
+      if (fromTitle !== "unknown") return { state: fromTitle, conversationFound: true };
 
       const fromValue = detectStateFromLabel(el.label);
-      if (fromValue !== "unknown") return fromValue;
+      if (fromValue !== "unknown") return { state: fromValue, conversationFound: true };
     }
   }
 
-  // Fallback: scan all elements for status indicators
+  // Fallback: scan all elements for status indicators.
+  // conversationFound is false — we can't confirm which conversation matched.
   for (const el of elements) {
     const fromTitle = detectStateFromLabel(el.title);
-    if (fromTitle !== "unknown") return fromTitle;
+    if (fromTitle !== "unknown") return { state: fromTitle, conversationFound: false };
 
     const fromValue = detectStateFromLabel(el.label);
-    if (fromValue !== "unknown") return fromValue;
+    if (fromValue !== "unknown") return { state: fromValue, conversationFound: false };
   }
 
-  return "unknown";
+  return { state: "unknown", conversationFound: false };
 }
 
 // =============================================================================
@@ -138,7 +147,7 @@ export function createPoller(
         // Always clear inFlight, even on early returns
         currentEntry.inFlight = false;
 
-        const state = detectConversationState(
+        const { state, conversationFound } = detectConversationState(
           conversationTitle,
           result.ui_elements,
         );
@@ -147,13 +156,11 @@ export function createPoller(
 
         const previousState = currentEntry.lastState;
 
-        // Transition: running → idle OR capacity-wait → idle.
-        // Note: unknown → idle is intentionally excluded — conversationTitle equals the
-        // Manager window title and matches all conversations in the snapshot via fallback
-        // scan, which causes false idle transitions for newly-spawned sessions when an
-        // older conversation shows idle first. Require seeing "running" or "capacity-wait"
-        // before firing onIdle. (bd-5o2)
-        if ((previousState === "running" || previousState === "capacity-wait") && state === "idle") {
+        // Transition: running → idle OR capacity-wait → idle, but ONLY when a
+        // conversation-specific row was matched (conversationFound). Without a
+        // specific row match, the fallback scan could pick up an unrelated idle
+        // conversation in the Manager window. (bd-5o2)
+        if (conversationFound && (previousState === "running" || previousState === "capacity-wait") && state === "idle") {
           try {
             callbacks.onIdle(handle);
           } catch {
