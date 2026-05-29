@@ -9,6 +9,7 @@ const {
   mockLstatSync,
   mockReaddirSync,
   mockCopyFileSync,
+  mockSymlinkSync,
 } = vi.hoisted(() => ({
   mockHomedir: vi.fn(() => "/mock/home"),
   mockMkdirSync: vi.fn(),
@@ -16,6 +17,7 @@ const {
   mockLstatSync: vi.fn(),
   mockReaddirSync: vi.fn(() => []),
   mockCopyFileSync: vi.fn(),
+  mockSymlinkSync: vi.fn(),
 }));
 
 vi.mock("node:os", () => ({
@@ -32,20 +34,23 @@ vi.mock("node:fs", () => ({
     lstatSync: mockLstatSync,
     readdirSync: mockReaddirSync,
     copyFileSync: mockCopyFileSync,
+    symlinkSync: mockSymlinkSync,
   },
   mkdirSync: mockMkdirSync,
   existsSync: mockExistsSync,
   lstatSync: mockLstatSync,
   readdirSync: mockReaddirSync,
   copyFileSync: mockCopyFileSync,
+  symlinkSync: mockSymlinkSync,
 }));
 
 import { create } from "./index.js";
 
-function makeLaunchConfig(permissions?: AgentLaunchConfig["permissions"]): AgentLaunchConfig {
+function makeLaunchConfig(permissions?: AgentLaunchConfig["permissions"], prompt?: string): AgentLaunchConfig {
   return {
     sessionId: "sess-1",
     permissions,
+    prompt,
     projectConfig: {
       name: "my-project",
       repo: "owner/repo",
@@ -72,6 +77,14 @@ describe("antigravity getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig("default"));
 
     expect(cmd).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("incorporates launchConfig.prompt if provided", () => {
+    const agent = create();
+
+    const cmd = agent.getLaunchCommand(makeLaunchConfig(undefined, "hello 'world'"));
+
+    expect(cmd).toContain("agy --prompt-interactive 'hello '\\''world'\\''");
   });
 });
 
