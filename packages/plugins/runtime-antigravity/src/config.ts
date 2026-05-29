@@ -28,7 +28,7 @@ export const AntigravityConfigSchema = z.object({
   /** CLI flags for fallback. */
   fallbackCliFlags: z
     .array(z.string())
-    .default(["--dangerously-skip-permissions"]),
+    .default(["--bare", "--dangerously-skip-permissions"]),
   /** Max fallback retries. */
   fallbackMaxRetries: z.number().min(0).default(3),
 });

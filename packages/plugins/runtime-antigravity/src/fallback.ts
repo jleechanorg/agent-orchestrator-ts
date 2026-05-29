@@ -39,7 +39,7 @@ export interface FallbackResult {
 
 const DEFAULT_CONFIG: FallbackConfig = {
   cliBin: "claude",
-  cliFlags: ["--dangerously-skip-permissions"],
+  cliFlags: ["--bare", "--dangerously-skip-permissions"],
   maxRetries: 3,
 };
 

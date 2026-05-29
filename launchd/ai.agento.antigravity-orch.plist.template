@@ -12,7 +12,7 @@
     <string>@LAUNCHER_SCRIPT@</string>
     <string>/bin/bash</string>
     <string>-c</string>
-    <string>cd @WORKING_DIR@ && claude --dangerously-skip-permissions --max-turns 200 -p "$(cat ~/.antigravity-loop/orchestrator-prompt.md)"</string>
+    <string>cd @WORKING_DIR@ && claude --bare --dangerously-skip-permissions --max-turns 200 -p "$(cat ~/.antigravity-loop/orchestrator-prompt.md)"</string>
   </array>
 
   <key>RunAtLoad</key>

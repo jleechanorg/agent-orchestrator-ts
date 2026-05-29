@@ -104,16 +104,16 @@ const antigravityOverrides: Partial<Agent> = {
       console.debug(`[antigravity] Failed to copy .gemini directory: ${(err as Error).message}`);
     }
 
-    // Redirect conversations and brain to /tmp so they don't accumulate in the persistent
-    // session dir. /tmp is cleaned on reboot; workers never need cross-session history.
+    // Redirect conversations and brain to /tmp so they don't persist in the session dir.
+    // /tmp is cleaned on reboot; sessions never need cross-session conversation history.
     const agDir = path.join(destGemini, "antigravity");
-    const tmpBase = path.join("/tmp", `ao-${launchConfig.sessionId}`);
+    const tmpBase = path.join(os.tmpdir(), `ao-${launchConfig.sessionId}`);
     for (const sub of ["conversations", "brain"]) {
       const sessionSub = path.join(agDir, sub);
       const tmpSub = path.join(tmpBase, sub);
       if (!fs.existsSync(sessionSub)) {
         fs.mkdirSync(tmpSub, { recursive: true });
-        fs.mkdirSync(agDir, { recursive: true });
+        fs.mkdirSync(path.dirname(sessionSub), { recursive: true });
         fs.symlinkSync(tmpSub, sessionSub);
       }
     }

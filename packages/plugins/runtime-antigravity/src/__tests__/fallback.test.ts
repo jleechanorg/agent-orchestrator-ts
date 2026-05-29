@@ -185,7 +185,7 @@ describe("executeWithFallback()", () => {
     // Default cliBin is "claude", default flag is --dangerously-skip-permissions
     expect(mockExecFile).toHaveBeenCalledWith(
       "claude",
-      ["--dangerously-skip-permissions", "-p", "task"],
+      ["--bare", "--dangerously-skip-permissions", "-p", "task"],
       expect.objectContaining({ cwd: "/tmp/ws" }),
       expect.any(Function),
     );
