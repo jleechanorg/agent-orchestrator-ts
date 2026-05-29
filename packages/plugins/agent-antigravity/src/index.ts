@@ -66,7 +66,11 @@ const antigravityOverrides: Partial<Agent> = {
             childItemName === "antigravity-browser-profile" ||
             childItemName === "conversations" || // runtime-only; not needed for new sessions
             childItemName === "brain" ||         // runtime-only; not needed for new sessions
-            childItemName === "worktrees"        // never inherit prior worktrees
+            childItemName === "worktrees" ||     // never inherit prior worktrees
+            childItemName === "playground" ||    // runtime workspace, 400MB+, starts fresh each session
+            childItemName === "antigravity-ide" || // IDE integration data, 400MB+, not needed in CLI sessions
+            childItemName === "brain.backup" ||  // backup, not needed per-session
+            childItemName === "implicit.backup"  // backup, not needed per-session
           ) {
             return;
           }
