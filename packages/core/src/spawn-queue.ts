@@ -213,26 +213,6 @@ export async function drainSpawnQueue(
     return 0;
   }
 
-  const load = await (async () => {
-    try {
-      return await (deps.getLoadAvg ?? getLoadAvg1m)();
-    } catch {
-      return null;
-    }
-  })();
-  if (load !== null && load > 20) {
-    observer.recordOperation({
-      metric: "lifecycle_poll",
-      operation: "lifecycle.spawn_queue.load_high",
-      outcome: "success",
-      correlationId,
-      projectId,
-      data: { load1m: load, threshold: 20 },
-      level: "warn",
-    });
-    return 0;
-  }
-
   const state = loadSpawnQueueState(configPath, projectId);
   const nextRequest = state.pending[0];
   if (!nextRequest) {

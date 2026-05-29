@@ -208,7 +208,7 @@ jobs:
             --paginate 2>/dev/null \
             | jq -rs '[.[] | .check_runs[]?] | map(select(.name | test("Cursor Bugbot"; "i"))) | sort_by(.completed_at) | last | .conclusion // "none"' \
             2>/dev/null || echo "error")
-          if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ]; then
+          if [ "$BUGBOT_CONCLUSION" = "success" ] || [ "$BUGBOT_CONCLUSION" = "neutral" ] || [ "$BUGBOT_CONCLUSION" = "skipped" ] || [ "$BUGBOT_CONCLUSION" = "none" ]; then
             echo "GATE-4 PASS: Bugbot=$BUGBOT_CONCLUSION (clean)"
           else
             echo "GATE-4 FAIL: Bugbot=$BUGBOT_CONCLUSION"

@@ -48,7 +48,16 @@ const antigravityOverrides: Partial<Agent> = {
     
     // Ensure session directory exists
     fs.mkdirSync(sessionHome, { recursive: true });
-    
+
+    // Symlink the real keychain dir so Security framework can find/store tokens.
+    // macOS Security looks at $HOME/Library/Keychains — without this, headless
+    // agy workers show "A keychain cannot be found to store 'antigravity.'"
+    const sessionKeychainDir = path.join(sessionHome, "Library", "Keychains");
+    if (!fs.existsSync(sessionKeychainDir)) {
+      fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
+      fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+    }
+
     const srcGemini = path.join(userHome, ".gemini");
     const destGemini = path.join(sessionHome, ".gemini");
     
@@ -60,7 +69,20 @@ const antigravityOverrides: Partial<Agent> = {
       if (isDirectory) {
         fs.mkdirSync(dest, { recursive: true });
         fs.readdirSync(src).forEach((childItemName: string) => {
-          if (childItemName === "tmp" || childItemName === "history" || childItemName === "antigravity-browser-profile") {
+          if (
+            childItemName === "tmp" ||
+            childItemName === "history" ||
+            childItemName === "antigravity-browser-profile" ||
+            childItemName === "conversations" || // runtime-only; not needed for new sessions
+            childItemName === "brain" ||         // runtime-only; not needed for new sessions
+            childItemName === "worktrees" ||     // never inherit prior worktrees
+            childItemName === "playground" ||    // runtime workspace, 400MB+, starts fresh each session
+            childItemName === "antigravity-ide" || // IDE integration data, 400MB+, not needed in CLI sessions
+            childItemName === "brain.backup" ||  // backup, not needed per-session
+            childItemName === "implicit.backup" || // backup, not needed per-session
+            childItemName === "scratch" ||       // runtime scratch space, starts fresh each session
+            childItemName === "log"              // runtime logs, not needed for new sessions
+          ) {
             return;
           }
           copyRecursiveSync(path.join(src, childItemName), path.join(dest, childItemName));
@@ -79,7 +101,21 @@ const antigravityOverrides: Partial<Agent> = {
     } catch (err) {
       console.debug(`[antigravity] Failed to copy .gemini directory: ${(err as Error).message}`);
     }
-    
+
+    // Redirect conversations and brain to /tmp so they don't accumulate in the persistent
+    // session dir. /tmp is cleaned on reboot; workers never need cross-session history.
+    const agDir = path.join(destGemini, "antigravity");
+    const tmpBase = path.join("/tmp", `ao-${launchConfig.sessionId}`);
+    for (const sub of ["conversations", "brain"]) {
+      const sessionSub = path.join(agDir, sub);
+      const tmpSub = path.join(tmpBase, sub);
+      if (!fs.existsSync(sessionSub)) {
+        fs.mkdirSync(tmpSub, { recursive: true });
+        fs.mkdirSync(agDir, { recursive: true });
+        fs.symlinkSync(tmpSub, sessionSub);
+      }
+    }
+
     return {
       ...baseEnv,
       HOME: sessionHome,
