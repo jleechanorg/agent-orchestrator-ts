@@ -282,7 +282,8 @@ describe("lifecycle", () => {
     const handle = makeHandle("capacity-wait-idle-test");
 
     poller.start(handle, 1);
-    // Poll 1: running
+    // Poll 1: "running" label returns detectStateFromLabel→"unknown"; tick exits early.
+    // lastState stays "unknown" — capacity-wait only needs to precede idle, not running.
     mockSee.mockResolvedValueOnce(makeSeeResult("running"));
     await vi.advanceTimersByTimeAsync(15_000);
     expect(onIdle).not.toHaveBeenCalled();
