@@ -464,7 +464,7 @@ jobs:
             LATEST_CR_RAW=$(jq -rs 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .state != "COMMENTED")] | sort_by(.submitted_at) | last | .state // "none"' "$_REVIEWS_S4_TMP" 2>&1)
             LATEST_CR_EXIT=$?
             rm -f "$_REVIEWS_S4_TMP"
-            set -e
+            # Deliberately not re-enabling set -e to avoid crashing on gh api failures
             if [ $LATEST_CR_EXIT -ne 0 ]; then
               CR_STATE="ERROR"
             else
