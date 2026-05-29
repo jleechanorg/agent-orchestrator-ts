@@ -2269,6 +2269,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
         const normalizedWorktree = normalizePath(worktreePath);
 
+        // Never delete the main (linked) worktree — it is the project root itself.
+        // git worktree list --porcelain includes it as the first entry; if the
+        // ao-orchestrator session recorded project.path as its worktree and later
+        // reaches a terminal state, Pass 2 would call rmSync on the entire repo.
+        if (normalizedWorktree === normalizePath(repoPath)) continue;
+
         // Skip worktrees inside ~/.worktrees/ — handled by Pass 1
         if (isPathInside(normalizedWorktree, worktreeBaseDir)) continue;
 
