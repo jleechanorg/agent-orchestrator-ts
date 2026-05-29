@@ -2268,6 +2268,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         // Skip worktrees inside ~/.worktrees/ — handled by Pass 1
         if (isPathInside(normalizedWorktree, worktreeBaseDir)) continue;
 
+        // Skip the main worktree (repo root) — deleting it would destroy the project directory.
+        // git worktree remove fails on the main worktree; rmSync fallback would wipe the repo.
+        if (normalizePath(worktreePath) === normalizePath(repoPath)) continue;
+
         // Look up this worktree in session metadata
         // Iterate all sessions for this project and find the one with matching worktree
         const sessionsDir = getProjectSessionsDir(project);
