@@ -9,6 +9,7 @@ const {
   mockLstatSync,
   mockReaddirSync,
   mockCopyFileSync,
+  mockSymlinkSync,
 } = vi.hoisted(() => ({
   mockHomedir: vi.fn(() => "/mock/home"),
   mockMkdirSync: vi.fn(),
@@ -16,6 +17,7 @@ const {
   mockLstatSync: vi.fn(),
   mockReaddirSync: vi.fn(() => []),
   mockCopyFileSync: vi.fn(),
+  mockSymlinkSync: vi.fn(),
 }));
 
 vi.mock("node:os", () => ({
@@ -32,12 +34,14 @@ vi.mock("node:fs", () => ({
     lstatSync: mockLstatSync,
     readdirSync: mockReaddirSync,
     copyFileSync: mockCopyFileSync,
+    symlinkSync: mockSymlinkSync,
   },
   mkdirSync: mockMkdirSync,
   existsSync: mockExistsSync,
   lstatSync: mockLstatSync,
   readdirSync: mockReaddirSync,
   copyFileSync: mockCopyFileSync,
+  symlinkSync: mockSymlinkSync,
 }));
 
 import { create } from "./index.js";
