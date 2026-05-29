@@ -99,7 +99,7 @@ jobs:
         run: |
           # Re-establish auth header in case the self-hosted runner cleaned it up
           git config --local "http.https://github.com/.extraheader" "Authorization: basic $(echo -n "x-access-token:${{ github.token }}" | base64)" 2>/dev/null || true
-          git fetch origin ${{ needs.pr-context.outputs.base_ref }}:${{ needs.pr-context.outputs.base_ref }}
+          git fetch origin ${{ needs.pr-context.outputs.base_ref }}:${{ needs.pr-context.outputs.base_ref }} || echo "Base branch fetch failed (network issue) — coverage diff will run without base ref"
           git branch main origin/main || true
 
       - name: Clean up stale lock files
