@@ -23,6 +23,7 @@ import {
   createPluginRegistry,
   type OrchestratorConfig,
   generateConfigHash,
+  generateInstanceId,
   getSessionsDir,
   generateTmuxName,
 } from "@jleechanorg/ao-core";
@@ -101,11 +102,13 @@ describe.skipIf(!tmuxOk)("CLI-Core integration (hash-based architecture)", () =>
   }, 30_000);
 
   it("sessions are stored in hash-based project-specific directory", () => {
-    // Calculate expected directory
-    const hash = generateConfigHash(configPath);
+    // Calculate expected directory using actual instance ID (includes isolated project hash suffix)
+    const instanceId = generateInstanceId(configPath, repoPath);
     const sessionsDir = getSessionsDir(configPath, repoPath);
 
-    expect(sessionsDir).toMatch(new RegExp(`\\.agent-orchestrator/${hash}-test-repo/sessions$`));
+    expect(sessionsDir).toMatch(
+      new RegExp(`\\.agent-orchestrator/${instanceId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/sessions$`),
+    );
   });
 
   it("session metadata includes tmuxName field", () => {
