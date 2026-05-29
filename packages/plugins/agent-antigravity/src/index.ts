@@ -60,7 +60,14 @@ const antigravityOverrides: Partial<Agent> = {
       if (isDirectory) {
         fs.mkdirSync(dest, { recursive: true });
         fs.readdirSync(src).forEach((childItemName: string) => {
-          if (childItemName === "tmp" || childItemName === "history" || childItemName === "antigravity-browser-profile") {
+          if (
+            childItemName === "tmp" ||
+            childItemName === "history" ||
+            childItemName === "antigravity-browser-profile" ||
+            childItemName === "conversations" || // runtime-only; not needed for new sessions
+            childItemName === "brain" ||         // runtime-only; not needed for new sessions
+            childItemName === "worktrees"        // never inherit prior worktrees
+          ) {
             return;
           }
           copyRecursiveSync(path.join(src, childItemName), path.join(dest, childItemName));
@@ -79,7 +86,21 @@ const antigravityOverrides: Partial<Agent> = {
     } catch (err) {
       console.debug(`[antigravity] Failed to copy .gemini directory: ${(err as Error).message}`);
     }
-    
+
+    // Redirect conversations and brain to /tmp so they don't accumulate in the persistent
+    // session dir. /tmp is cleaned on reboot; workers never need cross-session history.
+    const agDir = path.join(destGemini, "antigravity");
+    const tmpBase = path.join(os.tmpdir(), `ao-${launchConfig.sessionId}`);
+    for (const sub of ["conversations", "brain"]) {
+      const sessionSub = path.join(agDir, sub);
+      const tmpSub = path.join(tmpBase, sub);
+      if (!fs.existsSync(sessionSub)) {
+        fs.mkdirSync(tmpSub, { recursive: true });
+        fs.mkdirSync(agDir, { recursive: true });
+        fs.symlinkSync(tmpSub, sessionSub);
+      }
+    }
+
     return {
       ...baseEnv,
       HOME: sessionHome,
