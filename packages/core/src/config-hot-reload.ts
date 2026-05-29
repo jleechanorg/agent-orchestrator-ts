@@ -5,8 +5,7 @@
  * so it lives here to avoid merge conflicts.
  */
 
-import { watch, type FSWatcher } from "node:fs";
-import { existsSync } from "node:fs";
+import { watch, existsSync, type FSWatcher } from "node:fs";
 import type { OrchestratorConfig } from "./types.js";
 
 export interface ConfigHotReloadOptions {

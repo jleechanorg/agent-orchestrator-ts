@@ -28,6 +28,7 @@ import { applyForkExtensions } from "./plugin-registry-extensions.js";
  * - Must be non-empty and match a safe subset of characters
  */
 const SAFE_PLUGIN_NAME_RE = /^[a-zA-Z0-9_-]+$/;
+// eslint-disable-next-line no-control-regex
 const PATH_TRAVERSAL_RE = /\.\.|[/\\\x00]/;
 
 export class UnsafePluginNameError extends Error {

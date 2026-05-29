@@ -105,7 +105,6 @@ import { deriveDisplayName } from "./upstream-session-header.js";
 import { clearTerminalMarkersForNonTerminalState } from "./fork-terminal-marker-hygiene.js";
 import { killProcessTreeAndWait } from "./kill-and-wait.js";
 import { findDuplicateSessions } from "./session-duplicate-detect.js";
-import { validateStatusTransition } from "./session-status-validator.js";
 
 const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
