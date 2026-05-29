@@ -106,15 +106,34 @@ const antigravityOverrides: Partial<Agent> = {
 
     // Redirect conversations and brain to /tmp so they don't persist in the session dir.
     // /tmp is cleaned on reboot; sessions never need cross-session conversation history.
-    const agDir = path.join(destGemini, "antigravity");
     const tmpBase = path.join(os.tmpdir(), `ao-${launchConfig.sessionId}`);
-    for (const sub of ["conversations", "brain"]) {
-      const sessionSub = path.join(agDir, sub);
-      const tmpSub = path.join(tmpBase, sub);
-      if (!fs.existsSync(sessionSub)) {
-        fs.mkdirSync(tmpSub, { recursive: true });
-        fs.mkdirSync(path.dirname(sessionSub), { recursive: true });
-        fs.symlinkSync(tmpSub, sessionSub);
+    for (const appDirName of ["antigravity", "antigravity-cli", "antigravity-ide"]) {
+      const agDir = path.join(destGemini, appDirName);
+      for (const sub of ["conversations", "brain"]) {
+        const sessionSub = path.join(agDir, sub);
+        const tmpSub = path.join(tmpBase, appDirName, sub);
+        if (!fs.existsSync(sessionSub)) {
+          fs.mkdirSync(tmpSub, { recursive: true });
+          fs.mkdirSync(path.dirname(sessionSub), { recursive: true });
+          fs.symlinkSync(tmpSub, sessionSub);
+        }
+      }
+    }
+
+    // Disable session retention inside settings.json for the session to prevent extra bloat
+    const settingsPath = path.join(destGemini, "settings.json");
+    if (fs.existsSync(settingsPath)) {
+      try {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+        if (settings.general) {
+          if (!settings.general.sessionRetention) {
+            settings.general.sessionRetention = {};
+          }
+          settings.general.sessionRetention.enabled = false;
+        }
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
+      } catch (err) {
+        console.debug(`[antigravity] Failed to update settings.json: ${(err as Error).message}`);
       }
     }
 
