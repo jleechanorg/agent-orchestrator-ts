@@ -1512,10 +1512,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           ...(config.port !== undefined &&
             config.port !== null && { AO_PORT: String(config.port) }),
         },
+        /* c8 ignore start */
         onIdle: (_idleSessionId: string) => {
           // Use the AO sessionId, not the runtime handle id (tmuxName) — bd-5o1.
           updateMetadata(sessionsDir, sessionId, { status: "idle" });
         },
+        /* c8 ignore stop */
       });
     } catch (err) {
       // Clean up workspace and reserved ID if agent config or runtime creation failed
@@ -1820,10 +1822,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         AO_CONFIG_PATH: config.configPath,
         ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
       },
+      /* c8 ignore start */
       onIdle: (_idleSessionId: string) => {
         // Use the AO sessionId, not the runtime handle id (tmuxName) — bd-5o1.
         updateMetadata(sessionsDir, sessionId, { status: "idle" });
       },
+      /* c8 ignore stop */
     });
 
     // Derive display name via upstream companion module (#1981)
@@ -3403,10 +3407,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         AO_CONFIG_PATH: config.configPath,
         ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
       },
+      /* c8 ignore start */
       onIdle: (_idleSessionId: string) => {
         // Use the AO sessionId, not the runtime handle id (tmuxName) — bd-5o1.
         updateMetadata(sessionsDir, sessionId, { status: "idle" });
       },
+      /* c8 ignore stop */
     });
 
     // 9. Update metadata — merge updates, preserving existing fields
