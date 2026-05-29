@@ -70,7 +70,9 @@ const antigravityOverrides: Partial<Agent> = {
             childItemName === "playground" ||    // runtime workspace, 400MB+, starts fresh each session
             childItemName === "antigravity-ide" || // IDE integration data, 400MB+, not needed in CLI sessions
             childItemName === "brain.backup" ||  // backup, not needed per-session
-            childItemName === "implicit.backup"  // backup, not needed per-session
+            childItemName === "implicit.backup" || // backup, not needed per-session
+            childItemName === "scratch" ||       // runtime scratch space, starts fresh each session
+            childItemName === "log"              // runtime logs, not needed for new sessions
           ) {
             return;
           }
