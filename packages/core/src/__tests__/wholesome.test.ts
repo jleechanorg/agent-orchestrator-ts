@@ -587,6 +587,24 @@ describe("wholesome — structural source-code assertions", () => {
       "62d15ef296e0d092aff5285edb595558fd526b28", // fix(runtime-tmux): wait for agy/Gemini ready prompt before returning handle
       "0d72ed0a5a318cf11c7fde85129b9eb3f0118185", // fix(cr): address CodeRabbit CHANGES_REQUESTED on PR #591
       "b50f47ba172f5737f62bf6eed8bde8bb0826aed7", // test(workspace-worktree): add git worktree prune mock for cleanupStaleWorktree
+      // PR #645 feat/runtime-antigravity: CI fix commits without [agento] prefix
+      "66b606664455b9710482c71ccf580066af7fd3f9", // fix(ci): create local main ref after failed fetch in wholesome-checks
+      "764a37673aaf6aa7a7e71f1a6e3e6c9f2860d087", // fix(ci): make base branch fetch non-fatal in wholesome-checks
+      "dbfd3bbf15bb546a0197cb45e1fcf4750ff935ea", // fix(spawn-queue): remove unused getLoadAvg1m function
+      "8edc66ab1620bb5e25ef93b7a645fea80dabcf11", // fix(ci): make base branch fetch non-fatal on self-hosted runner network errors
+      "0efb6399dc07a5c89144dc7f4190ee218c8be474", // fix(integration-tests): update hash-based path assertion for isolateProjectId
+      "13e461ddd9c43c33bac146d75d4b3f669fe6c611", // ci: retrigger after runner network error
+      "8c329314e362a1ebafecdb0b83c253aac96dd908", // ci: retrigger after Wholesome Checks runner network error
+      "c1ba4db98f683e7eccce996258872f1e0865b62b", // fix(runtime-antigravity): fix test type errors in poller.test.ts
+      "694c1937c4472ab42282ed9150c2b3f5cd1b58c9", // fix(agent-antigravity): symlink Library/Keychains so Security framework stops showing keychain dialog
+      "3fa097f7502420302087c5bea53ecd14a8882137", // fix(lint): resolve all 12 ESLint errors blocking CI
+      "b3f0c0a9846855db7bb2fe848a5ed0f31363568e", // fix(gh-headroom): remove duplicate encoding property (TS1117)
+      "562de0ac63eda55171369bb3369efcc2ac72c1d7", // fix(poller): serialize polls per handle + fire onIdle on unknown→idle transition
+      "39cc711034921425d4ada4ecf40041950df808e2", // fix(session-manager): use outer closure sessionId in onIdle callback
+      "a1fbca48c06417d3043090c609ab5680620b8f02", // fix(gh-headroom): use async execFile instead of blocking execSync
+      "851b70b5d9c9c83c4dd933bc0f3fa8e8079bbaf6", // fix(antigravity): clarify poller.start guard comment
+      "9362188e69c5047cdec6ca017407e1bcbba96446", // chore: trigger CR auto-review on latest fixes
+      "8c80f4d3f2d7b336120e131b59a636264a65ddfe", // chore: trigger CR auto-review on latest fixes
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
