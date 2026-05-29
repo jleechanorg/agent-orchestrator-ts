@@ -349,6 +349,56 @@ describe("lifecycle", () => {
     poller.stopAll();
   });
 
+  it("fallback scan (conversationFound=false) does NOT advance lastState — real transition still fires", async () => {
+    // Regression: if the UI snapshot has no element matching conversationTitle,
+    // the fallback scan runs with conversationFound=false. The buggy code would
+    // advance lastState to "idle" even without a confirmed row match, suppressing
+    // the later real running→idle transition. (bd-5o2)
+    const onIdle = vi.fn();
+    const onCapacityWait = vi.fn();
+    const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
+
+    const poller = createPoller(15_000, callbacks);
+    const handle = makeHandle("fallback-state-test");
+
+    poller.start(handle, 1);
+
+    // Poll 1: "Test Conversation" row is running — lastState advances to "running"
+    mockSee.mockResolvedValueOnce(makeSeeResult("progress_activity Working"));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(onIdle).not.toHaveBeenCalled();
+
+    // Poll 2: snapshot has an UNRELATED row (not "Test Conversation").
+    // Fallback scan detects "idle" but conversationFound=false —
+    // lastState must NOT advance to "idle".
+    const unrelatedIdle: PeekabooSeeResult = {
+      snapshot_id: "snap-other",
+      ui_elements: [
+        {
+          id: "other",
+          role: "AXStaticText",
+          title: "Other Conversation",
+          label: "Done 3m ago",
+          description: "",
+          role_description: "",
+          is_actionable: false,
+        },
+      ],
+    };
+    mockSee.mockResolvedValueOnce(unrelatedIdle);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(onIdle).not.toHaveBeenCalled(); // guard already prevents firing
+
+    // Poll 3: "Test Conversation" row is now idle — lastState is still "running"
+    // so the running→idle transition fires correctly.
+    mockSee.mockResolvedValueOnce(makeSeeResult("Done 4m ago"));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(onIdle).toHaveBeenCalledTimes(1);
+    expect(onIdle).toHaveBeenCalledWith(handle);
+
+    poller.stopAll();
+  });
+
   it("start with managerWindowId=-1 is a no-op (no timer, no peekaboo call)", () => {
     // Regression: fallback sessions (CLI-only) pass managerWindowId=-1. The poller
     // must skip silently without starting any timer.

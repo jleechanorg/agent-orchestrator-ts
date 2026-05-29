@@ -179,9 +179,12 @@ export function createPoller(
           }
         }
 
-        // Only update lastState after callbacks succeed — prevents lost
-        // transitions when onIdle/onCapacityWait throws (Cursor BugBot #e4679aca).
-        currentEntry.lastState = state;
+        // Only update lastState when the conversation row was found. A fallback
+        // scan (conversationFound=false) cannot confirm state for this session —
+        // advancing would suppress the real transition when the row is next seen.
+        if (conversationFound) {
+          currentEntry.lastState = state;
+        }
       })
       .catch(() => {
         const currentEntry = entries.get(handle.id);
