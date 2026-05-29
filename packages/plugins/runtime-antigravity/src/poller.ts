@@ -147,8 +147,13 @@ export function createPoller(
 
         const previousState = currentEntry.lastState;
 
-        // Transition: running → idle OR unknown → idle (covers first-poll-already-idle case)
-        if ((previousState === "running" || previousState === "unknown") && state === "idle") {
+        // Transition: running → idle OR capacity-wait → idle.
+        // Note: unknown → idle is intentionally excluded — conversationTitle equals the
+        // Manager window title and matches all conversations in the snapshot via fallback
+        // scan, which causes false idle transitions for newly-spawned sessions when an
+        // older conversation shows idle first. Require seeing "running" or "capacity-wait"
+        // before firing onIdle. (bd-5o2)
+        if ((previousState === "running" || previousState === "capacity-wait") && state === "idle") {
           try {
             callbacks.onIdle(handle);
           } catch {

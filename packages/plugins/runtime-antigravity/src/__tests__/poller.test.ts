@@ -250,9 +250,11 @@ describe("lifecycle", () => {
     expect(mockSee).not.toHaveBeenCalled();
   });
 
-  it("fires onIdle on unknown → idle transition (first poll already idle)", async () => {
-    // Regression: if the first poll observes idle state (session completed before
-    // the first 15s tick), the transition unknown→idle must fire onIdle.
+  it("does NOT fire onIdle on unknown → idle (prevents false idle from unrelated Manager rows)", async () => {
+    // Guard: unknown → idle must NOT fire onIdle because conversationTitle equals
+    // the Manager window title, which matches all conversations via fallback scan.
+    // An older idle conversation row could cause a false idle event for a newly-
+    // spawned session before it has been seen as "running". (bd-5o2)
     const onIdle = vi.fn();
     const onCapacityWait = vi.fn();
     const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
@@ -265,6 +267,34 @@ describe("lifecycle", () => {
     poller.start(handle, 1);
     await vi.advanceTimersByTimeAsync(15_000);
 
+    // onIdle must NOT fire from unknown → idle to prevent false positives
+    expect(onIdle).not.toHaveBeenCalled();
+
+    poller.stopAll();
+  });
+
+  it("fires onIdle on capacity-wait → idle transition", async () => {
+    const onIdle = vi.fn();
+    const onCapacityWait = vi.fn();
+    const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
+
+    const poller = createPoller(15_000, callbacks);
+    const handle = makeHandle("capacity-wait-idle-test");
+
+    poller.start(handle, 1);
+    // Poll 1: running
+    mockSee.mockResolvedValueOnce(makeSeeResult("running"));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(onIdle).not.toHaveBeenCalled();
+
+    // Poll 2: capacity-wait
+    mockSee.mockResolvedValueOnce(makeSeeResult("Waiting for capacity"));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(onIdle).not.toHaveBeenCalled();
+
+    // Poll 3: idle — transition from capacity-wait → idle must fire onIdle
+    mockSee.mockResolvedValueOnce(makeSeeResult("Done 2m ago"));
+    await vi.advanceTimersByTimeAsync(15_000);
     expect(onIdle).toHaveBeenCalledTimes(1);
     expect(onIdle).toHaveBeenCalledWith(handle);
 
@@ -294,14 +324,22 @@ describe("lifecycle", () => {
 
     poller.start(handle, 1);
 
-    // First tick: advance time → interval fires → peekaboo called → resolve idle
+    // Tick 0: advance time → resolve running — establishes lastState = "running"
+    // (unknown → idle no longer fires onIdle; need running first per bd-5o2 fix)
+    await vi.advanceTimersByTimeAsync(15_000);
+    const runningEls = makeSeeResult("progress_activity Working").ui_elements[0];
+    peekabooResolve!({ snapshot_id: "s0", ui_elements: [runningEls] });
+    await vi.advanceTimersByTimeAsync(0); // flush microtasks
+    expect(onIdle).not.toHaveBeenCalled();
+
+    // Tick 1: advance time → resolve idle — running → idle fires onIdle (throws)
     await vi.advanceTimersByTimeAsync(15_000);
     const idleEls1 = makeSeeResult("Done 3m ago").ui_elements[0];
     peekabooResolve!({ snapshot_id: "s1", ui_elements: [idleEls1] });
     await vi.advanceTimersByTimeAsync(0); // flush microtasks → onIdle throws
     expect(onIdle).toHaveBeenCalledTimes(1);
 
-    // Second tick: advance time → interval fires → peekaboo called → resolve idle → onIdle succeeds
+    // Tick 2: advance time → resolve idle → onIdle succeeds (lastState still "running")
     await vi.advanceTimersByTimeAsync(15_000);
     const idleEls2 = makeSeeResult("Done 4m ago").ui_elements[0];
     peekabooResolve!({ snapshot_id: "s2", ui_elements: [idleEls2] });
