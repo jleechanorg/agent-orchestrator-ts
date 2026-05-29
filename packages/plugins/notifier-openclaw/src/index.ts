@@ -101,6 +101,7 @@ async function postWithRetry(
         });
         throw new Error(
           `Can't reach OpenClaw gateway at ${url}. Is OpenClaw running?`,
+          { cause: lastError },
         );
       }
 

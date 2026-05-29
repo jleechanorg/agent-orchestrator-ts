@@ -90,9 +90,9 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
     res.end("Not found");
   });
 
+  // WebSocket server is integrated via manual HTTP upgrade routing below.
   const wss = new WebSocketServer({
     noServer: true,
-    path: "/ws",
   });
 
   // Manual upgrade routing — accept both /ws (existing) and /ao-terminal-mux

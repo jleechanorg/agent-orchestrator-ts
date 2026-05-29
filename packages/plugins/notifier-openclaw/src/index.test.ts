@@ -165,11 +165,11 @@ describe("notifier-openclaw", () => {
   it("does not retry on 4xx response", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValue({ ok: false, status: 401, text: () => Promise.resolve("unauthorized") });
+      .mockResolvedValue({ ok: false, status: 400, text: () => Promise.resolve("unauthorized") });
     vi.stubGlobal("fetch", fetchMock);
 
     const notifier = create({ token: "tok", retries: 2, retryDelayMs: 1 });
-    await expect(notifier.notify(makeEvent())).rejects.toThrow("OpenClaw webhook failed (401)");
+    await expect(notifier.notify(makeEvent())).rejects.toThrow("OpenClaw webhook failed (400)");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
