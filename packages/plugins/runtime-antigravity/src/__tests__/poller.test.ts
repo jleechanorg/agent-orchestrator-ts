@@ -289,7 +289,7 @@ describe("lifecycle", () => {
 
     // Use mockImplementation with closure to control each call (avoids
     // mockResolvedValueOnce queue exhaustion with vi.asyncFn).
-    let peekabooResolve: (v: { snapshot_id: string; ui_elements: typeof makeSeeResult extends (r: string) => infer R ? R : never }) => void;
+    let peekabooResolve: (v: PeekabooSeeResult) => void;
     mockSee.mockImplementation(() => new Promise((r) => { peekabooResolve = r; }));
 
     poller.start(handle, 1);
@@ -344,9 +344,7 @@ describe("lifecycle", () => {
     const handle = makeHandle("inflight-test");
 
     // peekaboo.see is slow — never resolves on its own
-    let resolveSee: (
-      v: { snapshot_id: string; ui_elements: Array<{ id: string; role: string; title: string; value: string; bounds: { x: number; y: number; width: number; height: number } }> },
-    ) => void;
+    let resolveSee: (v: PeekabooSeeResult) => void = () => {};
     mockSee.mockImplementation(
       () =>
         new Promise((resolve) => {
