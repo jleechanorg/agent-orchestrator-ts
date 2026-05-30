@@ -38,7 +38,10 @@ _init_output=$(bash -lic 'declare -x' 2>&1; echo "exit:$?") || exit_code=$?
 # Also explicitly source .bashrc since login shell may not have sourced it
 # bash -lic sources .bash_profile which typically sources .bashrc, but not guaranteed.
 # Doing it explicitly ensures we get .bashrc-only exports regardless of .bash_profile content.
-_bashrc_output=$(bash -ic 'source ~/.bashrc 2>/dev/null || true; declare -x' 2>&1; echo "exit:$?") || true
+_bashrc_output=$(bash -ic 'source ~/.bashrc 2>&1; declare -x' 2>&1; echo "exit:$?") || {
+  echo "WARNING: bash -ic sourcing .bashrc failed (exit $?), PATH may be incomplete" >&2
+  _bashrc_output=""
+}
 
 # Merge outputs from both invocations
 _init_output="${_init_output}
@@ -68,6 +71,38 @@ fi
 eval "$(echo "$_init_output" | grep -E 'declare -x [A-Za-z_][A-Za-z0-9_]*="[^"]+"[[:space:]]*$|declare -x [A-Za-z_][A-Za-z0-9_]*='"'"'[^'"'"']+'"'"'[[:space:]]*$|declare -x [A-Za-z_][A-Za-z0-9_]*=[^[:space:]]' || true)" || {
   echo "WARNING: failed to parse shell exports, continuing with plist defaults" >&2
 }
+
+# Fallback PATH augmentation: ensure critical binaries (gh, tmux, git, node) are findable
+# even if the shell profile subshell failed or returned an incomplete environment.
+# Homebrew on Apple Silicon lives at /opt/homebrew/bin; Intel at /usr/local/bin.
+# nvm default alias: resolve via the alias file to avoid hardcoding a version.
+_nvm_default_node=""
+if [[ -s "${NVM_DIR:-$HOME/.nvm}/alias/default" ]]; then
+  _nvm_ver=$(cat "${NVM_DIR:-$HOME/.nvm}/alias/default" | tr -d '[:space:]')
+  # Resolve indirection (alias → alias → version)
+  for _i in 1 2 3; do
+    if [[ -s "${NVM_DIR:-$HOME/.nvm}/alias/$_nvm_ver" ]]; then
+      _nvm_ver=$(cat "${NVM_DIR:-$HOME/.nvm}/alias/$_nvm_ver" | tr -d '[:space:]')
+    else
+      break
+    fi
+  done
+  _nvm_default_node="${NVM_DIR:-$HOME/.nvm}/versions/node/${_nvm_ver}/bin"
+fi
+for _bin_dir in /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin "$HOME/bin" "$HOME/.local/bin" "$_nvm_default_node"; do
+  [[ -z "$_bin_dir" || ! -d "$_bin_dir" ]] && continue
+  case ":${PATH}:" in
+    *":$_bin_dir:"*) ;;  # already present
+    *) PATH="$_bin_dir:$PATH" ;;
+  esac
+done
+export PATH
+# Log any still-missing critical binaries so failures are diagnosable
+for _bin in gh tmux git node; do
+  if ! command -v "$_bin" >/dev/null 2>&1; then
+    echo "WARNING: launchd-launcher: '$_bin' not found in PATH=$PATH" >&2
+  fi
+done
 
 # Restore plist-provided ANTHROPIC_BASE_URL if shell profile overwrote it with a stale localhost.
 # Only acts when the plist provided a valid non-localhost endpoint that was overwritten.
