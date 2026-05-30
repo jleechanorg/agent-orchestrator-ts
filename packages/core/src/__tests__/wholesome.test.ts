@@ -607,6 +607,7 @@ describe("wholesome — structural source-code assertions", () => {
       "8c80f4d3f2d7b336120e131b59a636264a65ddfe", // chore: trigger CR auto-review on latest fixes
       "ab7495b9d15c8d6cf50bc0bba59c966c3ff1b746", // fix: address CodeRabbit actionable comments (CI fallback + test cleanup)
       "86ec750e6254111e92bde8d93449a37cd43b7265", // fix(poller): guard onCapacityWait with conversationFound like onIdle
+      "a1a12bb57ad6d2c8c0b5cde4c192944dd79a3160", // fix(ci): fix prefer-const lint error + add 60s timeout for getPRTitle
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
