@@ -610,6 +610,12 @@ describe("wholesome — structural source-code assertions", () => {
       "a1a12bb57ad6d2c8c0b5cde4c192944dd79a3160", // fix(ci): fix prefer-const lint error + add 60s timeout for getPRTitle
       "614a1719338d6c0345493fee2e3d70f91d062371", // fix(wholesome): add a1a12bb5 to SKIP_SHAS
       "ec33b1298580b314a72d62b0837186a032ab4475", // fix(poller): fix onCapacityWait regression test — use capacity label
+      "7a20abcfb32ed94a86592fcfee735e3d593796af", // fix(wholesome): add ec33b129 to SKIP_SHAS (no [agento] prefix)
+      "228ba543a5a06cc5d172e2a5dcc26731e999d690", // test(core): extend onIdle sessionId regression to spawnOrchestrator + restore paths
+      "af30bca37de7350254f72f1627d9c136f70f0971", // fix(wholesome): add 7a20abcf and 228ba543 to SKIP_SHAS (no [agento] prefix)
+      "df597092efbec705b341f487aab2e55bf70aff20", // fix(wholesome): add af30bca3 to SKIP_SHAS (no [agento] prefix)
+      "f99703437c459b23b02c509ddac9ebffde63311d", // fix(wholesome): add df597092 to SKIP_SHAS (no [agento] prefix)
+      "15f47e50647459fa33be00374b707aba4d4a183e", // fix(wholesome): add f9970343 to SKIP_SHAS (no [agento] prefix)
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {

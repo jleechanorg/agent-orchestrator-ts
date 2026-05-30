@@ -172,4 +172,70 @@ describe("onIdle uses AO sessionId (not runtime handle id) for updateMetadata", 
     const wrongMeta = readMetadata(sessionsDir, "tmux-handle-xyz");
     expect(wrongMeta).toBeNull();
   });
+
+  it("spawnOrchestrator onIdle writes metadata to AO sessionId directory, not tmuxName directory", async () => {
+    // Make isAlive return false so existing orchestrator session is cleaned up
+    // and runtime.create is invoked again, giving us an onIdle to capture.
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    let capturedOnIdle: ((id: string) => void) | undefined;
+    vi.mocked(mockRuntime.create).mockImplementation(async (opts) => {
+      capturedOnIdle = (opts as { onIdle?: (id: string) => void }).onIdle;
+      // Return a tmuxName that differs from the AO sessionId ("app-orchestrator")
+      return makeHandle("tmux-orch-xyz");
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    expect(session.id).toBe("app-orchestrator");
+    expect(capturedOnIdle).toBeDefined();
+
+    // Invoke onIdle with the tmuxName (what old code used to persist under)
+    capturedOnIdle!("tmux-orch-xyz");
+
+    // Verify metadata was written to the AO sessionId ("app-orchestrator"), NOT tmuxName
+    const aoMeta = readMetadata(sessionsDir, "app-orchestrator");
+    expect(aoMeta?.status).toBe("idle");
+
+    const wrongMeta = readMetadata(sessionsDir, "tmux-orch-xyz");
+    expect(wrongMeta).toBeNull();
+  });
+
+  it("restore onIdle writes metadata to AO sessionId directory, not tmuxName directory", async () => {
+    // Create workspace directory so existsSync(workspacePath) passes
+    mkdirSync(join(tmpDir, "my-app"), { recursive: true });
+
+    // Write a killed session for "app-1" — restore() only works on terminal sessions
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "feat/test-1",
+      status: "killed",
+      project: "my-app",
+      requestedTask: "some task",
+    });
+
+    let capturedOnIdle: ((id: string) => void) | undefined;
+    vi.mocked(mockRuntime.create).mockImplementation(async (opts) => {
+      capturedOnIdle = (opts as { onIdle?: (id: string) => void }).onIdle;
+      // Return a tmuxName that differs from the AO sessionId ("app-1")
+      return makeHandle("tmux-restore-xyz");
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const session = await sm.restore("app-1");
+
+    expect(session.id).toBe("app-1");
+    expect(capturedOnIdle).toBeDefined();
+
+    // Invoke onIdle with the tmuxName (what old code used to persist under)
+    capturedOnIdle!("tmux-restore-xyz");
+
+    // Verify metadata was written to the AO sessionId ("app-1"), NOT tmuxName
+    const aoMeta = readMetadata(sessionsDir, "app-1");
+    expect(aoMeta?.status).toBe("idle");
+
+    const wrongMeta = readMetadata(sessionsDir, "tmux-restore-xyz");
+    expect(wrongMeta).toBeNull();
+  });
 });
