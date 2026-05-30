@@ -27,10 +27,16 @@ jobs:
           fetch-depth: 0  # need full history for merge-base computation
 
       - name: Ensure base branch ref is available
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
           # Re-establish auth header in case the self-hosted runner cleaned it up
           git config --local "http.https://github.com/.extraheader" "Authorization: basic $(echo -n "x-access-token:${{ github.token }}" | base64)" 2>/dev/null || true
-          git fetch origin ${{ github.base_ref }}:${{ github.base_ref }} || echo "Base branch fetch failed (network issue on self-hosted runner) — continuing"
+          if [ -n "${BASE_REF}" ]; then
+            git fetch origin -- "${BASE_REF}:${BASE_REF}" || echo "Base branch fetch failed (network issue on self-hosted runner) — continuing"
+          else
+            echo "Base branch ref is empty — continuing"
+          fi
 
       - uses: pnpm/action-setup@v4
 
