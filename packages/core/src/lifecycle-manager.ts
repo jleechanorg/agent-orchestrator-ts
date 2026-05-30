@@ -593,7 +593,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // CLI may still be initializing, so we must skip probes entirely regardless
     // of age. A session stuck in "spawning" past the grace period is an anomaly
     // that lifecycle will handle via timeout elsewhere.
-    const sessionAgeMs = Date.now() - session.createdAt.getTime();
     if (session.status === "spawning") {
       return { status: "spawning", agentDead: false };
     }

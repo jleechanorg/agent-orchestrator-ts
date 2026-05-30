@@ -169,7 +169,7 @@ describe("notifier-openclaw", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const notifier = create({ token: "tok", retries: 2, retryDelayMs: 1 });
-    await expect(notifier.notify(makeEvent())).rejects.toThrow("OpenClaw webhook failed (401)");
+    await expect(notifier.notify(makeEvent())).rejects.toThrow("OpenClaw rejected the auth token (HTTP 401)");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

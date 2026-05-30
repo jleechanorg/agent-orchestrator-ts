@@ -62,6 +62,14 @@ function detectStateFromLabel(label: string): DetectedState {
   return "unknown";
 }
 
+interface ConversationDetection {
+  state: DetectedState;
+  /** True when the state came from a conversation-row that matched conversationTitle.
+   *  False when it came from the fallback scan (any element). onIdle must only fire
+   *  when this is true — the fallback scan cannot confirm which session is idle. */
+  conversationFound: boolean;
+}
+
 /**
  * Determine conversation status from the Manager window snapshot.
  *
@@ -71,7 +79,7 @@ function detectStateFromLabel(label: string): DetectedState {
 function detectConversationState(
   conversationTitle: string,
   elements: readonly PeekabooUIElement[],
-): DetectedState {
+): ConversationDetection {
   // First, try to find an element that references this conversation.
   // The Manager window shows conversation titles with status info.
   for (const el of elements) {
@@ -81,23 +89,24 @@ function detectConversationState(
 
     if (matchesConversation) {
       const fromTitle = detectStateFromLabel(el.title);
-      if (fromTitle !== "unknown") return fromTitle;
+      if (fromTitle !== "unknown") return { state: fromTitle, conversationFound: true };
 
       const fromValue = detectStateFromLabel(el.label);
-      if (fromValue !== "unknown") return fromValue;
+      if (fromValue !== "unknown") return { state: fromValue, conversationFound: true };
     }
   }
 
-  // Fallback: scan all elements for status indicators
+  // Fallback: scan all elements for status indicators.
+  // conversationFound is false — we can't confirm which conversation matched.
   for (const el of elements) {
     const fromTitle = detectStateFromLabel(el.title);
-    if (fromTitle !== "unknown") return fromTitle;
+    if (fromTitle !== "unknown") return { state: fromTitle, conversationFound: false };
 
     const fromValue = detectStateFromLabel(el.label);
-    if (fromValue !== "unknown") return fromValue;
+    if (fromValue !== "unknown") return { state: fromValue, conversationFound: false };
   }
 
-  return "unknown";
+  return { state: "unknown", conversationFound: false };
 }
 
 // =============================================================================
@@ -107,6 +116,7 @@ function detectConversationState(
 interface PollerEntry {
   timerId: ReturnType<typeof setInterval>;
   lastState: DetectedState;
+  inFlight: boolean; // Prevents overlapping peekaboo.see() calls
 }
 
 /**
@@ -123,7 +133,8 @@ export function createPoller(
 
   function pollTick(handle: RuntimeHandle, managerWindowId: number): void {
     const entry = entries.get(handle.id);
-    if (!entry) return;
+    if (!entry || entry.inFlight) return;
+    entry.inFlight = true;
 
     const session = handle.data["session"] as AntigravitySession | undefined;
     const conversationTitle = session?.conversationTitle ?? "";
@@ -133,8 +144,10 @@ export function createPoller(
       .then((result) => {
         const currentEntry = entries.get(handle.id);
         if (!currentEntry) return; // stopped while awaiting
+        // Always clear inFlight, even on early returns
+        currentEntry.inFlight = false;
 
-        const state = detectConversationState(
+        const { state, conversationFound } = detectConversationState(
           conversationTitle,
           result.ui_elements,
         );
@@ -143,8 +156,11 @@ export function createPoller(
 
         const previousState = currentEntry.lastState;
 
-        // Transition: running → idle
-        if (previousState === "running" && state === "idle") {
+        // Transition: running → idle OR capacity-wait → idle, but ONLY when a
+        // conversation-specific row was matched (conversationFound). Without a
+        // specific row match, the fallback scan could pick up an unrelated idle
+        // conversation in the Manager window. (bd-5o2)
+        if (conversationFound && (previousState === "running" || previousState === "capacity-wait") && state === "idle") {
           try {
             callbacks.onIdle(handle);
           } catch {
@@ -153,8 +169,10 @@ export function createPoller(
           }
         }
 
-        // Capacity-wait detection (fire every tick while in this state)
-        if (state === "capacity-wait") {
+        // Capacity-wait detection (fire every tick while in this state).
+        // Guard with conversationFound — same reason as onIdle: fallback scan
+        // could match an unrelated conversation in the Manager window. (bd-5o2)
+        if (conversationFound && state === "capacity-wait") {
           try {
             callbacks.onCapacityWait(handle, CAPACITY_RETRY_MS);
           } catch {
@@ -163,12 +181,16 @@ export function createPoller(
           }
         }
 
-        // Only update lastState after callbacks succeed — prevents lost
-        // transitions when onIdle/onCapacityWait throws (Cursor BugBot #e4679aca).
-        currentEntry.lastState = state;
+        // Only update lastState when the conversation row was found. A fallback
+        // scan (conversationFound=false) cannot confirm state for this session —
+        // advancing would suppress the real transition when the row is next seen.
+        if (conversationFound) {
+          currentEntry.lastState = state;
+        }
       })
       .catch(() => {
-        // Silently ignore peekaboo errors — will retry on next tick
+        const currentEntry = entries.get(handle.id);
+        if (currentEntry) currentEntry.inFlight = false;
       });
   }
 
@@ -185,6 +207,7 @@ export function createPoller(
           intervalMs,
         ),
         lastState: "unknown",
+        inFlight: false,
       };
       entries.set(handle.id, entry);
     },

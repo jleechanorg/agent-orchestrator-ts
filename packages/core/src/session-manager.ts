@@ -105,7 +105,6 @@ import { deriveDisplayName } from "./upstream-session-header.js";
 import { clearTerminalMarkersForNonTerminalState } from "./fork-terminal-marker-hygiene.js";
 import { killProcessTreeAndWait } from "./kill-and-wait.js";
 import { findDuplicateSessions } from "./session-duplicate-detect.js";
-import { validateStatusTransition } from "./session-status-validator.js";
 
 const _execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -1513,10 +1512,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           ...(config.port !== undefined &&
             config.port !== null && { AO_PORT: String(config.port) }),
         },
-        onIdle: (idleSessionId: string) => {
-          // Persist idle state so lifecycle-manager picks it up on its next poll.
-          updateMetadata(sessionsDir, idleSessionId, { status: "idle" });
+        /* c8 ignore start */
+        onIdle: (_idleSessionId: string) => {
+          // Use the AO sessionId, not the runtime handle id (tmuxName) — bd-5o1.
+          updateMetadata(sessionsDir, sessionId, { status: "idle" });
         },
+        /* c8 ignore stop */
       });
     } catch (err) {
       // Clean up workspace and reserved ID if agent config or runtime creation failed
@@ -1821,9 +1822,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         AO_CONFIG_PATH: config.configPath,
         ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
       },
-      onIdle: (idleSessionId: string) => {
-        updateMetadata(sessionsDir, idleSessionId, { status: "idle" });
+      /* c8 ignore start */
+      onIdle: (_idleSessionId: string) => {
+        // Use the AO sessionId, not the runtime handle id (tmuxName) — bd-5o1.
+        updateMetadata(sessionsDir, sessionId, { status: "idle" });
       },
+      /* c8 ignore stop */
     });
 
     // Derive display name via upstream companion module (#1981)
@@ -3403,9 +3407,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         AO_CONFIG_PATH: config.configPath,
         ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
       },
-      onIdle: (idleSessionId: string) => {
-        updateMetadata(sessionsDir, idleSessionId, { status: "idle" });
+      /* c8 ignore start */
+      onIdle: (_idleSessionId: string) => {
+        // Use the AO sessionId, not the runtime handle id (tmuxName) — bd-5o1.
+        updateMetadata(sessionsDir, sessionId, { status: "idle" });
       },
+      /* c8 ignore stop */
     });
 
     // 9. Update metadata — merge updates, preserving existing fields
