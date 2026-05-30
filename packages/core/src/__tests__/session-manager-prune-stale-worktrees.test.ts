@@ -442,7 +442,10 @@ describe("pruneStaleWorktrees", () => {
     const mainRepoPath = config.projects["my-app"]!.path;
     mkdirSync(mainRepoPath, { recursive: true });
 
-    // Write a killed session metadata file whose worktree matches the main repo path
+    // Resolve the real path of the repository to simulate production where git/metadata resolves symlinks
+    const realRepoPath = realpathSync(mainRepoPath);
+
+    // Write a killed session metadata file whose worktree matches the resolved real repo path
     const configHash = createHash("sha256")
       .update(dirname(realpathSync(configPath)))
       .digest("hex")
@@ -458,13 +461,13 @@ describe("pruneStaleWorktrees", () => {
     // and worktree pointing to the main project repository.
     writeFileSync(
       join(sessionsDir, "ao-orchestrator"),
-      `worktree=${mainRepoPath}\nstatus=killed\n`,
+      `worktree=${realRepoPath}\nstatus=killed\n`,
       "utf8",
     );
 
     // git worktree list --porcelain always lists the main worktree as the first entry
     const porcelainOutput =
-      `worktree ${mainRepoPath}\nHEAD abc123\nbranch refs/heads/main\n\n`;
+      `worktree ${realRepoPath}\nHEAD abc123\nbranch refs/heads/main\n\n`;
 
     const removedPaths: string[] = [];
     mockExecFile = async (cmd: string, args?: readonly string[]) => {
@@ -493,7 +496,8 @@ describe("pruneStaleWorktrees", () => {
     await sm.pruneStaleWorktrees();
 
     // Guard must prevent deletion of the main project dir,
-    // so the main repo path should not be removed as a worktree, and the directory must still exist.
+    // so neither the unresolved main repo path nor its resolved real path should be removed.
+    expect(removedPaths).not.toContain(realRepoPath);
     expect(removedPaths).not.toContain(mainRepoPath);
     expect(existsSync(mainRepoPath)).toBe(true);
   });

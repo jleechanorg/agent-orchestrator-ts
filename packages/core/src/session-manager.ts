@@ -20,6 +20,7 @@ import {
   utimesSync,
   rmSync,
   readFileSync,
+  realpathSync,
 } from "node:fs";
 import { execFile } from "node:child_process";
 import { basename, join, resolve } from "node:path";
@@ -426,7 +427,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   }
 
   function normalizePath(path: string): string {
-    return resolve(path).replace(/\/$/, "");
+    let resolved = resolve(path);
+    try {
+      resolved = realpathSync(resolved);
+    } catch {
+      // Path may not exist yet, that's fine
+    }
+    return resolved.replace(/\/$/, "");
   }
 
   function isPathInside(path: string, parentPath: string): boolean {
