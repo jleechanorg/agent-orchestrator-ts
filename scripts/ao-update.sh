@@ -18,23 +18,32 @@ find_repo_root_from() {
   return 1
 }
 
+# Resolve physical script path to handle symlinks correctly
+TARGET_SCRIPT="${BASH_SOURCE[0]}"
+while [ -L "$TARGET_SCRIPT" ]; do
+  LINK_TARGET="$(readlink "$TARGET_SCRIPT")"
+  if [[ "$LINK_TARGET" == /* ]]; then
+    TARGET_SCRIPT="$LINK_TARGET"
+  else
+    TARGET_SCRIPT="$(dirname "$TARGET_SCRIPT")/$LINK_TARGET"
+  fi
+done
+
+SCRIPT_DIR="$(cd "$(dirname "$TARGET_SCRIPT")" && pwd)"
+
 resolve_repo_root() {
   if [ -n "${AO_REPO_ROOT:-}" ]; then
     printf '%s\n' "$AO_REPO_ROOT"
     return 0
   fi
 
-  local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  find_repo_root_from "$script_dir" || find_repo_root_from "$PWD"
+  find_repo_root_from "$SCRIPT_DIR" || find_repo_root_from "$PWD"
 }
 
 if ! REPO_ROOT="$(resolve_repo_root)"; then
   printf 'Unable to find Agent Orchestrator repo root. Fix: run via ao update or set AO_REPO_ROOT.\n' >&2
   exit 1
 fi
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/ao-config-topology.sh
 source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
