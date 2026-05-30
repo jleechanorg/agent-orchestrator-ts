@@ -90,8 +90,15 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
     res.end("Not found");
   });
 
+  // Use noServer mode: this server does manual upgrade routing via the http
+  // `server.on("upgrade")` handler below (it forwards /ws and /ao-terminal-mux
+  // to wss.handleUpgrade). The `ws` library requires exactly one of
+  // `port`/`server`/`noServer`; passing only `path` throws at construction
+  // ("One and only one of the port, server, or noServer options must be
+  // specified"), which previously crashed the direct-terminal server on boot
+  // and left the dashboard console WebSocket (DirectTerminal) unable to connect.
   const wss = new WebSocketServer({
-    path: "/ws",
+    noServer: true,
   });
 
   // Manual upgrade routing — accept both /ws (existing) and /ao-terminal-mux
