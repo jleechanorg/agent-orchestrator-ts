@@ -122,7 +122,7 @@ const antigravityOverrides: Partial<Agent> = {
             // Already a real directory/file, do not overwrite/symlink
             needsSymlink = false;
           }
-        } catch (e) {
+        } catch {
           // Entry doesn't exist, we can proceed
         }
 
