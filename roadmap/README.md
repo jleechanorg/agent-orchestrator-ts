@@ -4,6 +4,11 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-05-29
+
+- **PR #640 OPEN — robust CLI update sync & rebuild** — 8 commits on `fix/robust-cli-update-sync-rebuild`: robust `ao-update.sh` root resolution (ported from upstream), antigravity as default agent in config schema, `noServer` WS fix for onboarding TypeError. Formatting mismatches and review threads fully resolved recursively — **Evidence Gate** and **CodeRabbit** are now **🟢 SUCCESS**. Waiting for explicit user merge approval. Bead [bd-us56](https://github.com/jleechanorg/agent-orchestrator/issues/646) successfully closed.
+- **Upstream sync Phase 5 complete** — 34 PRs merged (#596–#639), 1,274 upstream commits audited. All MUST/HIGH/DEFER items integrated. Upstream sync epics: bd-qor4, bd-e228, bd-ykk1, bd-lbgc.
+
 ### 2026-05-18
 
 - **PR #568 OPEN — opencode JSON pipeline + CI OOM fixes** — 15 commits on `fix/opencode-json-pipeline`: `singleThread` serialization for CLI OOM, file-capture before kill, exit-137 graceful handling, agent-opencode plugin rewrite eliminating hanging shell-pipe JSON loop (bd-vqd3), skeptic bugbot gate 4 fix. Priority: land this first.

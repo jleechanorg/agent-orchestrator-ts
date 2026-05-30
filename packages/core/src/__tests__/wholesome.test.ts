@@ -103,7 +103,13 @@ function gitRefExists(ref: string, cwd: string): boolean {
 function resolveBaseBranch(cwd: string): string {
   const raw = process.env.GITHUB_BASE_REF;
   if (raw !== undefined && raw !== "") {
-    return validateGitRef(raw, "GITHUB_BASE_REF");
+    const validated = validateGitRef(raw, "GITHUB_BASE_REF");
+    if (gitRefExists(`origin/${validated}`, cwd)) {
+      return `origin/${validated}`;
+    }
+    if (gitRefExists(validated, cwd)) {
+      return validated;
+    }
   }
 
   for (const candidate of ["origin/HEAD", "origin/main", "main", "HEAD^"]) {

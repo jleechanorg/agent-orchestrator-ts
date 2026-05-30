@@ -82,8 +82,8 @@ esac\nexit 0`,
     expect(commands).toContain("git fetch origin main");
     expect(commands).toContain("git pull --ff-only origin main");
     expect(commands).toContain("pnpm install");
-    expect(commands).toContain("pnpm --filter @jleechanorg/ao-core clean");
-    expect(commands).toContain("pnpm --filter @jleechanorg/ao-cli build");
+    expect(commands).toContain("pnpm -r --if-present clean");
+    expect(commands).toContain("pnpm build");
     // pnpm install -g may be logged as "pnpm install -g <path>" (direct) or
     // "node ...pnpm.cjs install -g <path>" (Corepack shim via fake node).
     // Assert on the key substring: install -g with the correct target path.

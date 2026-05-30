@@ -1,8 +1,49 @@
 #!/bin/bash
 
 set -euo pipefail
-REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+is_repo_root() {
+  local candidate="$1"
+  [ -f "$candidate/packages/ao/package.json" ] && [ -d "$candidate/packages/cli" ]
+}
+
+find_repo_root_from() {
+  local dir="$1"
+  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    if is_repo_root "$dir"; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
+# Resolve physical script path to handle symlinks correctly
+TARGET_SCRIPT="${BASH_SOURCE[0]}"
+while [ -L "$TARGET_SCRIPT" ]; do
+  LINK_TARGET="$(readlink "$TARGET_SCRIPT")"
+  if [[ "$LINK_TARGET" == /* ]]; then
+    TARGET_SCRIPT="$LINK_TARGET"
+  else
+    TARGET_SCRIPT="$(dirname "$TARGET_SCRIPT")/$LINK_TARGET"
+  fi
+done
+
+SCRIPT_DIR="$(cd "$(dirname "$TARGET_SCRIPT")" && pwd)"
+
+resolve_repo_root() {
+  if [ -n "${AO_REPO_ROOT:-}" ]; then
+    printf '%s\n' "$AO_REPO_ROOT"
+    return 0
+  fi
+
+  find_repo_root_from "$SCRIPT_DIR" || find_repo_root_from "$PWD"
+}
+
+if ! REPO_ROOT="$(resolve_repo_root)"; then
+  printf 'Unable to find Agent Orchestrator repo root. Fix: run via ao update or set AO_REPO_ROOT.\n' >&2
+  exit 1
+fi
 # shellcheck source=./lib/ao-config-topology.sh
 source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
@@ -258,15 +299,8 @@ if [ "$SMOKE_ONLY" = false ]; then
   run_cmd git pull --ff-only origin "$TARGET_BRANCH"
   retry_cmd 3 pnpm install
 
-  run_cmd pnpm --filter @jleechanorg/ao-core clean
-  run_cmd pnpm --filter @jleechanorg/ao-cli clean
-  run_cmd pnpm --filter @jleechanorg/ao-web clean
-
-  run_cmd pnpm --filter @jleechanorg/ao-core build
-  run_cmd pnpm --filter @jleechanorg/ao-cli build
-  run_cmd pnpm --filter @jleechanorg/ao-web build
-  run_cmd pnpm --filter @jleechanorg/ao-plugin-agent-wafer build
-  run_cmd pnpm --filter @jleechanorg/ao-plugin-agent-minimax build
+  run_cmd pnpm -r --if-present clean
+  run_cmd pnpm build
 
   printf '\nRefreshing ao launcher (pnpm install -g %s)...\n' "$REPO_ROOT/packages/cli"
   (

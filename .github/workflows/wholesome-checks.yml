@@ -27,6 +27,8 @@ jobs:
           fetch-depth: 0  # need full history for merge-base computation
 
       - name: Ensure base branch ref is available
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
           # Re-establish auth header in case the self-hosted runner cleaned it up
           git config --local "http.https://github.com/.extraheader" "Authorization: basic $(echo -n "x-access-token:${{ github.token }}" | base64)" 2>/dev/null || true
