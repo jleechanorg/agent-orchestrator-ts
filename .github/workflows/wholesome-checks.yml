@@ -32,10 +32,12 @@ jobs:
         run: |
           # Re-establish auth header in case the self-hosted runner cleaned it up
           git config --local "http.https://github.com/.extraheader" "Authorization: basic $(echo -n "x-access-token:${{ github.token }}" | base64)" 2>/dev/null || true
-          if [ -n "${BASE_REF}" ]; then
-            git fetch origin -- "${BASE_REF}:${BASE_REF}" || echo "Base branch fetch failed (network issue on self-hosted runner) — continuing"
+          if git fetch origin "${{ github.base_ref }}":"${{ github.base_ref }}"; then
+            git branch "${{ github.base_ref }}" "origin/${{ github.base_ref }}" 2>/dev/null || true
           else
-            echo "Base branch ref is empty — continuing"
+            echo "Base branch fetch failed (network issue on self-hosted runner) — falling back to origin/main"
+            git fetch origin main || true
+            git branch "${{ github.base_ref }}" "origin/main" 2>/dev/null || true
           fi
 
       - uses: pnpm/action-setup@v4

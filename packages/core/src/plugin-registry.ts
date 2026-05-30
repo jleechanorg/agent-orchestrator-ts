@@ -23,12 +23,13 @@ import { applyForkExtensions } from "./plugin-registry-extensions.js";
  * cannot be exploited for path traversal or code injection.
  *
  * Rejection criteria:
- * - Path traversal: .. or / or \ or null byte
+ * - Path traversal: .. or / or \  (PATH_TRAVERSAL_RE)
+ * - Non-safe characters incl. null byte: caught by SAFE_PLUGIN_NAME_RE ([a-zA-Z0-9_-])
  * - Code injection: characters that could break import paths or eval contexts
  * - Must be non-empty and match a safe subset of characters
  */
 const SAFE_PLUGIN_NAME_RE = /^[a-zA-Z0-9_-]+$/;
-const PATH_TRAVERSAL_RE = /\.\.|[/\\\x00]/;
+const PATH_TRAVERSAL_RE = /\.\.|[/\\]/;
 
 export class UnsafePluginNameError extends Error {
   constructor(public readonly name: string, reason: string) {
