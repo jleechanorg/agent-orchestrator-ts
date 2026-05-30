@@ -117,5 +117,26 @@ describe("workspacePolicy", () => {
       const targetPath = join(customProjectDir, "my-project", "session-xyz");
       expect(shouldDestroyWorkspacePath(project, "my-project", targetPath, configPath)).toBe(true);
     });
+
+    it("returns true if workspacePath is inside the default clone directory", () => {
+      const defaultClonePath = join(homedir(), ".ao-clones", "my-project", "session-abc");
+      expect(shouldDestroyWorkspacePath(project, "my-project", defaultClonePath, configPath)).toBe(true);
+    });
+
+    it("returns true if workspacePath is inside a custom global cloneDir", () => {
+      const customGlobalCloneDir = join(rootDir, "custom-global-clones");
+      writeFileSync(configPath, `cloneDir: "${customGlobalCloneDir}"\nprojects: {}\n`, "utf-8");
+
+      const targetPath = join(customGlobalCloneDir, "my-project", "session-abc");
+      expect(shouldDestroyWorkspacePath(project, "my-project", targetPath, configPath)).toBe(true);
+    });
+
+    it("returns true if workspacePath is inside a custom per-project cloneDir", () => {
+      const customProjectCloneDir = join(rootDir, "custom-project-clones");
+      project.cloneDir = customProjectCloneDir;
+
+      const targetPath = join(customProjectCloneDir, "my-project", "session-xyz");
+      expect(shouldDestroyWorkspacePath(project, "my-project", targetPath, configPath)).toBe(true);
+    });
   });
 });

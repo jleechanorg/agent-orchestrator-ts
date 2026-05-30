@@ -66,6 +66,26 @@ export function shouldDestroyWorkspacePath(
     roots.push(join(expandedProject, projectId || basename(project.path)));
   }
 
+  // 3. Add default clone base directory
+  roots.push(join(homedir(), ".ao-clones", projectId || basename(project.path)));
+
+  // 4. Add configured global cloneDir if present
+  try {
+    const globalConfig = loadConfig(configPath);
+    if (globalConfig.cloneDir) {
+      const expandedGlobalClone = expandPath(globalConfig.cloneDir);
+      roots.push(join(expandedGlobalClone, projectId || basename(project.path)));
+    }
+  } catch {
+    // ignore config loading errors
+  }
+
+  // 5. Add configured per-project cloneDir if present
+  if (project.cloneDir) {
+    const expandedProjectClone = expandPath(project.cloneDir);
+    roots.push(join(expandedProjectClone, projectId || basename(project.path)));
+  }
+
   const legacyIds = new Set<string>();
   if (projectId) {
     legacyIds.add(projectId);

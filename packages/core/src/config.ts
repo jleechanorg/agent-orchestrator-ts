@@ -315,6 +315,8 @@ const ProjectConfigSchema = z.object({
   mergeGate: MergeGateConfigSchema.optional(),
   // Override the global worktree base directory for this project.
   worktreeDir: z.string().optional(),
+  // Override the global clone base directory for this project.
+  cloneDir: z.string().optional(),
   // bd-6jc: Kill session after this many consecutive SCM failures. Overrides global.
   scmFailureThreshold: z.number().int().min(1).max(100).optional(),
 
@@ -393,6 +395,8 @@ const OrchestratorConfigSchema = z.object({
   autoMerge: AutoMergeOverrideSchema.optional(),
   // Global worktree base directory; can be overridden per-project.
   worktreeDir: z.string().optional(),
+  // Global clone base directory; can be overridden per-project.
+  cloneDir: z.string().optional(),
   // bd-g884: Source shell init files to pull API keys into process.env.
   // Security: envSource is restricted to known shell init files or /etc/environment.
   // This prevents a malicious repo-local config from sourcing arbitrary scripts
