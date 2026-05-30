@@ -29,8 +29,7 @@ import { applyForkExtensions } from "./plugin-registry-extensions.js";
  * - Must be non-empty and match a safe subset of characters
  */
 const SAFE_PLUGIN_NAME_RE = /^[a-zA-Z0-9_-]+$/;
-// eslint-disable-next-line no-control-regex
-const PATH_TRAVERSAL_RE = /\.\.|[/\\\x00]/;
+const PATH_TRAVERSAL_RE = /\.\.|[/\\]/;
 
 export class UnsafePluginNameError extends Error {
   constructor(public readonly name: string, reason: string) {
@@ -43,7 +42,7 @@ export function validatePluginName(name: string): void {
   if (!name || name.length === 0) {
     throw new UnsafePluginNameError(name, "name must be non-empty");
   }
-  if (PATH_TRAVERSAL_RE.test(name)) {
+  if (PATH_TRAVERSAL_RE.test(name) || name.includes("\0")) {
     throw new UnsafePluginNameError(name, "contains path traversal characters");
   }
   if (!SAFE_PLUGIN_NAME_RE.test(name)) {
