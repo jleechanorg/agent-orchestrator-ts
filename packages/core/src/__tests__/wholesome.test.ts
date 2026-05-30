@@ -608,6 +608,8 @@ describe("wholesome — structural source-code assertions", () => {
       "ab7495b9d15c8d6cf50bc0bba59c966c3ff1b746", // fix: address CodeRabbit actionable comments (CI fallback + test cleanup)
       "86ec750e6254111e92bde8d93449a37cd43b7265", // fix(poller): guard onCapacityWait with conversationFound like onIdle
       "a1a12bb57ad6d2c8c0b5cde4c192944dd79a3160", // fix(ci): fix prefer-const lint error + add 60s timeout for getPRTitle
+      "614a1719338d6c0345493fee2e3d70f91d062371", // fix(wholesome): add a1a12bb5 to SKIP_SHAS
+      "ec33b1298580b314a72d62b0837186a032ab4475", // fix(poller): fix onCapacityWait regression test — use capacity label
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
