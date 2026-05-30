@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, rmSync, existsSync, writeFileSync, realpathSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, writeFileSync, realpathSync, symlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID, createHash } from "node:crypto";
@@ -442,10 +442,7 @@ describe("pruneStaleWorktrees", () => {
     const mainRepoPath = config.projects["my-app"]!.path;
     mkdirSync(mainRepoPath, { recursive: true });
 
-    // Resolve the real path of the repository to simulate production where git/metadata resolves symlinks
-    const realRepoPath = realpathSync(mainRepoPath);
-
-    // Write a killed session metadata file whose worktree matches the resolved real repo path
+    // Write a killed session metadata file whose worktree matches the main repo path
     const configHash = createHash("sha256")
       .update(dirname(realpathSync(configPath)))
       .digest("hex")
@@ -461,13 +458,13 @@ describe("pruneStaleWorktrees", () => {
     // and worktree pointing to the main project repository.
     writeFileSync(
       join(sessionsDir, "ao-orchestrator"),
-      `worktree=${realRepoPath}\nstatus=killed\n`,
+      `worktree=${mainRepoPath}\nstatus=killed\n`,
       "utf8",
     );
 
     // git worktree list --porcelain always lists the main worktree as the first entry
     const porcelainOutput =
-      `worktree ${realRepoPath}\nHEAD abc123\nbranch refs/heads/main\n\n`;
+      `worktree ${mainRepoPath}\nHEAD abc123\nbranch refs/heads/main\n\n`;
 
     const removedPaths: string[] = [];
     mockExecFile = async (cmd: string, args?: readonly string[]) => {
@@ -496,9 +493,93 @@ describe("pruneStaleWorktrees", () => {
     await sm.pruneStaleWorktrees();
 
     // Guard must prevent deletion of the main project dir,
-    // so neither the unresolved main repo path nor its resolved real path should be removed.
-    expect(removedPaths).not.toContain(realRepoPath);
+    // so the main repo path should not be removed as a worktree, and the directory must still exist.
     expect(removedPaths).not.toContain(mainRepoPath);
     expect(existsSync(mainRepoPath)).toBe(true);
+  });
+});
+    expect(removedPaths).not.toContain(mainRepoPath);
+    expect(existsSync(mainRepoPath)).toBe(true);
+  });
+
+  it("Pass 2: should NOT delete the main project directory when session metadata uses a symlink path but git reports the resolved real path", async () => {
+    // Simulate the macOS /var/folders → /private/var/folders symlink scenario:
+    // - config.projects["my-app"].path points to a symlink
+    // - session metadata records the symlink path as worktree
+    // - git worktree list --porcelain returns the resolved real path
+    // normalizePath() must resolve both through realpathSync so the guard fires correctly.
+
+    const actualDir = join(tmpDir, "my-app-actual");
+    const symlinkDir = join(tmpDir, "my-app-symlink");
+    mkdirSync(actualDir, { recursive: true });
+    symlinkSync(actualDir, symlinkDir);
+
+    const realActualDir = realpathSync(actualDir);
+
+    // Override config so the project path is the symlink path
+    const symlinkedConfig: typeof config = {
+      ...config,
+      projects: {
+        "my-app": {
+          ...config.projects["my-app"]!,
+          path: symlinkDir,
+        },
+      },
+    };
+
+    const configHash = createHash("sha256")
+      .update(dirname(realpathSync(configPath)))
+      .digest("hex")
+      .slice(0, 12);
+    const sessionsDir = join(
+      homedir(),
+      ".agent-orchestrator",
+      `${configHash}-my-app`,
+      "sessions",
+    );
+    mkdirSync(sessionsDir, { recursive: true });
+    // Session metadata records the symlink path (as a user would type it in config)
+    writeFileSync(
+      join(sessionsDir, "ao-orchestrator"),
+      `worktree=${symlinkDir}\nstatus=killed\n`,
+      "utf8",
+    );
+
+    // git worktree list --porcelain returns the real (resolved) path
+    const porcelainOutput =
+      `worktree ${realActualDir}\nHEAD abc123\nbranch refs/heads/main\n\n`;
+
+    const removedPaths: string[] = [];
+    mockExecFile = async (cmd: string, args?: readonly string[]) => {
+      const argsStr = args?.join(" ") ?? "";
+      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+        return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+        return Promise.resolve({ stdout: "true\n", stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("worktree remove")) {
+        const pathArg = args?.[args.length - 1];
+        if (pathArg) {
+          removedPaths.push(pathArg);
+        }
+        return Promise.resolve({ stdout: "", stderr: "" });
+      }
+      return Promise.resolve({ stdout: "", stderr: "" });
+    };
+
+    const sm = createSessionManager({
+      config: symlinkedConfig,
+      registry: mockRegistry,
+      execFileAsync: mockExecFile,
+    });
+    await sm.pruneStaleWorktrees();
+
+    // Guard must fire even when the symlink path (session metadata) differs from the
+    // resolved real path (git worktree list output). normalizePath resolves both via
+    // realpathSync so the equality check returns true and the directory is protected.
+    expect(removedPaths).not.toContain(realActualDir);
+    expect(removedPaths).not.toContain(symlinkDir);
+    expect(existsSync(actualDir)).toBe(true);
   });
 });
