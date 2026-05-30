@@ -6,6 +6,7 @@ import {
   type ProjectConfig,
   type Session,
   type ActivityDetection,
+  shellEscape,
 } from "@jleechanorg/ao-core";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
@@ -31,7 +32,8 @@ const antigravityConfig: AgentPluginConfig = {
 
 const antigravityOverrides: Partial<Agent> = {
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
-    const parts = ["agy", "--prompt-interactive", '""'];
+    const promptArg = launchConfig.prompt ? shellEscape(launchConfig.prompt) : '""';
+    const parts = ["agy", "--prompt-interactive", promptArg];
     const permissions = launchConfig.permissions ?? "permissionless";
     if (permissions === "permissionless" || permissions === "auto-edit" || permissions === "skip") {
       parts.push("--dangerously-skip-permissions");

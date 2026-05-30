@@ -1381,6 +1381,13 @@ export interface OrchestratorConfig {
    * Default: ["~/.bashrc"].
    */
   envSource?: string[];
+
+  /**
+   * Enable automatic worktree garbage collection.
+   * When true, the lifecycle-worker periodically removes worktrees whose AO
+   * sessions are in a terminal state. Default: false (GC disabled — opt-in).
+   */
+  pruneWorktrees?: boolean;
 }
 
 /** Centralized auto-merge configuration (bd-n047) */

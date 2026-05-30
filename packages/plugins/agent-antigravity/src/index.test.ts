@@ -46,10 +46,11 @@ vi.mock("node:fs", () => ({
 
 import { create } from "./index.js";
 
-function makeLaunchConfig(permissions?: AgentLaunchConfig["permissions"]): AgentLaunchConfig {
+function makeLaunchConfig(permissions?: AgentLaunchConfig["permissions"], prompt?: string): AgentLaunchConfig {
   return {
     sessionId: "sess-1",
     permissions,
+    prompt,
     projectConfig: {
       name: "my-project",
       repo: "owner/repo",
@@ -76,6 +77,14 @@ describe("antigravity getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig("default"));
 
     expect(cmd).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("incorporates launchConfig.prompt if provided", () => {
+    const agent = create();
+
+    const cmd = agent.getLaunchCommand(makeLaunchConfig(undefined, "hello 'world'"));
+
+    expect(cmd).toContain("agy --prompt-interactive 'hello '\\''world'\\''");
   });
 });
 
