@@ -466,7 +466,7 @@ describe("pruneStaleWorktrees", () => {
     const porcelainOutput =
       `worktree ${mainRepoPath}\nHEAD abc123\nbranch refs/heads/main\n\n`;
 
-    let gitWorktreeRemoveCalled = false;
+    const removedPaths: string[] = [];
     mockExecFile = async (cmd: string, args?: readonly string[]) => {
       const argsStr = args?.join(" ") ?? "";
       if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
@@ -476,7 +476,10 @@ describe("pruneStaleWorktrees", () => {
         return Promise.resolve({ stdout: "true\n", stderr: "" });
       }
       if (cmd === "git" && argsStr.includes("worktree remove")) {
-        gitWorktreeRemoveCalled = true;
+        const pathArg = args?.[args.length - 1];
+        if (pathArg) {
+          removedPaths.push(pathArg);
+        }
         return Promise.resolve({ stdout: "", stderr: "" });
       }
       return Promise.resolve({ stdout: "", stderr: "" });
@@ -490,8 +493,8 @@ describe("pruneStaleWorktrees", () => {
     await sm.pruneStaleWorktrees();
 
     // Guard must prevent deletion of the main project dir,
-    // so no git worktree remove should be called, and the directory must still exist.
-    expect(gitWorktreeRemoveCalled).toBe(false);
+    // so the main repo path should not be removed as a worktree, and the directory must still exist.
+    expect(removedPaths).not.toContain(mainRepoPath);
     expect(existsSync(mainRepoPath)).toBe(true);
   });
 });
