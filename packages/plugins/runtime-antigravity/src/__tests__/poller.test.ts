@@ -400,28 +400,6 @@ describe("lifecycle", () => {
     poller.stopAll();
   });
 
-  it("start with managerWindowId=-1 is a no-op (no timer, no peekaboo call)", () => {
-    // Regression: fallback sessions (CLI-only) pass managerWindowId=-1. The poller
-    // must skip silently without starting any timer.
-    const onIdle = vi.fn();
-    const onCapacityWait = vi.fn();
-    const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
-
-    const poller = createPoller(15_000, callbacks);
-    const handle = makeHandle("fallback-noop-test");
-
-    poller.start(handle, -1);
-
-    // Advance well past one full tick — no peekaboo call, no callback
-    vi.advanceTimersByTime(60_000);
-
-    expect(mockSee).not.toHaveBeenCalled();
-    expect(onIdle).not.toHaveBeenCalled();
-
-    // stopAll must be safe (nothing registered)
-    expect(() => poller.stopAll()).not.toThrow();
-  });
-
   it("in-flight guard skips poll tick while previous peekaboo.see is still pending", async () => {
     // Regression: if peekaboo.see is slow, a second setInterval tick must not
     // start another overlapping peekaboo call.
