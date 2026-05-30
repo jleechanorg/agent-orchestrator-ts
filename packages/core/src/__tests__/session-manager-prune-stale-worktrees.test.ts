@@ -497,10 +497,6 @@ describe("pruneStaleWorktrees", () => {
     expect(removedPaths).not.toContain(mainRepoPath);
     expect(existsSync(mainRepoPath)).toBe(true);
   });
-});
-    expect(removedPaths).not.toContain(mainRepoPath);
-    expect(existsSync(mainRepoPath)).toBe(true);
-  });
 
   it("Pass 2: should NOT delete the main project directory when session metadata uses a symlink path but git reports the resolved real path", async () => {
     // Simulate the macOS /var/folders → /private/var/folders symlink scenario:
