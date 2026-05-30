@@ -2831,8 +2831,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // Worktree GC: periodically prune orphaned worktrees whose tmux sessions
       // are dead. These accumulate after crashes, forced kills, or lifecycle
       // restarts and block branches in the owning repo.
-      // Skipped when config.pruneWorktrees === false.
-      if (config.pruneWorktrees !== false && nowMs - lastWorktreeGCTime >= WORKTREE_GC_INTERVAL_MS) {
+      // Only runs when config.pruneWorktrees === true (opt-in; default off).
+      if (config.pruneWorktrees === true && nowMs - lastWorktreeGCTime >= WORKTREE_GC_INTERVAL_MS) {
         lastWorktreeGCTime = nowMs;
         try {
           await sessionManager.pruneStaleWorktrees();

@@ -1383,12 +1383,9 @@ export interface OrchestratorConfig {
   envSource?: string[];
 
   /**
-   * Disable automatic worktree garbage collection.
-   * When false (default), the lifecycle-worker periodically removes worktrees
-   * whose AO sessions are in a terminal state. Set to false to never delete
-   * worktrees automatically — useful when you want to keep worktree state
-   * for inspection or manual cleanup.
-   * Default: true (GC enabled).
+   * Enable automatic worktree garbage collection.
+   * When true, the lifecycle-worker periodically removes worktrees whose AO
+   * sessions are in a terminal state. Default: false (GC disabled — opt-in).
    */
   pruneWorktrees?: boolean;
 }
