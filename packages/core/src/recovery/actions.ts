@@ -1,4 +1,4 @@
-import type { OrchestratorConfig, PluginRegistry, Runtime, Workspace, ProjectConfig } from "../types.js";
+import type { OrchestratorConfig, PluginRegistry, Runtime, Workspace } from "../types.js";
 import { updateMetadata, deleteMetadata } from "../metadata.js";
 import { getSessionsDir } from "../paths.js";
 import { validateStatus } from "../utils/validation.js";
