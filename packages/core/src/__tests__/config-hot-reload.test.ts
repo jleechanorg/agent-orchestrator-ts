@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { startConfigHotReload, type ConfigHotReloadHandle } from "../config-hot-reload.js";
 import { writeFileSync, unlinkSync, mkdtempSync, rmdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,8 +18,8 @@ describe("startConfigHotReload", () => {
   afterEach(() => {
     handle?.close();
     handle = null;
-    try { unlinkSync(configPath); } catch {}
-    try { rmdirSync(tempDir); } catch {}
+    try { unlinkSync(configPath); } catch { /* ignore */ }
+    try { rmdirSync(tempDir); } catch { /* ignore */ }
   });
 
   it("returns null for non-existent path", () => {

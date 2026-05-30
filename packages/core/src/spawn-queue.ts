@@ -24,29 +24,6 @@ const MAX_PENDING_REQUESTS = 100;
 
 const lastDrainTimeByProject = new Map<string, number>();
 
-/** Returns 1-minute load average, or null if unavailable. */
-async function getLoadAvg1m(): Promise<number | null> {
-  try {
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const execFileAsync = promisify(execFile);
-    if (process.platform === "darwin") {
-      const { stdout } = await execFileAsync("sysctl", ["-n", "vm.loadavg"], { encoding: "utf8" });
-      // format: "{ 1.23 4.56 7.89 }"
-      const m = stdout.match(/\{\s*([\d.]+)/);
-      const load = m?.[1] ? Number.parseFloat(m[1]) : Number.NaN;
-      return Number.isFinite(load) ? load : null;
-    } else {
-      const { readFile } = await import("node:fs/promises");
-      const content = await readFile("/proc/loadavg", "utf8");
-      const token = content.trim().split(/\s+/)[0];
-      const load = token ? Number.parseFloat(token) : Number.NaN;
-      return Number.isFinite(load) ? load : null;
-    }
-  } catch {
-    return null;
-  }
-}
 
 interface QueuedSpawnRequest {
   id: string;

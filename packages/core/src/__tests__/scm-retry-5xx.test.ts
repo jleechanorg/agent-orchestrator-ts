@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { withScmRetry, type ScmRetryOptions } from "../scm-retry-5xx.js";
+import { describe, it, expect } from "vitest";
+import { withScmRetry } from "../scm-retry-5xx.js";
 
 describe("withScmRetry", () => {
   it("returns result on first success", async () => {

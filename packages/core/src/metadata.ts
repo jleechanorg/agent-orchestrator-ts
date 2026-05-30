@@ -32,10 +32,9 @@ import {
   constants,
 } from "node:fs";
 import { join, dirname } from "node:path";
-import { VALID_PR_STATES, type SessionId, type SessionMetadata, type PRState } from "./types.js";
+import { VALID_PR_STATES, type SessionId, type SessionMetadata, type PRState, type SessionStatus } from "./types.js";
 import { atomicWriteFileSync } from "./atomic-write.js";
 import { validateStatusTransition } from "./session-status-validator.js";
-import type { SessionStatus } from "./types.js";
 import { parseKeyValueContent } from "./key-value.js";
 
 /** Serialize a record back to key=value format. Newlines in values are replaced to prevent injection. */

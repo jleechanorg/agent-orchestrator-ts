@@ -99,8 +99,15 @@ jobs:
         run: |
           # Re-establish auth header in case the self-hosted runner cleaned it up
           git config --local "http.https://github.com/.extraheader" "Authorization: basic $(echo -n "x-access-token:${{ github.token }}" | base64)" 2>/dev/null || true
-          git fetch origin ${{ needs.pr-context.outputs.base_ref }}:${{ needs.pr-context.outputs.base_ref }} || echo "Base branch fetch failed (network issue) — coverage diff will run without base ref"
-          git branch main origin/main || true
+          if git fetch origin "${{ needs.pr-context.outputs.base_ref }}":"${{ needs.pr-context.outputs.base_ref }}"; then
+            git branch "${{ needs.pr-context.outputs.base_ref }}" "origin/${{ needs.pr-context.outputs.base_ref }}" 2>/dev/null || true
+            echo "COMPARE_REF=origin/${{ needs.pr-context.outputs.base_ref }}" >> "$GITHUB_ENV"
+          else
+            echo "Base branch fetch failed (network issue) — coverage diff will fall back to origin/main"
+            git fetch origin main || true
+            git branch "${{ needs.pr-context.outputs.base_ref }}" "origin/main" 2>/dev/null || true
+            echo "COMPARE_REF=origin/main" >> "$GITHUB_ENV"
+          fi
 
       - name: Clean up stale lock files
         run: rm -f /tmp/ao-start-all.lock /tmp/ao-start-all-*.lock
@@ -132,7 +139,7 @@ jobs:
       - name: Check diff coverage (80% on changed lines)
         run: |
           diff-cover combined-coverage/lcov.info \
-            --compare-branch=origin/${{ needs.pr-context.outputs.base_ref }} \
+            --compare-branch=${{ env.COMPARE_REF || format('origin/{0}', needs.pr-context.outputs.base_ref) }} \
             --fail-under=70 \
             --diff-range-notation='...' \
             --exclude '.*\.sh' '^scripts/.*'

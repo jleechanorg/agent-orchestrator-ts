@@ -80,12 +80,13 @@ async function postWithRetry(
       }
     } catch (err) {
       if (err === lastError) throw err;
-      lastError = err instanceof Error ? err : new Error(String(err));
+      const networkErr = err instanceof Error ? err : new Error(String(err));
+      lastError = networkErr;
 
       if (
-        lastError.message.includes("ECONNREFUSED") ||
-        lastError.message.includes("ETIMEDOUT") ||
-        lastError.message.includes("ENOTFOUND")
+        networkErr.message.includes("ECONNREFUSED") ||
+        networkErr.message.includes("ETIMEDOUT") ||
+        networkErr.message.includes("ENOTFOUND")
       ) {
         recordActivityEvent({
           sessionId: context.sessionId,
@@ -96,11 +97,12 @@ async function postWithRetry(
           data: {
             plugin: "notifier-openclaw",
             url,
-            errorMessage: lastError.message,
+            errorMessage: networkErr.message,
           },
         });
         throw new Error(
           `Can't reach OpenClaw gateway at ${url}. Is OpenClaw running?`,
+          { cause: err },
         );
       }
 
