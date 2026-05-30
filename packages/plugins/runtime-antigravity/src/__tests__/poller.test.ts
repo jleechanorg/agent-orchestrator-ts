@@ -413,6 +413,9 @@ describe("lifecycle", () => {
     poller.start(handle, 1);
 
     // Fallback scan: unrelated row shows capacity-wait — conversationFound=false.
+    // The label must contain "capacity" so detectStateFromLabel returns "capacity-wait"
+    // (not "unknown"), ensuring the test reaches the conversationFound guard rather
+    // than exiting early at the unknown-state early-return path.
     const unrelatedCapacity: PeekabooSeeResult = {
       snapshot_id: "snap-cap",
       ui_elements: [
@@ -420,7 +423,7 @@ describe("lifecycle", () => {
           id: "other",
           role: "AXStaticText",
           title: "Other Conversation",
-          label: "I need your approval",
+          label: "Waiting for capacity, please try again later",
           description: "",
           role_description: "",
           is_actionable: false,
