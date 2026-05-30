@@ -34,11 +34,11 @@ _plist_base_url="${ANTHROPIC_BASE_URL:-}"
 # Filter to only non-empty values to avoid overriding plist defaults with empties.
 # Error handling: if shell profile fails to load, log the failure but continue (plist defaults remain).
 # Source shell profile in login+interactive mode to get all exports (API keys, nvm, etc.)
-_init_output=$(bash -lic 'declare -x' 2>&1; echo "exit:$?")
+_init_output=$(bash -lic 'declare -x' 2>&1; echo "exit:$?") || true
 # Also explicitly source .bashrc since login shell may not have sourced it
 # bash -lic sources .bash_profile which typically sources .bashrc, but not guaranteed.
 # Doing it explicitly ensures we get .bashrc-only exports regardless of .bash_profile content.
-_bashrc_output=$(bash -ic 'source ~/.bashrc 2>&1; declare -x' 2>&1; echo "exit:$?")
+_bashrc_output=$(bash -ic 'source ~/.bashrc 2>&1; declare -x' 2>&1; echo "exit:$?") || true
 
 # Extract exit codes from the trailing "exit:N" markers
 _init_marker=$(echo "$_init_output" | grep '^exit:' | head -1 || true)
