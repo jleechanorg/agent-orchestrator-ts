@@ -16,7 +16,6 @@ describe("direct-terminal-ws integration", () => {
     const { port } = serverInstance.server.address() as { port: number };
 
     const upgradeResponse = await new Promise<string>((resolve, reject) => {
-      let timeoutId: ReturnType<typeof setTimeout>;
       const socket = createConnection(port, "127.0.0.1", () => {
         const req =
           `GET /ao-terminal-mux HTTP/1.1\r\n` +
@@ -28,6 +27,7 @@ describe("direct-terminal-ws integration", () => {
           `\r\n`;
         socket.write(req);
       });
+      const timeoutId = setTimeout(() => { socket.destroy(); reject(new Error("timeout")); }, 3000);
       socket.once("data", (chunk) => {
         clearTimeout(timeoutId);
         socket.destroy();
@@ -37,7 +37,6 @@ describe("direct-terminal-ws integration", () => {
         clearTimeout(timeoutId);
         reject(err);
       });
-      timeoutId = setTimeout(() => { socket.destroy(); reject(new Error("timeout")); }, 3000);
     }).finally(() => {
       serverInstance.shutdown();
     });

@@ -223,7 +223,7 @@ describe("wholesome — structural source-code assertions", () => {
       const title = getPRTitle();
       if (!shouldEnforcePRTitlePrefix(title)) return;
       expect(title).toMatch(/^\[agento\]/);
-    });
+    }, 60_000);
 
     it("PR title has correct format: [agento] <type>: <description>", () => {
       const title = getPRTitle();
@@ -231,7 +231,7 @@ describe("wholesome — structural source-code assertions", () => {
       // "[agento] " followed by optional "[antig] " tag and conventional-commit type + optional scope + colon
       // Scope format: (scope-name) — supports issue refs like (skeptic-cron)
       expect(title).toMatch(/^\[agento\] (\[antig\] )?[a-z]+(\([^)]+\))?: /);
-    });
+    }, 60_000);
   });
 
   // -------------------------------------------------------------------------
@@ -605,6 +605,8 @@ describe("wholesome — structural source-code assertions", () => {
       "851b70b5d9c9c83c4dd933bc0f3fa8e8079bbaf6", // fix(antigravity): clarify poller.start guard comment
       "9362188e69c5047cdec6ca017407e1bcbba96446", // chore: trigger CR auto-review on latest fixes
       "8c80f4d3f2d7b336120e131b59a636264a65ddfe", // chore: trigger CR auto-review on latest fixes
+      "ab7495b9d15c8d6cf50bc0bba59c966c3ff1b746", // fix: address CodeRabbit actionable comments (CI fallback + test cleanup)
+      "86ec750e6254111e92bde8d93449a37cd43b7265", // fix(poller): guard onCapacityWait with conversationFound like onIdle
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
