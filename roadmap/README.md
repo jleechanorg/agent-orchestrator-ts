@@ -6,7 +6,7 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ### 2026-05-29
 
-- **PR #640 OPEN — robust CLI update sync & rebuild** — 5 commits on `fix/robust-cli-update-sync-rebuild`: robust `ao-update.sh` root resolution (ported from upstream), antigravity as default agent in config schema, `noServer` WS fix for onboarding TypeError. CI blocked by Evidence Gate format mismatch (`**Label:**` vs `**Label**:`) — not a code bug. Bead [bd-us56](https://github.com/jleechanorg/agent-orchestrator/issues/646) tracks the fix.
+- **PR #640 OPEN — robust CLI update sync & rebuild** — 8 commits on `fix/robust-cli-update-sync-rebuild`: robust `ao-update.sh` root resolution (ported from upstream), antigravity as default agent in config schema, `noServer` WS fix for onboarding TypeError. Formatting mismatches and review threads fully resolved recursively — **Evidence Gate** and **CodeRabbit** are now **🟢 SUCCESS**. Waiting for explicit user merge approval. Bead [bd-us56](https://github.com/jleechanorg/agent-orchestrator/issues/646) successfully closed.
 - **Upstream sync Phase 5 complete** — 34 PRs merged (#596–#639), 1,274 upstream commits audited. All MUST/HIGH/DEFER items integrated. Upstream sync epics: bd-qor4, bd-e228, bd-ykk1, bd-lbgc.
 
 ### 2026-05-18
