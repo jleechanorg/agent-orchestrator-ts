@@ -1,44 +1,10 @@
-import { resolve, basename, join } from "path";
-import { homedir } from "os";
 import type { OrchestratorConfig, PluginRegistry, Runtime, Workspace, ProjectConfig } from "../types.js";
 import { updateMetadata, deleteMetadata } from "../metadata.js";
-import { getSessionsDir, getWorktreesDir } from "../paths.js";
+import { getSessionsDir } from "../paths.js";
 import { validateStatus } from "../utils/validation.js";
 import { sessionFromMetadata } from "../utils/session-from-metadata.js";
 import type { RecoveryAssessment, RecoveryResult, RecoveryContext } from "./types.js";
-
-function normalizePath(p: string): string {
-  return resolve(p).replace(/\/$/, "");
-}
-
-function shouldDestroyWorkspacePath(
-  project: ProjectConfig | undefined,
-  projectId: string | undefined,
-  workspacePath: string,
-  configPath: string,
-): boolean {
-  if (!project) return false;
-  if (normalizePath(workspacePath) === normalizePath(project.path)) return false;
-
-  const roots = [getWorktreesDir(configPath, project.path)];
-  const legacyIds = new Set<string>();
-  if (projectId) {
-    legacyIds.add(projectId);
-  }
-  legacyIds.add(basename(project.path));
-
-  for (const id of legacyIds) {
-    roots.push(join(homedir(), ".worktrees", id));
-  }
-
-  const isPathInside = (p: string, parentPath: string): boolean => {
-    const np = normalizePath(p);
-    const nParent = normalizePath(parentPath);
-    return np === nParent || np.startsWith(`${nParent}/`);
-  };
-
-  return roots.some((root) => isPathInside(workspacePath, root));
-}
+import { shouldDestroyWorkspacePath } from "./workspacePolicy.js";
 
 function preserveSessionAgentPatch(
   rawMetadata: Record<string, string>,
