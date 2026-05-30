@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { createDirectTerminalServer } from "../direct-terminal-ws";
+import { createDirectTerminalServer } from "../direct-terminal-ws.js";
 
 /**
  * Regression test for the boot crash where createDirectTerminalServer()

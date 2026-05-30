@@ -1,17 +1,9 @@
 import { ImageResponse } from "next/og";
-import { getProjectName } from "@/lib/project-name";
+import { getProjectName, stringToHue } from "@/lib/project-name";
 
 export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
 
-/** Derive a consistent hue from a string (0-360). */
-function stringToHue(s: string): number {
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) {
-    hash = s.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return ((hash % 360) + 360) % 360;
-}
 
 export default function AppleIcon() {
   const name = getProjectName();
