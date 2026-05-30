@@ -112,10 +112,28 @@ const antigravityOverrides: Partial<Agent> = {
       for (const sub of ["conversations", "brain"]) {
         const sessionSub = path.join(agDir, sub);
         const tmpSub = path.join(tmpBase, appDirName, sub);
-        if (!fs.existsSync(sessionSub)) {
+        
+        let needsSymlink = true;
+        try {
+          const stat = fs.lstatSync(sessionSub);
+          if (stat.isSymbolicLink()) {
+            fs.unlinkSync(sessionSub);
+          } else {
+            // Already a real directory/file, do not overwrite/symlink
+            needsSymlink = false;
+          }
+        } catch (e) {
+          // Entry doesn't exist, we can proceed
+        }
+
+        if (needsSymlink) {
           fs.mkdirSync(tmpSub, { recursive: true });
           fs.mkdirSync(path.dirname(sessionSub), { recursive: true });
-          fs.symlinkSync(tmpSub, sessionSub);
+          try {
+            fs.symlinkSync(tmpSub, sessionSub);
+          } catch (err) {
+            console.debug(`[antigravity] Failed to symlink ${sessionSub} to ${tmpSub}: ${(err as Error).message}`);
+          }
         }
       }
     }
@@ -125,12 +143,13 @@ const antigravityOverrides: Partial<Agent> = {
     if (fs.existsSync(settingsPath)) {
       try {
         const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-        if (settings.general) {
-          if (!settings.general.sessionRetention) {
-            settings.general.sessionRetention = {};
-          }
-          settings.general.sessionRetention.enabled = false;
+        if (!settings.general) {
+          settings.general = {};
         }
+        if (!settings.general.sessionRetention) {
+          settings.general.sessionRetention = {};
+        }
+        settings.general.sessionRetention.enabled = false;
         fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
       } catch (err) {
         console.debug(`[antigravity] Failed to update settings.json: ${(err as Error).message}`);

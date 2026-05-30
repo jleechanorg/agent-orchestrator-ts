@@ -4,27 +4,37 @@ import path from "node:path";
 
 const {
   mockHomedir,
+  mockTmpdir,
   mockMkdirSync,
   mockExistsSync,
   mockLstatSync,
   mockReaddirSync,
   mockCopyFileSync,
   mockSymlinkSync,
+  mockUnlinkSync,
+  mockReadFileSync,
+  mockWriteFileSync,
 } = vi.hoisted(() => ({
   mockHomedir: vi.fn(() => "/mock/home"),
+  mockTmpdir: vi.fn(() => "/tmp"),
   mockMkdirSync: vi.fn(),
   mockExistsSync: vi.fn(() => false),
   mockLstatSync: vi.fn(),
   mockReaddirSync: vi.fn(() => []),
   mockCopyFileSync: vi.fn(),
   mockSymlinkSync: vi.fn(),
+  mockUnlinkSync: vi.fn(),
+  mockReadFileSync: vi.fn(() => "{}"),
+  mockWriteFileSync: vi.fn(),
 }));
 
 vi.mock("node:os", () => ({
   default: {
     homedir: mockHomedir,
+    tmpdir: mockTmpdir,
   },
   homedir: mockHomedir,
+  tmpdir: mockTmpdir,
 }));
 
 vi.mock("node:fs", () => ({
@@ -35,6 +45,9 @@ vi.mock("node:fs", () => ({
     readdirSync: mockReaddirSync,
     copyFileSync: mockCopyFileSync,
     symlinkSync: mockSymlinkSync,
+    unlinkSync: mockUnlinkSync,
+    readFileSync: mockReadFileSync,
+    writeFileSync: mockWriteFileSync,
   },
   mkdirSync: mockMkdirSync,
   existsSync: mockExistsSync,
@@ -42,6 +55,9 @@ vi.mock("node:fs", () => ({
   readdirSync: mockReaddirSync,
   copyFileSync: mockCopyFileSync,
   symlinkSync: mockSymlinkSync,
+  unlinkSync: mockUnlinkSync,
+  readFileSync: mockReadFileSync,
+  writeFileSync: mockWriteFileSync,
 }));
 
 import { create } from "./index.js";
@@ -199,5 +215,53 @@ describe("antigravity getEnvironment", () => {
     const allCopiedSrcs = mockCopyFileSync.mock.calls.map((call) => call[0] as string);
     const hasSymlink = allCopiedSrcs.some((src) => src.includes("symlink-dir"));
     expect(hasSymlink).toBe(false);
+  });
+
+  it("disables session retention even when general section in settings.json is missing", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.endsWith("settings.json")) return true;
+      return false;
+    });
+
+    mockReadFileSync.mockReturnValue(JSON.stringify({})); // Empty settings.json
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    expect(mockWriteFileSync).toHaveBeenCalled();
+    const writtenContent = JSON.parse(mockWriteFileSync.mock.calls[0][1] as string);
+    expect(writtenContent.general).toBeDefined();
+    expect(writtenContent.general.sessionRetention).toBeDefined();
+    expect(writtenContent.general.sessionRetention.enabled).toBe(false);
+  });
+
+  it("handles dangling symlinks and removes them before creating new ones", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockImplementation((filepath) => {
+      // Simulate that the sessionSub already exists as a symlink
+      if (typeof filepath === "string" && (filepath.includes("conversations") || filepath.includes("brain"))) {
+        return {
+          isSymbolicLink: () => true,
+          isDirectory: () => false,
+        };
+      }
+      return {
+        isSymbolicLink: () => false,
+        isDirectory: () => true,
+      };
+    });
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    // Verify that unlinkSync was called to remove the dangling symlink
+    expect(mockUnlinkSync).toHaveBeenCalled();
+    // Verify that symlinkSync was called to recreate the symlink
+    expect(mockSymlinkSync).toHaveBeenCalled();
   });
 });
