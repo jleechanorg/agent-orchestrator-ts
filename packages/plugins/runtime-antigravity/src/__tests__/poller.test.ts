@@ -400,6 +400,42 @@ describe("lifecycle", () => {
     poller.stopAll();
   });
 
+  it("fallback scan (conversationFound=false) does NOT fire onCapacityWait", async () => {
+    // Regression: onCapacityWait must be guarded by conversationFound like onIdle.
+    // A fallback scan could detect capacity-wait from an unrelated conversation row.
+    const onIdle = vi.fn();
+    const onCapacityWait = vi.fn();
+    const callbacks: PollerCallbacks = { onIdle, onCapacityWait };
+
+    const poller = createPoller(15_000, callbacks);
+    const handle = makeHandle("fallback-capacity-test");
+
+    poller.start(handle, 1);
+
+    // Fallback scan: unrelated row shows capacity-wait — conversationFound=false.
+    const unrelatedCapacity: PeekabooSeeResult = {
+      snapshot_id: "snap-cap",
+      ui_elements: [
+        {
+          id: "other",
+          role: "AXStaticText",
+          title: "Other Conversation",
+          label: "I need your approval",
+          description: "",
+          role_description: "",
+          is_actionable: false,
+        },
+      ],
+    };
+    mockSee.mockResolvedValueOnce(unrelatedCapacity);
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    // onCapacityWait must NOT fire — fallback scan cannot confirm the session.
+    expect(onCapacityWait).not.toHaveBeenCalled();
+
+    poller.stopAll();
+  });
+
   it("in-flight guard skips poll tick while previous peekaboo.see is still pending", async () => {
     // Regression: if peekaboo.see is slow, a second setInterval tick must not
     // start another overlapping peekaboo call.

@@ -169,8 +169,10 @@ export function createPoller(
           }
         }
 
-        // Capacity-wait detection (fire every tick while in this state)
-        if (state === "capacity-wait") {
+        // Capacity-wait detection (fire every tick while in this state).
+        // Guard with conversationFound — same reason as onIdle: fallback scan
+        // could match an unrelated conversation in the Manager window. (bd-5o2)
+        if (conversationFound && state === "capacity-wait") {
           try {
             callbacks.onCapacityWait(handle, CAPACITY_RETRY_MS);
           } catch {
