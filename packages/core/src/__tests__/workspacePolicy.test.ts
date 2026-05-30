@@ -101,5 +101,21 @@ describe("workspacePolicy", () => {
       const unsafePath = join(rootDir, "other-project", "worktree");
       expect(shouldDestroyWorkspacePath(project, "my-project", unsafePath, configPath)).toBe(false);
     });
+
+    it("returns true if workspacePath is inside a custom global worktreeDir", () => {
+      const customGlobalDir = join(rootDir, "custom-global-worktrees");
+      writeFileSync(configPath, `worktreeDir: "${customGlobalDir}"\nprojects: {}\n`, "utf-8");
+
+      const targetPath = join(customGlobalDir, "my-project", "session-abc");
+      expect(shouldDestroyWorkspacePath(project, "my-project", targetPath, configPath)).toBe(true);
+    });
+
+    it("returns true if workspacePath is inside a custom per-project worktreeDir", () => {
+      const customProjectDir = join(rootDir, "custom-project-worktrees");
+      project.worktreeDir = customProjectDir;
+
+      const targetPath = join(customProjectDir, "my-project", "session-xyz");
+      expect(shouldDestroyWorkspacePath(project, "my-project", targetPath, configPath)).toBe(true);
+    });
   });
 });
