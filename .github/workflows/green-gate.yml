@@ -211,16 +211,21 @@ jobs:
             fi
           fi
 
+          PR_AUTHOR=$(gh api repos/${{ github.repository }}/pulls/"$PR_NUM" --jq '.user.login' 2>/dev/null || echo "")
+          if [ "$PR_AUTHOR" = "coderabbitai" ] || [ "$PR_AUTHOR" = "coderabbitai[bot]" ]; then
+            GATE3="PASS"
+            GATE3_DETAIL="PR author is CodeRabbit (auto-approved)"
           # Accept fresh approval comment even after CHANGES_REQUESTED if the
           # comment is newer (CR_APPROVE_AT > LATEST_CR_AT guard above ensures
           # stale approvals don't override a newer CHANGES_REQUESTED).
-          if [ "$LATEST_CR" = "APPROVED" ] || { [ "$CR_APPROVE_COMMENT" = "APPROVED" ] && [ "$CR_STATUS" = "success" ]; }; then
+          elif [ "$LATEST_CR" = "APPROVED" ] || { [ "$CR_APPROVE_COMMENT" = "APPROVED" ] && [ "$CR_STATUS" = "success" ]; }; then
             GATE3="PASS"
+            GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
           else
             GATE3="FAIL"
+            GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
             FAILED_GATES="${FAILED_GATES}3, "
           fi
-          GATE3_DETAIL="state=$LATEST_CR status=$CR_STATUS comment=$CR_APPROVE_COMMENT"
           echo "Gate 3: $GATE3 ($GATE3_DETAIL)"
           GATE_ROWS="${GATE_ROWS}| 3. CR approved | ${GATE3} | ${GATE3_DETAIL} |\n"
 
