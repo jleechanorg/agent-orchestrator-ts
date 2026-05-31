@@ -6,6 +6,25 @@
 # Pattern syntax: fnmatch globs. Leading "./" is stripped before matching.
 
 domains:
+  skeptic-core:
+    paths:
+      - "packages/core/src/skeptic-reviewer.ts"
+      - "packages/core/src/lifecycle-manager.ts"
+      - "packages/core/src/session-manager.ts"
+      - "packages/core/src/prompt-builder.ts"
+      - "packages/core/src/types.ts"
+      - "packages/core/src/config.ts"
+    owners:
+      - "@core"
+
+  skeptic-cli:
+    paths:
+      - "packages/cli/src/commands/skeptic.ts"
+      - "packages/cli/src/commands/skeptic/*.ts"
+      - "packages/cli/src/program.ts"
+    owners:
+      - "@core"
+
   core-runtime:
     advisory: true
     paths:

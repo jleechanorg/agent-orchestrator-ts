@@ -276,6 +276,9 @@ importers:
         specifier: ^11.10.0
         version: 11.10.0
     devDependencies:
+      '@jleechanorg/ao-autonomous-harness':
+        specifier: workspace:*
+        version: link:../../autonomous-harness
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13

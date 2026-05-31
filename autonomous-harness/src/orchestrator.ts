@@ -264,6 +264,17 @@ export async function spawnAOWorker(config: SpawnConfig): Promise<SpawnResult> {
     projectId = matchedProjectId ?? projectIds[0];
   }
 
+  // Validate that the resolved projectId's config path matches the workspace path
+  const resolvedProject = config_.projects[projectId];
+  if (resolvedProject?.path && pathResolve(resolvedProject.path) !== workspacePath) {
+    throw new Error(
+      `[autonomous-harness] Project path mismatch: CLI --project-path=${workspacePath} ` +
+        `but config projects[${projectId}].path=${pathResolve(resolvedProject.path)}. ` +
+        `Workers will operate in ${resolvedProject.path} while harness manages state in ${workspacePath}. ` +
+        `Either use --project-path=${resolvedProject.path} or configure a project with path=${workspacePath}.`,
+    );
+  }
+
   const fullPrompt = `${config.systemPrompt}\n\nTask: ${config.taskPrompt}`;
   // Agent plugin is passed to spawn(); model selection is driven by project config
   // (createSessionManager reads the model from the project settings), not by spawn params.

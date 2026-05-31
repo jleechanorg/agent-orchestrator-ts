@@ -4,12 +4,12 @@
   "description": "Autonomous GAN-style generator/evaluator harness with file-based handoffs",
   "license": "MIT",
   "type": "module",
-  "main": "dist/cli.js",
-  "types": "dist/cli.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/cli.d.ts",
-      "import": "./dist/cli.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./cli": {
       "types": "./dist/cli.d.ts",
