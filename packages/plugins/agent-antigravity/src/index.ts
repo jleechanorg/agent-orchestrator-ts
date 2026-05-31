@@ -55,9 +55,13 @@ const antigravityOverrides: Partial<Agent> = {
     // macOS Security looks at $HOME/Library/Keychains — without this, headless
     // agy workers show "A keychain cannot be found to store 'antigravity.'"
     const sessionKeychainDir = path.join(sessionHome, "Library", "Keychains");
-    if (!fs.existsSync(sessionKeychainDir)) {
-      fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
-      fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+    try {
+      if (!fs.existsSync(sessionKeychainDir)) {
+        fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
+        fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+      }
+    } catch (err) {
+      console.debug(`[antigravity] Failed to symlink keychains: ${(err as Error).message}`);
     }
 
     const srcGemini = path.join(userHome, ".gemini");
@@ -117,7 +121,11 @@ const antigravityOverrides: Partial<Agent> = {
         try {
           const stat = fs.lstatSync(sessionSub);
           if (stat.isSymbolicLink()) {
-            fs.unlinkSync(sessionSub);
+            try {
+              fs.unlinkSync(sessionSub);
+            } catch (err) {
+              console.debug(`[antigravity] Failed to unlink dangling symlink ${sessionSub}: ${(err as Error).message}`);
+            }
           } else {
             // Already a real directory/file, do not overwrite/symlink
             needsSymlink = false;
@@ -127,9 +135,9 @@ const antigravityOverrides: Partial<Agent> = {
         }
 
         if (needsSymlink) {
-          fs.mkdirSync(tmpSub, { recursive: true });
-          fs.mkdirSync(path.dirname(sessionSub), { recursive: true });
           try {
+            fs.mkdirSync(tmpSub, { recursive: true });
+            fs.mkdirSync(path.dirname(sessionSub), { recursive: true });
             fs.symlinkSync(tmpSub, sessionSub);
           } catch (err) {
             console.debug(`[antigravity] Failed to symlink ${sessionSub} to ${tmpSub}: ${(err as Error).message}`);

@@ -264,4 +264,50 @@ describe("antigravity getEnvironment", () => {
     // Verify that symlinkSync was called to recreate the symlink
     expect(mockSymlinkSync).toHaveBeenCalled();
   });
+
+  it("handles symlink and unlink errors gracefully without throwing", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockImplementation(() => ({
+      isSymbolicLink: () => true,
+      isDirectory: () => false,
+    }));
+
+    mockUnlinkSync.mockImplementation(() => {
+      throw new Error("un-unlinkable symlink (simulated EACCES)");
+    });
+    mockSymlinkSync.mockImplementation(() => {
+      throw new Error("un-symlinkable path (simulated EPERM)");
+    });
+
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+
+    expect(() => agent.getEnvironment(makeLaunchConfig())).not.toThrow();
+
+    expect(mockUnlinkSync).toHaveBeenCalled();
+    expect(mockSymlinkSync).toHaveBeenCalled();
+    expect(debugSpy).toHaveBeenCalled();
+    debugSpy.mockRestore();
+  });
+
+  it("handles readFileSync / writeFileSync errors in settings.json gracefully without throwing", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.endsWith("settings.json")) return true;
+      return false;
+    });
+
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error("simulated read error");
+    });
+
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+
+    expect(() => agent.getEnvironment(makeLaunchConfig())).not.toThrow();
+    expect(debugSpy).toHaveBeenCalled();
+    debugSpy.mockRestore();
+  });
 });
