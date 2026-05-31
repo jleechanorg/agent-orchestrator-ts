@@ -295,6 +295,11 @@ describe("antigravity getEnvironment", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");
 
+    // Reset mocks from prior test to prevent implementation leakage
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+
     mockExistsSync.mockImplementation((filepath) => {
       if (typeof filepath === "string" && filepath.endsWith("settings.json")) return true;
       return false;
