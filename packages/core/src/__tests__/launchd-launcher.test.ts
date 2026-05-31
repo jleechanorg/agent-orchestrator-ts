@@ -28,7 +28,9 @@ describe("launchd-launcher.sh environment stabilization", () => {
           // Cleanup
           try {
             fs.unlinkSync(tmpTargetScript);
-          } catch {}
+          } catch {
+            // Ignored
+          }
 
           if (error) {
             return reject(error);
@@ -46,7 +48,12 @@ describe("launchd-launcher.sh environment stabilization", () => {
             const stabilizedPath = stdout.match(/STABILIZED_PATH=(.*)/)?.[1] || "";
             const pathDirs = stabilizedPath.split(":");
             
-            expect(pathDirs).toContain("/opt/homebrew/bin");
+            if (process.platform === "darwin" && fs.existsSync("/opt/homebrew/bin")) {
+              expect(pathDirs).toContain("/opt/homebrew/bin");
+            } else {
+              expect(pathDirs).toContain("/usr/bin");
+              expect(pathDirs).toContain("/bin");
+            }
             resolve();
           } catch (err) {
             reject(err);
