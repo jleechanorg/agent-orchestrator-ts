@@ -317,7 +317,9 @@ describe("pruneStaleWorktrees", () => {
       }
       if (cmd === "git" && argsStr.includes("worktree remove")) {
         capturedRemovePath = args?.[args.length - 1];
-        return Promise.reject(new Error("simulated"));
+        // Simulate successful deletion of the folder
+        rmSync(zombiePath, { recursive: true, force: true });
+        return Promise.resolve({ stdout: "", stderr: "" });
       }
       return Promise.resolve({ stdout: "", stderr: "" });
     };
@@ -436,5 +438,57 @@ describe("pruneStaleWorktrees", () => {
 
     // Human worktree should be preserved — no matching AO session record
     expect(existsSync(humanPath)).toBe(true);
+  });
+
+  it("Pass 2: skips the main linked worktree (project root) and never targets it for deletion", async () => {
+    const projectPath = config.projects["my-app"]!.path;
+    mkdirSync(projectPath, { recursive: true });
+
+    // Write dead session metadata to disk matching the main worktree path.
+    const configHash = createHash("sha256")
+      .update(dirname(realpathSync(configPath)))
+      .digest("hex")
+      .slice(0, 12);
+    const sessionsDir = join(
+      homedir(),
+      ".agent-orchestrator",
+      `${configHash}-my-app-${hashProjectId("my-app")}`,
+      "sessions",
+    );
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(
+      join(sessionsDir, "pr-main-project"),
+      `worktree=${projectPath}\nstatus=killed\n`,
+      "utf8",
+    );
+
+    const porcelainOutputMain = `worktree ${projectPath}\nHEAD abc123\nbranch refs/heads/main\n`;
+
+    let gitWorktreeRemoveCalled = false;
+    mockExecFile = async (cmd: string, args?: readonly string[], _opts?: object) => {
+      const argsStr = args?.join(" ") ?? "";
+      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+        return Promise.resolve({ stdout: porcelainOutputMain, stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+        return Promise.resolve({ stdout: "true\n", stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("worktree remove")) {
+        gitWorktreeRemoveCalled = true;
+        return Promise.resolve({ stdout: "", stderr: "" });
+      }
+      return Promise.resolve({ stdout: "", stderr: "" });
+    };
+
+    const smMain = createSessionManager({
+      config,
+      registry: mockRegistry,
+      execFileAsync: mockExecFile,
+    });
+
+    await smMain.pruneStaleWorktrees();
+
+    expect(existsSync(projectPath)).toBe(true);
+    expect(gitWorktreeRemoveCalled).toBe(false);
   });
 });
