@@ -453,7 +453,7 @@ describe("pruneStaleWorktrees", () => {
     const sessionsDir = join(
       homedir(),
       ".agent-orchestrator",
-      `${configHash}-my-app`,
+      `${configHash}-my-app-${hashProjectId("my-app")}`,
       "sessions",
     );
     mkdirSync(sessionsDir, { recursive: true });
