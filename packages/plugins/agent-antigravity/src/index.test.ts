@@ -106,7 +106,7 @@ describe("antigravity getLaunchCommand", () => {
 
 describe("antigravity getEnvironment", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("returns the environment configuration with mapped session HOME and cleared variables", () => {
