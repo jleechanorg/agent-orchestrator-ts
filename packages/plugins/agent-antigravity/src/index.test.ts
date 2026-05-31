@@ -315,4 +315,28 @@ describe("antigravity getEnvironment", () => {
     expect(debugSpy).toHaveBeenCalled();
     debugSpy.mockRestore();
   });
+
+  it("automatically trusts the launchConfig project workspace path in trustedFolders.json", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+
+    let writtenContent = "";
+    mockWriteFileSync.mockImplementation((filepath, content) => {
+      if (typeof filepath === "string" && filepath.endsWith("trustedFolders.json")) {
+        writtenContent = content as string;
+      }
+    });
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    // Verify that trustedFolders.json was written and contains the workspace path
+    expect(writtenContent).toContain("/workspace/repo");
+    const parsed = JSON.parse(writtenContent);
+    expect(parsed["/workspace/repo"]).toBe("TRUST_FOLDER");
+  });
 });

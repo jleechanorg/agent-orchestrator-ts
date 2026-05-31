@@ -164,6 +164,35 @@ const antigravityOverrides: Partial<Agent> = {
       }
     }
 
+    // Automatically trust the project workspace path in the session config to prevent trust prompt deadlocks
+    const trustedFoldersPath = path.join(destGemini, "trustedFolders.json");
+    try {
+      let trustedFolders: Record<string, string> = {};
+      if (fs.existsSync(trustedFoldersPath)) {
+        try {
+          trustedFolders = JSON.parse(fs.readFileSync(trustedFoldersPath, "utf-8"));
+        } catch {
+          // ignore parsing error, start fresh
+        }
+      }
+      
+      const projectPath = launchConfig.projectConfig.path;
+      if (projectPath) {
+        trustedFolders[projectPath] = "TRUST_FOLDER";
+        try {
+          const resolvedPath = fs.realpathSync(projectPath);
+          trustedFolders[resolvedPath] = "TRUST_FOLDER";
+        } catch {
+          // ignore if realpath fails
+        }
+      }
+      
+      fs.mkdirSync(path.dirname(trustedFoldersPath), { recursive: true });
+      fs.writeFileSync(trustedFoldersPath, JSON.stringify(trustedFolders, null, 2), "utf-8");
+    } catch (err) {
+      console.debug(`[antigravity] Failed to update trustedFolders.json: ${(err as Error).message}`);
+    }
+
     return {
       ...baseEnv,
       HOME: sessionHome,
