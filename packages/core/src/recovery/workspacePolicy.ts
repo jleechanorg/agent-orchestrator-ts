@@ -47,17 +47,19 @@ export function shouldDestroyWorkspacePath(
   if (!project) return false;
   if (normalizePath(workspacePath) === normalizePath(project.path)) return false;
 
+  let globalConfig: ReturnType<typeof loadConfig> | undefined;
+  try {
+    globalConfig = loadConfig(configPath);
+  } catch {
+    // ignore config loading errors
+  }
+
   const roots = [getWorktreesDir(configPath, project.path)];
 
   // 1. Add configured global worktreeDir if present
-  try {
-    const globalConfig = loadConfig(configPath);
-    if (globalConfig.worktreeDir) {
-      const expandedGlobal = expandPath(globalConfig.worktreeDir);
-      roots.push(join(expandedGlobal, projectId || basename(project.path)));
-    }
-  } catch {
-    // ignore config loading errors
+  if (globalConfig?.worktreeDir) {
+    const expandedGlobal = expandPath(globalConfig.worktreeDir);
+    roots.push(join(expandedGlobal, projectId || basename(project.path)));
   }
 
   // 2. Add configured per-project worktreeDir if present
@@ -70,14 +72,9 @@ export function shouldDestroyWorkspacePath(
   roots.push(join(homedir(), ".ao-clones", projectId || basename(project.path)));
 
   // 4. Add configured global cloneDir if present
-  try {
-    const globalConfig = loadConfig(configPath);
-    if (globalConfig.cloneDir) {
-      const expandedGlobalClone = expandPath(globalConfig.cloneDir);
-      roots.push(join(expandedGlobalClone, projectId || basename(project.path)));
-    }
-  } catch {
-    // ignore config loading errors
+  if (globalConfig?.cloneDir) {
+    const expandedGlobalClone = expandPath(globalConfig.cloneDir);
+    roots.push(join(expandedGlobalClone, projectId || basename(project.path)));
   }
 
   // 5. Add configured per-project cloneDir if present
