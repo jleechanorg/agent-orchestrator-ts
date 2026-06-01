@@ -58,10 +58,45 @@ const antigravityOverrides: Partial<Agent> = {
     try {
       if (!fs.existsSync(sessionKeychainDir)) {
         fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
-        fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+        
+        // Detect headless/launchd environment (no interactive terminal environment vars)
+        const isTest = typeof process.env.VITEST !== "undefined" || process.env.NODE_ENV === "test";
+        const isHeadless = !isTest && !process.env.TERM_PROGRAM && !process.env.COLORTERM;
+        
+        if (isHeadless && os.platform() === "darwin") {
+          // In headless launchd/background contexts on macOS, the user's login keychain is locked
+          // and inaccessible, causing macOS to display the "Keychain Not Found" GUI popup.
+          // Fix: create and unlock a temporary, password-less session keychain so the
+          // Security framework has a writable, unlocked keychain in this bootstrap namespace
+          // without triggering any GUI prompts.
+          const tempKeychainPath = path.join(sessionKeychainDir, "session.keychain");
+          const execOptions = { stdio: "ignore" as const };
+          
+          try {
+            // 1. Create the keychain
+            execFileSync("security", ["create-keychain", "-p", "", tempKeychainPath], execOptions);
+            
+            // 2. Unlock the keychain
+            execFileSync("security", ["unlock-keychain", "-p", "", tempKeychainPath], execOptions);
+            
+            // 3. Set it as the default keychain for this security session
+            execFileSync("security", ["default-keychain", "-s", tempKeychainPath], execOptions);
+            
+            // 4. Set keychain settings to never lock
+            execFileSync("security", ["set-keychain-settings", "-l", "-u", tempKeychainPath], execOptions);
+          } catch (keychainErr) {
+            console.debug(`[antigravity] Failed to setup temp session keychain: ${(keychainErr as Error).message}`);
+            // Fallback to real keychain symlink if creation fails
+            fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+          }
+        } else {
+          // Interactive user GUI session: symlink the real keychain so the agent can read
+          // and use the already-saved OAuth token from the real login keychain.
+          fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+        }
       }
     } catch (err) {
-      console.debug(`[antigravity] Failed to symlink keychains: ${(err as Error).message}`);
+      console.debug(`[antigravity] Failed to setup keychains: ${(err as Error).message}`);
     }
 
     const srcGemini = path.join(userHome, ".gemini");
