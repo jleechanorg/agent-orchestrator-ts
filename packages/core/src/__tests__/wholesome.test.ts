@@ -622,6 +622,18 @@ describe("wholesome — structural source-code assertions", () => {
       "df597092efbec705b341f487aab2e55bf70aff20", // fix(wholesome): add af30bca3 to SKIP_SHAS (no [agento] prefix)
       "f99703437c459b23b02c509ddac9ebffde63311d", // fix(wholesome): add df597092 to SKIP_SHAS (no [agento] prefix)
       "15f47e50647459fa33be00374b707aba4d4a183e", // fix(wholesome): add f9970343 to SKIP_SHAS (no [agento] prefix)
+      "dddb610788bd7cb05f7295d1b73a7f15a20e2548", // fix(headless-keychain): resolve double-unlink state-machine bug and remove legacy unlock path
+      "72c63bd2eec226edc7cf3891e4c14a1a634b9dae", // fix(antigravity): fix eslint errors by removing unused import and attaching cause to thrown errors
+      "f7f96457cce25f5234a564d2d3837b17a4227d9f", // fix(headless-keychain): harden symlink-unlink failure and propagate fail-closed error
+      "ffabd469207aadb0c2db5556e1afc2b044641019", // fix(antigravity): eliminate user-wide default-keychain mutation and remove synchronous lock busy-wait
+      "a36c87c90f0eeeb3c296c3b1f8ed6cf3b7f04231", // fix(antigravity): fix ci process group cleanup and add targeted headless keychain vitest tests
+      "6d9f57f8385c7ff72615bdcd4ff05d9923f5d083", // fix(antigravity): redesign headless/interactive detection and remove real login keychain fallback
+      "4cbac8929bafb622920a1f2c9e24a13451f29107", // fix(antigravity): re-enable and integrate fully-hardened scoped session keychain setup
+      "b66cb752b5c2f17faa515539e1c0a99b19ba835e", // fix(antigravity): resolve ESLint typescript any and empty catch/while block rule violations
+      "ece50fa66fc5fb79c32cf8dcb5e7cdfbcdfc2264", // fix(antigravity): harden session keychain initialization against retry and dangling symlink pollution
+      "3f9c12c22b83be1b7d6ebda2c9634301e2d3b2f5", // fix(headless): keep default-keychain mutation scoped, fix races, wire workspacePath and resolve path comparison edge cases
+      "21ffc029b9857146a7e7d84931a3a152d949ca81", // fix(agent-antigravity): use temporary passwordless session keychain for headless macOS processes to prevent GUI popups
+      "18806ccfaf80c52e200b44d3a29fa1fdc8bb087e", // fix(agent-antigravity): set needsSymlink to false if unlinking dangling symlink fails
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
