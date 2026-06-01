@@ -1,5 +1,19 @@
-import { describe, it, expect } from "vitest";
-import { createInitialState, nextPhase } from "@jleechanorg/ao-autonomous-harness";
+import { describe, it, expect, vi } from "vitest";
+import { createInitialState, nextPhase, spawnAOWorker } from "@jleechanorg/ao-autonomous-harness";
+
+vi.mock("../config.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../config.js")>();
+  return {
+    ...original,
+    loadConfig: () => ({
+      projects: {
+        "test-project": {
+          path: "/tmp/correct-project-path",
+        },
+      },
+    }),
+  };
+});
 
 describe("Autonomous Harness state transitions", () => {
   it("transitions correctly through phases", () => {
@@ -25,4 +39,17 @@ describe("Autonomous Harness state transitions", () => {
     const state7 = nextPhase(state6);
     expect(state7.currentSprint.phase).toBe("done");
   });
+
+  it("spawnAOWorker rejects when project configuration path differs from workspace path", async () => {
+    // If CLI workspace is '/tmp/wrong-project-path' but config is '/tmp/correct-project-path'
+    await expect(
+      spawnAOWorker({
+        workspace: "/tmp/wrong-project-path",
+        projectId: "test-project",
+        systemPrompt: "test system prompt",
+        taskPrompt: "test task prompt",
+      }),
+    ).rejects.toThrow("[autonomous-harness] Project path mismatch");
+  });
 });
+
