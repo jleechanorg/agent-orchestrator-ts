@@ -285,7 +285,12 @@ const antigravityOverrides: Partial<Agent> = {
             lockAcquired = true;
             releaseLock = () => {
               try {
-                fs.unlinkSync(lockPath);
+                if (fs.existsSync(lockPath)) {
+                  const content = fs.readFileSync(lockPath, "utf-8").trim();
+                  if (content === String(process.pid)) {
+                    fs.unlinkSync(lockPath);
+                  }
+                }
               } catch {
                 // ignore
               }
@@ -304,7 +309,12 @@ const antigravityOverrides: Partial<Agent> = {
                     lockAcquired = true;
                     releaseLock = () => {
                       try {
-                        fs.unlinkSync(lockPath);
+                        if (fs.existsSync(lockPath)) {
+                          const content = fs.readFileSync(lockPath, "utf-8").trim();
+                          if (content === String(process.pid)) {
+                            fs.unlinkSync(lockPath);
+                          }
+                        }
                       } catch {
                         // ignore
                       }

@@ -48,7 +48,7 @@ vi.mock("node:os", () => ({
 }));
 
 vi.mock("node:child_process", async (importOriginal) => {
-  const actual = await importOriginal() as any;
+  const actual = await importOriginal() as typeof import("node:child_process");
   return {
     ...actual,
     execFileSync: mockExecFileSync,
@@ -357,7 +357,10 @@ describe("antigravity getEnvironment", () => {
       }
     });
 
-    const env = agent.getEnvironment(makeLaunchConfig());
+    const env = agent.getEnvironment({
+      ...makeLaunchConfig(),
+      workspacePath: "/workspace/distinct-workspace-path",
+    });
     expect(env).toBeDefined();
 
     const sessionPath = path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini", "trustedFolders.json");
@@ -371,6 +374,8 @@ describe("antigravity getEnvironment", () => {
 
     expect(sessionContent["/workspace/repo"]).toBe("TRUST_FOLDER");
     expect(globalContent["/workspace/repo"]).toBe("TRUST_FOLDER");
+    expect(sessionContent["/workspace/distinct-workspace-path"]).toBe("TRUST_FOLDER");
+    expect(globalContent["/workspace/distinct-workspace-path"]).toBe("TRUST_FOLDER");
   });
 
 
