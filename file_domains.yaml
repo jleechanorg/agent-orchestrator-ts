@@ -7,6 +7,7 @@
 
 domains:
   core-runtime:
+    advisory: true
     paths:
       - "packages/core/src/session*.ts"
       - "packages/core/src/lifecycle*.ts"
@@ -15,6 +16,7 @@ domains:
       - "@core"
 
   core-plugins:
+    advisory: true
     paths:
       - "packages/core/src/plugin*.ts"
       - "packages/core/src/types.ts"
@@ -22,6 +24,7 @@ domains:
       - "@core"
 
   core-review:
+    advisory: true
     paths:
       - "packages/core/src/review*.ts"
       - "packages/core/src/merge-gate.ts"
@@ -31,6 +34,7 @@ domains:
       - "@review"
 
   core-gh:
+    advisory: true
     paths:
       - "packages/core/src/gh-*.ts"
       - "packages/core/src/auto-resolve-threads.ts"
@@ -38,6 +42,7 @@ domains:
       - "@integrations"
 
   core-messaging:
+    advisory: true
     paths:
       - "packages/core/src/event-bus.ts"
       - "packages/core/src/slack*.ts"
@@ -47,48 +52,56 @@ domains:
       - "@integrations"
 
   agent-plugins:
+    advisory: true
     paths:
       - "packages/plugins/agent-*/**/*.ts"
     owners:
       - "@agents"
 
   runtime-plugins:
+    advisory: true
     paths:
       - "packages/plugins/runtime-*/**/*.ts"
     owners:
       - "@infra"
 
   tracker-plugins:
+    advisory: true
     paths:
       - "packages/plugins/tracker-*/**/*.ts"
     owners:
       - "@trackers"
 
   notifier-plugins:
+    advisory: true
     paths:
       - "packages/plugins/notifier-*/**/*.ts"
     owners:
       - "@notifiers"
 
   scm-plugins:
+    advisory: true
     paths:
       - "packages/plugins/scm-*/**/*.ts"
     owners:
       - "@scm"
 
   poller-plugins:
+    advisory: true
     paths:
       - "packages/plugins/poller-*/**/*.ts"
     owners:
       - "@pollers"
 
   lock-plugins:
+    advisory: true
     paths:
       - "packages/plugins/area-lock/**/*.ts"
     owners:
       - "@core"
 
   ci-workflows:
+    advisory: true
     paths:
       - ".github/workflows/*.yml"
       - ".github/workflows/*.yaml"
@@ -96,6 +109,7 @@ domains:
       - "@infra"
 
   docs:
+    advisory: true
     paths:
       - "docs/*.md"
       - "README.md"

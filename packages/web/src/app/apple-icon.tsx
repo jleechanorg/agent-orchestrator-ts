@@ -1,11 +1,11 @@
 import { ImageResponse } from "next/og";
 import { getProjectName, stringToHue } from "@/lib/project-name";
 
-export const size = { width: 32, height: 32 };
+export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
 
 
-export default function Icon() {
+export default function AppleIcon() {
   const name = getProjectName();
   const initial = (name.charAt(0) || "A").toUpperCase();
   const hue = stringToHue(name);
@@ -14,15 +14,15 @@ export default function Icon() {
     (
       <div
         style={{
-          width: "32px",
-          height: "32px",
-          borderRadius: "6px",
+          width: "180px",
+          height: "180px",
+          borderRadius: "36px",
           background: `hsl(${hue}, 60%, 45%)`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           color: "white",
-          fontSize: "20px",
+          fontSize: "110px",
           fontWeight: 700,
           fontFamily: "sans-serif",
         }}
