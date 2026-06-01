@@ -4,6 +4,7 @@ import { getSessionsDir } from "../paths.js";
 import { validateStatus } from "../utils/validation.js";
 import { sessionFromMetadata } from "../utils/session-from-metadata.js";
 import type { RecoveryAssessment, RecoveryResult, RecoveryContext } from "./types.js";
+import { shouldDestroyWorkspacePath } from "./workspacePolicy.js";
 
 function preserveSessionAgentPatch(
   rawMetadata: Record<string, string>,
@@ -136,7 +137,12 @@ export async function cleanupSession(
     }
 
     const workspacePath = rawMetadata["worktree"];
-    if (workspacePath && workspaceExists && workspace) {
+    if (
+      workspacePath &&
+      workspaceExists &&
+      workspace &&
+      shouldDestroyWorkspacePath(project, projectId, workspacePath, config.configPath)
+    ) {
       try {
         await workspace.destroy(workspacePath);
       } catch {

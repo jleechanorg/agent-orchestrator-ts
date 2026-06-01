@@ -42,3 +42,13 @@ export const getAllProjects = cache((): ProjectInfo[] => {
     return [];
   }
 });
+
+/** Derive a consistent hue from a string (0-360). */
+export function stringToHue(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = s.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return ((hash % 360) + 360) % 360;
+}
+

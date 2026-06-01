@@ -586,6 +586,7 @@ export interface WorkspaceCreateConfig {
   sessionId: SessionId;
   branch: string;
   worktreeDir?: string;
+  cloneDir?: string;
 }
 
 export interface WorkspaceInfo {
@@ -1374,6 +1375,12 @@ export interface OrchestratorConfig {
   worktreeDir?: string;
 
   /**
+   * Global clone base directory. Can be overridden per-project via
+   * projects[].cloneDir.
+   */
+  cloneDir?: string;
+
+  /**
    * Shell init files to source before spawning sessions. Each entry is sourced
    * in order, allowing the daemon to inherit env vars (API keys, PATH extensions,
    * etc.) from the user's shell profile. Only vars matching known API-key
@@ -1644,6 +1651,11 @@ export interface ProjectConfig {
    * The lifecycle-worker's orphan sweep uses this to locate worktrees.
    */
   worktreeDir?: string;
+
+  /**
+   * Override the global clone base directory for this project.
+   */
+  cloneDir?: string;
 
   /**
    * Persistent spawn queue and active-session cap for this project.
