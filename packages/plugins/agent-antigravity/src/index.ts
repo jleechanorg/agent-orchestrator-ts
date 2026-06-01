@@ -150,15 +150,18 @@ const antigravityOverrides: Partial<Agent> = {
     const settingsPath = path.join(destGemini, "settings.json");
     if (fs.existsSync(settingsPath)) {
       try {
-        const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-        if (!settings.general) {
-          settings.general = {};
+        const parsed = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const settings = parsed as Record<string, any>;
+          if (!settings.general || typeof settings.general !== "object" || Array.isArray(settings.general)) {
+            settings.general = {};
+          }
+          if (!settings.general.sessionRetention || typeof settings.general.sessionRetention !== "object" || Array.isArray(settings.general.sessionRetention)) {
+            settings.general.sessionRetention = {};
+          }
+          settings.general.sessionRetention.enabled = false;
+          fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
         }
-        if (!settings.general.sessionRetention) {
-          settings.general.sessionRetention = {};
-        }
-        settings.general.sessionRetention.enabled = false;
-        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
       } catch (err) {
         console.debug(`[antigravity] Failed to update settings.json: ${(err as Error).message}`);
       }
@@ -170,7 +173,10 @@ const antigravityOverrides: Partial<Agent> = {
       let trustedFolders: Record<string, string> = {};
       if (fs.existsSync(trustedFoldersPath)) {
         try {
-          trustedFolders = JSON.parse(fs.readFileSync(trustedFoldersPath, "utf-8"));
+          const parsed = JSON.parse(fs.readFileSync(trustedFoldersPath, "utf-8"));
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            trustedFolders = parsed as Record<string, string>;
+          }
         } catch {
           // ignore parsing error, start fresh
         }

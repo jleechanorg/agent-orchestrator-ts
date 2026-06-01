@@ -275,10 +275,10 @@ describe("antigravity getEnvironment", () => {
     }));
 
     mockUnlinkSync.mockImplementation(() => {
-      throw new Error("un-unlinkable symlink (simulated EACCES)");
+      throw new Error("un-unlinkable symlink (mocked EACCES)");
     });
     mockSymlinkSync.mockImplementation(() => {
-      throw new Error("un-symlinkable path (simulated EPERM)");
+      throw new Error("un-symlinkable path (mocked EPERM)");
     });
 
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
@@ -306,7 +306,7 @@ describe("antigravity getEnvironment", () => {
     });
 
     mockReadFileSync.mockImplementation(() => {
-      throw new Error("simulated read error");
+      throw new Error("mocked read error");
     });
 
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
@@ -338,5 +338,52 @@ describe("antigravity getEnvironment", () => {
     expect(writtenContent).toContain("/workspace/repo");
     const parsed = JSON.parse(writtenContent);
     expect(parsed["/workspace/repo"]).toBe("TRUST_FOLDER");
+  });
+
+  it("handles malformed (null/array) settings.json and trustedFolders.json gracefully without throwing or writing invalid data", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string") {
+        if (filepath.endsWith("settings.json")) return true;
+        if (filepath.endsWith("trustedFolders.json")) return true;
+      }
+      return false;
+    });
+
+    // Mock settings.json as null and trustedFolders.json as array to check robustness
+    mockReadFileSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string") {
+        if (filepath.endsWith("settings.json")) return "null";
+        if (filepath.endsWith("trustedFolders.json")) return "[]";
+      }
+      return "{}";
+    });
+
+    let writtenTrustedFolders = "";
+    let writtenSettings = "";
+    mockWriteFileSync.mockImplementation((filepath, content) => {
+      if (typeof filepath === "string") {
+        if (filepath.endsWith("trustedFolders.json")) {
+          writtenTrustedFolders = content as string;
+        } else if (filepath.endsWith("settings.json")) {
+          writtenSettings = content as string;
+        }
+      }
+    });
+
+    expect(() => agent.getEnvironment(makeLaunchConfig())).not.toThrow();
+
+    // Verify that trustedFolders.json was written as a correct plain object and NOT an array
+    expect(writtenTrustedFolders).toContain("/workspace/repo");
+    const parsedFolders = JSON.parse(writtenTrustedFolders);
+    expect(parsedFolders).not.toBeNull();
+    expect(Array.isArray(parsedFolders)).toBe(false);
+    expect(parsedFolders["/workspace/repo"]).toBe("TRUST_FOLDER");
   });
 });
