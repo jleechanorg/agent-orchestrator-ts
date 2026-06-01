@@ -56,22 +56,74 @@ const antigravityOverrides: Partial<Agent> = {
     // agy workers show "A keychain cannot be found to store 'antigravity.'"
     const sessionKeychainDir = path.join(sessionHome, "Library", "Keychains");
     try {
-      if (!fs.existsSync(sessionKeychainDir)) {
+      const isTest = typeof process.env.VITEST !== "undefined" || process.env.NODE_ENV === "test";
+      const isInteractive = !!(
+        process.env.TERM_PROGRAM ||
+        process.env.COLORTERM ||
+        process.env.TERM ||
+        process.env.SHELL ||
+        process.env.TMUX ||
+        process.env.SSH_TTY ||
+        process.env.SSH_CLIENT ||
+        process.env.SSH_CONNECTION
+      );
+      const isHeadless = !isTest && !isInteractive;
+
+      let needsSetup = false;
+      let isSymlink = false;
+      try {
+        const stat = fs.lstatSync(sessionKeychainDir);
+        isSymlink = stat.isSymbolicLink();
+      } catch {
+        needsSetup = true;
+      }
+
+      if (!needsSetup) {
+        if (isHeadless && os.platform() === "darwin") {
+          // If it is a symlink but we are in headless mode, we need a real directory to store the temp keychain
+          if (isSymlink) {
+            try {
+              fs.unlinkSync(sessionKeychainDir);
+              needsSetup = true;
+            } catch {}
+          } else {
+            // If it is a directory, check if our temp keychain database exists inside it
+            const tempKeychainDbPath = path.join(sessionKeychainDir, "session.keychain-db");
+            if (!fs.existsSync(tempKeychainDbPath)) {
+              needsSetup = true;
+            } else {
+              // The keychain already exists! Just unlock it to be safe
+              const tempKeychainPath = path.join(sessionKeychainDir, "session.keychain");
+              const execOptions = {
+                stdio: "ignore" as const,
+                env: {
+                  ...process.env,
+                  HOME: sessionHome,
+                },
+              };
+              try {
+                execFileSync("security", ["unlock-keychain", "-p", "", tempKeychainPath], execOptions);
+              } catch {}
+            }
+          }
+        } else {
+          // If we are in interactive mode, we always want it to be a symlink to the user's real keychains.
+          // Recreate if it is not a symlink, or if it is a dangling symlink (target missing).
+          if (!isSymlink || !fs.existsSync(sessionKeychainDir)) {
+            try {
+              if (isSymlink) {
+                fs.unlinkSync(sessionKeychainDir);
+              } else {
+                fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
+              }
+            } catch {}
+            needsSetup = true;
+          }
+        }
+      }
+
+      if (needsSetup) {
         fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
-        
-        // Detect headless/launchd environment (no interactive terminal environment vars)
-        const isTest = typeof process.env.VITEST !== "undefined" || process.env.NODE_ENV === "test";
-        const isInteractive = !!(
-          process.env.TERM_PROGRAM ||
-          process.env.COLORTERM ||
-          process.env.TERM ||
-          process.env.SHELL ||
-          process.env.TMUX ||
-          process.env.SSH_TTY ||
-          process.env.SSH_CLIENT ||
-          process.env.SSH_CONNECTION
-        );
-        const isHeadless = !isTest && !isInteractive;
         
         if (isHeadless && os.platform() === "darwin") {
           // In headless launchd/background contexts on macOS, the user's login keychain is locked
@@ -91,6 +143,9 @@ const antigravityOverrides: Partial<Agent> = {
           };
           
           try {
+            // Ensure the directory exists
+            fs.mkdirSync(sessionKeychainDir, { recursive: true });
+
             // 1. Create the keychain
             execFileSync("security", ["create-keychain", "-p", "", tempKeychainPath], execOptions);
             
@@ -117,7 +172,14 @@ const antigravityOverrides: Partial<Agent> = {
         } else {
           // Interactive user GUI session: symlink the real keychain so the agent can read
           // and use the already-saved OAuth token from the real login keychain.
-          fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+          try {
+            if (fs.existsSync(sessionKeychainDir)) {
+              fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
+            }
+            fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+          } catch (symlinkErr) {
+            console.debug(`[antigravity] Failed to symlink login keychain: ${(symlinkErr as Error).message}`);
+          }
         }
       }
     } catch (err) {
