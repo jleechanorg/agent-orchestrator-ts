@@ -58,7 +58,6 @@ const antigravityOverrides: Partial<Agent> = {
     // worker sessions causes macOS Security framework to intercept the request and
     // constantly popup GUI Keychain Not Found / login credential authorization prompts.
     // To prevent this, we avoid symlinking the user's real system keychains.
-    /*
     const sessionKeychainDir = path.join(sessionHome, "Library", "Keychains");
     try {
       const isTest = typeof process.env.VITEST !== "undefined" || process.env.NODE_ENV === "test";
@@ -196,7 +195,6 @@ const antigravityOverrides: Partial<Agent> = {
     } catch (err) {
       console.debug(`[antigravity] Failed to setup keychains: ${(err as Error).message}`);
     }
-    */
 
     const srcGemini = path.join(userHome, ".gemini");
     const destGemini = path.join(sessionHome, ".gemini");
