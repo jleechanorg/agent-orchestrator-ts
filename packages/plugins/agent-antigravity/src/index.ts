@@ -8,7 +8,7 @@ import {
   type ActivityDetection,
   shellEscape,
 } from "@jleechanorg/ao-core";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
@@ -66,9 +66,7 @@ const antigravityOverrides: Partial<Agent> = {
         (!!(
           process.env.TERM_PROGRAM ||
           process.env.COLORTERM ||
-          process.env.SSH_TTY ||
-          process.env.SSH_CLIENT ||
-          process.env.SSH_CONNECTION
+          process.env.SSH_TTY
         ) && process.env.AO_HEADLESS !== "true");
       const isHeadless = (process.env.AO_HEADLESS === "true") || (!isTest && !isInteractive);
 
@@ -152,6 +150,17 @@ const antigravityOverrides: Partial<Agent> = {
           };
           
           try {
+            // Get original default keychain so we can restore it safely
+            let originalDefaultKeychain = "";
+            try {
+              const out = execFileSync("security", ["default-keychain"], { env: execOptions.env });
+              if (out) {
+                originalDefaultKeychain = out.toString().trim().replace(/^["']|["']$/g, "").trim();
+              }
+            } catch (err) {
+              console.debug(`[antigravity] Failed to get original default keychain: ${(err as Error).message}`);
+            }
+
             // Ensure the directory exists
             fs.mkdirSync(sessionKeychainDir, { recursive: true });
 
@@ -166,6 +175,21 @@ const antigravityOverrides: Partial<Agent> = {
             
             // 4. Set keychain settings to never lock
             execFileSync("security", ["set-keychain-settings", "-l", "-u", tempKeychainPath], execOptions);
+
+            // 5. Restore the original default keychain after a short delay in a detached background process
+            if (originalDefaultKeychain && originalDefaultKeychain !== tempKeychainPath) {
+              const restorer = spawn(
+                "sleep 10 && security default-keychain -s " + shellEscape(originalDefaultKeychain),
+                {
+                  shell: true,
+                  detached: true,
+                  stdio: "ignore",
+                  env: { ...process.env },
+                }
+              );
+              restorer.unref();
+              console.debug(`[antigravity] Spawned background restorer to revert default keychain to ${originalDefaultKeychain} after 10s`);
+            }
           } catch (keychainErr) {
             console.debug(`[antigravity] Failed to setup temp session keychain: ${(keychainErr as Error).message}`);
             // Fail closed in headless mode: do NOT fall back to real keychain symlink
@@ -306,30 +330,40 @@ const antigravityOverrides: Partial<Agent> = {
       const isGlobal = trustedFoldersPath === path.join(userHome, ".gemini", "trustedFolders.json");
       const lockPath = isGlobal ? path.join(userHome, ".gemini", "trustedFolders.lock") : null;
       let releaseLock = () => {};
+      let lockAcquired = false;
 
       if (lockPath) {
         try {
           fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-          const start = Date.now();
-          while (true) {
-            try {
-              fs.writeFileSync(lockPath, String(process.pid), { flag: "wx" });
-              releaseLock = () => {
-                try {
-                  fs.unlinkSync(lockPath);
-                } catch {
-                  // ignore
-                }
-              };
-              break;
-            } catch (err: unknown) {
-              const errWithCode = err as { code?: string };
-              if (errWithCode.code !== "EEXIST") throw err;
+          try {
+            fs.writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+            lockAcquired = true;
+            releaseLock = () => {
+              try {
+                fs.unlinkSync(lockPath);
+              } catch {
+                // ignore
+              }
+            };
+          } catch (err: unknown) {
+            const errWithCode = err as { code?: string };
+            if (errWithCode.code === "EEXIST") {
+              // Lock exists. Check if it's stale (older than 10s)
               try {
                 const stat = fs.statSync(lockPath);
                 if (Date.now() - stat.mtimeMs > 10000) {
                   try {
                     fs.unlinkSync(lockPath);
+                    // Try to acquire one more time
+                    fs.writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+                    lockAcquired = true;
+                    releaseLock = () => {
+                      try {
+                        fs.unlinkSync(lockPath);
+                      } catch {
+                        // ignore
+                      }
+                    };
                   } catch {
                     // ignore
                   }
@@ -337,13 +371,8 @@ const antigravityOverrides: Partial<Agent> = {
               } catch {
                 // ignore
               }
-            }
-            if (Date.now() - start > 5000) {
-              break;
-            }
-            const sleepStart = Date.now();
-            while (Date.now() - sleepStart < 50) {
-              // wait
+            } else {
+              throw err;
             }
           }
         } catch (lockErr) {
@@ -354,7 +383,13 @@ const antigravityOverrides: Partial<Agent> = {
       try {
         let trustedFolders: Record<string, string> = {};
         let shouldWrite = true;
-        if (fs.existsSync(trustedFoldersPath)) {
+
+        if (lockPath && !lockAcquired) {
+          console.debug(`[antigravity] Lock acquisition timed out for ${trustedFoldersPath}, skipping write to avoid clobbering.`);
+          shouldWrite = false;
+        }
+
+        if (shouldWrite && fs.existsSync(trustedFoldersPath)) {
           try {
             const raw = fs.readFileSync(trustedFoldersPath, "utf-8").trim();
             if (raw) {

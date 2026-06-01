@@ -16,6 +16,7 @@ const {
   mockReadFileSync,
   mockWriteFileSync,
   mockExecFileSync,
+  mockSpawn,
 } = vi.hoisted(() => ({
   mockHomedir: vi.fn(() => "/mock/home"),
   mockTmpdir: vi.fn(() => "/tmp"),
@@ -30,6 +31,7 @@ const {
   mockReadFileSync: vi.fn(() => "{}"),
   mockWriteFileSync: vi.fn(),
   mockExecFileSync: vi.fn(),
+  mockSpawn: vi.fn(() => ({ unref: vi.fn() })),
 }));
 
 vi.mock("node:os", () => ({
@@ -48,9 +50,11 @@ vi.mock("node:child_process", async (importOriginal) => {
   return {
     ...actual,
     execFileSync: mockExecFileSync,
+    spawn: mockSpawn,
     default: {
       ...actual.default,
       execFileSync: mockExecFileSync,
+      spawn: mockSpawn,
     },
   };
 });
@@ -434,6 +438,13 @@ describe("antigravity getEnvironment", () => {
     try {
       // 1. Success case: verifies create-keychain, default-keychain, etc. are called
       mockExecFileSync.mockReset();
+      mockSpawn.mockReset();
+      mockExecFileSync.mockImplementation((cmd, args) => {
+        if (cmd === "security" && args && args.length === 1 && args[0] === "default-keychain") {
+          return "/Users/mockuser/Library/Keychains/login.keychain-db";
+        }
+        return "";
+      });
       mockLstatSync.mockImplementation(() => {
         throw new Error("keychain does not exist");
       });
@@ -443,6 +454,11 @@ describe("antigravity getEnvironment", () => {
       expect(env).toBeDefined();
 
       // Check key security framework CLI calls in headless mode
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        "security",
+        ["default-keychain"],
+        expect.anything()
+      );
       expect(mockExecFileSync).toHaveBeenCalledWith(
         "security",
         expect.arrayContaining(["create-keychain", "-p", ""]),
@@ -458,6 +474,12 @@ describe("antigravity getEnvironment", () => {
         expect.arrayContaining(["default-keychain", "-s"]),
         expect.anything()
       );
+
+      // Verify that background restorer was spawned
+      expect(mockSpawn).toHaveBeenCalled();
+      const spawnCalls = mockSpawn.mock.calls;
+      expect(spawnCalls[0][0]).toContain("security default-keychain -s");
+      expect(spawnCalls[0][0]).toContain("/Users/mockuser/Library/Keychains/login.keychain-db");
 
       // 2. Failure/Fail-Closed case: if temp keychain creation fails, we do NOT symlink user login keychain
       mockExecFileSync.mockReset();
@@ -481,4 +503,39 @@ describe("antigravity getEnvironment", () => {
       process.env = originalEnv;
     }
   });
+
+  it("skips writing global trustedFolders.json if lock acquisition times out to prevent clobbering", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+    mockWriteFileSync.mockReset();
+
+    // Mock existsSync for lockPath so it always exists, simulating a timed out lock
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.endsWith("trustedFolders.lock")) {
+        return true;
+      }
+      return false;
+    });
+
+    // Mock writeFileSync to throw EEXIST when trying to acquire the lock
+    mockWriteFileSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.endsWith("trustedFolders.lock")) {
+        const err = new Error("mocked EEXIST") as any;
+        err.code = "EEXIST";
+        throw err;
+      }
+    });
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    // Verify that global trustedFolders.json was NOT written because lock timed out
+    const globalPath = path.join("/Users/mockuser", ".gemini", "trustedFolders.json");
+    const writtenPaths = mockWriteFileSync.mock.calls.map((call) => call[0] as string);
+    expect(writtenPaths).not.toContain(globalPath);
+  }, 15000);
 });
