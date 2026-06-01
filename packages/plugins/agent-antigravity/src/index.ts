@@ -125,6 +125,7 @@ const antigravityOverrides: Partial<Agent> = {
               fs.unlinkSync(sessionSub);
             } catch (err) {
               console.debug(`[antigravity] Failed to unlink dangling symlink ${sessionSub}: ${(err as Error).message}`);
+              needsSymlink = false;
             }
           } else {
             // Already a real directory/file, do not overwrite/symlink
