@@ -45,11 +45,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # autonomous-harness must be built before ao-cli (CLI imports from the package)
-      # Use '...' suffix to also build dependencies (ao-core)
-      - run: pnpm --filter '@jleechanorg/ao-autonomous-harness...' build
-      # Build remaining non-web packages (excluding autonomous-harness which was built above)
-      - run: pnpm -r --filter '!@jleechanorg/ao-web' --filter '!@jleechanorg/ao-autonomous-harness' build
+      # Build ao-core first, then autonomous-harness to resolve cyclic devDependencies.
+      - run: pnpm --filter '@jleechanorg/ao-core' build
+      - run: pnpm --filter '@jleechanorg/ao-autonomous-harness' build
+      # Build remaining non-web packages (excluding autonomous-harness and core which were built above)
+      - run: pnpm -r --filter '!@jleechanorg/ao-web' --filter '!@jleechanorg/ao-autonomous-harness' --filter '!@jleechanorg/ao-core' build
       # Typecheck all non-web packages + autonomous-harness
       - run: pnpm -r --filter '!@jleechanorg/ao-web' --filter '!@jleechanorg/ao-autonomous-harness' typecheck
       - run: pnpm --filter '@jleechanorg/ao-autonomous-harness' typecheck
@@ -87,6 +87,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter '@jleechanorg/ao-core' build
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
       - name: Install pyyaml (required by validate-config.sh and start-all.sh)
         run: python3 -m pip install --break-system-packages --quiet pyyaml || python3 -m pip install --quiet pyyaml
@@ -248,6 +249,7 @@ jobs:
       - name: Start tmux server
         run: tmux start-server
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter '@jleechanorg/ao-core' build
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
       - name: Run web server tests (unit + integration)
         run: pnpm --filter @jleechanorg/ao-web exec vitest run server/__tests__/

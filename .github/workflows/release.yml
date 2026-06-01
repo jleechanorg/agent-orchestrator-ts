@@ -98,6 +98,7 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter '@jleechanorg/ao-core' build
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
         # Disable husky — gitleaks not installed on runner
       - run: echo "HUSKY=0" >> $GITHUB_ENV
@@ -152,6 +153,7 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter '@jleechanorg/ao-core' build
       - run: pnpm -r --filter '!@jleechanorg/ao-web' build
       - run: echo "HUSKY=0" >> $GITHUB_ENV
       - run: npx semantic-release ${{ inputs.dry_run && '--dry-run' || '' }}
