@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   test: {
     alias: {
+      "@jleechanorg/ao-autonomous-harness": resolve(__dirname, "../../autonomous-harness/src/index.ts"),
       // Integration tests import real plugins. These aliases resolve
       // package names to source files so we don't need circular devDeps
       // (plugins depend on core, core can't depend on plugins).
