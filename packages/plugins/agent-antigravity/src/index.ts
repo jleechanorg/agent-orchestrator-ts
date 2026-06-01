@@ -8,7 +8,7 @@ import {
   type ActivityDetection,
   shellEscape,
 } from "@jleechanorg/ao-core";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
@@ -88,7 +88,7 @@ const antigravityOverrides: Partial<Agent> = {
               needsSetup = true;
             } catch (err) {
               console.error(`[antigravity] Headless safety check: failed to unlink existing keychain symlink ${sessionKeychainDir}: ${(err as Error).message}`);
-              throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`);
+              throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`, { cause: err });
             }
           } else {
             // If it is a directory, check if our temp keychain database exists inside it
@@ -148,7 +148,7 @@ const antigravityOverrides: Partial<Agent> = {
             } catch (unlinkErr) {
               console.error(`[antigravity] Headless safety check: failed to remove existing keychain path ${sessionKeychainDir}: ${(unlinkErr as Error).message}`);
               // Fail-closed as requested: throw to abort launch
-              throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`);
+              throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`, { cause: unlinkErr });
             }
           }
         } else {
