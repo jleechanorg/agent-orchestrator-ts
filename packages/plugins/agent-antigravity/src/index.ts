@@ -61,16 +61,15 @@ const antigravityOverrides: Partial<Agent> = {
     const sessionKeychainDir = path.join(sessionHome, "Library", "Keychains");
     try {
       const isTest = typeof process.env.VITEST !== "undefined" || process.env.NODE_ENV === "test";
-      const isInteractive = !!(
-        process.env.TERM_PROGRAM ||
-        process.env.COLORTERM ||
-        process.env.TERM ||
-        process.env.SHELL ||
-        process.env.TMUX ||
-        process.env.SSH_TTY ||
-        process.env.SSH_CLIENT ||
-        process.env.SSH_CONNECTION
-      );
+      const isInteractive =
+        process.env.AO_INTERACTIVE === "true" ||
+        (!!(
+          process.env.TERM_PROGRAM ||
+          process.env.COLORTERM ||
+          process.env.SSH_TTY ||
+          process.env.SSH_CLIENT ||
+          process.env.SSH_CONNECTION
+        ) && process.env.AO_HEADLESS !== "true");
       const isHeadless = !isTest && !isInteractive;
 
       let needsSetup = false;
@@ -169,15 +168,8 @@ const antigravityOverrides: Partial<Agent> = {
             execFileSync("security", ["set-keychain-settings", "-l", "-u", tempKeychainPath], execOptions);
           } catch (keychainErr) {
             console.debug(`[antigravity] Failed to setup temp session keychain: ${(keychainErr as Error).message}`);
-            // Fallback to real keychain symlink if creation fails
-            try {
-              if (fs.existsSync(sessionKeychainDir)) {
-                fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
-              }
-              fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
-            } catch (symlinkErr) {
-              console.debug(`[antigravity] Failed to fallback to real keychain symlink: ${(symlinkErr as Error).message}`);
-            }
+            // Fail closed in headless mode: do NOT fall back to real keychain symlink
+            // to completely prevent any OS-level interactive prompts or deadlocks.
           }
         } else {
           // Interactive user GUI session: symlink the real keychain so the agent can read
