@@ -85,7 +85,9 @@ const antigravityOverrides: Partial<Agent> = {
             try {
               fs.unlinkSync(sessionKeychainDir);
               needsSetup = true;
-            } catch {}
+            } catch {
+              // ignore
+            }
           } else {
             // If it is a directory, check if our temp keychain database exists inside it
             const tempKeychainDbPath = path.join(sessionKeychainDir, "session.keychain-db");
@@ -103,7 +105,9 @@ const antigravityOverrides: Partial<Agent> = {
               };
               try {
                 execFileSync("security", ["unlock-keychain", "-p", "", tempKeychainPath], execOptions);
-              } catch {}
+              } catch {
+                // ignore
+              }
             }
           }
         } else {
@@ -116,7 +120,9 @@ const antigravityOverrides: Partial<Agent> = {
               } else {
                 fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
               }
-            } catch {}
+            } catch {
+              // ignore
+            }
             needsSetup = true;
           }
         }
@@ -315,25 +321,34 @@ const antigravityOverrides: Partial<Agent> = {
               releaseLock = () => {
                 try {
                   fs.unlinkSync(lockPath);
-                } catch {}
+                } catch {
+                  // ignore
+                }
               };
               break;
-            } catch (err: any) {
-              if (err.code !== "EEXIST") throw err;
+            } catch (err: unknown) {
+              const errWithCode = err as { code?: string };
+              if (errWithCode.code !== "EEXIST") throw err;
               try {
                 const stat = fs.statSync(lockPath);
                 if (Date.now() - stat.mtimeMs > 10000) {
                   try {
                     fs.unlinkSync(lockPath);
-                  } catch {}
+                  } catch {
+                    // ignore
+                  }
                 }
-              } catch {}
+              } catch {
+                // ignore
+              }
             }
             if (Date.now() - start > 5000) {
               break;
             }
             const sleepStart = Date.now();
-            while (Date.now() - sleepStart < 50) {}
+            while (Date.now() - sleepStart < 50) {
+              // wait
+            }
           }
         } catch (lockErr) {
           console.debug(`[antigravity] Failed to acquire lock for trustedFolders: ${(lockErr as Error).message}`);
