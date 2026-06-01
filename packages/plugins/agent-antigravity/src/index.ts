@@ -81,36 +81,19 @@ const antigravityOverrides: Partial<Agent> = {
 
       if (!needsSetup) {
         if (isHeadless && os.platform() === "darwin") {
-          // If it is a symlink but we are in headless mode, we need a real directory to store the temp keychain
-          if (isSymlink) {
-            try {
+          // In headless Darwin mode, we want the keychain directory to be absent/empty to bypass keychain operations completely.
+          // If it currently exists (either as a symlink or directory), we must remove it.
+          try {
+            if (isSymlink) {
               fs.unlinkSync(sessionKeychainDir);
-              needsSetup = true;
-            } catch (err) {
-              console.error(`[antigravity] Headless safety check: failed to unlink existing keychain symlink ${sessionKeychainDir}: ${(err as Error).message}`);
-              throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`, { cause: err });
-            }
-          } else {
-            // If it is a directory, check if our temp keychain database exists inside it
-            const tempKeychainDbPath = path.join(sessionKeychainDir, "session.keychain-db");
-            if (!fs.existsSync(tempKeychainDbPath)) {
-              needsSetup = true;
+              isSymlink = false;
             } else {
-              // The keychain already exists! Just unlock it to be safe
-              const tempKeychainPath = path.join(sessionKeychainDir, "session.keychain");
-              const execOptions = {
-                stdio: "ignore" as const,
-                env: {
-                  ...process.env,
-                  HOME: sessionHome,
-                },
-              };
-              try {
-                execFileSync("security", ["unlock-keychain", "-p", "", tempKeychainPath], execOptions);
-              } catch {
-                // ignore
-              }
+              fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
             }
+            needsSetup = true;
+          } catch (err) {
+            console.error(`[antigravity] Headless safety check: failed to remove existing keychain path ${sessionKeychainDir}: ${(err as Error).message}`);
+            throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`, { cause: err });
           }
         } else {
           // If we are in interactive mode, we always want it to be a symlink to the user's real keychains.
@@ -142,6 +125,7 @@ const antigravityOverrides: Partial<Agent> = {
             try {
               if (isSymlink) {
                 fs.unlinkSync(sessionKeychainDir);
+                isSymlink = false;
               } else {
                 fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
               }
@@ -358,8 +342,9 @@ const antigravityOverrides: Partial<Agent> = {
               }
             }
           } catch (e) {
-            console.debug(`[antigravity] Failed to parse trustedFolders.json at ${trustedFoldersPath}, skipping write to avoid clobbering: ${(e as Error).message}`);
-            shouldWrite = false;
+            console.debug(`[antigravity] Failed to parse trustedFolders.json at ${trustedFoldersPath}, defaulting to empty to avoid deadlocks: ${(e as Error).message}`);
+            trustedFolders = {};
+            shouldWrite = true;
           }
         }
         
