@@ -70,7 +70,7 @@ const antigravityOverrides: Partial<Agent> = {
           process.env.SSH_CLIENT ||
           process.env.SSH_CONNECTION
         ) && process.env.AO_HEADLESS !== "true");
-      const isHeadless = !isTest && !isInteractive;
+      const isHeadless = (process.env.AO_HEADLESS === "true") || (!isTest && !isInteractive);
 
       let needsSetup = false;
       let isSymlink = false;

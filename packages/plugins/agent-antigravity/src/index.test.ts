@@ -5,6 +5,7 @@ import path from "node:path";
 const {
   mockHomedir,
   mockTmpdir,
+  mockPlatform,
   mockMkdirSync,
   mockExistsSync,
   mockLstatSync,
@@ -14,9 +15,11 @@ const {
   mockUnlinkSync,
   mockReadFileSync,
   mockWriteFileSync,
+  mockExecFileSync,
 } = vi.hoisted(() => ({
   mockHomedir: vi.fn(() => "/mock/home"),
   mockTmpdir: vi.fn(() => "/tmp"),
+  mockPlatform: vi.fn(() => "darwin"),
   mockMkdirSync: vi.fn(),
   mockExistsSync: vi.fn(() => false),
   mockLstatSync: vi.fn(),
@@ -26,16 +29,31 @@ const {
   mockUnlinkSync: vi.fn(),
   mockReadFileSync: vi.fn(() => "{}"),
   mockWriteFileSync: vi.fn(),
+  mockExecFileSync: vi.fn(),
 }));
 
 vi.mock("node:os", () => ({
   default: {
     homedir: mockHomedir,
     tmpdir: mockTmpdir,
+    platform: mockPlatform,
   },
   homedir: mockHomedir,
   tmpdir: mockTmpdir,
+  platform: mockPlatform,
 }));
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    execFileSync: mockExecFileSync,
+    default: {
+      ...actual.default,
+      execFileSync: mockExecFileSync,
+    },
+  };
+});
 
 vi.mock("node:fs", () => ({
   default: {
@@ -396,5 +414,71 @@ describe("antigravity getEnvironment", () => {
     expect(parsedFolders).not.toBeNull();
     expect(Array.isArray(parsedFolders)).toBe(false);
     expect(parsedFolders["/workspace/repo"]).toBe("TRUST_FOLDER");
+  });
+
+  it("creates a password-less temp session keychain in headless mode and fails closed if setup fails, without symlinking real keychains", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    // Force headless mode via env override and clearing TTY/SSH env variables
+    const originalEnv = { ...process.env };
+    process.env.AO_HEADLESS = "true";
+    process.env.AO_INTERACTIVE = "false";
+    delete process.env.TERM_PROGRAM;
+    delete process.env.COLORTERM;
+    delete process.env.SSH_TTY;
+    delete process.env.SSH_CLIENT;
+    delete process.env.SSH_CONNECTION;
+
+    try {
+      // 1. Success case: verifies create-keychain, default-keychain, etc. are called
+      mockExecFileSync.mockReset();
+      mockLstatSync.mockImplementation(() => {
+        throw new Error("keychain does not exist");
+      });
+      mockExistsSync.mockImplementation(() => false);
+
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env).toBeDefined();
+
+      // Check key security framework CLI calls in headless mode
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        "security",
+        expect.arrayContaining(["create-keychain", "-p", ""]),
+        expect.anything()
+      );
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        "security",
+        expect.arrayContaining(["unlock-keychain", "-p", ""]),
+        expect.anything()
+      );
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        "security",
+        expect.arrayContaining(["default-keychain", "-s"]),
+        expect.anything()
+      );
+
+      // 2. Failure/Fail-Closed case: if temp keychain creation fails, we do NOT symlink user login keychain
+      mockExecFileSync.mockReset();
+      mockSymlinkSync.mockReset();
+      mockExecFileSync.mockImplementation((cmd, args) => {
+        if (args && args.includes("create-keychain")) {
+          throw new Error("mocked keychain creation failure");
+        }
+      });
+
+      const env2 = agent.getEnvironment(makeLaunchConfig());
+      expect(env2).toBeDefined();
+
+      // Since creation failed, we should NOT have symlinked ~/Library/Keychains
+      const keychainSymlinkCalls = mockSymlinkSync.mock.calls.filter((call) => {
+        const dest = call[1] as string;
+        return dest.includes("Keychains");
+      });
+      expect(keychainSymlinkCalls.length).toBe(0);
+    } finally {
+      process.env = originalEnv;
+    }
   });
 });
