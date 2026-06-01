@@ -84,28 +84,28 @@ export async function spawnStandbyWorker(
   const nextPhaseIdx = currentIdx + 1;
   if (nextPhaseIdx >= PHASE_ORDER.length) return null; // No next phase
 
-  const nextPhase: Phase = PHASE_ORDER[nextPhaseIdx]!;
+  const targetPhase: Phase = PHASE_ORDER[nextPhaseIdx]!;
   const nextSprint = currentPhase === "eval"
     ? state.currentSprint.sprintNumber + 1
     : state.currentSprint.sprintNumber;
 
   // Only pre-spawn if there's meaningful work to do
-  if (nextPhase === "done") return null;
+  if (targetPhase === "done") return null;
 
-  const model: string = nextPhase === "eval"
+  const model: string = targetPhase === "eval"
     ? (opts.evaluatorModel ?? opts.orchestratorModel ?? "minimax/MiniMax-M2.7")
-    : nextPhase === "annotation"
+    : targetPhase === "annotation"
     ? (opts.orchestratorModel ?? "minimax/MiniMax-M2.7")
     : (opts.generatorModel ?? "minimax/MiniMax-M2.7");
 
   // Build the actual current state (NOT advanced) - the worker will poll until phase advances
-  const taskPrompt = buildWaitThenActPrompt(nextPhase, state);
-  const sessionName = `standby-${opts.projectId}-s${nextSprint}-${nextPhase}-${Date.now()}`;
+  const taskPrompt = buildWaitThenActPrompt(targetPhase, state);
+  const sessionName = `standby-${opts.projectId}-s${nextSprint}-${targetPhase}-${Date.now()}`;
 
   try {
     const result = await spawnAOWorker({
       model,
-      systemPrompt: getSystemPromptForPhase(nextPhase),
+      systemPrompt: getSystemPromptForPhase(targetPhase),
       taskPrompt,
       workspace: projectPath,
       sessionName,
@@ -114,17 +114,17 @@ export async function spawnStandbyWorker(
       projectId: opts.projectId,
     });
 
-    console.log(`[autonomous-harness] Standby spawned for ${nextPhase}: ${result.sessionName}`);
+    console.log(`[autonomous-harness] Standby spawned for ${targetPhase}: ${result.sessionName}`);
 
     return {
       sessionId: result.sessionId,
       sessionName: result.sessionName,
       worktreePath: result.worktreePath,
-      phase: nextPhase,
+      phase: targetPhase,
       sprintNumber: nextSprint,
     };
   } catch (err) {
-    console.warn(`[autonomous-harness] Failed to spawn standby for ${nextPhase}: ${err}`);
+    console.warn(`[autonomous-harness] Failed to spawn standby for ${targetPhase}: ${err}`);
     return null;
   }
 }
