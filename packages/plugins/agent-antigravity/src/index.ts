@@ -55,9 +55,13 @@ const antigravityOverrides: Partial<Agent> = {
     // macOS Security looks at $HOME/Library/Keychains — without this, headless
     // agy workers show "A keychain cannot be found to store 'antigravity.'"
     const sessionKeychainDir = path.join(sessionHome, "Library", "Keychains");
-    if (!fs.existsSync(sessionKeychainDir)) {
-      fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
-      fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+    try {
+      if (!fs.existsSync(sessionKeychainDir)) {
+        fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
+        fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+      }
+    } catch (err) {
+      console.debug(`[antigravity] Failed to symlink keychains: ${(err as Error).message}`);
     }
 
     const srcGemini = path.join(userHome, ".gemini");
@@ -104,17 +108,103 @@ const antigravityOverrides: Partial<Agent> = {
       console.debug(`[antigravity] Failed to copy .gemini directory: ${(err as Error).message}`);
     }
 
-    // Redirect conversations and brain to /tmp so they don't accumulate in the persistent
-    // session dir. /tmp is cleaned on reboot; workers never need cross-session history.
-    const agDir = path.join(destGemini, "antigravity");
-    const tmpBase = path.join("/tmp", `ao-${launchConfig.sessionId}`);
-    for (const sub of ["conversations", "brain"]) {
-      const sessionSub = path.join(agDir, sub);
-      const tmpSub = path.join(tmpBase, sub);
-      if (!fs.existsSync(sessionSub)) {
-        fs.mkdirSync(tmpSub, { recursive: true });
-        fs.mkdirSync(agDir, { recursive: true });
-        fs.symlinkSync(tmpSub, sessionSub);
+    // Redirect conversations and brain to /tmp so they don't persist in the session dir.
+    // /tmp is cleaned on reboot; sessions never need cross-session conversation history.
+    const tmpBase = path.join(os.tmpdir(), `ao-${launchConfig.sessionId}`);
+    for (const appDirName of ["antigravity", "antigravity-cli", "antigravity-ide"]) {
+      const agDir = path.join(destGemini, appDirName);
+      for (const sub of ["conversations", "brain"]) {
+        const sessionSub = path.join(agDir, sub);
+        const tmpSub = path.join(tmpBase, appDirName, sub);
+        
+        let needsSymlink = true;
+        try {
+          const stat = fs.lstatSync(sessionSub);
+          if (stat.isSymbolicLink()) {
+            try {
+              fs.unlinkSync(sessionSub);
+            } catch (err) {
+              console.debug(`[antigravity] Failed to unlink dangling symlink ${sessionSub}: ${(err as Error).message}`);
+            }
+          } else {
+            // Already a real directory/file, do not overwrite/symlink
+            needsSymlink = false;
+          }
+        } catch {
+          // Entry doesn't exist, we can proceed
+        }
+
+        if (needsSymlink) {
+          try {
+            fs.mkdirSync(tmpSub, { recursive: true });
+            fs.mkdirSync(path.dirname(sessionSub), { recursive: true });
+            fs.symlinkSync(tmpSub, sessionSub);
+          } catch (err) {
+            console.debug(`[antigravity] Failed to symlink ${sessionSub} to ${tmpSub}: ${(err as Error).message}`);
+          }
+        }
+      }
+    }
+
+    // Disable session retention inside settings.json for the session to prevent extra bloat
+    const settingsPath = path.join(destGemini, "settings.json");
+    if (fs.existsSync(settingsPath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const settings = parsed as Record<string, unknown>;
+          if (!settings["general"] || typeof settings["general"] !== "object" || Array.isArray(settings["general"])) {
+            settings["general"] = {};
+          }
+          const general = settings["general"] as Record<string, unknown>;
+          if (!general["sessionRetention"] || typeof general["sessionRetention"] !== "object" || Array.isArray(general["sessionRetention"])) {
+            general["sessionRetention"] = {};
+          }
+          const sessionRetention = general["sessionRetention"] as Record<string, unknown>;
+          sessionRetention["enabled"] = false;
+          fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
+        }
+      } catch (err) {
+        console.debug(`[antigravity] Failed to update settings.json: ${(err as Error).message}`);
+      }
+    }
+
+    // Automatically trust the project workspace path in the session config AND the global config
+    // to completely prevent trust prompt deadlocks when HOME is reset in interactive shells.
+    const trustedPaths = [
+      path.join(destGemini, "trustedFolders.json"),
+      path.join(userHome, ".gemini", "trustedFolders.json"),
+    ];
+
+    for (const trustedFoldersPath of trustedPaths) {
+      try {
+        let trustedFolders: Record<string, string> = {};
+        if (fs.existsSync(trustedFoldersPath)) {
+          try {
+            const parsed = JSON.parse(fs.readFileSync(trustedFoldersPath, "utf-8"));
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              trustedFolders = parsed as Record<string, string>;
+            }
+          } catch {
+            // ignore parsing error, start fresh
+          }
+        }
+        
+        const projectPath = launchConfig.projectConfig.path;
+        if (projectPath) {
+          trustedFolders[projectPath] = "TRUST_FOLDER";
+          try {
+            const resolvedPath = fs.realpathSync(projectPath);
+            trustedFolders[resolvedPath] = "TRUST_FOLDER";
+          } catch {
+            // ignore if realpath fails
+          }
+        }
+        
+        fs.mkdirSync(path.dirname(trustedFoldersPath), { recursive: true });
+        fs.writeFileSync(trustedFoldersPath, JSON.stringify(trustedFolders, null, 2), "utf-8");
+      } catch (err) {
+        console.debug(`[antigravity] Failed to update trustedFolders.json at ${trustedFoldersPath}: ${(err as Error).message}`);
       }
     }
 

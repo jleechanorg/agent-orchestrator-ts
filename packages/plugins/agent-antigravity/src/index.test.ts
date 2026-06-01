@@ -4,27 +4,37 @@ import path from "node:path";
 
 const {
   mockHomedir,
+  mockTmpdir,
   mockMkdirSync,
   mockExistsSync,
   mockLstatSync,
   mockReaddirSync,
   mockCopyFileSync,
   mockSymlinkSync,
+  mockUnlinkSync,
+  mockReadFileSync,
+  mockWriteFileSync,
 } = vi.hoisted(() => ({
   mockHomedir: vi.fn(() => "/mock/home"),
+  mockTmpdir: vi.fn(() => "/tmp"),
   mockMkdirSync: vi.fn(),
   mockExistsSync: vi.fn(() => false),
   mockLstatSync: vi.fn(),
   mockReaddirSync: vi.fn(() => []),
   mockCopyFileSync: vi.fn(),
   mockSymlinkSync: vi.fn(),
+  mockUnlinkSync: vi.fn(),
+  mockReadFileSync: vi.fn(() => "{}"),
+  mockWriteFileSync: vi.fn(),
 }));
 
 vi.mock("node:os", () => ({
   default: {
     homedir: mockHomedir,
+    tmpdir: mockTmpdir,
   },
   homedir: mockHomedir,
+  tmpdir: mockTmpdir,
 }));
 
 vi.mock("node:fs", () => ({
@@ -35,6 +45,9 @@ vi.mock("node:fs", () => ({
     readdirSync: mockReaddirSync,
     copyFileSync: mockCopyFileSync,
     symlinkSync: mockSymlinkSync,
+    unlinkSync: mockUnlinkSync,
+    readFileSync: mockReadFileSync,
+    writeFileSync: mockWriteFileSync,
   },
   mkdirSync: mockMkdirSync,
   existsSync: mockExistsSync,
@@ -42,6 +55,9 @@ vi.mock("node:fs", () => ({
   readdirSync: mockReaddirSync,
   copyFileSync: mockCopyFileSync,
   symlinkSync: mockSymlinkSync,
+  unlinkSync: mockUnlinkSync,
+  readFileSync: mockReadFileSync,
+  writeFileSync: mockWriteFileSync,
 }));
 
 import { create } from "./index.js";
@@ -90,7 +106,7 @@ describe("antigravity getLaunchCommand", () => {
 
 describe("antigravity getEnvironment", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("returns the environment configuration with mapped session HOME and cleared variables", () => {
@@ -199,5 +215,186 @@ describe("antigravity getEnvironment", () => {
     const allCopiedSrcs = mockCopyFileSync.mock.calls.map((call) => call[0] as string);
     const hasSymlink = allCopiedSrcs.some((src) => src.includes("symlink-dir"));
     expect(hasSymlink).toBe(false);
+  });
+
+  it("disables session retention even when general section in settings.json is missing", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.endsWith("settings.json")) return true;
+      return false;
+    });
+
+    mockReadFileSync.mockReturnValue(JSON.stringify({})); // Empty settings.json
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    expect(mockWriteFileSync).toHaveBeenCalled();
+    const writtenContent = JSON.parse(mockWriteFileSync.mock.calls[0][1] as string);
+    expect(writtenContent.general).toBeDefined();
+    expect(writtenContent.general.sessionRetention).toBeDefined();
+    expect(writtenContent.general.sessionRetention.enabled).toBe(false);
+  });
+
+  it("handles dangling symlinks and removes them before creating new ones", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockImplementation((filepath) => {
+      // Simulate that the sessionSub already exists as a symlink
+      if (typeof filepath === "string" && (filepath.includes("conversations") || filepath.includes("brain"))) {
+        return {
+          isSymbolicLink: () => true,
+          isDirectory: () => false,
+        };
+      }
+      return {
+        isSymbolicLink: () => false,
+        isDirectory: () => true,
+      };
+    });
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    // Verify that unlinkSync was called to remove the dangling symlink
+    expect(mockUnlinkSync).toHaveBeenCalled();
+    // Verify that symlinkSync was called to recreate the symlink
+    expect(mockSymlinkSync).toHaveBeenCalled();
+  });
+
+  it("handles symlink and unlink errors gracefully without throwing", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockImplementation(() => ({
+      isSymbolicLink: () => true,
+      isDirectory: () => false,
+    }));
+
+    mockUnlinkSync.mockImplementation(() => {
+      throw new Error("un-unlinkable symlink (mocked EACCES)");
+    });
+    mockSymlinkSync.mockImplementation(() => {
+      throw new Error("un-symlinkable path (mocked EPERM)");
+    });
+
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+
+    expect(() => agent.getEnvironment(makeLaunchConfig())).not.toThrow();
+
+    expect(mockUnlinkSync).toHaveBeenCalled();
+    expect(mockSymlinkSync).toHaveBeenCalled();
+    expect(debugSpy).toHaveBeenCalled();
+    debugSpy.mockRestore();
+  });
+
+  it("handles readFileSync / writeFileSync errors in settings.json gracefully without throwing", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    // Reset mocks from prior test to prevent implementation leakage
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.endsWith("settings.json")) return true;
+      return false;
+    });
+
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error("mocked read error");
+    });
+
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+
+    expect(() => agent.getEnvironment(makeLaunchConfig())).not.toThrow();
+    expect(debugSpy).toHaveBeenCalled();
+    debugSpy.mockRestore();
+  });
+
+  it("automatically trusts the launchConfig project workspace path in both the session-specific and global trustedFolders.json", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+
+    const writtenFiles = new Map<string, string>();
+    mockWriteFileSync.mockImplementation((filepath, content) => {
+      if (typeof filepath === "string") {
+        writtenFiles.set(filepath, content as string);
+      }
+    });
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    const sessionPath = path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini", "trustedFolders.json");
+    const globalPath = path.join("/Users/mockuser", ".gemini", "trustedFolders.json");
+
+    expect(writtenFiles.has(sessionPath)).toBe(true);
+    expect(writtenFiles.has(globalPath)).toBe(true);
+
+    const sessionContent = JSON.parse(writtenFiles.get(sessionPath) || "{}");
+    const globalContent = JSON.parse(writtenFiles.get(globalPath) || "{}");
+
+    expect(sessionContent["/workspace/repo"]).toBe("TRUST_FOLDER");
+    expect(globalContent["/workspace/repo"]).toBe("TRUST_FOLDER");
+  });
+
+
+  it("handles malformed (null/array) settings.json and trustedFolders.json gracefully without throwing or writing invalid data", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string") {
+        if (filepath.endsWith("settings.json")) return true;
+        if (filepath.endsWith("trustedFolders.json")) return true;
+      }
+      return false;
+    });
+
+    // Mock settings.json as null and trustedFolders.json as array to check robustness
+    mockReadFileSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string") {
+        if (filepath.endsWith("settings.json")) return "null";
+        if (filepath.endsWith("trustedFolders.json")) return "[]";
+      }
+      return "{}";
+    });
+
+    let writtenTrustedFolders = "";
+    let writtenSettings = "";
+    mockWriteFileSync.mockImplementation((filepath, content) => {
+      if (typeof filepath === "string") {
+        if (filepath.endsWith("trustedFolders.json")) {
+          writtenTrustedFolders = content as string;
+        } else if (filepath.endsWith("settings.json")) {
+          writtenSettings = content as string;
+        }
+      }
+    });
+
+    expect(() => agent.getEnvironment(makeLaunchConfig())).not.toThrow();
+
+    // Verify that settings.json was not written because it was malformed (null)
+    expect(writtenSettings).toBe("");
+
+    // Verify that trustedFolders.json was written as a correct plain object and NOT an array
+    expect(writtenTrustedFolders).toContain("/workspace/repo");
+    const parsedFolders = JSON.parse(writtenTrustedFolders);
+    expect(parsedFolders).not.toBeNull();
+    expect(Array.isArray(parsedFolders)).toBe(false);
+    expect(parsedFolders["/workspace/repo"]).toBe("TRUST_FOLDER");
   });
 });

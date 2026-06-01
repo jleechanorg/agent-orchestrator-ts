@@ -224,7 +224,7 @@ describe("tryClaudePrint", () => {
     expect(result.output).toBe(PASS_VERDICT);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       MOCK_CLAUDE_BINARY,
-      ["--dangerously-skip-permissions", "--print"],
+      ["--bare", "--dangerously-skip-permissions", "--print"],
       expect.objectContaining({
         input: "evaluate this",
         cwd: "/tmp",
