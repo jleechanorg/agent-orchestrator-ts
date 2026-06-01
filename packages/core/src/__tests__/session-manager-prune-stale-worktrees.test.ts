@@ -546,6 +546,7 @@ describe("pruneStaleWorktrees", () => {
 
     // The real project directory and symlink should both be preserved
     expect(existsSync(projectPathReal)).toBe(true);
+    expect(existsSync(projectPathSymlink)).toBe(true);
     expect(gitWorktreeRemoveCalled).toBe(false);
   });
 });

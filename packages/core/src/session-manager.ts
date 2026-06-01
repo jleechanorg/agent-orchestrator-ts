@@ -439,8 +439,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   }
 
   function isPathInside(path: string, parentPath: string): boolean {
-    const normalizedPath = normalizePath(path);
-    const normalizedParent = normalizePath(parentPath);
+    const normalizedPath = realpathNormalized(path);
+    const normalizedParent = realpathNormalized(parentPath);
     return normalizedPath === normalizedParent || normalizedPath.startsWith(`${normalizedParent}/`);
   }
 
@@ -1809,6 +1809,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       model: selection.model,
       systemPromptFile,
       subagent: selection.subagent,
+      workspacePath: project.path,
     };
 
     const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
@@ -3356,6 +3357,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       permissions: selection.role === "orchestrator" ? "permissionless" : selection.permissions,
       model: selection.model,
       subagent: selection.subagent,
+      workspacePath,
     };
 
     if (plugins.agent.getRestoreCommand) {

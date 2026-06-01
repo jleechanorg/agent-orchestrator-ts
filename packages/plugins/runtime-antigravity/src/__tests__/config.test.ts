@@ -45,7 +45,6 @@ describe("parseConfig", () => {
     expect(config.peekabooBin).toBe("peekaboo");
     expect(config.fallbackCliBin).toBe("claude");
     expect(config.fallbackCliFlags).toEqual([
-      "--bare",
       "--dangerously-skip-permissions",
     ]);
     expect(config.fallbackMaxRetries).toBe(3);
@@ -79,7 +78,7 @@ describe("defaultConfig", () => {
       maxCapacityBackoffMs: 3600000,
       peekabooBin: "peekaboo",
       fallbackCliBin: "claude",
-      fallbackCliFlags: ["--bare", "--dangerously-skip-permissions"],
+      fallbackCliFlags: ["--dangerously-skip-permissions"],
       fallbackMaxRetries: 3,
     });
   });

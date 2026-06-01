@@ -61,7 +61,17 @@ const antigravityOverrides: Partial<Agent> = {
         
         // Detect headless/launchd environment (no interactive terminal environment vars)
         const isTest = typeof process.env.VITEST !== "undefined" || process.env.NODE_ENV === "test";
-        const isHeadless = !isTest && !process.env.TERM_PROGRAM && !process.env.COLORTERM;
+        const isInteractive = !!(
+          process.env.TERM_PROGRAM ||
+          process.env.COLORTERM ||
+          process.env.TERM ||
+          process.env.SHELL ||
+          process.env.TMUX ||
+          process.env.SSH_TTY ||
+          process.env.SSH_CLIENT ||
+          process.env.SSH_CONNECTION
+        );
+        const isHeadless = !isTest && !isInteractive;
         
         if (isHeadless && os.platform() === "darwin") {
           // In headless launchd/background contexts on macOS, the user's login keychain is locked
@@ -70,7 +80,15 @@ const antigravityOverrides: Partial<Agent> = {
           // Security framework has a writable, unlocked keychain in this bootstrap namespace
           // without triggering any GUI prompts.
           const tempKeychainPath = path.join(sessionKeychainDir, "session.keychain");
-          const execOptions = { stdio: "ignore" as const };
+          // Ensure Library/Preferences exists so the default-keychain plist can be written there
+          fs.mkdirSync(path.join(sessionHome, "Library", "Preferences"), { recursive: true });
+          const execOptions = {
+            stdio: "ignore" as const,
+            env: {
+              ...process.env,
+              HOME: sessionHome,
+            },
+          };
           
           try {
             // 1. Create the keychain
@@ -87,7 +105,14 @@ const antigravityOverrides: Partial<Agent> = {
           } catch (keychainErr) {
             console.debug(`[antigravity] Failed to setup temp session keychain: ${(keychainErr as Error).message}`);
             // Fallback to real keychain symlink if creation fails
-            fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+            try {
+              if (fs.existsSync(sessionKeychainDir)) {
+                fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
+              }
+              fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+            } catch (symlinkErr) {
+              console.debug(`[antigravity] Failed to fallback to real keychain symlink: ${(symlinkErr as Error).message}`);
+            }
           }
         } else {
           // Interactive user GUI session: symlink the real keychain so the agent can read
@@ -213,38 +238,87 @@ const antigravityOverrides: Partial<Agent> = {
     ];
 
     for (const trustedFoldersPath of trustedPaths) {
+      // For the global trustedFolders, use a simple lock file to prevent concurrent races
+      const isGlobal = trustedFoldersPath === path.join(userHome, ".gemini", "trustedFolders.json");
+      const lockPath = isGlobal ? path.join(userHome, ".gemini", "trustedFolders.lock") : null;
+      let releaseLock = () => {};
+
+      if (lockPath) {
+        try {
+          fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+          const start = Date.now();
+          while (true) {
+            try {
+              fs.writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+              releaseLock = () => {
+                try {
+                  fs.unlinkSync(lockPath);
+                } catch {}
+              };
+              break;
+            } catch (err: any) {
+              if (err.code !== "EEXIST") throw err;
+              try {
+                const stat = fs.statSync(lockPath);
+                if (Date.now() - stat.mtimeMs > 10000) {
+                  try {
+                    fs.unlinkSync(lockPath);
+                  } catch {}
+                }
+              } catch {}
+            }
+            if (Date.now() - start > 5000) {
+              break;
+            }
+            const sleepStart = Date.now();
+            while (Date.now() - sleepStart < 50) {}
+          }
+        } catch (lockErr) {
+          console.debug(`[antigravity] Failed to acquire lock for trustedFolders: ${(lockErr as Error).message}`);
+        }
+      }
+
       try {
         let trustedFolders: Record<string, string> = {};
+        let shouldWrite = true;
         if (fs.existsSync(trustedFoldersPath)) {
           try {
-            const parsed = JSON.parse(fs.readFileSync(trustedFoldersPath, "utf-8"));
-            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-              trustedFolders = parsed as Record<string, string>;
+            const raw = fs.readFileSync(trustedFoldersPath, "utf-8").trim();
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                trustedFolders = parsed as Record<string, string>;
+              }
             }
-          } catch {
-            // ignore parsing error, start fresh
+          } catch (e) {
+            console.debug(`[antigravity] Failed to parse trustedFolders.json at ${trustedFoldersPath}, skipping write to avoid clobbering: ${(e as Error).message}`);
+            shouldWrite = false;
           }
         }
         
-        const pathsToTrust = [
-          launchConfig.projectConfig.path,
-          launchConfig.workspacePath,
-        ].filter(Boolean) as string[];
+        if (shouldWrite) {
+          const pathsToTrust = [
+            launchConfig.projectConfig.path,
+            launchConfig.workspacePath,
+          ].filter(Boolean) as string[];
 
-        for (const p of pathsToTrust) {
-          trustedFolders[p] = "TRUST_FOLDER";
-          try {
-            const resolvedPath = fs.realpathSync(p);
-            trustedFolders[resolvedPath] = "TRUST_FOLDER";
-          } catch {
-            // ignore if realpath fails
+          for (const p of pathsToTrust) {
+            trustedFolders[p] = "TRUST_FOLDER";
+            try {
+              const resolvedPath = fs.realpathSync(p);
+              trustedFolders[resolvedPath] = "TRUST_FOLDER";
+            } catch {
+              // ignore if realpath fails
+            }
           }
+          
+          fs.mkdirSync(path.dirname(trustedFoldersPath), { recursive: true });
+          fs.writeFileSync(trustedFoldersPath, JSON.stringify(trustedFolders, null, 2), "utf-8");
         }
-        
-        fs.mkdirSync(path.dirname(trustedFoldersPath), { recursive: true });
-        fs.writeFileSync(trustedFoldersPath, JSON.stringify(trustedFolders, null, 2), "utf-8");
       } catch (err) {
         console.debug(`[antigravity] Failed to update trustedFolders.json at ${trustedFoldersPath}: ${(err as Error).message}`);
+      } finally {
+        releaseLock();
       }
     }
 
