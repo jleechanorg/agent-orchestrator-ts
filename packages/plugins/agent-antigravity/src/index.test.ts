@@ -429,6 +429,44 @@ describe("antigravity getEnvironment", () => {
     expect(parsedFolders["/workspace/repo"]).toBe("TRUST_FOLDER");
   });
 
+  it("does not write to trustedFolders.json on parse failure to prevent clobbering", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+    mockWriteFileSync.mockReset();
+
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string") {
+        if (filepath.endsWith("settings.json")) return false;
+        if (filepath.endsWith("trustedFolders.json")) return true;
+      }
+      return false;
+    });
+
+    // Mock trustedFolders.json with syntax error to cause parse failure
+    mockReadFileSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.endsWith("trustedFolders.json")) {
+        return "{invalid-json";
+      }
+      return "{}";
+    });
+
+    let writtenTrustedFolders = "";
+    mockWriteFileSync.mockImplementation((filepath, content) => {
+      if (typeof filepath === "string" && filepath.endsWith("trustedFolders.json")) {
+        writtenTrustedFolders = content as string;
+      }
+    });
+
+    expect(() => agent.getEnvironment(makeLaunchConfig())).not.toThrow();
+
+    // Verify that trustedFolders.json was NOT written due to parse failure
+    expect(writtenTrustedFolders).toBe("");
+  });
+
   it("ensures no keychain symlinks or mutations in headless mode and fails closed if removal fails", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");
@@ -465,7 +503,6 @@ describe("antigravity getEnvironment", () => {
 
       // 2. Failure/Fail-Closed case: if unlink fails, we throw an error (fail-closed)
       mockUnlinkSync.mockImplementation((filepath) => {
-        console.log("mockUnlinkSync called with:", filepath);
         if (typeof filepath === "string" && filepath.includes("Keychains")) {
           throw new Error("mocked unlink failure");
         }
@@ -513,4 +550,52 @@ describe("antigravity getEnvironment", () => {
     const writtenPaths = mockWriteFileSync.mock.calls.map((call) => call[0] as string);
     expect(writtenPaths).not.toContain(globalPath);
   }, 15000);
+
+  it("asserts an old holder cannot release a successor's lock if ownership has changed", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+    mockWriteFileSync.mockReset();
+    mockReadFileSync.mockReset();
+
+    // The lock is successfully acquired by our process initially
+    let lockPathExists = false;
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.endsWith("trustedFolders.lock")) {
+        return lockPathExists;
+      }
+      if (typeof filepath === "string" && filepath.endsWith("trustedFolders.json")) {
+        return true;
+      }
+      return false;
+    });
+
+    mockWriteFileSync.mockImplementation((filepath, content) => {
+      if (typeof filepath === "string" && filepath.endsWith("trustedFolders.lock")) {
+        lockPathExists = true;
+      }
+    });
+
+    mockReadFileSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.endsWith("trustedFolders.lock")) {
+        // Simulate a successor process stealing/updating the lock with their PID
+        return "99999";
+      }
+      return "{}";
+    });
+
+    // Run getEnvironment which will acquire the lock, write trustedFolders, and then release lock
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    // Since the lock file content was mocked to be "99999" (not process.pid),
+    // releaseLock should NOT have unlinked the lockPath.
+    const unlinkedPaths = mockUnlinkSync.mock.calls.map((call) => call[0] as string);
+    const globalLockPath = path.join("/Users/mockuser", ".gemini", "trustedFolders.lock");
+    expect(unlinkedPaths).not.toContain(globalLockPath);
+  });
 });
+

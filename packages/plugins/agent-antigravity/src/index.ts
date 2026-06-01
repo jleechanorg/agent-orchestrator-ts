@@ -354,9 +354,8 @@ const antigravityOverrides: Partial<Agent> = {
               }
             }
           } catch (e) {
-            console.debug(`[antigravity] Failed to parse trustedFolders.json at ${trustedFoldersPath}, defaulting to empty to avoid deadlocks: ${(e as Error).message}`);
-            trustedFolders = {};
-            shouldWrite = true;
+            console.debug(`[antigravity] Failed to parse trustedFolders.json at ${trustedFoldersPath}, skipping write to avoid clobbering: ${(e as Error).message}`);
+            shouldWrite = false;
           }
         }
         
