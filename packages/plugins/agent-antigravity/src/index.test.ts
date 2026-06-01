@@ -316,7 +316,7 @@ describe("antigravity getEnvironment", () => {
     debugSpy.mockRestore();
   });
 
-  it("automatically trusts the launchConfig project workspace path in trustedFolders.json", () => {
+  it("automatically trusts the launchConfig project workspace path in both the session-specific and global trustedFolders.json", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");
 
@@ -324,21 +324,29 @@ describe("antigravity getEnvironment", () => {
     mockUnlinkSync.mockReset();
     mockSymlinkSync.mockReset();
 
-    let writtenContent = "";
+    const writtenFiles = new Map<string, string>();
     mockWriteFileSync.mockImplementation((filepath, content) => {
-      if (typeof filepath === "string" && filepath.endsWith("trustedFolders.json")) {
-        writtenContent = content as string;
+      if (typeof filepath === "string") {
+        writtenFiles.set(filepath, content as string);
       }
     });
 
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env).toBeDefined();
 
-    // Verify that trustedFolders.json was written and contains the workspace path
-    expect(writtenContent).toContain("/workspace/repo");
-    const parsed = JSON.parse(writtenContent);
-    expect(parsed["/workspace/repo"]).toBe("TRUST_FOLDER");
+    const sessionPath = path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini", "trustedFolders.json");
+    const globalPath = path.join("/Users/mockuser", ".gemini", "trustedFolders.json");
+
+    expect(writtenFiles.has(sessionPath)).toBe(true);
+    expect(writtenFiles.has(globalPath)).toBe(true);
+
+    const sessionContent = JSON.parse(writtenFiles.get(sessionPath) || "{}");
+    const globalContent = JSON.parse(writtenFiles.get(globalPath) || "{}");
+
+    expect(sessionContent["/workspace/repo"]).toBe("TRUST_FOLDER");
+    expect(globalContent["/workspace/repo"]).toBe("TRUST_FOLDER");
   });
+
 
   it("handles malformed (null/array) settings.json and trustedFolders.json gracefully without throwing or writing invalid data", () => {
     const agent = create();
