@@ -387,6 +387,9 @@ describe("antigravity getEnvironment", () => {
 
     expect(() => agent.getEnvironment(makeLaunchConfig())).not.toThrow();
 
+    // Verify that settings.json was not written because it was malformed (null)
+    expect(writtenSettings).toBe("");
+
     // Verify that trustedFolders.json was written as a correct plain object and NOT an array
     expect(writtenTrustedFolders).toContain("/workspace/repo");
     const parsedFolders = JSON.parse(writtenTrustedFolders);

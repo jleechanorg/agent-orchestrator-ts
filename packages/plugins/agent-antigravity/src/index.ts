@@ -152,6 +152,7 @@ const antigravityOverrides: Partial<Agent> = {
       try {
         const parsed = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const settings = parsed as Record<string, any>;
           if (!settings.general || typeof settings.general !== "object" || Array.isArray(settings.general)) {
             settings.general = {};
