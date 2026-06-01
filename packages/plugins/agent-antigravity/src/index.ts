@@ -8,7 +8,7 @@ import {
   type ActivityDetection,
   shellEscape,
 } from "@jleechanorg/ao-core";
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
@@ -51,20 +51,34 @@ const antigravityOverrides: Partial<Agent> = {
     // Ensure session directory exists
     fs.mkdirSync(sessionHome, { recursive: true });
 
-    // Symlink the real keychain dir so Security framework can find/store tokens.
-    // macOS Security looks at $HOME/Library/Keychains — without this, headless
-    // agy workers show "A keychain cannot be found to store 'antigravity.'"
-    // NOTE: Symlinking the user's real ~/Library/Keychains into headless background
-    // worker sessions causes macOS Security framework to intercept the request and
-    // constantly popup GUI Keychain Not Found / login credential authorization prompts.
-    // To prevent this, we avoid symlinking the user's real system keychains.
-    /*
-    const sessionKeychainDir = path.join(sessionHome, "Library", "Keychains");
-    if (!fs.existsSync(sessionKeychainDir)) {
-      fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
-      fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
+    // Isolated keychain setup for macOS to prevent GUI "Keychain Not Found" or
+    // "SecurityAgent wants to use the 'login' keychain" authorization prompts.
+    if (process.platform === "darwin" && !process.env.VITEST) {
+      const sessionKeychainDir = path.join(sessionHome, "Library", "Keychains");
+      const keychainPath = path.join(sessionKeychainDir, "login.keychain-db");
+      if (!fs.existsSync(keychainPath)) {
+        try {
+          fs.mkdirSync(sessionKeychainDir, { recursive: true });
+          const execEnv = { ...process.env, HOME: sessionHome };
+          // Create a new, isolated, password-less keychain
+          execSync(`security create-keychain -p "" "${keychainPath}"`, { env: execEnv, stdio: "ignore" });
+          // Unlock the keychain
+          execSync(`security unlock-keychain -p "" "${keychainPath}"`, { env: execEnv, stdio: "ignore" });
+          // Prevent it from locking automatically on sleep or timeout
+          execSync(`security set-keychain-settings -u -t 86400 "${keychainPath}"`, { env: execEnv, stdio: "ignore" });
+        } catch (err) {
+          console.debug(`[antigravity] Failed to set up isolated keychain: ${(err as Error).message}`);
+        }
+      } else {
+        // Unlock existing keychain just in case
+        try {
+          const execEnv = { ...process.env, HOME: sessionHome };
+          execSync(`security unlock-keychain -p "" "${keychainPath}"`, { env: execEnv, stdio: "ignore" });
+        } catch (err) {
+          console.debug(`[antigravity] Failed to unlock existing isolated keychain: ${(err as Error).message}`);
+        }
+      }
     }
-    */
 
     const srcGemini = path.join(userHome, ".gemini");
     const destGemini = path.join(sessionHome, ".gemini");
