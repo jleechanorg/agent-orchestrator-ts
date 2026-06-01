@@ -54,11 +54,17 @@ const antigravityOverrides: Partial<Agent> = {
     // Symlink the real keychain dir so Security framework can find/store tokens.
     // macOS Security looks at $HOME/Library/Keychains — without this, headless
     // agy workers show "A keychain cannot be found to store 'antigravity.'"
+    // NOTE: Symlinking the user's real ~/Library/Keychains into headless background
+    // worker sessions causes macOS Security framework to intercept the request and
+    // constantly popup GUI Keychain Not Found / login credential authorization prompts.
+    // To prevent this, we avoid symlinking the user's real system keychains.
+    /*
     const sessionKeychainDir = path.join(sessionHome, "Library", "Keychains");
     if (!fs.existsSync(sessionKeychainDir)) {
       fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
       fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
     }
+    */
 
     const srcGemini = path.join(userHome, ".gemini");
     const destGemini = path.join(sessionHome, ".gemini");
