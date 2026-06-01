@@ -1454,6 +1454,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       permissions: selection.permissions,
       model: selection.model,
       subagent: spawnConfig.subagent ?? selection.subagent,
+      workspacePath,
     };
 
     // Write workspace hooks BEFORE launching the agent — some agents (e.g. Gemini CLI)

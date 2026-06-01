@@ -190,11 +190,15 @@ const antigravityOverrides: Partial<Agent> = {
           }
         }
         
-        const projectPath = launchConfig.projectConfig.path;
-        if (projectPath) {
-          trustedFolders[projectPath] = "TRUST_FOLDER";
+        const pathsToTrust = [
+          launchConfig.projectConfig.path,
+          launchConfig.workspacePath,
+        ].filter(Boolean) as string[];
+
+        for (const p of pathsToTrust) {
+          trustedFolders[p] = "TRUST_FOLDER";
           try {
-            const resolvedPath = fs.realpathSync(projectPath);
+            const resolvedPath = fs.realpathSync(p);
             trustedFolders[resolvedPath] = "TRUST_FOLDER";
           } catch {
             // ignore if realpath fails
