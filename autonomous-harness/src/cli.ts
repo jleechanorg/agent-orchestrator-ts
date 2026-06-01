@@ -16,7 +16,7 @@ interface CommanderLike {
   description(text?: string): CommanderLike;
   requiredOption(name: string, ...args: unknown[]): CommanderLike;
   option(name: string, ...args: unknown[]): CommanderLike;
-  action(handler: (...args: unknown[]) => unknown): CommanderLike;
+  action<T = Record<string, unknown>>(handler: (flags?: T, cmd?: { opts: () => T }) => unknown): CommanderLike;
   opts<T>(): T;
 }
 
