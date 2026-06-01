@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, rmSync, existsSync, writeFileSync, realpathSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, writeFileSync, realpathSync, symlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID, createHash } from "node:crypto";
@@ -197,6 +197,7 @@ describe("pruneStaleWorktrees", () => {
 
     expect(existsSync(staleWorktree)).toBe(false);
   });
+
 
   it("skips non-AO worktrees (human-created, wrong naming pattern)", async () => {
     const worktreesDir = join(homedir(), ".worktrees", "my-app");
@@ -489,6 +490,62 @@ describe("pruneStaleWorktrees", () => {
     await smMain.pruneStaleWorktrees();
 
     expect(existsSync(projectPath)).toBe(true);
+    expect(gitWorktreeRemoveCalled).toBe(false);
+  });
+
+  it("Pass 2: skips the main linked worktree (project root) when it is a symlink", async () => {
+    // Create the real path and symlink path
+    const projectPathReal = join(tmpDir, "my-app-real");
+    const projectPathSymlink = config.projects["my-app"]!.path;
+    mkdirSync(projectPathReal, { recursive: true });
+    symlinkSync(projectPathReal, projectPathSymlink);
+
+    // Write dead session metadata to disk matching the real project path (git resolves it to realpath).
+    const configHash = createHash("sha256")
+      .update(dirname(realpathSync(configPath)))
+      .digest("hex")
+      .slice(0, 12);
+    const sessionsDir = join(
+      homedir(),
+      ".agent-orchestrator",
+      `${configHash}-my-app-${hashProjectId("my-app")}`,
+      "sessions",
+    );
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(
+      join(sessionsDir, "pr-main-project"),
+      `worktree=${projectPathReal}\nstatus=killed\n`,
+      "utf8",
+    );
+
+    const porcelainOutputMain = `worktree ${projectPathReal}\nHEAD abc123\nbranch refs/heads/main\n`;
+
+    let gitWorktreeRemoveCalled = false;
+    mockExecFile = async (cmd: string, args?: readonly string[], _opts?: object) => {
+      const argsStr = args?.join(" ") ?? "";
+      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+        return Promise.resolve({ stdout: porcelainOutputMain, stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+        return Promise.resolve({ stdout: "true\n", stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("worktree remove")) {
+        gitWorktreeRemoveCalled = true;
+        return Promise.resolve({ stdout: "", stderr: "" });
+      }
+      return Promise.resolve({ stdout: "", stderr: "" });
+    };
+
+    const smMain = createSessionManager({
+      config,
+      registry: mockRegistry,
+      execFileAsync: mockExecFile,
+    });
+
+    await smMain.pruneStaleWorktrees();
+
+    // The real project directory and symlink should both be preserved
+    expect(existsSync(projectPathReal)).toBe(true);
     expect(gitWorktreeRemoveCalled).toBe(false);
   });
 });

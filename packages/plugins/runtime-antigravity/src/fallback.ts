@@ -2,7 +2,7 @@
  * Claude Code CLI fallback executor.
  *
  * When Peekaboo operations fail (binary missing, timeout, element not found),
- * falls back to invoking `claude --dangerously-skip-permissions` via execFile.
+ * falls back to invoking `claude --bare --dangerously-skip-permissions` via execFile.
  *
  * Security: uses execFile (not exec) to prevent shell injection.
  */

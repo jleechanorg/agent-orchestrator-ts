@@ -20,6 +20,7 @@ import {
   utimesSync,
   rmSync,
   readFileSync,
+  realpathSync,
 } from "node:fs";
 import { execFile } from "node:child_process";
 import { basename, join, resolve } from "node:path";
@@ -427,6 +428,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
   function normalizePath(path: string): string {
     return resolve(path).replace(/\/$/, "");
+  }
+
+  function realpathNormalized(path: string): string {
+    try {
+      return normalizePath(realpathSync(path));
+    } catch {
+      return normalizePath(path);
+    }
   }
 
   function isPathInside(path: string, parentPath: string): boolean {
@@ -2267,13 +2276,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         const worktreePath = lines[0]!.slice("worktree ".length).trim();
         if (!worktreePath) continue;
 
-        const normalizedWorktree = normalizePath(worktreePath);
+        const normalizedWorktree = realpathNormalized(worktreePath);
 
         // Never delete the main (linked) worktree — it is the project root itself.
         // git worktree list --porcelain includes it as the first entry; if the
         // ao-orchestrator session recorded project.path as its worktree and later
         // reaches a terminal state, Pass 2 would call rmSync on the entire repo.
-        if (normalizedWorktree === normalizePath(repoPath)) continue;
+        if (normalizedWorktree === realpathNormalized(repoPath)) continue;
 
         // Skip worktrees inside ~/.worktrees/ — handled by Pass 1
         if (isPathInside(normalizedWorktree, worktreeBaseDir)) continue;
@@ -2288,7 +2297,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           const raw = readMeta(sessionsDir, sessionId);
           if (!raw) continue;
           const storedWorktree = raw["worktree"];
-          if (storedWorktree && normalizePath(storedWorktree) === normalizedWorktree) {
+          if (storedWorktree && realpathNormalized(storedWorktree) === normalizedWorktree) {
             matchingRaw = raw;
             break;
           }
