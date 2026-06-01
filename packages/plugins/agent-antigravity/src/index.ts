@@ -86,8 +86,9 @@ const antigravityOverrides: Partial<Agent> = {
             try {
               fs.unlinkSync(sessionKeychainDir);
               needsSetup = true;
-            } catch {
-              // ignore
+            } catch (err) {
+              console.error(`[antigravity] Headless safety check: failed to unlink existing keychain symlink ${sessionKeychainDir}: ${(err as Error).message}`);
+              throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`);
             }
           } else {
             // If it is a directory, check if our temp keychain database exists inside it
@@ -133,67 +134,22 @@ const antigravityOverrides: Partial<Agent> = {
         fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
         
         if (isHeadless && os.platform() === "darwin") {
-          // In headless launchd/background contexts on macOS, the user's login keychain is locked
-          // and inaccessible, causing macOS to display the "Keychain Not Found" GUI popup.
-          // Fix: create and unlock a temporary, password-less session keychain so the
-          // Security framework has a writable, unlocked keychain in this bootstrap namespace
-          // without triggering any GUI prompts.
-          const tempKeychainPath = path.join(sessionKeychainDir, "session.keychain");
-          // Ensure Library/Preferences exists so the default-keychain plist can be written there
-          fs.mkdirSync(path.join(sessionHome, "Library", "Preferences"), { recursive: true });
-          const execOptions = {
-            stdio: "ignore" as const,
-            env: {
-              ...process.env,
-              HOME: sessionHome,
-            },
-          };
-          
-          try {
-            // Get original default keychain so we can restore it safely
-            let originalDefaultKeychain = "";
+          // Headless macOS context: we do NOT want to symlink the real login keychain
+          // to completely prevent any OS-level interactive prompts or deadlocks.
+          // Also, we do NOT create any temporary keychain or mutate the default keychain.
+          // Instead, we ensure the sessionKeychainDir is absent or empty.
+          if (fs.existsSync(sessionKeychainDir) || isSymlink) {
             try {
-              const out = execFileSync("security", ["default-keychain"], { env: execOptions.env });
-              if (out) {
-                originalDefaultKeychain = out.toString().trim().replace(/^["']|["']$/g, "").trim();
+              if (isSymlink) {
+                fs.unlinkSync(sessionKeychainDir);
+              } else {
+                fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
               }
-            } catch (err) {
-              console.debug(`[antigravity] Failed to get original default keychain: ${(err as Error).message}`);
+            } catch (unlinkErr) {
+              console.error(`[antigravity] Headless safety check: failed to remove existing keychain path ${sessionKeychainDir}: ${(unlinkErr as Error).message}`);
+              // Fail-closed as requested: throw to abort launch
+              throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`);
             }
-
-            // Ensure the directory exists
-            fs.mkdirSync(sessionKeychainDir, { recursive: true });
-
-            // 1. Create the keychain
-            execFileSync("security", ["create-keychain", "-p", "", tempKeychainPath], execOptions);
-            
-            // 2. Unlock the keychain
-            execFileSync("security", ["unlock-keychain", "-p", "", tempKeychainPath], execOptions);
-            
-            // 3. Set it as the default keychain for this security session
-            execFileSync("security", ["default-keychain", "-s", tempKeychainPath], execOptions);
-            
-            // 4. Set keychain settings to never lock
-            execFileSync("security", ["set-keychain-settings", "-l", "-u", tempKeychainPath], execOptions);
-
-            // 5. Restore the original default keychain after a short delay in a detached background process
-            if (originalDefaultKeychain && originalDefaultKeychain !== tempKeychainPath) {
-              const restorer = spawn(
-                "sleep 10 && security default-keychain -s " + shellEscape(originalDefaultKeychain),
-                {
-                  shell: true,
-                  detached: true,
-                  stdio: "ignore",
-                  env: { ...process.env },
-                }
-              );
-              restorer.unref();
-              console.debug(`[antigravity] Spawned background restorer to revert default keychain to ${originalDefaultKeychain} after 10s`);
-            }
-          } catch (keychainErr) {
-            console.debug(`[antigravity] Failed to setup temp session keychain: ${(keychainErr as Error).message}`);
-            // Fail closed in headless mode: do NOT fall back to real keychain symlink
-            // to completely prevent any OS-level interactive prompts or deadlocks.
           }
         } else {
           // Interactive user GUI session: symlink the real keychain so the agent can read
@@ -209,6 +165,9 @@ const antigravityOverrides: Partial<Agent> = {
         }
       }
     } catch (err) {
+      if ((err as Error).message.includes("Headless safety check failed")) {
+        throw err;
+      }
       console.debug(`[antigravity] Failed to setup keychains: ${(err as Error).message}`);
     }
 

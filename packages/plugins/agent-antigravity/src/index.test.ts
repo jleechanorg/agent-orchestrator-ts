@@ -420,7 +420,7 @@ describe("antigravity getEnvironment", () => {
     expect(parsedFolders["/workspace/repo"]).toBe("TRUST_FOLDER");
   });
 
-  it("creates a password-less temp session keychain in headless mode and fails closed if setup fails, without symlinking real keychains", () => {
+  it("ensures no keychain symlinks or mutations in headless mode and fails closed if removal fails", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");
     mockPlatform.mockReturnValue("darwin");
@@ -436,69 +436,35 @@ describe("antigravity getEnvironment", () => {
     delete process.env.SSH_CONNECTION;
 
     try {
-      // 1. Success case: verifies create-keychain, default-keychain, etc. are called
+      // 1. Success case: verifies no security commands are run and existing symlink is removed
       mockExecFileSync.mockReset();
-      mockSpawn.mockReset();
-      mockExecFileSync.mockImplementation((cmd, args) => {
-        if (cmd === "security" && args && args.length === 1 && args[0] === "default-keychain") {
-          return "/Users/mockuser/Library/Keychains/login.keychain-db";
-        }
-        return "";
-      });
-      mockLstatSync.mockImplementation(() => {
-        throw new Error("keychain does not exist");
-      });
-      mockExistsSync.mockImplementation(() => false);
+      mockSymlinkSync.mockReset();
+      mockUnlinkSync.mockReset();
+      
+      mockLstatSync.mockImplementation(() => ({
+        isSymbolicLink: () => true,
+      } as any));
+      mockExistsSync.mockImplementation(() => true);
 
       const env = agent.getEnvironment(makeLaunchConfig());
       expect(env).toBeDefined();
 
-      // Check key security framework CLI calls in headless mode
-      expect(mockExecFileSync).toHaveBeenCalledWith(
-        "security",
-        ["default-keychain"],
-        expect.anything()
-      );
-      expect(mockExecFileSync).toHaveBeenCalledWith(
-        "security",
-        expect.arrayContaining(["create-keychain", "-p", ""]),
-        expect.anything()
-      );
-      expect(mockExecFileSync).toHaveBeenCalledWith(
-        "security",
-        expect.arrayContaining(["unlock-keychain", "-p", ""]),
-        expect.anything()
-      );
-      expect(mockExecFileSync).toHaveBeenCalledWith(
-        "security",
-        expect.arrayContaining(["default-keychain", "-s"]),
-        expect.anything()
-      );
+      // No security default-keychain or create-keychain should be called
+      expect(mockExecFileSync).not.toHaveBeenCalled();
+      // The symlink should be unlinked
+      expect(mockUnlinkSync).toHaveBeenCalled();
 
-      // Verify that background restorer was spawned
-      expect(mockSpawn).toHaveBeenCalled();
-      const spawnCalls = mockSpawn.mock.calls;
-      expect(spawnCalls[0][0]).toContain("security default-keychain -s");
-      expect(spawnCalls[0][0]).toContain("/Users/mockuser/Library/Keychains/login.keychain-db");
-
-      // 2. Failure/Fail-Closed case: if temp keychain creation fails, we do NOT symlink user login keychain
-      mockExecFileSync.mockReset();
-      mockSymlinkSync.mockReset();
-      mockExecFileSync.mockImplementation((cmd, args) => {
-        if (args && args.includes("create-keychain")) {
-          throw new Error("mocked keychain creation failure");
+      // 2. Failure/Fail-Closed case: if unlink fails, we throw an error (fail-closed)
+      mockUnlinkSync.mockImplementation((filepath) => {
+        console.log("mockUnlinkSync called with:", filepath);
+        if (typeof filepath === "string" && filepath.includes("Keychains")) {
+          throw new Error("mocked unlink failure");
         }
       });
 
-      const env2 = agent.getEnvironment(makeLaunchConfig());
-      expect(env2).toBeDefined();
-
-      // Since creation failed, we should NOT have symlinked ~/Library/Keychains
-      const keychainSymlinkCalls = mockSymlinkSync.mock.calls.filter((call) => {
-        const dest = call[1] as string;
-        return dest.includes("Keychains");
-      });
-      expect(keychainSymlinkCalls.length).toBe(0);
+      expect(() => agent.getEnvironment(makeLaunchConfig())).toThrow(
+        /Headless safety check failed/
+      );
     } finally {
       process.env = originalEnv;
     }
