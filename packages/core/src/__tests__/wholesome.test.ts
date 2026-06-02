@@ -1061,10 +1061,14 @@ describe("wholesome — structural source-code assertions", () => {
         }
         try {
           rmSync(tmpDir, { recursive: true, force: true });
-        } catch {}
+        } catch {
+          // ignore
+        }
         try {
           rmSync(remoteDir, { recursive: true, force: true });
-        } catch {}
+        } catch {
+          // ignore
+        }
       }
     });
 
