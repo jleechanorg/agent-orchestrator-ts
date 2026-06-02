@@ -573,7 +573,7 @@ describe("antigravity getEnvironment", () => {
       return false;
     });
 
-    mockWriteFileSync.mockImplementation((filepath, content) => {
+    mockWriteFileSync.mockImplementation((filepath, _content) => {
       if (typeof filepath === "string" && filepath.endsWith("trustedFolders.lock")) {
         lockPathExists = true;
       }
