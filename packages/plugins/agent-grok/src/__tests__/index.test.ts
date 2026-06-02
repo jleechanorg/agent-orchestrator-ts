@@ -211,7 +211,7 @@ describe("getLaunchCommand", () => {
     expect(cmd).toBe("grok --no-alt-screen --resume '01HXGROKSESSION'");
   });
 
-  it("does not include prompt flags when prompt delivery is post-launch", () => {
+  it("appends prompt as positional argument after -- for inline delivery", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({
         prompt: "Do work",
@@ -219,9 +219,21 @@ describe("getLaunchCommand", () => {
       }),
     );
     expect(cmd).toContain("--rules 'You are helpful'");
-    expect(cmd).not.toContain("-p");
-    expect(cmd).not.toContain("--single");
-    expect(cmd).not.toContain("--prompt");
+    expect(cmd).toContain("-- 'Do work'");
+  });
+
+  it("appends prompt on initial launch even with grokSessionId configured", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({
+        prompt: "Do work",
+        projectConfig: {
+          ...makeLaunchConfig().projectConfig,
+          agentConfig: { grokSessionId: "01HXGROKSESSION" },
+        },
+      }),
+    );
+    expect(cmd).toContain("-- 'Do work'");
+    expect(cmd).toContain("--resume '01HXGROKSESSION'");
   });
 
   it("appends prompt after -- in buildGrokCommand", () => {
@@ -233,19 +245,7 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("-- 'Fix the bug in auth.ts'");
   });
 
-  it("does not append prompt during --resume", () => {
-    const cmd = agent.getLaunchCommand(
-      makeLaunchConfig({
-        prompt: "Continue working",
-        projectConfig: {
-          ...makeLaunchConfig().projectConfig,
-          agentConfig: { grokSessionId: "01HXGROKSESSION" },
-        },
-      }),
-    );
-    expect(cmd).toContain("--resume '01HXGROKSESSION'");
-    expect(cmd).not.toContain("-- 'Continue working'");
-  });
+
 });
 
 describe("getEnvironment", () => {
@@ -502,6 +502,18 @@ describe("getRestoreCommand", () => {
     );
     expect(cmd).toBe("grok --no-alt-screen --model 'grok-4.1-fast' --resume '01HXGROKSESSION'");
   });
+
+  it("suppresses prompt on explicit reconnect via getRestoreCommand", async () => {
+    const cmd = await agent.getRestoreCommand?.(
+      makeSession({ metadata: { grokSessionId: "01HXGROKSESSION" } }) as any,
+      {
+        ...makeLaunchConfig({ model: "grok-4.1" }).projectConfig,
+        prompt: "Continue the task",
+      } as any,
+    );
+    expect(cmd).toContain("--resume '01HXGROKSESSION'");
+    expect(cmd).not.toContain("-- 'Continue the task'");
+  });
 });
 
 describe("workspace hooks", () => {
@@ -517,7 +529,7 @@ describe("workspace hooks", () => {
     expect(mockSetupPathWrapperWorkspace).toHaveBeenCalledWith("/workspace/test");
   });
 
-  it("waits for Grok worktree readiness before post-launch prompt delivery", async () => {
+  it("waits for Grok worktree readiness during post-launch setup", async () => {
     mockExecFileAsync.mockResolvedValue({
       stdout: "Worktree ready: /Users/me/.grok/worktrees/project/smoke\n",
       stderr: "",

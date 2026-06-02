@@ -1,8 +1,24 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { createDirectTerminalServer } from "../direct-terminal-ws.js";
-import { createConnection } from "node:net";
+import { WebSocket } from "ws";
+import { createConnection, type AddressInfo } from "node:net";
 
-describe("direct-terminal-ws integration", () => {
+const closers: Array<() => void | Promise<void>> = [];
+
+afterEach(async () => {
+  while (closers.length > 0) {
+    const close = closers.pop();
+    if (close) {
+      try {
+        await close();
+      } catch {
+        // ignore errors on cleanup
+      }
+    }
+  }
+});
+
+describe("direct-terminal-ws WebSocket integration and routing", () => {
   it("should initialize the direct terminal server without throwing TypeError", () => {
     const serverInstance = createDirectTerminalServer();
     expect(serverInstance).toBeDefined();
@@ -40,8 +56,53 @@ describe("direct-terminal-ws integration", () => {
     }).finally(() => {
       serverInstance.shutdown();
     });
-    // Without the fix (path:"/ws" set), ws would call shouldHandle() → false → HTTP 400
-    // With the fix (no path option), handleUpgrade succeeds → HTTP 101
+    
     expect(upgradeResponse).toMatch(/^HTTP\/1\.1 101/);
+  });
+
+  it("allows WebSocket connections to /ws", async () => {
+    const serverInstance = createDirectTerminalServer();
+    await new Promise<void>((resolve) => serverInstance.server.listen(0, "127.0.0.1", resolve));
+    closers.push(() => {
+      serverInstance.wss.close();
+      return new Promise<void>((r) => serverInstance.server.close(() => r()));
+    });
+    
+    const port = (serverInstance.server.address() as AddressInfo).port;
+    const ws = await new Promise<WebSocket>((resolve, reject) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?session=testsessionid`);
+      closers.push(() => { socket.close(); });
+      socket.on("open", () => resolve(socket));
+      socket.on("error", reject);
+      socket.on("unexpected-response", (_req, res) => {
+        reject(new Error(`Handshake failed with status ${res.statusCode}`));
+      });
+    });
+    
+    expect([WebSocket.OPEN, WebSocket.CLOSING, WebSocket.CLOSED]).toContain(ws.readyState);
+    ws.close();
+  });
+
+  it("allows WebSocket connections to /ao-terminal-mux", async () => {
+    const serverInstance = createDirectTerminalServer();
+    await new Promise<void>((resolve) => serverInstance.server.listen(0, "127.0.0.1", resolve));
+    closers.push(() => {
+      serverInstance.wss.close();
+      return new Promise<void>((r) => serverInstance.server.close(() => r()));
+    });
+    
+    const port = (serverInstance.server.address() as AddressInfo).port;
+    const ws = await new Promise<WebSocket>((resolve, reject) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/ao-terminal-mux?session=testsessionid`);
+      closers.push(() => { socket.close(); });
+      socket.on("open", () => resolve(socket));
+      socket.on("error", reject);
+      socket.on("unexpected-response", (_req, res) => {
+        reject(new Error(`Handshake failed with status ${res.statusCode}`));
+      });
+    });
+    
+    expect([WebSocket.OPEN, WebSocket.CLOSING, WebSocket.CLOSED]).toContain(ws.readyState);
+    ws.close();
   });
 });
