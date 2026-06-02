@@ -465,7 +465,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     workspacePath: string,
   ): boolean {
     if (!project) return false;
-    if (normalizePath(workspacePath) === normalizePath(project.path)) return false;
+    if (realpathNormalized(workspacePath) === realpathNormalized(project.path)) return false;
 
     const roots = getManagedWorkspaceRoots(project, projectId);
     return roots.some((root) => isPathInside(workspacePath, root));

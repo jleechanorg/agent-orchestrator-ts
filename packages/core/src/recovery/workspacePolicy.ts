@@ -1,5 +1,6 @@
 import { resolve, parse, sep, relative, isAbsolute, basename, join } from "path";
 import { homedir } from "os";
+import { realpathSync } from "fs";
 import type { ProjectConfig } from "../types.js";
 import { getWorktreesDir } from "../paths.js";
 import { loadConfig } from "../config.js";
@@ -25,12 +26,22 @@ export function normalizePath(p: string): string {
   return resolved;
 }
 
+export function realpathNormalized(p: string): string {
+  try {
+    return normalizePath(realpathSync(p));
+  } catch {
+    return normalizePath(p);
+  }
+}
+
 /**
  * Checks if child path is inside parent path in a platform-independent way.
  * Returns true if relative path is non-empty, does not start with ".." and is not absolute.
  */
 export function isPathInside(child: string, parent: string): boolean {
-  const rel = relative(normalizePath(parent), normalizePath(child));
+  const normalizedChild = realpathNormalized(child);
+  const normalizedParent = realpathNormalized(parent);
+  const rel = relative(normalizedParent, normalizedChild);
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
@@ -45,7 +56,7 @@ export function shouldDestroyWorkspacePath(
   configPath: string,
 ): boolean {
   if (!project) return false;
-  if (normalizePath(workspacePath) === normalizePath(project.path)) return false;
+  if (realpathNormalized(workspacePath) === realpathNormalized(project.path)) return false;
 
   let globalConfig: ReturnType<typeof loadConfig> | undefined;
   try {
