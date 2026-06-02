@@ -118,15 +118,16 @@ describe("sessions API route", () => {
     expect(routeSource).toMatch(/typeof limit ===\s*["']number["']\s*&&\s*!isNaN\(limit\)/);
   });
 
-  it("behaviorally handles limit=NaN gracefully at runtime by skipping pagination", async () => {
+  it("behaviorally handles limit=NaN gracefully at runtime by falling back to safe default page limit", async () => {
     const request = new Request("http://localhost/api/sessions?limit=NaN");
     const response = await GET(request);
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data).toHaveProperty("sessions");
     expect(data.sessions).toBeInstanceOf(Array);
-    // Since limit=NaN is passed, we expect it to skip pagination and return undefined metadata
-    expect(data.pagination).toBeUndefined();
+    // Since limit=NaN is passed, we expect it to fall back to the default page limit of 100
+    expect(data.pagination).toBeDefined();
+    expect(data.pagination.limit).toBe(100);
   });
 });
 
