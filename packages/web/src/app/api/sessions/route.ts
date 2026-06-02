@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     const parsedLimit = limitParam ? parseInt(limitParam, 10) : undefined;
     const limit = typeof parsedLimit === "number" && !isNaN(parsedLimit)
       ? Math.max(1, Math.min(parsedLimit, 500))
-      : limitParam ? DEFAULT_PAGE_LIMIT : undefined;
+      : undefined;
     const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10) || 0) : 0;
 
     const { config, registry, sessionManager } = await getServices();
