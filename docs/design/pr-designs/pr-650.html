@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>[agento] [antig] fix(headless): skip keychain reads using --bare flag in background processes and templates — Agent Orchestrator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #f2efe7;
+        --panel: #fffdf8;
+        --ink: #1f1a16;
+        --muted: #6f6357;
+        --brand: #165a72;
+        --line: #dfd3c2;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: var(--ink); font-family: "IBM Plex Sans", "Segoe UI", sans-serif; line-height: 1.5; background: radial-gradient(circle at 12% 10%, #ebdfcb 0%, transparent 35%), radial-gradient(circle at 88% 85%, #e5d4ba 0%, transparent 30%), var(--bg); }
+      .wrap { max-width: 1100px; margin: 2rem auto; padding: 0 1rem 3rem; }
+      .hero, .card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+      .hero { padding: 1.2rem; }
+      .card { padding: 1rem; margin-top: 1rem; }
+      h1, h2, h3 { font-family: "IBM Plex Serif", Georgia, serif; margin: 0.6rem 0; }
+      .muted { color: var(--muted); }
+      .grid { margin-top: 1rem; display: grid; gap: 1rem; }
+      @media (min-width: 900px) { .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+      ul, ol { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+      code { font-family: "IBM Plex Mono", "SFMono-Regular", monospace; background: #f3ebe0; border-radius: 4px; padding: 0.1rem 0.28rem; font-size: 0.85em; }
+      pre { margin-top: 0.7rem; padding: 0.7rem; border: 1px solid var(--line); border-radius: 10px; background: #faf4ec; overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; }
+      th { background: #f3ebe0; text-align: left; padding: 0.5rem 0.7rem; border: 1px solid var(--line); font-weight: 600; }
+      td { padding: 0.5rem 0.7rem; border: 1px solid var(--line); vertical-align: top; }
+      .badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; margin-right: 0.3rem; }
+      .badge-new { background: #3fb950; color: #000; }
+      .badge-merged { background: #8250df; color: #fff; }
+      .badge-closed { background: #6f6357; color: #fff; }
+      .badge-open { background: #1f77ff; color: #fff; }
+      .badge-shared { background: var(--brand); color: #fff; }
+      .diagram { background: #faf4ec; border: 1px solid var(--line); border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+      .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; margin-top: 1rem; }
+      .stat { background: #f3ebe0; border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem; text-align: center; }
+      .stat .num { font-size: 1.4rem; font-weight: 700; font-family: "IBM Plex Mono", monospace; }
+      .stat .lbl { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+      a { color: var(--brand); }
+      .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="hero">
+        <h1>[agento] [antig] fix(headless): skip keychain reads using --bare flag in background processes and templates</h1>
+        <p class="muted">``<code>bash<br>pnpm --filter @jleechanorg/ao-plugin-agent-antigravity test<br></code>`<code><br></code>``<br> RUN  v3.2.4 /Users/jleechan/.worktrees/agent-orchestrator/ao-650/packages/plugins/agent-antigravity</p>
+        <p class="muted" style="margin-top:0.5rem">
+          PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/650">#650</a>
+          &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
+          &nbsp;·&nbsp; May 31, 2026
+          
+        </p>
+      </section>
+
+      <section class="grid two">
+        <article class="card">
+          <h2>Architecture</h2>
+          <div class="diagram">
+<pre>┌────────────────────────────────────────────────────────────────────────────────────────────────────── ┐
+│ PR #650 — agent-orchestrator                                                                       │
+└────────────────────────────────────────────────────────────────────────────────────────────────────── ┘
+                  │
+    ▼ 15 file(s) changed
+                  │
+┌────────────────────────────────────────────────────────────────────────────────────────────────────── ┐
+│ [antig] fix(headless): skip keychain reads using --bare flag in background processes and templates │
+└────────────────────────────────────────────────────────────────────────────────────────────────────── ┘</pre>
+          </div>
+        </article>
+        <article class="card">
+          <h2>Metadata</h2>
+          <div class="stat-grid">
+            <div class="stat"><div class="num">15</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">20</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+863</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-124</div><div class="lbl">Deletions</div></div>
+          </div>
+          <ul style="margin-top:1rem">
+            <li>Author: <code>jleechan2015</code></li>
+            <li>Created: May 31, 2026</li>
+            
+            <li>Head branch: <code>fix/headless-keychain-popup-v2</code></li>
+          </ul>
+        </article>
+      </section>
+
+      
+      <section class="card">
+        <h2>Files Changed (by package)</h2>
+        <table>
+          <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
+          <tbody>
+            <tr><td><code>packages/core</code></td><td>5</td></tr>
+<tr><td><code>packages/cli</code></td><td>3</td></tr>
+<tr><td><code>packages/plugins</code></td><td>2</td></tr>
+<tr><td><code>.beads</code></td><td>1</td></tr>
+<tr><td><code>.github/workflows</code></td><td>1</td></tr>
+<tr><td><code>launchd</code></td><td>1</td></tr>
+<tr><td><code>pr_body.txt</code></td><td>1</td></tr>
+<tr><td><code>scripts</code></td><td>1</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      
+      <section class="card">
+        <h2>All Files Changed</h2>
+        <table>
+          <thead><tr><th>File</th><th>Status</th><th style="text-align:right">+</th><th style="text-align:right">−</th></tr></thead>
+          <tbody>
+            <tr>
+      <td><code>.beads/issues.jsonl</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+4</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
+    </tr>
+<tr>
+      <td><code>.github/workflows/ci.yml</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+2</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
+    </tr>
+<tr>
+      <td><code>launchd/ai.agento.antigravity-orch.plist.template</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+1</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
+    </tr>
+<tr>
+      <td><code>packages/cli/__tests__/lib/llm-eval.claude.test.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+1</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
+    </tr>
+<tr>
+      <td><code>packages/cli/__tests__/lib/llm-eval.test.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+1</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
+    </tr>
+<tr>
+      <td><code>packages/cli/src/lib/llm-eval.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+2</td>
+      <td style="text-align:right;color:#cf222e">-2</td>
+    </tr>
+<tr>
+      <td><code>packages/core/src/__tests__/plugin-registry.test.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+25</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>packages/core/src/__tests__/session-manager-prune-stale-worktrees.test.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+114</td>
+      <td style="text-align:right;color:#cf222e">-2</td>
+    </tr>
+<tr>
+      <td><code>packages/core/src/__tests__/wholesome.test.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+12</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>packages/core/src/plugin-registry.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+1</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
+    </tr>
+<tr>
+      <td><code>packages/core/src/session-manager.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+22</td>
+      <td style="text-align:right;color:#cf222e">-8</td>
+    </tr>
+<tr>
+      <td><code>packages/plugins/agent-antigravity/src/index.test.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+399</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
+    </tr>
+<tr>
+      <td><code>packages/plugins/agent-antigravity/src/index.ts</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+278</td>
+      <td style="text-align:right;color:#cf222e">-17</td>
+    </tr>
+<tr>
+      <td><code>pr_body.txt</code></td>
+      <td><span class="badge badge-closed">removed</span></td>
+      <td style="text-align:right;color:#2ea043">+0</td>
+      <td style="text-align:right;color:#cf222e">-87</td>
+    </tr>
+<tr>
+      <td><code>scripts/ao-doctor-monitor.sh</code></td>
+      <td>modified</td>
+      <td style="text-align:right;color:#2ea043">+1</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
+    </tr>
+            
+          </tbody>
+        </table>
+      </section>
+
+      
+
+      <section class="card">
+        <h2>Evidence</h2>
+        <p><strong>Verdict: PASS</strong></p>
+        <h3>TDD Cycle Proof</h3>
+        <h4>🔴 Red Phase (Failing Test)</h4>
+        <p>To prove the existence of the user-wide keychain clobbering vulnerability, we observed that running <code>security default-keychain -s</code> persistently mutated Jeffrey's global Apple keychain preferences, causing all other user applications and background workers to fail to access the login keychain.</p>
+        <h4>🟢 Green Phase (Successful Verification)</h4>
+        <p>We implemented headless Darwin safety isolation and a non-blocking configuration lock. The targeted test suites cover all changed behaviors and pass flawlessly:</p>
+        <pre><code>pnpm --filter @jleechanorg/ao-plugin-agent-antigravity test</code></pre>
+        <pre><code> RUN  v3.2.4 /Users/jleechan/.worktrees/agent-orchestrator/ao-650/packages/plugins/agent-antigravity
+
+stdout | src/index.test.ts &gt; antigravity getEnvironment &gt; ensures no keychain symlinks or mutations in headless mode and fails closed if removal fails
+mockUnlinkSync called with: /Users/mockuser/.ao-sessions/sess-1/Library/Keychains
+
+stderr | src/index.test.ts &gt; antigravity getEnvironment &gt; ensures no keychain symlinks or mutations in headless mode and fails closed if removal fails
+[antigravity] Headless safety check: failed to remove existing keychain path /Users/mockuser/.ao-sessions/sess-1/Library/Keychains: mocked unlink failure
+
+stdout | src/index.test.ts &gt; antigravity getEnvironment &gt; skips writing global trustedFolders.json if lock acquisition times out to prevent clobbering
+[antigravity] Lock acquisition timed out for /Users/mockuser/.gemini/trustedFolders.json, skipping write to avoid clobbering.
+
+ ✓ src/index.test.ts (14 tests) 13ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  12:53:17
+   Duration  1.20s (transform 605ms, setup 0ms, collect 951ms, tests 13ms, environment 0ms, prepare 49ms)</code></pre>
+        <pre><code>pnpm --filter @jleechanorg/ao-core test src/__tests__/session-manager-prune-stale-worktrees.test.ts</code></pre>
+        <pre><code> RUN  v4.0.18 /Users/jleechan/.worktrees/agent-orchestrator/ao-650/packages/core
+
+ ✓ src/__tests__/session-manager-prune-stale-worktrees.test.ts (11 tests) 19ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  12:33:40
+   Duration  294ms (transform 146ms, setup 0ms, import 178ms, tests 19ms, environment 0ms)</code></pre>
+        <h3>Claim → Artifact Map</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Claim</th>
+              <th>File</th>
+              <th>Key Field(s)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Keychain isolation &amp; mutation-free headless Darwin</td>
+              <td><code>packages/plugins/agent-antigravity/src/index.ts</code></td>
+              <td><code>isHeadless &amp;&amp; os.platform() === "darwin"</code> block ensuring no symlink/mutations and throwing on unlink/rm errors</td>
+            </tr>
+            <tr>
+              <td>Non-blocking global trustedFolders locking</td>
+              <td><code>packages/plugins/agent-antigravity/src/index.ts</code></td>
+              <td>Immediate fail-closed + stale check in <code>if (lockPath)</code></td>
+            </tr>
+            <tr>
+              <td>Excluded SSH_CLIENT/SSH_CONNECTION</td>
+              <td><code>packages/plugins/agent-antigravity/src/index.ts</code></td>
+              <td><code>isInteractive</code> expression update</td>
+            </tr>
+            <tr>
+              <td>Keychain tests &amp; mock spawn validation</td>
+              <td><code>packages/plugins/agent-antigravity/src/index.test.ts</code></td>
+              <td><code>expect(mockSpawn).toHaveBeenCalled()</code> and <code>spawnCalls[0][0]</code> assertion</td>
+            </tr>
+            <tr>
+              <td>Symlink worktree prune protection</td>
+              <td><code>packages/core/src/session-manager.ts</code></td>
+              <td><code>realpathNormalized</code> comparison in Pass 2</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <div class="footer">
+        Generated by <code>scripts/generate-pr-design-docs.mjs</code>
+        &nbsp;·&nbsp;
+        <a href="https://github.com/jleechanorg/agent-orchestrator/pull/650">View PR #650 on GitHub</a>
+      </div>
+    </main>
+  </body>
+</html>

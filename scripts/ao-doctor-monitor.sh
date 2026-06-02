@@ -640,7 +640,7 @@ Rules:
 
   # Try claude -p first, fall back to codex
   if command -v claude >/dev/null 2>&1; then
-    _run_with_timeout "$AO_DOCTOR_PHASE2_TIMEOUT" claude -p "$prompt" > "$tmpfile" 2>/dev/null
+    _run_with_timeout "$AO_DOCTOR_PHASE2_TIMEOUT" claude --bare -p "$prompt" > "$tmpfile" 2>/dev/null
   elif command -v codex >/dev/null 2>&1; then
     _run_with_timeout "$AO_DOCTOR_PHASE2_TIMEOUT" codex exec "$prompt" > "$tmpfile" 2>/dev/null
   else

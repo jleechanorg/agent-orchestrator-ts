@@ -42,7 +42,7 @@ export function validatePluginName(name: string): void {
   if (!name || name.length === 0) {
     throw new UnsafePluginNameError(name, "name must be non-empty");
   }
-  if (PATH_TRAVERSAL_RE.test(name)) {
+  if (PATH_TRAVERSAL_RE.test(name) || name.includes("\0")) {
     throw new UnsafePluginNameError(name, "contains path traversal characters");
   }
   if (!SAFE_PLUGIN_NAME_RE.test(name)) {

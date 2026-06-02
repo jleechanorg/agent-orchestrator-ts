@@ -6,6 +6,7 @@ import {
   BUILTIN_PLUGINS,
   createPluginRegistry,
   isPackageResolutionFailure,
+  validatePluginName,
 } from "../plugin-registry.js";
 import type { PluginModule, PluginManifest, OrchestratorConfig } from "../types.js";
 
@@ -532,3 +533,27 @@ describe("loadFromConfig", () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe("validatePluginName", () => {
+  it("allows valid plugin names", () => {
+    expect(() => validatePluginName("valid-plugin_name")).not.toThrow();
+  });
+
+  it("throws UnsafePluginNameError for empty names", () => {
+    expect(() => validatePluginName("")).toThrow("name must be non-empty");
+  });
+
+  it("throws UnsafePluginNameError for path traversal", () => {
+    expect(() => validatePluginName("../unsafe")).toThrow("contains path traversal characters");
+    expect(() => validatePluginName("unsafe/plugin")).toThrow("contains path traversal characters");
+  });
+
+  it("throws UnsafePluginNameError for null bytes", () => {
+    expect(() => validatePluginName("unsafe\0")).toThrow("contains path traversal characters");
+  });
+
+  it("throws UnsafePluginNameError for characters outside safe list", () => {
+    expect(() => validatePluginName("unsafe@plugin")).toThrow("contains characters that could enable code injection");
+  });
+});
+

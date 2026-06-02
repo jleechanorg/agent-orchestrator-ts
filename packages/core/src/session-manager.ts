@@ -20,6 +20,7 @@ import {
   utimesSync,
   rmSync,
   readFileSync,
+  realpathSync,
 } from "node:fs";
 import { execFile } from "node:child_process";
 import { basename, join, resolve } from "node:path";
@@ -429,9 +430,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return resolve(path).replace(/\/$/, "");
   }
 
+  function realpathNormalized(path: string): string {
+    try {
+      return normalizePath(realpathSync(path));
+    } catch {
+      return normalizePath(path);
+    }
+  }
+
   function isPathInside(path: string, parentPath: string): boolean {
-    const normalizedPath = normalizePath(path);
-    const normalizedParent = normalizePath(parentPath);
+    const normalizedPath = realpathNormalized(path);
+    const normalizedParent = realpathNormalized(parentPath);
     return normalizedPath === normalizedParent || normalizedPath.startsWith(`${normalizedParent}/`);
   }
 
@@ -456,7 +465,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     workspacePath: string,
   ): boolean {
     if (!project) return false;
-    if (normalizePath(workspacePath) === normalizePath(project.path)) return false;
+    if (realpathNormalized(workspacePath) === realpathNormalized(project.path)) return false;
 
     const roots = getManagedWorkspaceRoots(project, projectId);
     return roots.some((root) => isPathInside(workspacePath, root));
@@ -1445,6 +1454,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       permissions: selection.permissions,
       model: selection.model,
       subagent: spawnConfig.subagent ?? selection.subagent,
+      workspacePath,
     };
 
     // Write workspace hooks BEFORE launching the agent — some agents (e.g. Gemini CLI)
@@ -1799,6 +1809,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       model: selection.model,
       systemPromptFile,
       subagent: selection.subagent,
+      workspacePath: project.path,
     };
 
     const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
@@ -2267,14 +2278,16 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         const worktreePath = lines[0]!.slice("worktree ".length).trim();
         if (!worktreePath) continue;
 
-        const normalizedWorktree = normalizePath(worktreePath);
+        const normalizedWorktree = realpathNormalized(worktreePath);
+
+        // Never delete the main (linked) worktree — it is the project root itself.
+        // git worktree list --porcelain includes it as the first entry; if the
+        // ao-orchestrator session recorded project.path as its worktree and later
+        // reaches a terminal state, Pass 2 would call rmSync on the entire repo.
+        if (normalizedWorktree === realpathNormalized(repoPath)) continue;
 
         // Skip worktrees inside ~/.worktrees/ — handled by Pass 1
         if (isPathInside(normalizedWorktree, worktreeBaseDir)) continue;
-
-        // Never delete the main worktree (project root). git worktree list
-        // always includes it as block 0; deleting it would wipe the entire repo.
-        if (normalizedWorktree === normalizePath(repoPath)) continue;
 
         // Look up this worktree in session metadata
         // Iterate all sessions for this project and find the one with matching worktree
@@ -2286,7 +2299,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           const raw = readMeta(sessionsDir, sessionId);
           if (!raw) continue;
           const storedWorktree = raw["worktree"];
-          if (storedWorktree && normalizePath(storedWorktree) === normalizedWorktree) {
+          if (storedWorktree && realpathNormalized(storedWorktree) === normalizedWorktree) {
             matchingRaw = raw;
             break;
           }
@@ -3344,6 +3357,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       permissions: selection.role === "orchestrator" ? "permissionless" : selection.permissions,
       model: selection.model,
       subagent: selection.subagent,
+      workspacePath,
     };
 
     if (plugins.agent.getRestoreCommand) {

@@ -200,7 +200,8 @@ jobs:
         if: always()
         run: |
           CLI_PGRP="${{ steps.cli-tests.outputs.cli_pgrp }}"
-          if [ -n "$CLI_PGRP" ]; then
+          CURRENT_PGID=$(ps -o pgid= -p $$ | tr -d ' ')
+          if [ -n "$CLI_PGRP" ] && [ "$CLI_PGRP" != "$CURRENT_PGID" ]; then
             kill -- -$CLI_PGRP 2>/dev/null || true
           fi
           sleep 1

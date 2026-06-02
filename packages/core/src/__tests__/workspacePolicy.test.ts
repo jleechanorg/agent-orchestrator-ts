@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { join, sep } from "path";
 import { homedir, tmpdir } from "os";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import {
   normalizePath,
@@ -137,6 +137,13 @@ describe("workspacePolicy", () => {
 
       const targetPath = join(customProjectCloneDir, "my-project", "session-xyz");
       expect(shouldDestroyWorkspacePath(project, "my-project", targetPath, configPath)).toBe(true);
+    });
+
+    it("returns false if workspacePath resolves to project path via symlinks", () => {
+      const symlinkedProjectPath = join(rootDir, "project-symlink");
+      symlinkSync(project.path, symlinkedProjectPath);
+
+      expect(shouldDestroyWorkspacePath(project, "my-project", symlinkedProjectPath, configPath)).toBe(false);
     });
   });
 });
