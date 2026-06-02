@@ -42,7 +42,6 @@ export async function GET(request: Request) {
     const activeOnly = searchParams.get("active") === "true";
     const limitParam = searchParams.get("limit");
     const offsetParam = searchParams.get("offset");
-    const DEFAULT_PAGE_LIMIT = 100;
     const parsedLimit = limitParam ? parseInt(limitParam, 10) : undefined;
     const limit = typeof parsedLimit === "number" && !isNaN(parsedLimit)
       ? Math.max(1, Math.min(parsedLimit, 500))
