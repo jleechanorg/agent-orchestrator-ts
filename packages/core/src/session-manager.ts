@@ -20,6 +20,7 @@ import {
   utimesSync,
   rmSync,
   readFileSync,
+  realpathSync,
 } from "node:fs";
 import { execFile } from "node:child_process";
 import { basename, join, resolve } from "node:path";
@@ -426,7 +427,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   }
 
   function normalizePath(path: string): string {
-    return resolve(path).replace(/\/$/, "");
+    let resolved = resolve(path);
+    try {
+      resolved = realpathSync(resolved);
+    } catch {
+      // Path may not exist yet, that's fine
+    }
+    return resolved.replace(/\/$/, "");
   }
 
   function isPathInside(path: string, parentPath: string): boolean {
@@ -2269,12 +2276,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
         const normalizedWorktree = normalizePath(worktreePath);
 
+        // Never delete the main (linked) worktree — it is the project root itself.
+        // git worktree list --porcelain includes it as the first entry; if the
+        // ao-orchestrator session recorded project.path as its worktree and later
+        // reaches a terminal state, Pass 2 would call rmSync on the entire repo.
+        if (normalizedWorktree === normalizePath(repoPath)) continue;
+
         // Skip worktrees inside ~/.worktrees/ — handled by Pass 1
         if (isPathInside(normalizedWorktree, worktreeBaseDir)) continue;
-
-        // Never delete the main worktree (project root). git worktree list
-        // always includes it as block 0; deleting it would wipe the entire repo.
-        if (normalizedWorktree === normalizePath(repoPath)) continue;
 
         // Look up this worktree in session metadata
         // Iterate all sessions for this project and find the one with matching worktree
