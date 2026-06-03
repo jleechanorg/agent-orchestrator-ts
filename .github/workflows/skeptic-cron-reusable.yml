@@ -705,9 +705,9 @@ jobs:
             # substrings like "notloom.com/share/" in plain text.
             # github.com/user-attachments/ requires a non-empty path segment
             # after it, matching only actual attachment URLs, not bare paths.
-            if echo "$ALL_TEXT" | grep -qEi '(https?://asciinema\.org/a/|https?://loom\.com/share/|https?://github\.com/[^/]+/[^/]+/(assets|files)/[^/]+|https?://github\.com/user-attachments/[^/]+|https?://user-attachments\.githubusercontent\.com/|https?://gist\.github\.com/)'; then
+            if grep -qEi '(https?://asciinema\.org/a/|https?://loom\.com/share/|https?://github\.com/[^/]+/[^/]+/(assets|files)/[^/]+|https?://github\.com/user-attachments/[^/]+|https?://user-attachments\.githubusercontent\.com/|https?://gist\.github\.com/)' <<< "$ALL_TEXT"; then
               HAS_VIDEO=true
-            elif echo "$ALL_TEXT" | grep -qEi '\.(mp4|cast|webm|gif|mov)([^a-zA-Z0-9_]|$)'; then
+            elif grep -qEi '\.(mp4|cast|webm|gif|mov)([^a-zA-Z0-9_]|$)' <<< "$ALL_TEXT"; then
               HAS_VIDEO=true
             fi
 
