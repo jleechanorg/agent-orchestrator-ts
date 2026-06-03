@@ -467,7 +467,7 @@ describe("antigravity getEnvironment", () => {
     expect(writtenTrustedFolders).toBe("");
   });
 
-  it("ensures no keychain symlinks or mutations in headless mode and fails closed if removal fails", () => {
+  it("ensures temporary keychain is programmatically created, unlocked, and configured in headless mode, and fails closed on failure", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");
     mockPlatform.mockReturnValue("darwin");
@@ -483,29 +483,35 @@ describe("antigravity getEnvironment", () => {
     delete process.env.SSH_CONNECTION;
 
     try {
-      // 1. Success case: verifies no security commands are run and existing symlink is removed
+      // 1. Success case: verifies security commands are run to configure the temp keychain
       mockExecFileSync.mockReset();
       mockSymlinkSync.mockReset();
       mockUnlinkSync.mockReset();
+      mockExistsSync.mockReset();
+      mockLstatSync.mockReset();
       
       mockLstatSync.mockImplementation(() => ({
         isSymbolicLink: () => true,
       } as any));
-      mockExistsSync.mockImplementation(() => true);
+      // existsSync returns false for database so setup is triggered
+      mockExistsSync.mockReturnValue(false);
 
       const env = agent.getEnvironment(makeLaunchConfig());
       expect(env).toBeDefined();
 
-      // No security default-keychain or create-keychain should be called
-      expect(mockExecFileSync).not.toHaveBeenCalled();
-      // The symlink should be unlinked
+      // security commands should be called
+      expect(mockExecFileSync).toHaveBeenCalledTimes(4);
+      expect(mockExecFileSync.mock.calls[0][1]).toContain("create-keychain");
+      expect(mockExecFileSync.mock.calls[1][1]).toContain("unlock-keychain");
+      expect(mockExecFileSync.mock.calls[2][1]).toContain("default-keychain");
+      expect(mockExecFileSync.mock.calls[3][1]).toContain("list-keychains");
+      
+      // The old symlink should be unlinked
       expect(mockUnlinkSync).toHaveBeenCalled();
 
-      // 2. Failure/Fail-Closed case: if unlink fails, we throw an error (fail-closed)
-      mockUnlinkSync.mockImplementation((filepath) => {
-        if (typeof filepath === "string" && filepath.includes("Keychains")) {
-          throw new Error("mocked unlink failure");
-        }
+      // 2. Failure/Fail-Closed case: if configuration fails, we throw an error (fail-closed)
+      mockExecFileSync.mockImplementation(() => {
+        throw new Error("mocked security config failure");
       });
 
       expect(() => agent.getEnvironment(makeLaunchConfig())).toThrow(

@@ -82,19 +82,26 @@ const antigravityOverrides: Partial<Agent> = {
 
         if (!needsSetup) {
           if (isHeadless) {
-            // In headless Darwin mode, we want the keychain directory to be absent/empty to bypass keychain operations completely.
-            // If it currently exists (either as a symlink or directory), we must remove it.
-            try {
-              if (isSymlink) {
-                fs.unlinkSync(sessionKeychainDir);
-                isSymlink = false;
-              } else {
-                fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
-              }
+            // Check if our temp keychain database exists inside the directory
+            const tempKeychainDbPath = path.join(sessionKeychainDir, "session.keychain-db");
+            const preferencesPath = path.join(sessionHome, "Library", "Preferences");
+            if (isSymlink || !fs.existsSync(tempKeychainDbPath) || !fs.existsSync(preferencesPath)) {
               needsSetup = true;
-            } catch (err) {
-              console.error(`[antigravity] Headless safety check: failed to remove existing keychain path ${sessionKeychainDir}: ${(err as Error).message}`);
-              throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`, { cause: err });
+            } else {
+              // The keychain already exists! Just unlock it to be safe
+              const tempKeychainPath = path.join(sessionKeychainDir, "session.keychain");
+              const execOptions = {
+                stdio: "ignore" as const,
+                env: {
+                  ...process.env,
+                  HOME: sessionHome,
+                },
+              };
+              try {
+                execFileSync("security", ["unlock-keychain", "-p", "", tempKeychainPath], execOptions);
+              } catch {
+                // ignore
+              }
             }
           } else {
             // If we are in interactive mode, we always want it to be a symlink to the user's real keychains.
@@ -118,23 +125,40 @@ const antigravityOverrides: Partial<Agent> = {
           fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
           
           if (isHeadless) {
-            // Headless macOS context: we do NOT want to symlink the real login keychain
-            // to completely prevent any OS-level interactive prompts or deadlocks.
-            // Also, we do NOT create any temporary keychain or mutate the default keychain.
-            // Instead, we ensure the sessionKeychainDir is absent or empty.
-            if (fs.existsSync(sessionKeychainDir) || isSymlink) {
-              try {
+            // Headless macOS context: spin up an isolated, unlocked, passwordless keychain
+            // inside the session's Library/Keychains directory. This prevents SecurityAgent GUI prompts
+            // by ensuring keyring writes don't fall back to the user's locked login keychain.
+            const tempKeychainDir = sessionKeychainDir;
+            const tempKeychainPath = path.join(tempKeychainDir, "session.keychain");
+            const tempKeychainDbPath = path.join(tempKeychainDir, "session.keychain-db");
+            
+            try {
+              if (fs.existsSync(tempKeychainDir) || isSymlink) {
                 if (isSymlink) {
-                  fs.unlinkSync(sessionKeychainDir);
-                  isSymlink = false;
+                  fs.unlinkSync(tempKeychainDir);
                 } else {
-                  fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
+                  fs.rmSync(tempKeychainDir, { recursive: true, force: true });
                 }
-              } catch (unlinkErr) {
-                console.error(`[antigravity] Headless safety check: failed to remove existing keychain path ${sessionKeychainDir}: ${(unlinkErr as Error).message}`);
-                // Fail-closed as requested: throw to abort launch
-                throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`, { cause: unlinkErr });
               }
+              fs.mkdirSync(tempKeychainDir, { recursive: true });
+              fs.mkdirSync(path.join(sessionHome, "Library", "Preferences"), { recursive: true });
+              
+              const execOptions = {
+                stdio: "ignore" as const,
+                env: {
+                  ...process.env,
+                  HOME: sessionHome,
+                },
+              };
+              
+              // Create, unlock, and configure the temporary keychain for this session
+              execFileSync("security", ["create-keychain", "-p", "", tempKeychainPath], execOptions);
+              execFileSync("security", ["unlock-keychain", "-p", "", tempKeychainPath], execOptions);
+              execFileSync("security", ["default-keychain", "-s", tempKeychainDbPath], execOptions);
+              execFileSync("security", ["list-keychains", "-d", "user", "-s", tempKeychainDbPath], execOptions);
+            } catch (createErr) {
+              console.error(`[antigravity] Headless safety check: failed to configure temporary keychain: ${(createErr as Error).message}`);
+              throw new Error(`Headless safety check failed: unable to configure temporary keychain`, { cause: createErr });
             }
           } else {
             // Interactive user GUI session: symlink the real keychain so the agent can read
