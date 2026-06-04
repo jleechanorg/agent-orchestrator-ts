@@ -7,6 +7,7 @@
 
 domains:
   skeptic-core:
+    advisory: true
     paths:
       - "packages/core/src/skeptic-reviewer.ts"
       - "packages/core/src/prompt-builder.ts"
@@ -14,8 +15,8 @@ domains:
     owners:
       - "@core"
 
-
   skeptic-cli:
+    advisory: true
     paths:
       - "packages/cli/src/commands/skeptic.ts"
       - "packages/cli/src/commands/skeptic/*.ts"
@@ -131,4 +132,3 @@ domains:
       - "docs/*.md"
       - "README.md"
       - "ARCHITECTURE.md"
-    advisory: true
