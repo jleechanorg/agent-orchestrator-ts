@@ -26,6 +26,48 @@ describe("direct-terminal-ws WebSocket integration and routing", () => {
     serverInstance.shutdown();
   });
 
+  it("honors noServer: true option behaviorally by not auto-handling upgrades on unrouted paths", async () => {
+    const serverInstance = createDirectTerminalServer();
+    expect(serverInstance.wss.options.noServer).toBe(true);
+    
+    await new Promise<void>((resolve) => serverInstance.server.listen(0, "127.0.0.1", resolve));
+    const { port } = serverInstance.server.address() as { port: number };
+    
+    const upgradeResponsePromise = new Promise<string>((resolve, reject) => {
+      const socket = createConnection(port, "127.0.0.1", () => {
+        const req =
+          `GET /unrouted-path HTTP/1.1\r\n` +
+          `Host: 127.0.0.1:${port}\r\n` +
+          `Upgrade: websocket\r\n` +
+          `Connection: Upgrade\r\n` +
+          `Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n` +
+          `Sec-WebSocket-Version: 13\r\n` +
+          `\r\n`;
+        socket.write(req);
+      });
+      const timeoutId = setTimeout(() => { socket.destroy(); resolve("timeout"); }, 1000);
+      socket.once("data", (chunk) => {
+        clearTimeout(timeoutId);
+        socket.destroy();
+        resolve(chunk.toString("utf8"));
+      });
+      socket.once("close", () => {
+        clearTimeout(timeoutId);
+        resolve("closed");
+      });
+      socket.once("error", (err) => {
+        clearTimeout(timeoutId);
+        reject(err);
+      });
+    });
+
+    const res = await upgradeResponsePromise;
+    serverInstance.shutdown();
+    
+    expect(res).not.toMatch(/^HTTP\/1\.1 101/);
+  });
+
+
   it("accepts WebSocket upgrade on /ao-terminal-mux (path option must NOT be set on noServer WSS)", async () => {
     const serverInstance = createDirectTerminalServer();
     await new Promise<void>((resolve) => serverInstance.server.listen(0, "127.0.0.1", resolve));
