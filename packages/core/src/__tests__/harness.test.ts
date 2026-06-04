@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { createInitialState, nextPhase, spawnAOWorker } from "@jleechanorg/ao-autonomous-harness";
 
-vi.mock("../config.js", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../config.js")>();
+vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@jleechanorg/ao-core")>();
   return {
     ...original,
     loadConfig: () => ({
