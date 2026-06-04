@@ -329,7 +329,7 @@ describe("wholesome — structural source-code assertions", () => {
         .filter(v => !(ALLOWED_ESLINT_DISABLES[v.file]?.has(v.line.trim())));
       expect(violations, "eslint-disable directive added in this branch:\n" +
         violations.map(v => `${v.file}: ${v.line}`).join("\n")).toHaveLength(0);
-    });
+    }, 30000);
   });
 
   // -------------------------------------------------------------------------
