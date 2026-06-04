@@ -68,7 +68,7 @@
 │ PR #641 — agent-orchestrator                                                         │
 └──────────────────────────────────────────────────────────────────────────────────────── ┘
                   │
-    ▼ 20 file(s) changed
+    ▼ 19 file(s) changed
                   │
 ┌──────────────────────────────────────────────────────────────────────────────────────── ┐
 │ [antig] feat(autonomous-harness): build setup, domain lock registry and hook configs │
@@ -78,10 +78,10 @@
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
-            <div class="stat"><div class="num">20</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">12</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+506</div><div class="lbl">Additions</div></div>
-            <div class="stat"><div class="num" style="color:#cf222e">-27</div><div class="lbl">Deletions</div></div>
+            <div class="stat"><div class="num">19</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">14</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+549</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num" style="color:#cf222e">-28</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
             <li>Author: <code>jleechan2015</code></li>
@@ -99,8 +99,8 @@
           <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
           <tbody>
             <tr><td><code>.github/workflows</code></td><td>5</td></tr>
-<tr><td><code>packages/core</code></td><td>4</td></tr>
 <tr><td><code>autonomous-harness/src</code></td><td>3</td></tr>
+<tr><td><code>packages/core</code></td><td>3</td></tr>
 <tr><td><code>docs/design</code></td><td>2</td></tr>
 <tr><td><code>.beads</code></td><td>1</td></tr>
 <tr><td><code>.gitignore</code></td><td>1</td></tr>
@@ -187,20 +187,20 @@
 <tr>
       <td><code>docs/design/pr-designs/pr-641.html</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+260</td>
+      <td style="text-align:right;color:#2ea043">+287</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>docs/design/pr-designs/pr-641.md</code></td>
       <td><span class="badge badge-new">added</span></td>
-      <td style="text-align:right;color:#2ea043">+112</td>
+      <td style="text-align:right;color:#2ea043">+131</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
       <td><code>file_domains.yaml</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+17</td>
-      <td style="text-align:right;color:#cf222e">-0</td>
+      <td style="text-align:right;color:#2ea043">+18</td>
+      <td style="text-align:right;color:#cf222e">-1</td>
     </tr>
 <tr>
       <td><code>package.json</code></td>
@@ -221,12 +221,6 @@
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
-      <td><code>packages/core/src/__tests__/wholesome.test.ts</code></td>
-      <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+4</td>
-      <td style="text-align:right;color:#cf222e">-0</td>
-    </tr>
-<tr>
       <td><code>packages/core/vitest.config.ts</code></td>
       <td>modified</td>
       <td style="text-align:right;color:#2ea043">+1</td>
@@ -243,39 +237,7 @@
         </table>
       </section>
 
-      <section class="card">
-        <h2>Evidence</h2>
-        <h3>TDD Cycle Evidence</h3>
-        <ul>
-          <li><strong>Failing Log Gist</strong>: <a href="https://gist.github.com/jleechan2015/e87a2d48f6c58be7b3c2999e20a3a2a1">wholesome-failing-output.gist</a></li>
-          <li><strong>Passing Log Gist</strong>: <a href="https://gist.github.com/jleechan2015/18fec9993c11d74c92a044af6de2c268">wholesome-passing-output.gist</a></li>
-          <li><strong>Red-Green TDD Video (demonstrating commit e17f3cd28cef3e6a89469dddfd393277abee426e)</strong>: <a href="https://github.com/jleechanorg/agent-orchestrator/assets/10802292/red-to-green-run.mp4">red-to-green-run.mp4</a></li>
-        </ul>
-        
-        <h4>1. Initial Failing Run (Red)</h4>
-        <p>Due to a missing default repository configuration for <code>gh</code> within the worktree environment, the wholesome check failed on the branch name:</p>
-        <pre><code> FAIL  src/__tests__/wholesome.test.ts &gt; wholesome — PR title starts with [agento]
-AssertionError: expected 'feat/autonomous-harness-impl' to match /^\[agento\]/</code></pre>
-        <p>And in <code>autonomous-harness/package.json</code>, the missing <code>typecheck</code> script caused root typechecks to fail CI:</p>
-        <pre><code>pnpm --filter @jleechanorg/ao-autonomous-harness typecheck
-ERR_PNPM_NO_SCRIPT: Missing script "typecheck"</code></pre>
-
-        <h4>2. Successful Verification Run (Green)</h4>
-        <p>After correctly pinning the GitHub CLI default repository, adding the <code>"typecheck": "tsc --noEmit"</code> to <code>autonomous-harness/package.json</code>, adding the Vitest alias in <code>packages/core/vitest.config.ts</code>, and renaming <code>nextPhase</code> in <code>spawnStandbyWorker</code> to avoid shadowing, all tests compile and pass cleanly, including the new unit tests in <code>packages/core/src/__tests__/harness.test.ts</code>:</p>
-        <pre><code>pnpm -C packages/core test harness.test.ts
-
- RUN  v4.0.18 /Users/jleechan/.worktrees/agent-orchestrator/ao-6237/packages/core
-
- ✓ src/__tests__/harness.test.ts (2 tests) 28ms
-
- Test Files  1 passed (1)
-      Tests  2 passed (2)</code></pre>
-        <p>Overall test summary:</p>
-        <pre><code>Test Files  124 passed (124)
-Tests  2221 passed (2221)</code></pre>
-        <hr/>
-        <p><strong>Verdict: PASS</strong><br/>All integration and structural source code checks have successfully passed.</p>
-      </section>
+      
 
       <div class="footer">
         Generated by <code>scripts/generate-pr-design-docs.mjs</code>
