@@ -95,7 +95,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter '@jleechanorg/ao-core' build
       - run: pnpm --filter '@jleechanorg/ao-autonomous-harness' build
-      - run: pnpm -r --filter '!@jleechanorg/ao-autonomous-harness' --filter '!@jleechanorg/ao-core' build
+      - run: pnpm -r --filter '!@jleechanorg/ao-web' --filter '!@jleechanorg/ao-autonomous-harness' --filter '!@jleechanorg/ao-core' build
 
       - name: Ensure base branch ref is available
         run: |
