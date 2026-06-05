@@ -4,6 +4,17 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-06-04
+
+- **Dark-factory deletion investigation** — Reported deletion of `~/projects/dark-factory` was a false alarm; repo intact (HEAD `49c2276`). Root cause of May 29 incident confirmed: AO lifecycle worker `pruneStaleWorktrees` deleted `~/projects/worldarchitect.ai` because `wa-orchestrator` session config had `worktree == path` (main clone treated as stale worktree).
+  - **Context & Diagnostics**: In Pass 2 of worktree pruning, dead/killed sessions referencing the project root path as their `worktree` were targeted for cleanup. Due to a path comparison mismatch caused by resolved vs unresolved symlinks (e.g., `/var/folders/` vs `/private/var/folders/` on macOS), the safety check in `pruneStaleWorktrees` failed to identify the path as the main project directory.
+  - **Fix Implementation**: [PR #647](https://github.com/jleechanorg/agent-orchestrator/pull/647) was merged to implement initial protection, but a gap remained where Pass 2 was closed without merge in [PR #642](https://github.com/jleechanorg/agent-orchestrator/pull/642). The full resolution is verified and protected by regression tests added in [PR #652](https://github.com/jleechanorg/agent-orchestrator/pull/652).
+  - **Evidence Links**:
+    - **TDD Red-Phase Failure**: [Red-Phase Test Log](https://gist.github.com/jleechanao/0cae7dc9f2706a4c466fa042b28e63ce) showing deletion risk of the main directory on unresolved symlink mismatch.
+    - **TDD Green-Phase Pass**: [Green-Phase Test Log](https://gist.github.com/jleechanao/0cae7dc9f2706a4c466fa042b28e63ce) showing 12/12 successful worktree prune tests passing, protecting both resolved and unresolved paths.
+    - **Incident Context**: See [session-manager.ts](../packages/core/src/session-manager.ts) and [session-manager-prune-stale-worktrees.test.ts](../packages/core/src/__tests__/session-manager-prune-stale-worktrees.test.ts) for implementation details.
+  - **Related**: [bd-diq], [bd-48z]
+
 ### 2026-05-29
 
 - **PR #640 OPEN — robust CLI update sync & rebuild** — 8 commits on `fix/robust-cli-update-sync-rebuild`: robust `ao-update.sh` root resolution (ported from upstream), antigravity as default agent in config schema, `noServer` WS fix for onboarding TypeError. Formatting mismatches and review threads fully resolved recursively — **Evidence Gate** and **CodeRabbit** are now **🟢 SUCCESS**. Waiting for explicit user merge approval. Bead [bd-us56](https://github.com/jleechanorg/agent-orchestrator/issues/646) successfully closed.

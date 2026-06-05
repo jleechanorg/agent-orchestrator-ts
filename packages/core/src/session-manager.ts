@@ -427,20 +427,18 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   }
 
   function normalizePath(path: string): string {
-    return resolve(path).replace(/\/$/, "");
-  }
-
-  function realpathNormalized(path: string): string {
+    let resolved = resolve(path);
     try {
-      return normalizePath(realpathSync(path));
+      resolved = realpathSync(resolved);
     } catch {
-      return normalizePath(path);
+      // Path may not exist yet, that's fine
     }
+    return resolved.replace(/\/$/, "");
   }
 
   function isPathInside(path: string, parentPath: string): boolean {
-    const normalizedPath = realpathNormalized(path);
-    const normalizedParent = realpathNormalized(parentPath);
+    const normalizedPath = normalizePath(path);
+    const normalizedParent = normalizePath(parentPath);
     return normalizedPath === normalizedParent || normalizedPath.startsWith(`${normalizedParent}/`);
   }
 
@@ -465,7 +463,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     workspacePath: string,
   ): boolean {
     if (!project) return false;
-    if (realpathNormalized(workspacePath) === realpathNormalized(project.path)) return false;
+    if (normalizePath(workspacePath) === normalizePath(project.path)) return false;
 
     const roots = getManagedWorkspaceRoots(project, projectId);
     return roots.some((root) => isPathInside(workspacePath, root));
@@ -2278,13 +2276,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         const worktreePath = lines[0]!.slice("worktree ".length).trim();
         if (!worktreePath) continue;
 
-        const normalizedWorktree = realpathNormalized(worktreePath);
+        const normalizedWorktree = normalizePath(worktreePath);
 
         // Never delete the main (linked) worktree — it is the project root itself.
         // git worktree list --porcelain includes it as the first entry; if the
         // ao-orchestrator session recorded project.path as its worktree and later
         // reaches a terminal state, Pass 2 would call rmSync on the entire repo.
-        if (normalizedWorktree === realpathNormalized(repoPath)) continue;
+        if (normalizedWorktree === normalizePath(repoPath)) continue;
 
         // Skip worktrees inside ~/.worktrees/ — handled by Pass 1
         if (isPathInside(normalizedWorktree, worktreeBaseDir)) continue;
@@ -2299,7 +2297,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           const raw = readMeta(sessionsDir, sessionId);
           if (!raw) continue;
           const storedWorktree = raw["worktree"];
-          if (storedWorktree && realpathNormalized(storedWorktree) === normalizedWorktree) {
+          if (storedWorktree && normalizePath(storedWorktree) === normalizedWorktree) {
             matchingRaw = raw;
             break;
           }
