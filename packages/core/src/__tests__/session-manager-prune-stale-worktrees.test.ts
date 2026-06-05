@@ -124,7 +124,7 @@ afterEach(() => {
         .digest("hex")
         .slice(0, 12);
     }
-  } catch (err) {
+  } catch {
     // Ignore error if file doesn't exist
   }
 
