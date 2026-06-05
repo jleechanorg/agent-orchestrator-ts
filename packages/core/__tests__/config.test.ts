@@ -33,6 +33,7 @@ describe("Config Loading", () => {
     delete process.env["AO_PROD_CONFIG_PATH"];
     delete process.env["AO_CONFIG_STAGING_PATH"];
     delete process.env["AO_PRODUCTION_CONFIG_PATH"];
+    delete process.env["HERMES_HOME"];
 
     // Change to test directory
     process.chdir(testDir);
