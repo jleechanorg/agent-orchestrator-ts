@@ -64,7 +64,9 @@ jobs:
 
       # --- Build project ---
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r --filter '!@jleechanorg/ao-web' build
+      - run: pnpm --filter '@jleechanorg/ao-core' build
+      - run: pnpm --filter '@jleechanorg/ao-autonomous-harness' build
+      - run: pnpm -r --filter '!@jleechanorg/ao-web' --filter '!@jleechanorg/ao-autonomous-harness' --filter '!@jleechanorg/ao-core' build
 
       # --- Run integration tests ---
       - name: Run integration tests

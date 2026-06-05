@@ -7,6 +7,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   test: {
     alias: {
+      "@jleechanorg/ao-autonomous-harness": resolve(__dirname, "../../autonomous-harness/src/index.ts"),
+      // The autonomous-harness is added as a devDependency specifically to run its
+      // transition unit tests under Core's Vitest runner. This is an intentional
+      // exception to the general rule that core does not depend on its consumers.
+      //
       // Integration tests import real plugins. These aliases resolve
       // package names to source files so we don't need circular devDeps
       // (plugins depend on core, core can't depend on plugins).

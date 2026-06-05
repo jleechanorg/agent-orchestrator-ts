@@ -688,4 +688,132 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
     expect(result.skepticVerdict).toBe("PASS");
     expect(result.skepticCommentId).toBe(81);
   });
+
+  describe("CodeRabbit comment fallback", () => {
+    const headSha = "abc1230000000000000000000000000000000000";
+
+    it("does not approve CodeRabbit if review is changes_requested and comments do not contain [approve]", async () => {
+      setup({
+        ghJson: [
+          { head: { sha: headSha }, mergeable: true }, // pulls info
+          { state: "success" }, // commit status
+          { commit: { committer: { date: "2026-06-04T12:00:00Z" } } }, // commit info
+        ],
+        paginate: [
+          [], // check-runs
+          [
+            [
+              { id: 1, body: "regular comment", created_at: "2026-06-04T13:00:00Z", user: { login: "someone" } }
+            ]
+          ], // comments for CodeRabbit check
+          [], // comments for skeptic check (no comments)
+        ],
+        fetchReviews: [
+          {
+            author: { login: "coderabbitai" },
+            state: "changes_requested",
+            body: "please fix this",
+            submittedAt: "2026-06-04T11:00:00Z",
+          }
+        ],
+      });
+
+      const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
+      expect(result.crApproved).toBe(false);
+      expect(result.crState).toBe("changes_requested");
+    });
+
+    it("approves CodeRabbit if review is changes_requested and comments contain [approve] after head commit date", async () => {
+      setup({
+        ghJson: [
+          { head: { sha: headSha }, mergeable: true },
+          { state: "success" },
+          { commit: { committer: { date: "2026-06-04T12:00:00Z" } } },
+        ],
+        paginate: [
+          [],
+          [
+            [
+              { id: 2, body: "[approve]", created_at: "2026-06-04T13:00:00Z", user: { login: "coderabbitai" } }
+            ]
+          ],
+          [],
+        ],
+        fetchReviews: [
+          {
+            author: { login: "coderabbitai" },
+            state: "changes_requested",
+            body: "please fix this",
+            submittedAt: "2026-06-04T11:00:00Z",
+          }
+        ],
+      });
+
+      const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
+      expect(result.crApproved).toBe(true);
+      expect(result.crState).toBe("approved (comment)");
+    });
+
+    it("does not approve CodeRabbit if [approve] comment was posted BEFORE the head commit date", async () => {
+      setup({
+        ghJson: [
+          { head: { sha: headSha }, mergeable: true },
+          { state: "success" },
+          { commit: { committer: { date: "2026-06-04T12:00:00Z" } } },
+        ],
+        paginate: [
+          [],
+          [
+            [
+              { id: 3, body: "[approve]", created_at: "2026-06-04T11:59:00Z", user: { login: "coderabbitai" } }
+            ]
+          ],
+          [],
+        ],
+        fetchReviews: [
+          {
+            author: { login: "coderabbitai" },
+            state: "changes_requested",
+            body: "please fix this",
+            submittedAt: "2026-06-04T11:00:00Z",
+          }
+        ],
+      });
+
+      const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
+      expect(result.crApproved).toBe(false);
+    });
+
+    it("does not approve CodeRabbit if the comment contains [approve] but not as a standalone word (embedded/quoted)", async () => {
+      setup({
+        ghJson: [
+          { head: { sha: headSha }, mergeable: true },
+          { state: "success" },
+          { commit: { committer: { date: "2026-06-04T12:00:00Z" } } },
+        ],
+        paginate: [
+          [],
+          [
+            [
+              { id: 4, body: "I can't [approve] this yet", created_at: "2026-06-04T13:00:00Z", user: { login: "coderabbitai" } }
+            ]
+          ],
+          [],
+        ],
+        fetchReviews: [
+          {
+            author: { login: "coderabbitai" },
+            state: "changes_requested",
+            body: "please fix this",
+            submittedAt: "2026-06-04T11:00:00Z",
+          }
+        ],
+      });
+
+      const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
+      expect(result.crApproved).toBe(false);
+      expect(result.crState).toBe("changes_requested");
+    });
+  });
 });
+

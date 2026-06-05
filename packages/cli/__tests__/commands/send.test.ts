@@ -68,8 +68,11 @@ let program: Command;
 let consoleSpy: ReturnType<typeof vi.spyOn>;
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 let exitSpy: ReturnType<typeof vi.spyOn>;
+let origSessionId: string | undefined;
 
 beforeEach(() => {
+  origSessionId = process.env["AO_SESSION_ID"];
+  delete process.env["AO_SESSION_ID"];
   vi.useFakeTimers({ shouldAdvanceTime: true });
   program = new Command();
   program.exitOverride();
@@ -90,6 +93,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (origSessionId !== undefined) {
+    process.env["AO_SESSION_ID"] = origSessionId;
+  } else {
+    delete process.env["AO_SESSION_ID"];
+  }
   vi.useRealTimers();
   consoleSpy.mockRestore();
   consoleErrorSpy.mockRestore();

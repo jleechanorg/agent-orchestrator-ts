@@ -196,6 +196,43 @@ export async function fetchMergeGateState(
     crApproved = (latestCR.state ?? "").toLowerCase() === "approved" && !crDismissedWithoutApproval;
   }
 
+  // Fallback: check comments for CodeRabbit's [approve] comment if review state is not approved
+  if (!crApproved) {
+    try {
+      if (headSha) {
+        const commitData = await ghJson(
+          "repos/" + owner + "/" + repo + "/commits/" + headSha,
+        ) as { commit?: { committer?: { date?: string } } };
+        const headCommittedAt = commitData?.commit?.committer?.date;
+
+        if (headCommittedAt) {
+          const headTime = new Date(headCommittedAt).getTime();
+          const commentPages = (await ghJsonPaginate(
+            "repos/" + owner + "/" + repo + "/issues/" + prNumber + "/comments?per_page=100",
+          )) as Array<Array<{ id: number; body: string; created_at: string; user?: { login: string } }>>;
+          const comments = commentPages.flat();
+
+          const hasApproveComment = comments.some((c) => {
+            const author = c.user?.login?.toLowerCase() ?? "";
+            const isCR = author === "coderabbitai" || author === "coderabbitai[bot]";
+            if (!isCR) return false;
+            if (!c.body || c.body.length > 200) return false;
+            const commentTime = new Date(c.created_at).getTime();
+            if (commentTime < headTime) return false;
+            return /^\s*\[approve\]\s*$/im.test(c.body);
+          });
+
+          if (hasApproveComment) {
+            crApproved = true;
+            crState = "approved (comment)";
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[skeptic] CodeRabbit comment-based approval fallback failed:", err);
+    }
+  }
+
   // 3. Review threads — nit-filtered unresolved counts (matches checkMergeGate)
   // Uses GraphQL reviewThreads.isResolved (REST /pulls/{n}/comments has no state field).
   // Errors are NOT caught here — fail-closed: if we cannot determine comment state,

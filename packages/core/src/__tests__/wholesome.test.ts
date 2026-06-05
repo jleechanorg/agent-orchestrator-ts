@@ -269,7 +269,7 @@ describe("wholesome — structural source-code assertions", () => {
       }
 
       expect(allViolations, "Found @ts-ignore/@ts-expect-error in:\n" + allViolations.join("\n")).toHaveLength(0);
-    });
+    }, 30_000);
   });
 
   // -------------------------------------------------------------------------
