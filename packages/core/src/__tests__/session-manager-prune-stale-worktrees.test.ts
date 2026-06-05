@@ -549,4 +549,68 @@ describe("pruneStaleWorktrees", () => {
     expect(existsSync(projectPathSymlink)).toBe(true);
     expect(gitWorktreeRemoveCalled).toBe(false);
   });
+
+  it("Pass 2: should NOT delete the main project directory when a killed session references project.path as worktree", async () => {
+    const mainRepoPath = config.projects["my-app"]!.path;
+    mkdirSync(mainRepoPath, { recursive: true });
+
+    // Resolve the real path of the repository to simulate production where git/metadata resolves symlinks
+    const realRepoPath = realpathSync(mainRepoPath);
+
+    // Write a killed session metadata file whose worktree matches the resolved real repo path
+    const configHash = createHash("sha256")
+      .update(dirname(realpathSync(configPath)))
+      .digest("hex")
+      .slice(0, 12);
+    const sessionsDir = join(
+      homedir(),
+      ".agent-orchestrator",
+      `${configHash}-my-app-${hashProjectId("my-app")}`,
+      "sessions",
+    );
+    mkdirSync(sessionsDir, { recursive: true });
+    // This simulates the main ao-orchestrator session which can have status=killed
+    // and worktree pointing to the main project repository.
+    writeFileSync(
+      join(sessionsDir, "ao-orchestrator"),
+      `worktree=${realRepoPath}\nstatus=killed\n`,
+      "utf8",
+    );
+
+    // git worktree list --porcelain always lists the main worktree as the first entry
+    const porcelainOutput =
+      `worktree ${realRepoPath}\nHEAD abc123\nbranch refs/heads/main\n\n`;
+
+    const removedPaths: string[] = [];
+    mockExecFile = async (cmd: string, args?: readonly string[]) => {
+      const argsStr = args?.join(" ") ?? "";
+      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+        return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+        return Promise.resolve({ stdout: "true\n", stderr: "" });
+      }
+      if (cmd === "git" && argsStr.includes("worktree remove")) {
+        const pathArg = args?.[args.length - 1];
+        if (pathArg) {
+          removedPaths.push(pathArg);
+        }
+        return Promise.resolve({ stdout: "", stderr: "" });
+      }
+      return Promise.resolve({ stdout: "", stderr: "" });
+    };
+
+    const sm = createSessionManager({
+      config,
+      registry: mockRegistry,
+      execFileAsync: mockExecFile,
+    });
+    await sm.pruneStaleWorktrees();
+
+    // Guard must prevent deletion of the main project dir,
+    // so neither the unresolved main repo path nor its resolved real path should be removed.
+    expect(removedPaths).not.toContain(realRepoPath);
+    expect(removedPaths).not.toContain(mainRepoPath);
+    expect(existsSync(mainRepoPath)).toBe(true);
+  });
 });

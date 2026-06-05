@@ -4,6 +4,10 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-06-04
+
+- **Dark-factory deletion investigation** — Reported deletion of `~/projects/dark-factory` was a false alarm; repo intact (HEAD `49c2276`). Root cause of May 29 incident confirmed: AO lifecycle worker `pruneStaleWorktrees` deleted `~/projects/worldarchitect.ai` because `wa-orchestrator` session config had `worktree == path` (main clone treated as stale worktree). Fix: [PR #647](https://github.com/jleechanorg/agent-orchestrator/pull/647) MERGED 2026-05-29. **Gap:** Pass 2 fix [PR #642](https://github.com/jleechanorg/agent-orchestrator/pull/642) CLOSED without merge — verify full coverage in `session-manager.ts`. Related: [bd-diq], [bd-48z].
+
 ### 2026-05-29
 
 - **PR #640 OPEN — robust CLI update sync & rebuild** — 8 commits on `fix/robust-cli-update-sync-rebuild`: robust `ao-update.sh` root resolution (ported from upstream), antigravity as default agent in config schema, `noServer` WS fix for onboarding TypeError. Formatting mismatches and review threads fully resolved recursively — **Evidence Gate** and **CodeRabbit** are now **🟢 SUCCESS**. Waiting for explicit user merge approval. Bead [bd-us56](https://github.com/jleechanorg/agent-orchestrator/issues/646) successfully closed.
