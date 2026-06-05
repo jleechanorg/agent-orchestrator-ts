@@ -132,3 +132,4 @@ domains:
       - "docs/*.md"
       - "README.md"
       - "ARCHITECTURE.md"
+    advisory: true
