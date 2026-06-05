@@ -479,7 +479,6 @@ describe("antigravity getEnvironment", () => {
     mockLstatSync.mockImplementation(() => {
       throw new Error("ENOENT");
     });
-    mockReadlinkSync.mockReturnValue("/Users/mockuser/Library/Keychains");
 
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env).toBeDefined();
@@ -501,7 +500,8 @@ describe("antigravity getEnvironment", () => {
 
     mockLstatSync.mockImplementation(() => ({
       isSymbolicLink: () => true,
-    } as any));
+      isDirectory: () => false,
+    }));
     mockReadlinkSync.mockReturnValue("/Users/mockuser/Library/Keychains");
 
     const env = agent.getEnvironment(makeLaunchConfig());
@@ -520,7 +520,8 @@ describe("antigravity getEnvironment", () => {
 
     mockLstatSync.mockImplementation(() => ({
       isSymbolicLink: () => true,
-    } as any));
+      isDirectory: () => false,
+    }));
     mockReadlinkSync.mockReturnValue("/wrong/path");
 
     const env = agent.getEnvironment(makeLaunchConfig());
@@ -532,6 +533,32 @@ describe("antigravity getEnvironment", () => {
     expect(mockSymlinkSync).toHaveBeenCalledWith(
       "/Users/mockuser/Library/Keychains",
       path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Keychains")
+    );
+  });
+
+  it("removes a real directory and creates the symlink if the path exists but is not a symlink", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    mockLstatSync.mockImplementation(() => ({
+      isSymbolicLink: () => false,
+      isDirectory: () => true,
+    }));
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    const sessionKeychainDir = path.join(
+      "/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Keychains"
+    );
+    expect(mockRmSync).toHaveBeenCalledWith(sessionKeychainDir, {
+      recursive: true,
+      force: true,
+    });
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      "/Users/mockuser/Library/Keychains",
+      sessionKeychainDir
     );
   });
 
