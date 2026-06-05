@@ -136,17 +136,18 @@ function resolveBaseBranch(cwd: string): string {
   return "HEAD";
 }
 
-let cachedBaseBranch: string | undefined;
-function getBaseBranch(): string {
-  if (cachedBaseBranch === undefined) {
-    cachedBaseBranch = resolveBaseBranch(REPO_ROOT);
-  }
-  return cachedBaseBranch;
+const cachedBaseBranchByCwd = new Map<string, string>();
+function getBaseBranch(cwd: string = REPO_ROOT): string {
+  const cached = cachedBaseBranchByCwd.get(cwd);
+  if (cached) return cached;
+  const resolved = resolveBaseBranch(cwd);
+  cachedBaseBranchByCwd.set(cwd, resolved);
+  return resolved;
 }
 
 /** Return diff lines (with file path) that ADD a given pattern in .ts files. */
 function getAddedLinesMatching(cwd: string, pattern: RegExp): Array<{file: string; line: string}> {
-  const baseBranch = getBaseBranch();
+  const baseBranch = getBaseBranch(cwd);
   const raw = (() => {
     try {
       return git(`diff --diff-filter=AM ${baseBranch}...HEAD`, cwd, true);
@@ -1025,10 +1026,11 @@ describe("wholesome — structural source-code assertions", () => {
         
         // 2. Commit a dummy file
         writeFileSync(join(tmpDir, "dummy.txt"), "hello");
-        execFileSync("git add dummy.txt && git commit -m 'initial commit'", { cwd: tmpDir, shell: true });
+        execFileSync("git", ["add", "dummy.txt"], { cwd: tmpDir });
+        execFileSync("git", ["commit", "-m", "initial commit"], { cwd: tmpDir });
         
         // 3. Create local branch "feature-abc" (but do NOT create origin/feature-abc yet)
-        execFileSync("git checkout -b feature-abc", { cwd: tmpDir, shell: true });
+        execFileSync("git", ["checkout", "-b", "feature-abc"], { cwd: tmpDir });
         
         // 4. Set GITHUB_BASE_REF to "feature-abc"
         process.env.GITHUB_BASE_REF = "feature-abc";
@@ -1039,14 +1041,14 @@ describe("wholesome — structural source-code assertions", () => {
         
         // 6. Create a simulated remote repository (bare repo) and add it as "origin"
         mkdirSync(remoteDir, { recursive: true });
-        execFileSync("git init --bare", { cwd: remoteDir, shell: true });
-        execFileSync("git remote add origin " + remoteDir, { cwd: tmpDir, shell: true });
+        execFileSync("git", ["init", "--bare"], { cwd: remoteDir });
+        execFileSync("git", ["remote", "add", "origin", remoteDir], { cwd: tmpDir });
         
         // Push feature-abc to the remote
-        execFileSync("git push origin feature-abc", { cwd: tmpDir, shell: true });
+        execFileSync("git", ["push", "origin", "feature-abc"], { cwd: tmpDir });
         
         // Delete the local origin/feature-abc remote-tracking ref so it is missing locally
-        execFileSync("git update-ref -d refs/remotes/origin/feature-abc", { cwd: tmpDir, shell: true });
+        execFileSync("git", ["update-ref", "-d", "refs/remotes/origin/feature-abc"], { cwd: tmpDir });
         expect(gitRefExists("origin/feature-abc", tmpDir)).toBe(false);
         
         // 7. Call resolveBaseBranch. It should fetch and successfully resolve origin/feature-abc!
@@ -1111,10 +1113,9 @@ describe("wholesome — structural source-code assertions", () => {
         // But our helper getAddedLinesMatching should handle it gracefully using the fallback!
         process.env.GITHUB_BASE_REF = "main";
         // Since resolveBaseBranch(tmpDir) might not be called by getAddedLinesMatching directly,
-        // we set cachedBaseBranch to "main" directly to mock it.
-        const originalCached = cachedBaseBranch;
+        // we set the cached branch in the Map to mock it.
         try {
-          cachedBaseBranch = "main";
+          cachedBaseBranchByCwd.set(tmpDir, "main");
           
           // Let's call getAddedLinesMatching (which should execute and catch the fail, falling back to 2-dot diff)
           const lines = getAddedLinesMatching(tmpDir, /goodbye/);
@@ -1122,7 +1123,7 @@ describe("wholesome — structural source-code assertions", () => {
           expect(lines[0]?.file).toBe("other.ts");
           expect(lines[0]?.line).toContain("goodbye");
         } finally {
-          cachedBaseBranch = originalCached;
+          cachedBaseBranchByCwd.delete(tmpDir);
         }
       } finally {
         if (originalBaseRef === undefined) {
