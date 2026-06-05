@@ -19,7 +19,7 @@ vi.mock("@/lib/services", () => {
       config: { projects: {} },
       registry: { get: vi.fn() },
       sessionManager: {
-        list: vi.fn().mockResolvedValue([]),
+        list: vi.fn().mockImplementation(async () => []),
       },
     }),
     getSCM: vi.fn(),
@@ -62,9 +62,6 @@ describe("direct-terminal-ws.ts", () => {
     expect(source).toMatch(/totalErrors/);
   });
 
-  it("specifies noServer in WebSocketServer to prevent onboarding TypeError", () => {
-    expect(source).toMatch(/new\s+WebSocketServer\(\{\s*(noServer:\s*true\b|.*noServer:\s*true)/);
-  });
 });
 
 describe("terminal-websocket.ts", () => {

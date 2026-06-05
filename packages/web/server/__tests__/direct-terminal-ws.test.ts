@@ -5,6 +5,18 @@ import { createConnection, type AddressInfo } from "node:net";
 
 const closers: Array<() => void | Promise<void>> = [];
 
+async function testWebSocketConnection(path: string, port: number): Promise<WebSocket> {
+  return new Promise<WebSocket>((resolve, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}${path}?session=testsessionid`);
+    closers.push(() => { socket.close(); });
+    socket.on("open", () => resolve(socket));
+    socket.on("error", reject);
+    socket.on("unexpected-response", (_req, res) => {
+      reject(new Error(`Handshake failed with status ${res.statusCode}`));
+    });
+  });
+}
+
 afterEach(async () => {
   while (closers.length > 0) {
     const close = closers.pop();
@@ -111,15 +123,7 @@ describe("direct-terminal-ws WebSocket integration and routing", () => {
     });
     
     const port = (serverInstance.server.address() as AddressInfo).port;
-    const ws = await new Promise<WebSocket>((resolve, reject) => {
-      const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?session=testsessionid`);
-      closers.push(() => { socket.close(); });
-      socket.on("open", () => resolve(socket));
-      socket.on("error", reject);
-      socket.on("unexpected-response", (_req, res) => {
-        reject(new Error(`Handshake failed with status ${res.statusCode}`));
-      });
-    });
+    const ws = await testWebSocketConnection("/ws", port);
     
     expect([WebSocket.OPEN, WebSocket.CLOSING, WebSocket.CLOSED]).toContain(ws.readyState);
     ws.close();
@@ -134,15 +138,7 @@ describe("direct-terminal-ws WebSocket integration and routing", () => {
     });
     
     const port = (serverInstance.server.address() as AddressInfo).port;
-    const ws = await new Promise<WebSocket>((resolve, reject) => {
-      const socket = new WebSocket(`ws://127.0.0.1:${port}/ao-terminal-mux?session=testsessionid`);
-      closers.push(() => { socket.close(); });
-      socket.on("open", () => resolve(socket));
-      socket.on("error", reject);
-      socket.on("unexpected-response", (_req, res) => {
-        reject(new Error(`Handshake failed with status ${res.statusCode}`));
-      });
-    });
+    const ws = await testWebSocketConnection("/ao-terminal-mux", port);
     
     expect([WebSocket.OPEN, WebSocket.CLOSING, WebSocket.CLOSED]).toContain(ws.readyState);
     ws.close();
