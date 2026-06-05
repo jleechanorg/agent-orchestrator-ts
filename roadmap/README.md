@@ -12,7 +12,7 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
   - **Evidence Links**:
     - **TDD Red-Phase Failure**: [Red-Phase Test Log](https://gist.github.com/jleechanao/0cae7dc9f2706a4c466fa042b28e63ce) showing deletion risk of the main directory on unresolved symlink mismatch.
     - **TDD Green-Phase Pass**: [Green-Phase Test Log](https://gist.github.com/jleechanao/0cae7dc9f2706a4c466fa042b28e63ce) showing 12/12 successful worktree prune tests passing, protecting both resolved and unresolved paths.
-    - **Incident Context**: See [session-manager.ts](file:///Users/jleechan/.worktrees/agent-orchestrator/ao-6274/packages/core/src/session-manager.ts) and [session-manager-prune-stale-worktrees.test.ts](file:///Users/jleechan/.worktrees/agent-orchestrator/ao-6274/packages/core/src/__tests__/session-manager-prune-stale-worktrees.test.ts) for implementation details.
+    - **Incident Context**: See [session-manager.ts](../packages/core/src/session-manager.ts) and [session-manager-prune-stale-worktrees.test.ts](../packages/core/src/__tests__/session-manager-prune-stale-worktrees.test.ts) for implementation details.
   - **Related**: [bd-diq], [bd-48z]
 
 ### 2026-05-29
