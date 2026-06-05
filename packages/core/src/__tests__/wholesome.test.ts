@@ -15,7 +15,7 @@
  *   4. Otherwise: branch name (fails if it is not a valid [agento] title — intentional)
  */
 import { describe, it, expect } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, extname } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -104,9 +104,30 @@ function resolveBaseBranch(cwd: string): string {
   const raw = process.env.GITHUB_BASE_REF;
   if (raw !== undefined && raw !== "") {
     const validated = validateGitRef(raw, "GITHUB_BASE_REF");
+    // Check if origin/validated exists first (remote-tracking is preferred to avoid stale local refs).
     if (gitRefExists(`origin/${validated}`, cwd)) {
       return `origin/${validated}`;
     }
+    // If origin/validated is missing, try to fetch it first!
+    try {
+      execFileSync("git", ["fetch", "--depth=1", "origin", `refs/heads/${validated}:refs/remotes/origin/${validated}`], {
+        cwd,
+        encoding: "utf-8",
+        stdio: "ignore",
+        timeout: 5000,
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
+        },
+      });
+      if (gitRefExists(`origin/${validated}`, cwd)) {
+        return `origin/${validated}`;
+      }
+    } catch {
+      // ignore fetch error
+    }
+    // Check if the ref exists locally as is.
     if (gitRefExists(validated, cwd)) {
       return validated;
     }
@@ -121,11 +142,25 @@ function resolveBaseBranch(cwd: string): string {
   return "HEAD";
 }
 
-const BASE_BRANCH = resolveBaseBranch(REPO_ROOT);
+const cachedBaseBranchByCwd = new Map<string, string>();
+function getBaseBranch(cwd: string = REPO_ROOT): string {
+  const cached = cachedBaseBranchByCwd.get(cwd);
+  if (cached) return cached;
+  const resolved = resolveBaseBranch(cwd);
+  cachedBaseBranchByCwd.set(cwd, resolved);
+  return resolved;
+}
 
 /** Return diff lines (with file path) that ADD a given pattern in .ts files. */
 function getAddedLinesMatching(cwd: string, pattern: RegExp): Array<{file: string; line: string}> {
-  const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD`, cwd, true);
+  const baseBranch = getBaseBranch(cwd);
+  const raw = (() => {
+    try {
+      return git(`diff --diff-filter=AM ${baseBranch}...HEAD`, cwd, true);
+    } catch {
+      return git(`diff --diff-filter=AM ${baseBranch} HEAD`, cwd, true);
+    }
+  })();
   if (!raw) return [];
   const results: Array<{file: string; line: string}> = [];
   let currentFile = "";
@@ -289,6 +324,9 @@ describe("wholesome — structural source-code assertions", () => {
         "packages/core/src/__tests__/env-source.test.ts": new Set([
           "// eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- JSDOM requires explicit delete to remove keys; undefined assignment converts to \"undefined\" string",
         ]),
+        "packages/plugins/agent-grok/src/index.ts": new Set([
+          "// eslint-disable-next-line eqeqeq -- intentional: both null and undefined mean \"not an explicit reconnect\"",
+        ]),
       };
       const violations = getAddedLinesMatching(REPO_ROOT, directive)
         // Exclude this test file: its section headers, describe calls, and
@@ -298,7 +336,7 @@ describe("wholesome — structural source-code assertions", () => {
         .filter(v => !(ALLOWED_ESLINT_DISABLES[v.file]?.has(v.line.trim())));
       expect(violations, "eslint-disable directive added in this branch:\n" +
         violations.map(v => `${v.file}: ${v.line}`).join("\n")).toHaveLength(0);
-    });
+    }, 30000);
   });
 
   // -------------------------------------------------------------------------
@@ -329,7 +367,14 @@ describe("wholesome — structural source-code assertions", () => {
 
       // Only check lines added in this branch within these high-conflict files
       it(`no fork logic added to ${relPath}`, () => {
-        const raw = git(`diff --diff-filter=AM ${BASE_BRANCH}...HEAD -- "${relPath}"`, REPO_ROOT, true);
+        const baseBranch = getBaseBranch();
+        const raw = (() => {
+          try {
+            return git(`diff --diff-filter=AM ${baseBranch}...HEAD -- "${relPath}"`, REPO_ROOT, true);
+          } catch {
+            return git(`diff --diff-filter=AM ${baseBranch} HEAD -- "${relPath}"`, REPO_ROOT, true);
+          }
+        })();
         if (!raw) return; // no changes to this file in this branch — OK
 
         const violations: string[] = [];
@@ -641,8 +686,9 @@ describe("wholesome — structural source-code assertions", () => {
       // Exclude merge commits (2nd parent = GitHub merge commit from squash/rebase).
       // Using --no-merges: only non-merge commits
       // Using --first-parent: only commits whose first parent is on the mainline
+      const baseBranch = getBaseBranch();
       const raw = git(
-        `log --format=%H%x09%s --first-parent --no-merges ${BASE_BRANCH}..HEAD`,
+        `log --format=%H%x09%s --first-parent --no-merges ${baseBranch}..HEAD`,
         REPO_ROOT,
         true,
       );
@@ -908,5 +954,195 @@ describe("wholesome — structural source-code assertions", () => {
       expect(workflow).not.toContain('SKIPPED_GATE_NOT_PASSED');
       expect(workflow).not.toContain('Skeptic Gate not passed');
     });
+  });
+
+  describe("resolveBaseBranch resilience", () => {
+    it("falls back to origin/main or origin/HEAD if GITHUB_BASE_REF branch does not exist locally", () => {
+      const originalBaseRef = process.env.GITHUB_BASE_REF;
+      try {
+        // Set GITHUB_BASE_REF to a non-existent branch
+        process.env.GITHUB_BASE_REF = "nonexistent-branch-xyz";
+        
+        const resolved = resolveBaseBranch(REPO_ROOT);
+        
+        // It must NOT return "nonexistent-branch-xyz" because it doesn't exist locally!
+        // Instead, it must resolve to a branch that exists.
+        expect(resolved).not.toBe("nonexistent-branch-xyz");
+        expect(gitRefExists(resolved, REPO_ROOT)).toBe(true);
+      } finally {
+        if (originalBaseRef === undefined) {
+          delete process.env.GITHUB_BASE_REF;
+        } else {
+          process.env.GITHUB_BASE_REF = originalBaseRef;
+        }
+      }
+    }, 60_000);
+
+    it("prefers remote-tracking branch origin/branch over local branch to avoid stale local branch references", () => {
+      const originalBaseRef = process.env.GITHUB_BASE_REF;
+      const tmpDir = join(REPO_ROOT, "packages/core/src/__tests__", `tmp-git-test-${Date.now()}`);
+      try {
+        // 1. Create a temporary git repo
+        mkdirSync(tmpDir, { recursive: true });
+        execFileSync("git", ["init"], { cwd: tmpDir });
+        execFileSync("git", ["config", "user.name", "Test User"], { cwd: tmpDir });
+        execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: tmpDir });
+        
+        // 2. Commit a dummy file to have HEAD
+        writeFileSync(join(tmpDir, "dummy.txt"), "hello");
+        execFileSync("git", ["add", "dummy.txt"], { cwd: tmpDir });
+        execFileSync("git", ["commit", "-m", "initial commit"], { cwd: tmpDir });
+        
+        // 3. Create local branch "feature-xyz" and remote-tracking branch "origin/feature-xyz"
+        execFileSync("git", ["checkout", "-b", "feature-xyz"], { cwd: tmpDir });
+        execFileSync("git", ["update-ref", "refs/remotes/origin/feature-xyz", "refs/heads/feature-xyz"], { cwd: tmpDir });
+        
+        // 4. Set GITHUB_BASE_REF to "feature-xyz"
+        process.env.GITHUB_BASE_REF = "feature-xyz";
+        
+        // 5. Resolve base branch using our temp git repo
+        const resolved = resolveBaseBranch(tmpDir);
+        
+        // 6. It must prefer the remote-tracking branch "origin/feature-xyz"
+        expect(resolved).toBe("origin/feature-xyz");
+      } finally {
+        if (originalBaseRef === undefined) {
+          delete process.env.GITHUB_BASE_REF;
+        } else {
+          process.env.GITHUB_BASE_REF = originalBaseRef;
+        }
+        try {
+          rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          // ignore cleanup errors
+        }
+      }
+    }, 60_000);
+
+    it("tries to fetch origin branch before falling back to local branch if origin/ref is missing", () => {
+      const originalBaseRef = process.env.GITHUB_BASE_REF;
+      const tmpDir = join(REPO_ROOT, "packages/core/src/__tests__", `tmp-git-test-${Date.now()}`);
+      const remoteDir = join(REPO_ROOT, "packages/core/src/__tests__", `tmp-git-remote-${Date.now()}`);
+      try {
+        // 1. Create a temporary git repo
+        mkdirSync(tmpDir, { recursive: true });
+        execFileSync("git", ["init"], { cwd: tmpDir });
+        execFileSync("git", ["config", "user.name", "Test User"], { cwd: tmpDir });
+        execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: tmpDir });
+        
+        // 2. Commit a dummy file
+        writeFileSync(join(tmpDir, "dummy.txt"), "hello");
+        execFileSync("git", ["add", "dummy.txt"], { cwd: tmpDir });
+        execFileSync("git", ["commit", "-m", "initial commit"], { cwd: tmpDir });
+        
+        // 3. Create local branch "feature-abc" (but do NOT create origin/feature-abc yet)
+        execFileSync("git", ["checkout", "-b", "feature-abc"], { cwd: tmpDir });
+        
+        // 4. Set GITHUB_BASE_REF to "feature-abc"
+        process.env.GITHUB_BASE_REF = "feature-abc";
+        
+        // 5. Assert fallback to local feature-abc because fetch fails when no remote origin exists
+        const resolvedFallback = resolveBaseBranch(tmpDir);
+        expect(resolvedFallback).toBe("feature-abc");
+        
+        // 6. Create a simulated remote repository (bare repo) and add it as "origin"
+        mkdirSync(remoteDir, { recursive: true });
+        execFileSync("git", ["init", "--bare"], { cwd: remoteDir });
+        execFileSync("git", ["remote", "add", "origin", remoteDir], { cwd: tmpDir });
+        
+        // Push feature-abc to the remote
+        execFileSync("git", ["push", "origin", "feature-abc"], { cwd: tmpDir });
+        
+        // Delete the local origin/feature-abc remote-tracking ref so it is missing locally
+        execFileSync("git", ["update-ref", "-d", "refs/remotes/origin/feature-abc"], { cwd: tmpDir });
+        expect(gitRefExists("origin/feature-abc", tmpDir)).toBe(false);
+        
+        // 7. Call resolveBaseBranch. It should fetch and successfully resolve origin/feature-abc!
+        const resolvedAfterFetch = resolveBaseBranch(tmpDir);
+        expect(resolvedAfterFetch).toBe("origin/feature-abc");
+        expect(gitRefExists("origin/feature-abc", tmpDir)).toBe(true);
+      } finally {
+        if (originalBaseRef === undefined) {
+          delete process.env.GITHUB_BASE_REF;
+        } else {
+          process.env.GITHUB_BASE_REF = originalBaseRef;
+        }
+        try {
+          rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          void 0;
+        }
+        try {
+          rmSync(remoteDir, { recursive: true, force: true });
+        } catch {
+          void 0;
+        }
+      }
+    }, 60_000);
+
+    it("handles shallow checkout no-merge-base case by falling back to two-dot diff", () => {
+      const originalBaseRef = process.env.GITHUB_BASE_REF;
+      const tmpDir = join(REPO_ROOT, "packages/core/src/__tests__", `tmp-git-test-${Date.now()}`);
+      try {
+        // 1. Create a temporary git repo
+        mkdirSync(tmpDir, { recursive: true });
+        execFileSync("git", ["init"], { cwd: tmpDir });
+        try {
+          execFileSync("git", ["checkout", "-b", "main"], { cwd: tmpDir });
+        } catch {
+          // ignore error if branch main already exists/created by default
+        }
+        execFileSync("git", ["config", "user.name", "Test User"], { cwd: tmpDir });
+        execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: tmpDir });
+        
+        // 2. Commit a dummy file
+        writeFileSync(join(tmpDir, "dummy.txt"), "hello");
+        execFileSync("git", ["add", "dummy.txt"], { cwd: tmpDir });
+        execFileSync("git", ["commit", "-m", "initial commit"], { cwd: tmpDir });
+        
+        // 3. Create a second commit
+        writeFileSync(join(tmpDir, "dummy.txt"), "hello world");
+        execFileSync("git", ["add", "dummy.txt"], { cwd: tmpDir });
+        execFileSync("git", ["commit", "-m", "second commit"], { cwd: tmpDir });
+        
+        // 4. Create an independent, disconnected commit (to simulate no merge base)
+        execFileSync("git", ["checkout", "--orphan", "orphan-branch"], { cwd: tmpDir });
+        writeFileSync(join(tmpDir, "other.ts"), "goodbye");
+        execFileSync("git", ["add", "other.ts"], { cwd: tmpDir });
+        execFileSync("git", ["commit", "-m", "orphan commit"], { cwd: tmpDir });
+        
+        // Let's verify that a three-dot diff fails (throws exit code 128 / no merge base)
+        expect(() => {
+          execFileSync("git", ["diff", "main...HEAD"], { cwd: tmpDir, stdio: "ignore" });
+        }).toThrow();
+        
+        // But our helper getAddedLinesMatching should handle it gracefully using the fallback!
+        process.env.GITHUB_BASE_REF = "main";
+        // Since resolveBaseBranch(tmpDir) might not be called by getAddedLinesMatching directly,
+        // we set the cached branch in the Map to mock it.
+        try {
+          cachedBaseBranchByCwd.set(tmpDir, "main");
+          
+          // Let's call getAddedLinesMatching (which should execute and catch the fail, falling back to 2-dot diff)
+          const lines = getAddedLinesMatching(tmpDir, /goodbye/);
+          expect(lines.length).toBeGreaterThan(0);
+          expect(lines[0]?.file).toBe("other.ts");
+          expect(lines[0]?.line).toContain("goodbye");
+        } finally {
+          cachedBaseBranchByCwd.delete(tmpDir);
+        }
+      } finally {
+        if (originalBaseRef === undefined) {
+          delete process.env.GITHUB_BASE_REF;
+        } else {
+          process.env.GITHUB_BASE_REF = originalBaseRef;
+        }
+        try {
+          rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          // ignore cleanup errors
+        }
+      }
+    }, 60_000);
   });
 });

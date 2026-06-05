@@ -92,7 +92,8 @@ function buildGrokCommand(config: AgentLaunchConfig, sessionId?: string | null):
   if (restoreSessionId) {
     parts.push("--resume", shellEscape(restoreSessionId));
   }
-  if (config.prompt && !restoreSessionId) {
+  // eslint-disable-next-line eqeqeq -- intentional: both null and undefined mean "not an explicit reconnect"
+  if (config.prompt && sessionId == null) {
     parts.push("--", shellEscape(config.prompt));
   }
   return parts.join(" ");
@@ -152,10 +153,10 @@ export const manifest = {
 
 function createGrokAgent(): Agent {
   return {
-     name: pluginName,
-     processName: pluginName,
-     promptDelivery: "inline" as const,
-     supportsSystemPromptFile: true,
+    name: pluginName,
+    processName: pluginName,
+    promptDelivery: "inline" as const,
+    supportsSystemPromptFile: true,
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       return buildGrokCommand(config);

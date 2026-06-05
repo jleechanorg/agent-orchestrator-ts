@@ -31,7 +31,7 @@ async function settlesWithin(promise: Promise<unknown>, timeoutMs: number): Prom
   }
 }
 
-const DEFAULT_PAGE_LIMIT = 100;
+
 
 export async function GET(request: Request) {
   const correlationId = getCorrelationId(request);
@@ -42,7 +42,11 @@ export async function GET(request: Request) {
     const activeOnly = searchParams.get("active") === "true";
     const limitParam = searchParams.get("limit");
     const offsetParam = searchParams.get("offset");
-    const limit = limitParam ? Math.max(1, Math.min(parseInt(limitParam, 10) || DEFAULT_PAGE_LIMIT, 500)) : undefined;
+    const DEFAULT_PAGE_LIMIT = 100;
+    const parsedLimit = limitParam ? parseInt(limitParam, 10) : undefined;
+    const limit = typeof parsedLimit === "number" && !isNaN(parsedLimit)
+      ? Math.max(1, Math.min(parsedLimit, 500))
+      : limitParam ? DEFAULT_PAGE_LIMIT : undefined;
     const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10) || 0) : 0;
 
     const { config, registry, sessionManager } = await getServices();
@@ -96,7 +100,7 @@ export async function GET(request: Request) {
     }
 
     const totalSessions = dashboardSessions.length;
-    const paginatedSessions = typeof limit === "number"
+    const paginatedSessions = typeof limit === "number" && !isNaN(limit)
       ? dashboardSessions.slice(offset, offset + limit)
       : dashboardSessions;
 
@@ -118,7 +122,7 @@ export async function GET(request: Request) {
         orchestratorId,
         orchestrators,
         globalPause,
-        ...(typeof limit === "number" ? { pagination: { total: totalSessions, limit, offset } } : {}),
+        ...(typeof limit === "number" && !isNaN(limit) ? { pagination: { total: totalSessions, limit, offset } } : {}),
       },
       { status: 200 },
       correlationId,

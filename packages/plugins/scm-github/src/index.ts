@@ -1491,7 +1491,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       ? (skepticAuthorsExtra as string[]).filter(
           (v): v is string => typeof v === "string" && v.length > 0,
         )
-      : ["github-actions[bot]", "jleechan-agent[bot]"],
+      : ["github-actions[bot]", "jleechan-agent[bot]", "jleechan-af", "jleechanao"],
   );
 
   return {

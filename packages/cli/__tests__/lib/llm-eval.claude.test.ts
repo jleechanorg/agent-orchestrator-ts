@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockResolveCodexBinary = vi.hoisted(() => vi.fn());
@@ -27,6 +27,9 @@ const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
 
+let originalApiKeyGlobal: string | undefined;
+let originalModelGlobal: string | undefined;
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockExecFileSync.mockReset();
@@ -46,6 +49,25 @@ beforeEach(() => {
     err.code = "ENOENT";
     throw err;
   });
+
+  // Isolate tests from host GEMINI_API_KEY
+  originalApiKeyGlobal = process.env["GEMINI_API_KEY"];
+  originalModelGlobal = process.env["GEMINI_MODEL"];
+  delete process.env["GEMINI_API_KEY"];
+  delete process.env["GEMINI_MODEL"];
+});
+
+afterEach(() => {
+  if (originalApiKeyGlobal !== undefined) {
+    process.env["GEMINI_API_KEY"] = originalApiKeyGlobal;
+  } else {
+    delete process.env["GEMINI_API_KEY"];
+  }
+  if (originalModelGlobal !== undefined) {
+    process.env["GEMINI_MODEL"] = originalModelGlobal;
+  } else {
+    delete process.env["GEMINI_MODEL"];
+  }
 });
 
 function makeErrnoError(message: string, code?: string): NodeJS.ErrnoException {

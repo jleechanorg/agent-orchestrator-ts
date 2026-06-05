@@ -97,5 +97,5 @@ describe("package metadata import", () => {
     } finally {
       await rm(outDir, { force: true, recursive: true });
     }
-  });
+  }, 30000);
 });

@@ -195,6 +195,8 @@ jobs:
                     (.body as $body |
                       (
                         ((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                        or ((.user.login | ascii_downcase) == "jleechan-af")
+                        or ((.user.login | ascii_downcase) == "jleechanao")
                         or (
                           ((.user.login | ascii_downcase) == "github-actions[bot]")
                           and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))

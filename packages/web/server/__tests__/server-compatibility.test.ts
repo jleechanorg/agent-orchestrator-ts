@@ -8,9 +8,23 @@
  * For actual behavioral tests of the shared utilities, see tmux-utils.test.ts.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { GET } from "../../src/app/api/sessions/route";
+
+vi.mock("@/lib/services", () => {
+  return {
+    getServices: vi.fn().mockResolvedValue({
+      config: { projects: {} },
+      registry: { get: vi.fn() },
+      sessionManager: {
+        list: vi.fn().mockImplementation(async () => []),
+      },
+    }),
+    getSCM: vi.fn(),
+  };
+});
 
 const serverDir = join(__dirname, "..");
 
@@ -47,6 +61,7 @@ describe("direct-terminal-ws.ts", () => {
     expect(source).toMatch(/totalDisconnects/);
     expect(source).toMatch(/totalErrors/);
   });
+
 });
 
 describe("terminal-websocket.ts", () => {
@@ -90,3 +105,38 @@ describe("OrchestratorConfig compatibility", () => {
     expect(configBlock).toMatch(/configPath/);
   });
 });
+
+describe("sessions API route", () => {
+  it("implements robust typesafe limit parameter checks", () => {
+    const routeSource = readFileSync(
+      join(__dirname, "..", "..", "src", "app", "api", "sessions", "route.ts"),
+      "utf-8",
+    );
+    expect(routeSource).toMatch(/typeof limit ===\s*["']number["']\s*&&\s*!isNaN\(limit\)/);
+  });
+
+  it("behaviorally handles limit=0 gracefully at runtime by falling back to safe default page limit of 1", async () => {
+    const request = new Request("http://localhost/api/sessions?limit=0");
+    const response = await GET(request);
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data).toHaveProperty("sessions");
+    expect(data.sessions).toBeInstanceOf(Array);
+    // Since limit=0 is passed, we expect it to fall back to the minimum limit of 1
+    expect(data.pagination).toBeDefined();
+    expect(data.pagination.limit).toBe(1);
+  });
+
+  it("behaviorally handles limit=NaN gracefully at runtime by falling back to safe default page limit of 100", async () => {
+    const request = new Request("http://localhost/api/sessions?limit=NaN");
+    const response = await GET(request);
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data).toHaveProperty("sessions");
+    expect(data.sessions).toBeInstanceOf(Array);
+    // Since limit=NaN is passed, we expect it to fall back to the default page limit of 100
+    expect(data.pagination).toBeDefined();
+    expect(data.pagination.limit).toBe(100);
+  });
+});
+

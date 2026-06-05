@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockResolveCodexBinary = vi.hoisted(() => vi.fn());
@@ -28,6 +28,10 @@ import { llmEval } from "../../src/lib/llm-eval.js";
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 
+let originalApiKey: string | undefined;
+let originalModel: string | undefined;
+let fetchSpy: any;
+
 beforeEach(() => {
   mockExecFileSync.mockReset();
   mockResolveCodexBinary.mockReset();
@@ -43,44 +47,60 @@ beforeEach(() => {
     err.code = "ENOENT";
     throw err;
   });
+
+  originalApiKey = process.env["GEMINI_API_KEY"];
+  originalModel = process.env["GEMINI_MODEL"];
+  process.env["GEMINI_API_KEY"] = "mock-api-key";
+  process.env["GEMINI_MODEL"] = "gemini-3-flash-preview";
+  fetchSpy = vi.spyOn(globalThis, "fetch");
 });
 
-// model=gemini is now IN the supported chain (["codex", "claude", "gemini"]).
-// When model=gemini is specified, preferredHeadless="gemini", rotation starts
-// at gemini: ["gemini","codex","claude"].
+afterEach(() => {
+  if (originalApiKey !== undefined) {
+    process.env["GEMINI_API_KEY"] = originalApiKey;
+  } else {
+    delete process.env["GEMINI_API_KEY"];
+  }
+  if (originalModel !== undefined) {
+    process.env["GEMINI_MODEL"] = originalModel;
+  } else {
+    delete process.env["GEMINI_MODEL"];
+  }
+  fetchSpy.mockRestore();
+});
 
 describe("llmEval — explicit model=gemini", () => {
   it("tries gemini first when model=gemini is specified", async () => {
-    // Allow /mock/gemini through accessSync
-    mockAccessSync.mockImplementation((path: unknown) => {
-      if (path === "/mock/gemini" || path === "gemini") return undefined;
-      const err = new Error("ENOENT: no such file") as NodeJS.ErrnoException;
-      err.code = "ENOENT";
-      throw err;
-    });
-    mockExecFileSync.mockReturnValue(FAIL_VERDICT);
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: "VERDICT: FAIL" }] } }],
+      }),
+    } as Response);
+
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(FAIL_VERDICT);
+    expect(fetchSpy).toHaveBeenCalled();
   });
 
   it("falls back to codex when gemini is unavailable with model=gemini", async () => {
+    delete process.env["GEMINI_API_KEY"];
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    // Gemini candidates all fail accessSync (default mock), then codex succeeds
-    // Rotation: ["gemini","codex","claude"]
     mockExecFileSync.mockReturnValue(PASS_VERDICT); // codex succeeds
+
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("fails closed when gemini omits a verdict with model=gemini", async () => {
-    // Allow /mock/gemini through accessSync
-    mockAccessSync.mockImplementation((path: unknown) => {
-      if (path === "/mock/gemini" || path === "gemini") return undefined;
-      const err = new Error("ENOENT: no such file") as NodeJS.ErrnoException;
-      err.code = "ENOENT";
-      throw err;
-    });
-    mockExecFileSync.mockReturnValueOnce("Gemini analysis with no verdict");
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: "Gemini analysis with no verdict" }] } }],
+      }),
+    } as Response);
+
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toContain("VERDICT: FAIL");
     expect(result).toContain("gemini:");

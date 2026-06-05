@@ -340,69 +340,84 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   return { validVerdict: false, output: "", error: firstInfraError };
 }
 
-/** Known gemini binary locations, tried in order. */
-const GEMINI_BINARY_CANDIDATES = [
-  process.env["GEMINI_BINARY"] ?? "",
-  "/usr/local/bin/gemini",
-  "/opt/homebrew/bin/gemini",
-  "gemini",
-].filter(Boolean);
-
 /**
- * Run gemini -p for headless evaluation.
- * Gemini CLI supports `-p` for non-interactive headless mode.
+ * Run gemini evaluation via Google Gemini API directly.
+ * Native fetch is used to avoid interactive CLI process hangs.
  * Fail-closed: missing VERDICT = failure.
  */
 export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
-  const { execFileSync } = await import("node:child_process");
-
-  for (const candidate of GEMINI_BINARY_CANDIDATES) {
-    if (!candidate) continue;
-
-    if (candidate !== "gemini") {
-      try {
-        accessSync(candidate, fsConstants.X_OK);
-      } catch {
-        continue;
-      }
-    }
-
-    try {
-      const result = execFileSync(
-        candidate,
-        ["--yolo", "-p", ""],
-        {
-          input: prompt,
-          encoding: "utf-8",
-          timeout: LLM_EVAL_TIMEOUT_MS,
-          maxBuffer: 10 * 1024 * 1024,
-          stdio: ["pipe", "pipe", "ignore"],
-        },
-      );
-      const output = result.trim();
-      if (!STRICT_VERDICT_RE.test(output)) {
-        return {
-          validVerdict: false,
-          output,
-          error: `Gemini output missing VERDICT line (got ${output.slice(0, 100)}...)`,
-        };
-      }
-      return { validVerdict: true, output };
-    } catch (err: unknown) {
-      const errno = (err as NodeJS.ErrnoException).code;
-      const msg = err instanceof Error ? err.message : String(err);
-
-      if (errno === "ENOENT") continue;
-
-      if (isUnavailable(msg, errno as string)) {
-        continue;
-      }
-
-      return { validVerdict: false, output: "", error: msg.split("\n")[0]?.slice(0, 300) };
-    }
+  const apiKey = process.env["GEMINI_API_KEY"];
+  if (!apiKey) {
+    return { validVerdict: false, output: "", error: undefined }; // fallback chain continue
   }
 
-  return { validVerdict: false, output: "", error: undefined };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_EVAL_TIMEOUT_MS);
+
+  try {
+    const model = process.env["GEMINI_MODEL"] || "gemini-2.5-flash";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: prompt,
+                },
+              ],
+            },
+          ],
+        }),
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return {
+        validVerdict: false,
+        output: "",
+        error: `Gemini API returned status ${response.status}: ${errText}`,
+      };
+    }
+
+    const data = (await response.json()) as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{
+            text?: string;
+          }>;
+        };
+      }>;
+    };
+
+    const output = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    if (!STRICT_VERDICT_RE.test(output)) {
+      return {
+        validVerdict: false,
+        output,
+        error: `Gemini output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+      };
+    }
+
+    return { validVerdict: true, output };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      validVerdict: false,
+      output: "",
+      error: `Gemini API call failed: ${msg}`,
+    };
+  }
 }
 
 /**

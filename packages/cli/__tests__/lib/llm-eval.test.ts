@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockResolveCodexBinary = vi.hoisted(() => vi.fn());
@@ -31,6 +31,9 @@ const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
 const MOCK_CLAUDE_BINARY = "/mock/claude";
+let originalApiKeyGlobal: string | undefined;
+let originalModelGlobal: string | undefined;
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockExecFileSync.mockReset();
@@ -49,6 +52,25 @@ beforeEach(() => {
     err.code = "ENOENT";
     throw err;
   });
+
+  // Isolate tests from host GEMINI_API_KEY
+  originalApiKeyGlobal = process.env["GEMINI_API_KEY"];
+  originalModelGlobal = process.env["GEMINI_MODEL"];
+  delete process.env["GEMINI_API_KEY"];
+  delete process.env["GEMINI_MODEL"];
+});
+
+afterEach(() => {
+  if (originalApiKeyGlobal !== undefined) {
+    process.env["GEMINI_API_KEY"] = originalApiKeyGlobal;
+  } else {
+    delete process.env["GEMINI_API_KEY"];
+  }
+  if (originalModelGlobal !== undefined) {
+    process.env["GEMINI_MODEL"] = originalModelGlobal;
+  } else {
+    delete process.env["GEMINI_MODEL"];
+  }
 });
 
 describe("tryCodexPrint", () => {
@@ -490,105 +512,205 @@ describe("llmEval — explicit model=cursor (maps to codex)", () => {
 });
 
 describe("tryGeminiPrint", () => {
-  const allowGeminiCandidate = () => {
-    mockAccessSync.mockImplementation((path: unknown) => {
-      if (path === "/mock/gemini") return undefined;
-      const err = new Error("ENOENT: no such file") as NodeJS.ErrnoException;
-      err.code = "ENOENT";
-      throw err;
-    });
-  };
+  let originalApiKey: string | undefined;
+  let originalModel: string | undefined;
+  let fetchSpy: any;
 
-  it("returns validVerdict=true for output containing VERDICT: PASS", async () => {
-    allowGeminiCandidate();
-    mockExecFileSync.mockReturnValue(PASS_VERDICT);
+  beforeEach(() => {
+    originalApiKey = process.env["GEMINI_API_KEY"];
+    originalModel = process.env["GEMINI_MODEL"];
+    process.env["GEMINI_API_KEY"] = "mock-api-key";
+    process.env["GEMINI_MODEL"] = "gemini-3-flash-preview";
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    if (originalApiKey !== undefined) {
+      process.env["GEMINI_API_KEY"] = originalApiKey;
+    } else {
+      delete process.env["GEMINI_API_KEY"];
+    }
+    if (originalModel !== undefined) {
+      process.env["GEMINI_MODEL"] = originalModel;
+    } else {
+      delete process.env["GEMINI_MODEL"];
+    }
+    fetchSpy.mockRestore();
+  });
+
+  it("returns fallback (error=undefined) when GEMINI_API_KEY is missing", async () => {
+    delete process.env["GEMINI_API_KEY"];
+    const result = await tryGeminiPrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns validVerdict=true for successful API response containing VERDICT: PASS", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: "VERDICT: PASS" }] } }],
+      }),
+    } as Response);
+
     const result = await tryGeminiPrint("evaluate this");
     expect(result.validVerdict).toBe(true);
-    expect(result.output).toBe(PASS_VERDICT);
-    expect(mockExecFileSync).toHaveBeenCalledWith(
-      "/mock/gemini",
-      ["--yolo", "-p", ""],
+    expect(result.output).toBe("VERDICT: PASS");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=mock-api-key",
       expect.objectContaining({
-        input: "evaluate this",
-        encoding: "utf-8",
-        timeout: 300_000,
-        maxBuffer: 10 * 1024 * 1024,
+        method: "POST",
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: "evaluate this" }] }],
+        }),
       }),
     );
   });
 
+  it("returns validVerdict=true for successful API response containing VERDICT: FAIL", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: "VERDICT: FAIL" }] } }],
+      }),
+    } as Response);
+
+    const result = await tryGeminiPrint("evaluate this");
+    expect(result.validVerdict).toBe(true);
+    expect(result.output).toBe("VERDICT: FAIL");
+  });
+
   it("returns validVerdict=false with error when VERDICT is missing", async () => {
-    allowGeminiCandidate();
-    mockExecFileSync.mockReturnValue("no verdict here");
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: "Just some discussion" }] } }],
+      }),
+    } as Response);
+
     const result = await tryGeminiPrint("evaluate this");
     expect(result.validVerdict).toBe(false);
     expect(result.error).toContain("missing VERDICT");
   });
 
-  it("returns error=undefined when binary is not found", async () => {
-    mockAccessSync.mockImplementation(() => {
-      const err = new Error("ENOENT") as NodeJS.ErrnoException;
-      err.code = "ENOENT";
-      throw err;
+  it("returns validVerdict=false with error when API returns non-ok status", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => "Bad request payload",
+    } as Response);
+
+    const result = await tryGeminiPrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toContain("status 400");
+    expect(result.error).toContain("Bad request payload");
+  });
+
+  it("returns validVerdict=false with error when fetch throws", async () => {
+    fetchSpy.mockRejectedValue(new Error("Network error"));
+
+    const result = await tryGeminiPrint("evaluate this");
+    expect(result.validVerdict).toBe(false);
+    expect(result.error).toContain("Network error");
+  });
+
+  it("returns validVerdict=false with error when fetch times out (aborted)", async () => {
+    fetchSpy.mockImplementation(async () => {
+      throw new DOMException("The user aborted a request.", "AbortError");
     });
+
     const result = await tryGeminiPrint("evaluate this");
     expect(result.validVerdict).toBe(false);
-    expect(result.error).toBeUndefined();
+    expect(result.error).toContain("aborted");
   });
 
-  it("returns validVerdict=false for VERDICT: SKIPPED", async () => {
-    allowGeminiCandidate();
-    mockExecFileSync.mockReturnValue("VERDICT: SKIPPED");
-    const result = await tryGeminiPrint("evaluate this");
-    expect(result.validVerdict).toBe(false);
-    expect(result.error).toContain("missing VERDICT");
-  });
+  it("uses an AbortSignal and aborts the fetch after timeout", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    fetchSpy.mockImplementation(async (url: any, init: any) => {
+      signal = init.signal;
+      return new Promise((resolve, reject) => {
+        const checkAbort = () => {
+          if (signal?.aborted) {
+            reject(new DOMException("The user aborted a request.", "AbortError"));
+          } else {
+            setTimeout(checkAbort, 100);
+          }
+        };
+        setTimeout(checkAbort, 100);
+      });
+    });
 
-  it("skips candidate on ETIMEDOUT and tries next", async () => {
-    allowGeminiCandidate();
-    const err = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
-    err.code = "ETIMEDOUT";
-    mockExecFileSync.mockImplementation(() => { throw err; });
-    const result = await tryGeminiPrint("evaluate this");
+    const promise = tryGeminiPrint("evaluate this");
+    
+    // Fast-forward time
+    await vi.advanceTimersByTimeAsync(300000);
+    
+    const result = await promise;
     expect(result.validVerdict).toBe(false);
-  });
-
-  it("returns error for non-ENOENT non-unavailable failure", async () => {
-    allowGeminiCandidate();
-    const err = new Error("Something went wrong with gemini");
-    mockExecFileSync.mockImplementation(() => { throw err; });
-    const result = await tryGeminiPrint("evaluate this");
-    expect(result.validVerdict).toBe(false);
-    expect(result.error).toContain("Something went wrong");
+    expect(result.error).toContain("aborted");
+    expect(signal?.aborted).toBe(true);
+    
+    vi.useRealTimers();
   });
 });
 
 describe("llmEval — explicit model=gemini", () => {
+  let originalApiKey: string | undefined;
+  let originalModel: string | undefined;
+  let fetchSpy: any;
+
   beforeEach(() => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     mockAccessSync.mockImplementation((path: unknown) => {
       if (path === "/mock/claude") return undefined;
-      if (path === "/mock/gemini") return undefined;
       const err = new Error("ENOENT") as NodeJS.ErrnoException;
       err.code = "ENOENT";
       throw err;
     });
+
+    originalApiKey = process.env["GEMINI_API_KEY"];
+    originalModel = process.env["GEMINI_MODEL"];
+    process.env["GEMINI_API_KEY"] = "mock-api-key";
+    process.env["GEMINI_MODEL"] = "gemini-3-flash-preview";
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    if (originalApiKey !== undefined) {
+      process.env["GEMINI_API_KEY"] = originalApiKey;
+    } else {
+      delete process.env["GEMINI_API_KEY"];
+    }
+    if (originalModel !== undefined) {
+      process.env["GEMINI_MODEL"] = originalModel;
+    } else {
+      delete process.env["GEMINI_MODEL"];
+    }
+    fetchSpy.mockRestore();
   });
 
   it("tries gemini first when model=gemini is specified", async () => {
-    mockExecFileSync
-      .mockImplementationOnce(() => { throw new Error("ENOENT"); }) // codex (not first)
-      .mockImplementationOnce(() => { throw new Error("ENOENT"); }) // claude (not first)
-      .mockReturnValueOnce(PASS_VERDICT); // gemini succeeds
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: PASS_VERDICT }] } }],
+      }),
+    } as Response);
+
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
+    expect(fetchSpy).toHaveBeenCalled();
   });
 
   it("falls back to codex when gemini is unavailable", async () => {
-    mockExecFileSync
-      .mockImplementationOnce(() => { throw new Error("ENOENT"); }) // gemini (first)
-      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
+    delete process.env["GEMINI_API_KEY"];
+    mockExecFileSync.mockReturnValue(PASS_VERDICT); // codex succeeds
+
     const result = await llmEval("evaluate this", { model: "gemini" });
     expect(result).toBe(PASS_VERDICT);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(mockExecFileSync).toHaveBeenCalled();
   });
 });
