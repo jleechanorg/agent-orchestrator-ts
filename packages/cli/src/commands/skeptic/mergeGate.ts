@@ -218,7 +218,7 @@ export async function fetchMergeGateState(
             if (!isCR) return false;
             const commentTime = new Date(c.created_at).getTime();
             if (commentTime < headTime) return false;
-            return /^\s*\[approve\]\s*$/im.test(c.body) || c.body.includes("[approve]");
+            return /^\s*\[approve\]\s*$/im.test(c.body);
           });
 
           if (hasApproveComment) {

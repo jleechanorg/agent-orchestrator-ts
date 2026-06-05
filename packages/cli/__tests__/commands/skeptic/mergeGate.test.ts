@@ -783,6 +783,37 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
       expect(result.crApproved).toBe(false);
     });
+
+    it("does not approve CodeRabbit if the comment contains [approve] but not as a standalone word (embedded/quoted)", async () => {
+      setup({
+        ghJson: [
+          { head: { sha: headSha }, mergeable: true },
+          { state: "success" },
+          { commit: { committer: { date: "2026-06-04T12:00:00Z" } } },
+        ],
+        paginate: [
+          [],
+          [
+            [
+              { id: 4, body: "I can't [approve] this yet", created_at: "2026-06-04T13:00:00Z", user: { login: "coderabbitai" } }
+            ]
+          ],
+          [],
+        ],
+        fetchReviews: [
+          {
+            author: { login: "coderabbitai" },
+            state: "changes_requested",
+            body: "please fix this",
+            submittedAt: "2026-06-04T11:00:00Z",
+          }
+        ],
+      });
+
+      const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
+      expect(result.crApproved).toBe(false);
+      expect(result.crState).toBe("changes_requested");
+    });
   });
 });
 
