@@ -51,109 +51,45 @@ const antigravityOverrides: Partial<Agent> = {
     // Ensure session directory exists
     fs.mkdirSync(sessionHome, { recursive: true });
 
-    // Symlink the real keychain dir so Security framework can find/store tokens.
-    // macOS Security looks at $HOME/Library/Keychains — without this, headless
-    // agy workers show "A keychain cannot be found to store 'antigravity.'"
-    // NOTE: Symlinking the user's real ~/Library/Keychains into headless background
-    // worker sessions causes macOS Security framework to intercept the request and
-    // constantly popup GUI Keychain Not Found / login credential authorization prompts.
-    // To prevent this, we avoid symlinking the user's real system keychains.
+    // Point the session HOME's Library/Keychains at the user's REAL keychains so the macOS
+    // Security framework can find the already-stored Antigravity OAuth token and git
+    // credentials. The worker runs under $HOME=~/.ao-sessions/<id>, where
+    // $HOME/Library/Keychains does not exist; any keychain read/write from that context
+    // raises the GUI "A keychain cannot be found to store '<name>'" SecurityAgent modal on
+    // the user's screen (names seen: "antigravity", "x-access-token", "jleechan2015").
+    //
+    // We do NOT try to detect "headless vs interactive" from terminal env vars
+    // (TERM_PROGRAM/COLORTERM/SSH_TTY): AO workers run inside tmux, which sets those vars,
+    // so that heuristic misclassified every background worker as interactive and the
+    // keychain-bypass path never ran. Guessing execution context from the environment is
+    // unreliable — we always symlink to the real keychains, which already contain the
+    // needed entries, so reads succeed silently and no modal is shown.
     if (os.platform() === "darwin") {
       const sessionKeychainDir = path.join(sessionHome, "Library", "Keychains");
+      const realKeychainDir = path.join(userHome, "Library", "Keychains");
       try {
-        const isTest = typeof process.env.VITEST !== "undefined" || process.env.NODE_ENV === "test";
-        const isInteractive =
-          process.env.AO_INTERACTIVE === "true" ||
-          (!!(
-            process.env.TERM_PROGRAM ||
-            process.env.COLORTERM ||
-            process.env.SSH_TTY
-          ) && process.env.AO_HEADLESS !== "true");
-        const isHeadless = (process.env.AO_HEADLESS === "true") || (!isTest && !isInteractive);
-
-        let needsSetup = false;
-        let isSymlink = false;
+        let isCorrectSymlink = false;
         try {
           const stat = fs.lstatSync(sessionKeychainDir);
-          isSymlink = stat.isSymbolicLink();
+          if (stat.isSymbolicLink()) {
+            isCorrectSymlink = fs.readlinkSync(sessionKeychainDir) === realKeychainDir;
+            if (!isCorrectSymlink) {
+              fs.unlinkSync(sessionKeychainDir);
+            }
+          } else {
+            // A real directory/file left by a prior (broken) run — remove it so we can symlink.
+            fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
+          }
         } catch {
-          needsSetup = true;
+          // Path does not exist yet — nothing to clean up.
         }
 
-        if (!needsSetup) {
-          if (isHeadless) {
-            // In headless Darwin mode, we want the keychain directory to be absent/empty to bypass keychain operations completely.
-            // If it currently exists (either as a symlink or directory), we must remove it.
-            try {
-              if (isSymlink) {
-                fs.unlinkSync(sessionKeychainDir);
-                isSymlink = false;
-              } else {
-                fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
-              }
-              needsSetup = true;
-            } catch (err) {
-              console.error(`[antigravity] Headless safety check: failed to remove existing keychain path ${sessionKeychainDir}: ${(err as Error).message}`);
-              throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`, { cause: err });
-            }
-          } else {
-            // If we are in interactive mode, we always want it to be a symlink to the user's real keychains.
-            // Recreate if it is not a symlink, or if it is a dangling symlink (target missing).
-            if (!isSymlink || !fs.existsSync(sessionKeychainDir)) {
-              try {
-                if (isSymlink) {
-                  fs.unlinkSync(sessionKeychainDir);
-                } else {
-                  fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
-                }
-              } catch {
-                // ignore
-              }
-              needsSetup = true;
-            }
-          }
-        }
-
-        if (needsSetup) {
+        if (!isCorrectSymlink) {
           fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
-          
-          if (isHeadless) {
-            // Headless macOS context: we do NOT want to symlink the real login keychain
-            // to completely prevent any OS-level interactive prompts or deadlocks.
-            // Also, we do NOT create any temporary keychain or mutate the default keychain.
-            // Instead, we ensure the sessionKeychainDir is absent or empty.
-            if (fs.existsSync(sessionKeychainDir) || isSymlink) {
-              try {
-                if (isSymlink) {
-                  fs.unlinkSync(sessionKeychainDir);
-                  isSymlink = false;
-                } else {
-                  fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
-                }
-              } catch (unlinkErr) {
-                console.error(`[antigravity] Headless safety check: failed to remove existing keychain path ${sessionKeychainDir}: ${(unlinkErr as Error).message}`);
-                // Fail-closed as requested: throw to abort launch
-                throw new Error(`Headless safety check failed: unable to remove existing keychain path ${sessionKeychainDir}`, { cause: unlinkErr });
-              }
-            }
-          } else {
-            // Interactive user GUI session: symlink the real keychain so the agent can read
-            // and use the already-saved OAuth token from the real login keychain.
-            try {
-              if (fs.existsSync(sessionKeychainDir)) {
-                fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
-              }
-              fs.symlinkSync(path.join(userHome, "Library", "Keychains"), sessionKeychainDir);
-            } catch (symlinkErr) {
-              console.debug(`[antigravity] Failed to symlink login keychain: ${(symlinkErr as Error).message}`);
-            }
-          }
+          fs.symlinkSync(realKeychainDir, sessionKeychainDir);
         }
       } catch (err) {
-        if ((err as Error).message.includes("Headless safety check failed")) {
-          throw err;
-        }
-        console.debug(`[antigravity] Failed to setup keychains: ${(err as Error).message}`);
+        console.debug(`[antigravity] Failed to symlink login keychain: ${(err as Error).message}`);
       }
     }
 
