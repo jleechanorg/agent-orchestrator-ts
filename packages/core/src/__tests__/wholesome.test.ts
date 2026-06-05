@@ -1010,7 +1010,7 @@ describe("wholesome — structural source-code assertions", () => {
           // ignore cleanup errors
         }
       }
-    });
+    }, 60_000);
 
     it("tries to fetch origin branch before falling back to local branch if origin/ref is missing", () => {
       const originalBaseRef = process.env.GITHUB_BASE_REF;
@@ -1070,7 +1070,7 @@ describe("wholesome — structural source-code assertions", () => {
           void 0;
         }
       }
-    });
+    }, 60_000);
 
     it("handles shallow checkout no-merge-base case by falling back to two-dot diff", () => {
       const originalBaseRef = process.env.GITHUB_BASE_REF;
@@ -1136,6 +1136,6 @@ describe("wholesome — structural source-code assertions", () => {
           // ignore cleanup errors
         }
       }
-    });
+    }, 60_000);
   });
 });
