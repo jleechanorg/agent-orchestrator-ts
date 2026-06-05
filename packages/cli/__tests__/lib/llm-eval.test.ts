@@ -645,7 +645,7 @@ describe("tryGeminiPrint", () => {
     const promise = tryGeminiPrint("evaluate this");
     
     // Fast-forward time
-    await vi.advanceTimersByTimeAsync(30000);
+    await vi.advanceTimersByTimeAsync(300000);
     
     const result = await promise;
     expect(result.validVerdict).toBe(false);

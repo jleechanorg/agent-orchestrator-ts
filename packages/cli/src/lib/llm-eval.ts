@@ -352,7 +352,7 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), LLM_EVAL_TIMEOUT_MS);
 
   try {
     const model = process.env["GEMINI_MODEL"] || "gemini-2.5-flash";
