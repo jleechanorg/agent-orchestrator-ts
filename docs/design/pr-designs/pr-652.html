@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>[agento] [antig] test: add regression test for main project root protection in Pass 2 — Agent Orchestrator</title>
+    <title>[agento] [antig] fix: make worktree path comparison symlink-safe and protect main project root — Agent Orchestrator</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
@@ -50,8 +50,8 @@
   <body>
     <main class="wrap">
       <section class="hero">
-        <h1>[agento] [antig] test: add regression test for main project root protection in Pass 2</h1>
-        <p class="muted">This PR adds a dedicated regression test case to verify that the main project root is never targeted for deletion when a killed session metadata references the project path as its worktree.</p>
+        <h1>[agento] [antig] fix: make worktree path comparison symlink-safe and protect main project root</h1>
+        <p class="muted">Due to a path comparison mismatch caused by resolved vs unresolved symlinks (e.g. <code>/var/folders/</code> vs <code>/private/var/folders/</code> on macOS), the safety check in <code>pruneStaleWorktrees</code> failed to identify the path as the main project directory when a killed session metadata referenced the project path as its worktree.</p>
         <p class="muted" style="margin-top:0.5rem">
           PR: <a href="https://github.com/jleechanorg/agent-orchestrator/pull/652">#652</a>
           &nbsp;·&nbsp; Status: <span class="badge badge-open">Open</span>
@@ -64,23 +64,23 @@
         <article class="card">
           <h2>Architecture</h2>
           <div class="diagram">
-<pre>┌──────────────────────────────────────────────────────────────────────────────── ┐
-│ PR #652 — agent-orchestrator                                                 │
-└──────────────────────────────────────────────────────────────────────────────── ┘
+<pre>┌───────────────────────────────────────────────────────────────────────────────────────── ┐
+│ PR #652 — agent-orchestrator                                                          │
+└───────────────────────────────────────────────────────────────────────────────────────── ┘
                   │
-    ▼ 3 file(s) changed
+    ▼ 5 file(s) changed
                   │
-┌──────────────────────────────────────────────────────────────────────────────── ┐
-│ [antig] test: add regression test for main project root protection in Pass 2 │
-└──────────────────────────────────────────────────────────────────────────────── ┘</pre>
+┌───────────────────────────────────────────────────────────────────────────────────────── ┐
+│ [antig] fix: make worktree path comparison symlink-safe and protect main project root │
+└───────────────────────────────────────────────────────────────────────────────────────── ┘</pre>
           </div>
         </article>
         <article class="card">
           <h2>Metadata</h2>
           <div class="stat-grid">
-            <div class="stat"><div class="num">3</div><div class="lbl">Files</div></div>
-            <div class="stat"><div class="num">2</div><div class="lbl">Commits</div></div>
-            <div class="stat"><div class="num" style="color:#2ea043">+78</div><div class="lbl">Additions</div></div>
+            <div class="stat"><div class="num">5</div><div class="lbl">Files</div></div>
+            <div class="stat"><div class="num">6</div><div class="lbl">Commits</div></div>
+            <div class="stat"><div class="num" style="color:#2ea043">+315</div><div class="lbl">Additions</div></div>
             <div class="stat"><div class="num" style="color:#cf222e">-12</div><div class="lbl">Deletions</div></div>
           </div>
           <ul style="margin-top:1rem">
@@ -98,7 +98,8 @@
         <table>
           <thead><tr><th>Package / Path</th><th>Files</th></tr></thead>
           <tbody>
-            <tr><td><code>packages/core</code></td><td>2</td></tr>
+            <tr><td><code>docs/design</code></td><td>2</td></tr>
+<tr><td><code>packages/core</code></td><td>2</td></tr>
 <tr><td><code>roadmap</code></td><td>1</td></tr>
           </tbody>
         </table>
@@ -111,9 +112,21 @@
           <thead><tr><th>File</th><th>Status</th><th style="text-align:right">+</th><th style="text-align:right">−</th></tr></thead>
           <tbody>
             <tr>
+      <td><code>docs/design/pr-designs/pr-652.html</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+145</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
+      <td><code>docs/design/pr-designs/pr-652.md</code></td>
+      <td><span class="badge badge-new">added</span></td>
+      <td style="text-align:right;color:#2ea043">+63</td>
+      <td style="text-align:right;color:#cf222e">-0</td>
+    </tr>
+<tr>
       <td><code>packages/core/src/__tests__/session-manager-prune-stale-worktrees.test.ts</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+64</td>
+      <td style="text-align:right;color:#2ea043">+86</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
 <tr>
@@ -125,7 +138,7 @@
 <tr>
       <td><code>roadmap/README.md</code></td>
       <td>modified</td>
-      <td style="text-align:right;color:#2ea043">+4</td>
+      <td style="text-align:right;color:#2ea043">+11</td>
       <td style="text-align:right;color:#cf222e">-0</td>
     </tr>
             
