@@ -115,7 +115,29 @@ afterEach(() => {
     const wd = join(homedir(), ".worktrees", projectId);
     if (existsSync(wd)) rmSync(wd, { recursive: true, force: true });
   }
+
+  let configHash = "";
+  try {
+    if (existsSync(configPath)) {
+      configHash = createHash("sha256")
+        .update(dirname(realpathSync(configPath)))
+        .digest("hex")
+        .slice(0, 12);
+    }
+  } catch (err) {
+    // Ignore error if file doesn't exist
+  }
+
   rmSync(tmpDir, { recursive: true, force: true });
+
+  if (configHash) {
+    const aoDir = join(
+      homedir(),
+      ".agent-orchestrator",
+      `${configHash}-my-app-${hashProjectId("my-app")}`,
+    );
+    if (existsSync(aoDir)) rmSync(aoDir, { recursive: true, force: true });
+  }
 });
 
 describe("pruneStaleWorktrees", () => {
