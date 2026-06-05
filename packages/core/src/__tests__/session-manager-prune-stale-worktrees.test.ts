@@ -572,7 +572,7 @@ describe("pruneStaleWorktrees", () => {
     // This simulates the main ao-orchestrator session which can have status=killed
     // and worktree pointing to the main project repository.
     writeFileSync(
-      join(sessionsDir, "ao-orchestrator"),
+      join(sessionsDir, `${config.projects["my-app"]!.sessionPrefix}-orchestrator`),
       `worktree=${realRepoPath}\nstatus=killed\n`,
       "utf8",
     );
