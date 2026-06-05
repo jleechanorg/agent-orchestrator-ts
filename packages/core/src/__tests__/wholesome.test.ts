@@ -114,6 +114,12 @@ function resolveBaseBranch(cwd: string): string {
         cwd,
         encoding: "utf-8",
         stdio: "ignore",
+        timeout: 5000,
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
+        },
       });
       if (gitRefExists(`origin/${validated}`, cwd)) {
         return `origin/${validated}`;
@@ -970,7 +976,7 @@ describe("wholesome — structural source-code assertions", () => {
           process.env.GITHUB_BASE_REF = originalBaseRef;
         }
       }
-    });
+    }, 60_000);
 
     it("prefers remote-tracking branch origin/branch over local branch to avoid stale local branch references", () => {
       const originalBaseRef = process.env.GITHUB_BASE_REF;
