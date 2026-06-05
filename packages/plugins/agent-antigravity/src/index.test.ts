@@ -16,6 +16,7 @@ const {
   mockRmSync,
   mockReadFileSync,
   mockWriteFileSync,
+  mockReadlinkSync,
   mockExecFileSync,
   mockSpawn,
 } = vi.hoisted(() => ({
@@ -32,6 +33,7 @@ const {
   mockRmSync: vi.fn(),
   mockReadFileSync: vi.fn(() => "{}"),
   mockWriteFileSync: vi.fn(),
+  mockReadlinkSync: vi.fn(() => "/mock/home/Library/Keychains"),
   mockExecFileSync: vi.fn(),
   mockSpawn: vi.fn(() => ({ unref: vi.fn() })),
 }));
@@ -73,6 +75,7 @@ vi.mock("node:fs", () => ({
     rmSync: mockRmSync,
     readFileSync: mockReadFileSync,
     writeFileSync: mockWriteFileSync,
+    readlinkSync: mockReadlinkSync,
   },
   mkdirSync: mockMkdirSync,
   existsSync: mockExistsSync,
@@ -84,6 +87,7 @@ vi.mock("node:fs", () => ({
   rmSync: mockRmSync,
   readFileSync: mockReadFileSync,
   writeFileSync: mockWriteFileSync,
+  readlinkSync: mockReadlinkSync,
 }));
 
 import { create } from "./index.js";
@@ -467,53 +471,68 @@ describe("antigravity getEnvironment", () => {
     expect(writtenTrustedFolders).toBe("");
   });
 
-  it("ensures no keychain symlinks or mutations in headless mode and fails closed if removal fails", () => {
+  it("always symlinks Library/Keychains to the real user keychains on Darwin, even in headless mode", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");
     mockPlatform.mockReturnValue("darwin");
 
-    // Force headless mode via env override and clearing TTY/SSH env variables
-    const originalEnv = { ...process.env };
-    process.env.AO_HEADLESS = "true";
-    process.env.AO_INTERACTIVE = "false";
-    delete process.env.TERM_PROGRAM;
-    delete process.env.COLORTERM;
-    delete process.env.SSH_TTY;
-    delete process.env.SSH_CLIENT;
-    delete process.env.SSH_CONNECTION;
+    mockLstatSync.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+    mockReadlinkSync.mockReturnValue("/Users/mockuser/Library/Keychains");
 
-    try {
-      // 1. Success case: verifies no security commands are run and existing symlink is removed
-      mockExecFileSync.mockReset();
-      mockSymlinkSync.mockReset();
-      mockUnlinkSync.mockReset();
-      
-      mockLstatSync.mockImplementation(() => ({
-        isSymbolicLink: () => true,
-      } as any));
-      mockExistsSync.mockImplementation(() => true);
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
 
-      const env = agent.getEnvironment(makeLaunchConfig());
-      expect(env).toBeDefined();
+    expect(mockMkdirSync).toHaveBeenCalledWith(
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library"),
+      { recursive: true }
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      "/Users/mockuser/Library/Keychains",
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Keychains")
+    );
+  });
 
-      // No security default-keychain or create-keychain should be called
-      expect(mockExecFileSync).not.toHaveBeenCalled();
-      // The symlink should be unlinked
-      expect(mockUnlinkSync).toHaveBeenCalled();
+  it("does not recreate the symlink if it already exists and points to the correct target", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
 
-      // 2. Failure/Fail-Closed case: if unlink fails, we throw an error (fail-closed)
-      mockUnlinkSync.mockImplementation((filepath) => {
-        if (typeof filepath === "string" && filepath.includes("Keychains")) {
-          throw new Error("mocked unlink failure");
-        }
-      });
+    mockLstatSync.mockImplementation(() => ({
+      isSymbolicLink: () => true,
+    } as any));
+    mockReadlinkSync.mockReturnValue("/Users/mockuser/Library/Keychains");
 
-      expect(() => agent.getEnvironment(makeLaunchConfig())).toThrow(
-        /Headless safety check failed/
-      );
-    } finally {
-      process.env = originalEnv;
-    }
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    const keychainCalls = mockSymlinkSync.mock.calls.filter(call => call[1].includes("Keychains"));
+    expect(keychainCalls.length).toBe(0);
+    const keychainUnlinks = mockUnlinkSync.mock.calls.filter(call => call[0].includes("Keychains"));
+    expect(keychainUnlinks.length).toBe(0);
+  });
+
+  it("recreates the symlink if it points to an incorrect target", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    mockLstatSync.mockImplementation(() => ({
+      isSymbolicLink: () => true,
+    } as any));
+    mockReadlinkSync.mockReturnValue("/wrong/path");
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    expect(mockUnlinkSync).toHaveBeenCalledWith(
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Keychains")
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      "/Users/mockuser/Library/Keychains",
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Keychains")
+    );
   });
 
   it("skips writing global trustedFolders.json if lock acquisition times out to prevent clobbering", () => {
