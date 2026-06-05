@@ -216,6 +216,7 @@ export async function fetchMergeGateState(
             const author = c.user?.login?.toLowerCase() ?? "";
             const isCR = author === "coderabbitai" || author === "coderabbitai[bot]";
             if (!isCR) return false;
+            if (!c.body || c.body.length > 200) return false;
             const commentTime = new Date(c.created_at).getTime();
             if (commentTime < headTime) return false;
             return /^\s*\[approve\]\s*$/im.test(c.body);
@@ -227,8 +228,8 @@ export async function fetchMergeGateState(
           }
         }
       }
-    } catch {
-      // fallback failed, crApproved remains false
+    } catch (err) {
+      console.warn("[skeptic] CodeRabbit comment-based approval fallback failed:", err);
     }
   }
 

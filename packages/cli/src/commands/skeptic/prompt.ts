@@ -300,7 +300,6 @@ export function buildSkepticPrompt(
     "        from 14a, no Goals, no Tenets that imply a scope), do not FAIL Gate 8 for scope.",
     "        Instead note 'no scope claims found' and only FAIL if changes are clearly",
     "        unrelated to the PR intent. Scope ambiguity is informational, not a failure.",
-    "    15. DO NOT flag leading spaces in package names or owner handles if the space is simply part of a command parameter (e.g. '--filter @jleechanorg') or YAML indentation. The package name '@jleechanorg/ao-autonomous-harness' and owner '@core' are standard and valid in this repository.",
     "",
     "OUTPUT FORMAT:",
     "",
