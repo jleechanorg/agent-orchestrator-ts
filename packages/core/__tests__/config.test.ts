@@ -1,19 +1,27 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll } from "vitest";
 import { mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadConfig, findConfigFile } from "../src/config.js";
 import { ConfigNotFoundError } from "../src/types.js";
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
   return {
     ...actual,
-    homedir: () => process.cwd(), // Will point to testDir during tests
+    homedir: () => process.env["TEST_HOME_DIR"] || actual.homedir(),
   };
 });
 
+let loadConfig: typeof import("../src/config.js").loadConfig;
+let findConfigFile: typeof import("../src/config.js").findConfigFile;
+
 describe("Config Loading", () => {
+  beforeAll(async () => {
+    const configModule = await import("../src/config.js");
+    loadConfig = configModule.loadConfig;
+    findConfigFile = configModule.findConfigFile;
+  });
+
   let testDir: string;
   let originalCwd: string;
   let originalEnv: NodeJS.ProcessEnv;
@@ -22,6 +30,9 @@ describe("Config Loading", () => {
     // Create temp test directory
     testDir = join(tmpdir(), `ao-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
+
+    // Set TEST_HOME_DIR for any cached config-topology modules
+    process.env["TEST_HOME_DIR"] = testDir;
 
     // Save original state
     originalCwd = process.cwd();
@@ -33,6 +44,7 @@ describe("Config Loading", () => {
     delete process.env["AO_PROD_CONFIG_PATH"];
     delete process.env["AO_CONFIG_STAGING_PATH"];
     delete process.env["AO_PRODUCTION_CONFIG_PATH"];
+    delete process.env["HERMES_HOME"];
 
     // Change to test directory
     process.chdir(testDir);
