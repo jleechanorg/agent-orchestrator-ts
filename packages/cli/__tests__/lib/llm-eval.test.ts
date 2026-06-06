@@ -25,7 +25,7 @@ vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
   resolveCodexBinary: mockResolveCodexBinary,
 }));
 
-import { tryCodexPrint, tryClaudePrint, tryGeminiPrint, llmEval } from "../../src/lib/llm-eval.js";
+import { tryCodexPrint, tryClaudePrint, tryGeminiPrint, tryAgyPrint, llmEval } from "../../src/lib/llm-eval.js";
 
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
@@ -714,3 +714,46 @@ describe("llmEval — explicit model=gemini", () => {
     expect(mockExecFileSync).toHaveBeenCalled();
   });
 });
+
+describe("tryAgyPrint", () => {
+  const allowAgyCandidate = () => {
+    mockAccessSync.mockImplementation((path: unknown) => {
+      if (path === "/usr/local/bin/agy" || path === "agy") return undefined;
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+  };
+
+  it("passes cwd: '/tmp' to execFileSync when running agy", async () => {
+    const originalAgyBinary = process.env["AGY_BINARY"];
+    process.env["AGY_BINARY"] = "/usr/local/bin/agy";
+    try {
+      allowAgyCandidate();
+      mockExecFileSync.mockReturnValue(PASS_VERDICT);
+      const result = await tryAgyPrint("evaluate this");
+      expect(result.validVerdict).toBe(true);
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        "/usr/local/bin/agy",
+        ["--yolo", "-p", ""],
+        expect.objectContaining({
+          input: "evaluate this",
+          cwd: "/tmp",
+          encoding: "utf-8",
+        }),
+      );
+    } finally {
+      if (originalAgyBinary === undefined) delete process.env["AGY_BINARY"];
+      else process.env["AGY_BINARY"] = originalAgyBinary;
+    }
+  });
+});
+
+describe("llmEval model validation", () => {
+  it("throws a clear error when options.model array contains an unknown model", async () => {
+    await expect(
+      llmEval("test prompt", { model: ["codex", "invalid-model"] })
+    ).rejects.toThrow('Invalid model in options.model: "invalid-model".');
+  });
+});
+

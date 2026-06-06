@@ -331,11 +331,12 @@ export async function runSkepticReview(
   // Build the model chain. If a list is provided, use it as the explicit chain.
   // If a single model is provided, start from that position in FALLBACK_CHAIN.
   // Default starts from codex (index 0).
-  const chain: typeof FALLBACK_CHAIN = Array.isArray(model)
-    ? model
-    : model
-    ? FALLBACK_CHAIN.slice(Math.max(0, FALLBACK_CHAIN.indexOf(model)))
-    : FALLBACK_CHAIN.slice(0);
+  const chain: typeof FALLBACK_CHAIN =
+    Array.isArray(model) && model.length > 0
+      ? model
+      : model && !Array.isArray(model)
+      ? FALLBACK_CHAIN.slice(Math.max(0, FALLBACK_CHAIN.indexOf(model)))
+      : FALLBACK_CHAIN.slice(0);
 
   const infraErrors: string[] = [];
 

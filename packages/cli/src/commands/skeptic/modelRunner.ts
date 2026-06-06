@@ -22,6 +22,11 @@ export async function runSkepticEvaluation(
   if (model !== undefined) {
     const models = Array.isArray(model) ? model : [model];
     for (const m of models) {
+      if (m === "cursor") {
+        throw new Error(
+          `Unsupported skeptic model: "cursor". Supported models are: codex, claude, gemini, minimax, agy.`,
+        );
+      }
       if (!SUPPORTED_MODELS.includes(m as SupportedModel)) {
         throw new Error(
           `Unsupported skeptic model: "${m}". Supported models are: ${[...SUPPORTED_MODELS].join(", ")}.`,

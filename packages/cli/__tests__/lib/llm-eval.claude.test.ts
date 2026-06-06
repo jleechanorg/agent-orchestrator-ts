@@ -21,7 +21,7 @@ vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
   resolveCodexBinary: mockResolveCodexBinary,
 }));
 
-import { llmEval, tryClaudePrint } from "../../src/lib/llm-eval.js";
+import { llmEval, tryClaudePrint, tryMinimaxPrint } from "../../src/lib/llm-eval.js";
 
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
@@ -105,6 +105,62 @@ describe("tryClaudePrint", () => {
         timeout: 300_000,
       }),
     );
+  });
+
+  it("does not include minimax-specific env in tryClaudePrint even if MINIMAX_API_KEY is configured", async () => {
+    const originalMinimaxKey = process.env["MINIMAX_API_KEY"];
+    const originalAnthropicKey = process.env["ANTHROPIC_API_KEY"];
+    process.env["MINIMAX_API_KEY"] = "minimax-test-key";
+    process.env["MINIMAX_ANTHROPIC_BASE_URL"] = "https://minimax-base-url";
+    process.env["ANTHROPIC_API_KEY"] = "real-anthropic-key";
+    try {
+      allowFirstCandidate();
+      mockExecFileSync.mockReturnValue(PASS_VERDICT);
+      await tryClaudePrint("evaluate this");
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        expect.stringMatching(/(^|\/)claude$/),
+        ["--bare", "--dangerously-skip-permissions", "--print"],
+        expect.objectContaining({
+          env: expect.objectContaining({
+            ANTHROPIC_API_KEY: "real-anthropic-key",
+          }),
+        }),
+      );
+      const callArgs = mockExecFileSync.mock.calls[0][2];
+      expect(callArgs.env.ANTHROPIC_BASE_URL).not.toBe("https://minimax-base-url");
+    } finally {
+      if (originalMinimaxKey === undefined) delete process.env["MINIMAX_API_KEY"];
+      else process.env["MINIMAX_API_KEY"] = originalMinimaxKey;
+      if (originalAnthropicKey === undefined) delete process.env["ANTHROPIC_API_KEY"];
+      else process.env["ANTHROPIC_API_KEY"] = originalAnthropicKey;
+      delete process.env["MINIMAX_ANTHROPIC_BASE_URL"];
+    }
+  });
+
+  it("injects minimax credentials when calling tryMinimaxPrint", async () => {
+    const originalMinimaxKey = process.env["MINIMAX_API_KEY"];
+    process.env["MINIMAX_API_KEY"] = "minimax-test-key";
+    process.env["MINIMAX_ANTHROPIC_BASE_URL"] = "https://minimax-base-url";
+    try {
+      allowFirstCandidate();
+      mockExecFileSync.mockReturnValue(PASS_VERDICT);
+      const result = await tryMinimaxPrint("evaluate this");
+      expect(result.validVerdict).toBe(true);
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        expect.stringMatching(/(^|\/)claude$/),
+        ["--bare", "--dangerously-skip-permissions", "--print"],
+        expect.objectContaining({
+          env: expect.objectContaining({
+            ANTHROPIC_API_KEY: "minimax-test-key",
+            ANTHROPIC_BASE_URL: "https://minimax-base-url",
+          }),
+        }),
+      );
+    } finally {
+      if (originalMinimaxKey === undefined) delete process.env["MINIMAX_API_KEY"];
+      else process.env["MINIMAX_API_KEY"] = originalMinimaxKey;
+      delete process.env["MINIMAX_ANTHROPIC_BASE_URL"];
+    }
   });
 
   it("returns validVerdict=false with error string when VERDICT is missing", async () => {

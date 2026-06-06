@@ -206,6 +206,17 @@ describe("runSkepticReview", () => {
     );
   });
 
+  it("falls back to FALLBACK_CHAIN when model option is an empty array", async () => {
+    const session = makeSession();
+    await runSkepticReview(session, { model: [] });
+    expect(execFileMock).toHaveBeenCalledWith(
+      "ao",
+      expect.arrayContaining(["--model", "codex"]),
+      expect.any(Object),
+    );
+  });
+
+
   it("skips --dry-run by default (postComment=true)", async () => {
     const session = makeSession();
     await runSkepticReview(session, { postComment: true });

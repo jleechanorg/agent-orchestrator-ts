@@ -208,7 +208,6 @@ function makeClaudeExecOptions(
     cwd: "/tmp",
     env: {
       ...process.env,
-      ...minimaxEnv(),
     },
   };
 }
@@ -457,6 +456,7 @@ export async function tryAgyPrint(prompt: string): Promise<LlmEvalResult> {
           timeout: LLM_EVAL_TIMEOUT_MS,
           maxBuffer: 10 * 1024 * 1024,
           stdio: ["pipe", "pipe", "ignore"],
+          cwd: "/tmp",
         },
       );
       const output = result.trim();
@@ -549,25 +549,34 @@ export async function tryMinimaxPrint(prompt: string): Promise<LlmEvalResult> {
  * Pass a string[] to define an explicit ordered chain (e.g. ["minimax", "codex"]).
  * cursor is accepted for CLI compatibility but excluded: cursor-agent blocks on Workspace Trust.
  */
+export type ChainModel = "codex" | "claude" | "gemini" | "minimax" | "agy";
+
 export async function llmEval(
   prompt: string,
-  options: { model?: "codex" | "claude" | "gemini" | "minimax" | "agy" | "cursor" | string[] } = {},
+  options: { model?: ChainModel | ChainModel[] | "cursor" } = {},
 ): Promise<string> {
   const { model } = options;
 
   const isMissingVerdict = (err?: string) =>
     err !== undefined && /missing VERDICT/i.test(err);
 
-  type ChainModel = "codex" | "claude" | "gemini" | "minimax" | "agy";
   const DEFAULT_CHAIN: ChainModel[] = ["codex", "claude", "gemini", "minimax", "agy"];
 
   let ordered: ChainModel[];
   if (Array.isArray(model)) {
-    // Explicit chain from caller — filter to known models, preserve order
-    ordered = model.filter((m): m is ChainModel => DEFAULT_CHAIN.includes(m as ChainModel));
-    if (ordered.length === 0) ordered = DEFAULT_CHAIN;
+    // Explicit chain from caller — validate all elements are ChainModel
+    const filteredOrdered = model.filter((m): m is ChainModel => DEFAULT_CHAIN.includes(m as ChainModel));
+    if (filteredOrdered.length !== model.length) {
+      const unknownModel = model.find((m) => !DEFAULT_CHAIN.includes(m as ChainModel));
+      throw new Error(
+        `Invalid model in options.model: "${unknownModel}". Expected all elements to be ChainModel values from DEFAULT_CHAIN.`
+      );
+    }
+    ordered = filteredOrdered;
+  } else if (model === undefined) {
+    ordered = DEFAULT_CHAIN;
   } else {
-    const preferred = (model ?? "codex") as string;
+    const preferred = model as string;
     const startIdx = DEFAULT_CHAIN.findIndex((m) => m === preferred);
     ordered = startIdx >= 0 ? [...DEFAULT_CHAIN.slice(startIdx), ...DEFAULT_CHAIN.slice(0, startIdx)] : DEFAULT_CHAIN;
   }
