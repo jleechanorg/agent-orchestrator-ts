@@ -11,18 +11,23 @@
 
 import { llmEval } from "../../lib/llm-eval.js";
 
-const SUPPORTED_MODELS = ["codex", "claude", "gemini", "cursor"] as const;
+const SUPPORTED_MODELS = ["codex", "claude", "gemini", "minimax", "agy", "cursor"] as const;
 type SupportedModel = (typeof SUPPORTED_MODELS)[number];
 
 export async function runSkepticEvaluation(
   prompt: string,
-  options: { model?: "codex" | "claude" | "gemini" | "cursor" } = {},
+  options: { model?: SupportedModel | SupportedModel[] } = {},
 ): Promise<string> {
-
-  if (options.model !== undefined && !SUPPORTED_MODELS.includes(options.model as SupportedModel)) {
-    throw new Error(
-      `Unsupported skeptic model: "${options.model}". Supported models are: ${[...SUPPORTED_MODELS].join(", ")}.`,
-    );
+  const { model } = options;
+  if (model !== undefined) {
+    const models = Array.isArray(model) ? model : [model];
+    for (const m of models) {
+      if (!SUPPORTED_MODELS.includes(m as SupportedModel)) {
+        throw new Error(
+          `Unsupported skeptic model: "${m}". Supported models are: ${[...SUPPORTED_MODELS].join(", ")}.`,
+        );
+      }
+    }
   }
-  return llmEval(prompt, { model: options.model });
+  return llmEval(prompt, { model });
 }

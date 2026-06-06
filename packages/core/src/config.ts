@@ -105,7 +105,7 @@ const ReactionConfigSchema = z.object({
     })
     .optional(),
   // bd-skp2: Skeptic review fields
-  skepticModel: z.enum(["codex", "claude", "gemini"]).optional(),
+  skepticModel: z.union([z.enum(["codex", "claude", "gemini", "minimax", "agy"]), z.array(z.enum(["codex", "claude", "gemini", "minimax", "agy"]))]).optional(),
   skepticPostComment: z.boolean().optional(),
   skepticExcludePaths: z.array(z.string()).optional(),
 });

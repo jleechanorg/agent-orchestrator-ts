@@ -13,11 +13,24 @@
 import type { Session, ReactionConfig, ReactionResult } from "./types.js";
 import { runSkepticReview } from "./skeptic-reviewer.js";
 
-const VALID_SKEPTIC_MODELS = ["codex", "claude", "gemini"] as const;
+const VALID_SKEPTIC_MODELS = ["codex", "claude", "gemini", "minimax", "agy"] as const;
 type SkepticModel = (typeof VALID_SKEPTIC_MODELS)[number];
 
 function isValidSkepticModel(model: string | undefined): model is SkepticModel {
-  return model === undefined || (VALID_SKEPTIC_MODELS as readonly string[]).includes(model);
+  return model !== undefined && (VALID_SKEPTIC_MODELS as readonly string[]).includes(model);
+}
+
+/** Returns the resolved model param for runSkepticReview.
+ * Single valid string → string (preserves existing behavior).
+ * Array → filtered SkepticModel[] (explicit chain).
+ * undefined / invalid → undefined (default chain). */
+function resolveSkepticModels(raw: string | string[] | undefined): SkepticModel | SkepticModel[] | undefined {
+  if (raw === undefined) return undefined;
+  if (Array.isArray(raw)) {
+    const valid = raw.filter(isValidSkepticModel);
+    return valid.length > 0 ? valid : undefined;
+  }
+  return isValidSkepticModel(raw) ? raw : undefined;
 }
 
 // =============================================================================
@@ -39,7 +52,7 @@ export async function runSkepticReviewReaction(params: {
   const { session, reactionConfig, reactionKey } = params;
 
   const rawModel = reactionConfig.skepticModel;
-  const skepticModel = isValidSkepticModel(rawModel) ? rawModel : undefined;
+  const skepticModel = resolveSkepticModels(rawModel);
   const skepticPostComment = reactionConfig.skepticPostComment ?? true;
   const excludePaths = reactionConfig.skepticExcludePaths;
 

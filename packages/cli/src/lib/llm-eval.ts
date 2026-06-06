@@ -420,40 +420,164 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
   }
 }
 
+/** Known agy (Google Antigravity/Gemini CLI) binary locations, tried in order. */
+const AGY_BINARY_CANDIDATES = [
+  process.env["AGY_BINARY"] ?? "",
+  process.env["HOME"] ? `${process.env["HOME"]}/.local/bin/agy` : "",
+  "/usr/local/bin/agy",
+  "/opt/homebrew/bin/agy",
+  "agy",
+].filter(Boolean);
+
+/**
+ * Run agy (Google Antigravity CLI) for headless evaluation.
+ * Fail-closed: missing VERDICT = failure.
+ */
+export async function tryAgyPrint(prompt: string): Promise<LlmEvalResult> {
+  const { execFileSync } = await import("node:child_process");
+
+  for (const candidate of AGY_BINARY_CANDIDATES) {
+    if (!candidate) continue;
+
+    if (candidate !== "agy") {
+      try {
+        accessSync(candidate, fsConstants.X_OK);
+      } catch {
+        continue;
+      }
+    }
+
+    try {
+      const result = execFileSync(
+        candidate,
+        ["--yolo", "-p", ""],
+        {
+          input: prompt,
+          encoding: "utf-8",
+          timeout: LLM_EVAL_TIMEOUT_MS,
+          maxBuffer: 10 * 1024 * 1024,
+          stdio: ["pipe", "pipe", "ignore"],
+        },
+      );
+      const output = result.trim();
+      if (!STRICT_VERDICT_RE.test(output)) {
+        return {
+          validVerdict: false,
+          output,
+          error: `agy output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+        };
+      }
+      return { validVerdict: true, output };
+    } catch (err: unknown) {
+      const errno = (err as NodeJS.ErrnoException).code;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (errno === "ENOENT") continue;
+      if (isUnavailable(msg, errno as string)) continue;
+      return { validVerdict: false, output: "", error: msg.split("\n")[0]?.slice(0, 300) };
+    }
+  }
+
+  return { validVerdict: false, output: "", error: undefined };
+}
+
+/**
+ * Run MiniMax via claude CLI with ANTHROPIC_BASE_URL override.
+ * Requires MINIMAX_API_KEY in env.
+ * Fail-closed: missing VERDICT = failure.
+ */
+export async function tryMinimaxPrint(prompt: string): Promise<LlmEvalResult> {
+  const apiKey = process.env["MINIMAX_API_KEY"];
+  if (!apiKey) {
+    return { validVerdict: false, output: "", error: undefined };
+  }
+  const baseUrl = process.env["MINIMAX_ANTHROPIC_BASE_URL"] ?? DEFAULT_MINIMAX_BASE_URL;
+  const { execFileSync } = await import("node:child_process");
+
+  for (const candidate of CLAUDE_BINARY_CANDIDATES) {
+    if (!candidate) continue;
+    if (candidate !== "claude") {
+      try {
+        accessSync(candidate, fsConstants.X_OK);
+      } catch {
+        continue;
+      }
+    }
+
+    try {
+      const result = execFileSync(
+        candidate,
+        ["--bare", "--dangerously-skip-permissions", "--print"],
+        {
+          ...makeClaudeExecOptions(prompt),
+          env: {
+            ...process.env,
+            ANTHROPIC_API_KEY: apiKey,
+            ANTHROPIC_BASE_URL: baseUrl,
+          },
+        },
+      );
+      const output = result.trim();
+      if (!STRICT_VERDICT_RE.test(output)) {
+        return {
+          validVerdict: false,
+          output,
+          error: `minimax output missing VERDICT line (got ${output.slice(0, 100)}...)`,
+        };
+      }
+      return { validVerdict: true, output };
+    } catch (err: unknown) {
+      const errno = (err as NodeJS.ErrnoException).code;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (errno === "ENOENT") continue;
+      if (isUnavailable(msg, errno as string)) continue;
+      return { validVerdict: false, output: "", error: msg.split("\n")[0]?.slice(0, 300) };
+    }
+  }
+
+  return { validVerdict: false, output: "", error: undefined };
+}
+
 /**
  * Run a skeptic-style LLM evaluation and return the raw output.
  *
  * @param prompt - The evaluation prompt (must contain VERDICT: PASS/FAIL criteria)
- * @param options.model - Prefer this model ("codex" | "claude" | "gemini" | "cursor"); default "codex"
+ * @param options.model - Prefer this model or ordered chain; default "codex"
  *
- * Headless fallback chain:
- *   codex → claude → gemini
+ * Headless fallback chain (default):
+ *   codex → claude → gemini → minimax → agy
  *
- * cursor is accepted for CLI compatibility but excluded:
- * cursor-agent blocks on Workspace Trust.
+ * Pass a string[] to define an explicit ordered chain (e.g. ["minimax", "codex"]).
+ * cursor is accepted for CLI compatibility but excluded: cursor-agent blocks on Workspace Trust.
  */
 export async function llmEval(
   prompt: string,
-  options: { model?: "codex" | "claude" | "gemini" | "cursor" } = {},
+  options: { model?: "codex" | "claude" | "gemini" | "minimax" | "agy" | "cursor" | string[] } = {},
 ): Promise<string> {
-  const preferred = options.model ?? "codex";
+  const { model } = options;
 
   const isMissingVerdict = (err?: string) =>
     err !== undefined && /missing VERDICT/i.test(err);
 
-  const chain: Array<"codex" | "claude" | "gemini"> = ["codex", "claude", "gemini"];
-  const preferredHeadless = preferred === "claude" ? "claude" : preferred === "gemini" ? "gemini" : "codex";
+  type ChainModel = "codex" | "claude" | "gemini" | "minimax" | "agy";
+  const DEFAULT_CHAIN: ChainModel[] = ["codex", "claude", "gemini", "minimax", "agy"];
 
-  // Rotate so a supported preferred model comes first, followed by the others.
-  const startIdx = Math.max(0, chain.indexOf(preferredHeadless));
-  const ordered = [...chain.slice(startIdx), ...chain.slice(0, startIdx)];
+  let ordered: ChainModel[];
+  if (Array.isArray(model)) {
+    // Explicit chain from caller — filter to known models, preserve order
+    ordered = model.filter((m): m is ChainModel => DEFAULT_CHAIN.includes(m as ChainModel));
+    if (ordered.length === 0) ordered = DEFAULT_CHAIN;
+  } else {
+    const preferred = (model ?? "codex") as string;
+    const startIdx = DEFAULT_CHAIN.findIndex((m) => m === preferred);
+    ordered = startIdx >= 0 ? [...DEFAULT_CHAIN.slice(startIdx), ...DEFAULT_CHAIN.slice(0, startIdx)] : DEFAULT_CHAIN;
+  }
 
   let lastError = "";
 
-  for (const model of ordered) {
+  for (const evalModel of ordered) {
     let result: LlmEvalResult;
 
-    switch (model) {
+    switch (evalModel) {
       case "codex":
         result = await tryCodexPrint(prompt);
         break;
@@ -463,12 +587,20 @@ export async function llmEval(
       case "gemini":
         result = await tryGeminiPrint(prompt);
         break;
+      case "minimax":
+        result = await tryMinimaxPrint(prompt);
+        break;
+      case "agy":
+        result = await tryAgyPrint(prompt);
+        break;
+      default:
+        continue;
     }
 
     if (result.validVerdict) return result.output;
 
     if (isMissingVerdict(result.error)) {
-      return `VERDICT: FAIL — ${model}: ${result.error}`;
+      return `VERDICT: FAIL — ${evalModel}: ${result.error}`;
     }
 
     if (result.error) {
@@ -483,7 +615,7 @@ export async function llmEval(
     // (tool IS installed but something went wrong); "not available" is a
     // fallback when no infra error has been encountered in the chain.
     if (!lastError) {
-      lastError = `${model}: not available`;
+      lastError = `${evalModel}: not available`;
     }
   }
 

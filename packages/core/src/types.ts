@@ -1247,8 +1247,8 @@ export interface ReactionConfig {
   };
 
   // bd-skp2: Skeptic review configuration
-  /** Skeptic review: alternate model to use for skeptic evaluation (e.g. "claude" or "gemini") */
-  skepticModel?: string;
+  /** Skeptic review: model(s) to use for skeptic evaluation. A list defines an explicit ordered fallback chain. Supported: "codex", "claude", "gemini", "minimax", "agy". */
+  skepticModel?: string | string[];
   /** Skeptic review: post verdict as PR comment (default: true) */
   skepticPostComment?: boolean;
   /**

@@ -123,7 +123,7 @@ export interface SkepticReviewResult {
 }
 
 /** Ordered fallback chain for skeptic LLM evaluation (bd-skp3). */
-const FALLBACK_CHAIN: Array<"codex" | "claude" | "gemini" | "cursor"> = ["codex", "claude", "gemini", "cursor"];
+const FALLBACK_CHAIN: Array<"codex" | "claude" | "gemini" | "minimax" | "agy" | "cursor"> = ["codex", "claude", "gemini", "minimax", "agy", "cursor"];
 
 // The nested skeptic CLI can spend up to 5 minutes per headless evaluator before
 // posting. Keep this wrapper above two-tool fallback time so slow reviews still
@@ -194,7 +194,7 @@ function extractVerdictFromError(
  */
 async function tryModel(
   session: Session,
-  model: "codex" | "claude" | "gemini" | "cursor",
+  model: "codex" | "claude" | "gemini" | "minimax" | "agy" | "cursor",
   postComment: boolean,
   triggerSha: string | undefined,
   requestId: string | undefined,
@@ -278,8 +278,8 @@ async function tryModel(
 export async function runSkepticReview(
   session: Session,
   options: {
-    /** Alternate model for skeptic evaluation */
-    model?: "codex" | "claude" | "gemini";
+    /** Model(s) for skeptic evaluation; a list defines an explicit ordered chain. */
+    model?: "codex" | "claude" | "gemini" | "minimax" | "agy" | Array<"codex" | "claude" | "gemini" | "minimax" | "agy">;
     /** Whether to post the VERDICT comment on the PR (default: true) */
     postComment?: boolean;
     /** Glob patterns for files to exclude from skeptic evaluation */
@@ -292,7 +292,7 @@ export async function runSkepticReview(
     return {
       verdict: "SKIPPED",
       details: "No PR associated with session — cannot run skeptic evaluation",
-      modelUsed: model ?? "codex",
+      modelUsed: (Array.isArray(model) ? model[0] : model) ?? "codex",
     };
   }
 
@@ -328,10 +328,14 @@ export async function runSkepticReview(
     );
   }
 
-  // Build the model chain: if a specific model is requested, start from that
-  // model's position in the chain. Default starts from codex (index 0).
-  const startIdx = model ? FALLBACK_CHAIN.indexOf(model) : 0;
-  const chain = FALLBACK_CHAIN.slice(startIdx >= 0 ? startIdx : 0);
+  // Build the model chain. If a list is provided, use it as the explicit chain.
+  // If a single model is provided, start from that position in FALLBACK_CHAIN.
+  // Default starts from codex (index 0).
+  const chain: typeof FALLBACK_CHAIN = Array.isArray(model)
+    ? model
+    : model
+    ? FALLBACK_CHAIN.slice(Math.max(0, FALLBACK_CHAIN.indexOf(model)))
+    : FALLBACK_CHAIN.slice(0);
 
   const infraErrors: string[] = [];
 
