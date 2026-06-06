@@ -124,7 +124,7 @@ export interface SkepticReviewResult {
 }
 
 /** Ordered fallback chain for skeptic LLM evaluation (bd-skp3). */
-const FALLBACK_CHAIN: Array<SkepticModel | "cursor"> = ["codex", "claude", "gemini", "minimax", "agy", "cursor"];
+const FALLBACK_CHAIN: SkepticModel[] = ["codex", "claude", "gemini", "minimax", "agy"];
 
 // The nested skeptic CLI can spend up to 5 minutes per headless evaluator before
 // posting. Keep this wrapper above two-tool fallback time so slow reviews still
@@ -195,7 +195,7 @@ function extractVerdictFromError(
  */
 async function tryModel(
   session: Session,
-  model: SkepticModel | "cursor",
+  model: SkepticModel,
   postComment: boolean,
   triggerSha: string | undefined,
   requestId: string | undefined,
@@ -329,14 +329,22 @@ export async function runSkepticReview(
     );
   }
 
+  // Filter out "cursor" or invalid models from options.model
+  const resolvedModel: SkepticModel | SkepticModel[] | undefined =
+    Array.isArray(model)
+      ? model.filter((m): m is SkepticModel => m !== "cursor")
+      : model === "cursor"
+      ? undefined
+      : model;
+
   // Build the model chain. If a list is provided, use it as the explicit chain.
   // If a single model is provided, start from that position in FALLBACK_CHAIN.
   // Default starts from codex (index 0).
   const chain: typeof FALLBACK_CHAIN =
-    Array.isArray(model) && model.length > 0
-      ? model
-      : model && !Array.isArray(model)
-      ? FALLBACK_CHAIN.slice(Math.max(0, FALLBACK_CHAIN.indexOf(model)))
+    Array.isArray(resolvedModel) && resolvedModel.length > 0
+      ? resolvedModel
+      : resolvedModel && !Array.isArray(resolvedModel)
+      ? FALLBACK_CHAIN.slice(Math.max(0, FALLBACK_CHAIN.indexOf(resolvedModel)))
       : FALLBACK_CHAIN.slice(0);
 
   const infraErrors: string[] = [];
