@@ -821,5 +821,11 @@ describe("llmEval model validation", () => {
       llmEval("test prompt", { model: ["codex", "invalid-model"] })
     ).rejects.toThrow('Invalid model in options.model: "invalid-model".');
   });
+
+  it("throws a clear error when options.model is an empty array", async () => {
+    await expect(
+      llmEval("test prompt", { model: [] })
+    ).rejects.toThrow("Invalid model: empty array; expected one or more ChainModel values.");
+  });
 });
 

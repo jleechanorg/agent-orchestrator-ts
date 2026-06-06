@@ -337,6 +337,13 @@ export async function runSkepticReview(
       ? undefined
       : model;
 
+  if (Array.isArray(model) && model.length === 0) {
+    throw new Error("options.model must contain at least one model.");
+  }
+  if (Array.isArray(resolvedModel) && resolvedModel.length === 0) {
+    throw new Error("options.model must contain at least one valid model.");
+  }
+
   // Build the model chain. If a list is provided, use it as the explicit chain.
   // If a single model is provided, start from that position in FALLBACK_CHAIN.
   // Default starts from codex (index 0).

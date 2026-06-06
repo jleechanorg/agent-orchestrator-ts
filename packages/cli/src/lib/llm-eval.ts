@@ -187,6 +187,10 @@ function makeClaudeExecOptions(
   cwd: string;
   env: Record<string, string | undefined>;
 } {
+  const env = { ...process.env };
+  delete env.ANTHROPIC_BASE_URL;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  delete env.MINIMAX_API_KEY;
   return {
     input: prompt,
     encoding: "utf-8",
@@ -194,9 +198,7 @@ function makeClaudeExecOptions(
     maxBuffer: 10 * 1024 * 1024,
     stdio: ["pipe", "pipe", "ignore"],
     cwd: "/tmp",
-    env: {
-      ...process.env,
-    },
+    env,
   };
 }
 
@@ -553,6 +555,11 @@ export async function llmEval(
 
   let ordered: ChainModel[];
   if (Array.isArray(model)) {
+    if (model.length === 0) {
+      throw new Error(
+        "Invalid model: empty array; expected one or more ChainModel values."
+      );
+    }
     // Explicit chain from caller — validate all elements are ChainModel
     const filteredOrdered = model.filter((m): m is ChainModel => DEFAULT_CHAIN.includes(m as ChainModel));
     if (filteredOrdered.length !== model.length) {

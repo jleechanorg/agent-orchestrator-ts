@@ -16,17 +16,12 @@ type SupportedModel = (typeof SUPPORTED_MODELS)[number];
 
 export async function runSkepticEvaluation(
   prompt: string,
-  options: { model?: SupportedModel | SupportedModel[] | "cursor" | Array<SupportedModel | "cursor"> } = {},
+  options: { model?: string | string[] } = {},
 ): Promise<string> {
   const { model } = options;
   if (model !== undefined) {
     const models = Array.isArray(model) ? model : [model];
     for (const m of models) {
-      if (m === "cursor") {
-        throw new Error(
-          `Unsupported skeptic model: "cursor". Supported models are: ${SUPPORTED_MODELS.join(", ")}.`,
-        );
-      }
       if (!SUPPORTED_MODELS.includes(m as SupportedModel)) {
         throw new Error(
           `Unsupported skeptic model: "${m}". Supported models are: ${SUPPORTED_MODELS.join(", ")}.`,

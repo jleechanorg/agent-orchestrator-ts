@@ -206,14 +206,18 @@ describe("runSkepticReview", () => {
     );
   });
 
-  it("falls back to FALLBACK_CHAIN when model option is an empty array", async () => {
+  it("throws an error when model option is an empty array", async () => {
     const session = makeSession();
-    await runSkepticReview(session, { model: [] });
-    expect(execFileMock).toHaveBeenCalledWith(
-      "ao",
-      expect.arrayContaining(["--model", "codex"]),
-      expect.any(Object),
-    );
+    await expect(
+      runSkepticReview(session, { model: [] })
+    ).rejects.toThrow("options.model must contain at least one model.");
+  });
+
+  it("throws an error when model option contains only invalid models", async () => {
+    const session = makeSession();
+    await expect(
+      runSkepticReview(session, { model: ["cursor"] })
+    ).rejects.toThrow("options.model must contain at least one valid model.");
   });
 
 
