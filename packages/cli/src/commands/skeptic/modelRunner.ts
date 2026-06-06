@@ -9,15 +9,14 @@
  * If no VERDICT is found in output, the caller treats it as FAIL (fail-closed).
  */
 
-import { llmEval } from "../../lib/llm-eval.js";
-import type { ChainModel } from "../../lib/llm-eval.js";
+import { llmEval, type ChainModel } from "../../lib/llm-eval.js";
 
-const SUPPORTED_MODELS = ["codex", "claude", "gemini", "minimax", "agy", "cursor"] as const;
+const SUPPORTED_MODELS = ["codex", "claude", "gemini", "minimax", "agy"] as const;
 type SupportedModel = (typeof SUPPORTED_MODELS)[number];
 
 export async function runSkepticEvaluation(
   prompt: string,
-  options: { model?: SupportedModel | SupportedModel[] } = {},
+  options: { model?: SupportedModel | SupportedModel[] | "cursor" | Array<SupportedModel | "cursor"> } = {},
 ): Promise<string> {
   const { model } = options;
   if (model !== undefined) {
@@ -25,12 +24,12 @@ export async function runSkepticEvaluation(
     for (const m of models) {
       if (m === "cursor") {
         throw new Error(
-          `Unsupported skeptic model: "cursor". Supported models are: codex, claude, gemini, minimax, agy.`,
+          `Unsupported skeptic model: "cursor". Supported models are: ${SUPPORTED_MODELS.join(", ")}.`,
         );
       }
       if (!SUPPORTED_MODELS.includes(m as SupportedModel)) {
         throw new Error(
-          `Unsupported skeptic model: "${m}". Supported models are: ${[...SUPPORTED_MODELS].join(", ")}.`,
+          `Unsupported skeptic model: "${m}". Supported models are: ${SUPPORTED_MODELS.join(", ")}.`,
         );
       }
     }

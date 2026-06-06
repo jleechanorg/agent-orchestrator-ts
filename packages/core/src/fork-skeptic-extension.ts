@@ -12,26 +12,7 @@
 
 import type { Session, ReactionConfig, ReactionResult } from "./types.js";
 import { runSkepticReview } from "./skeptic-reviewer.js";
-
-const VALID_SKEPTIC_MODELS = ["codex", "claude", "gemini", "minimax", "agy"] as const;
-type SkepticModel = (typeof VALID_SKEPTIC_MODELS)[number];
-
-function isValidSkepticModel(model: string | undefined): model is SkepticModel {
-  return model !== undefined && (VALID_SKEPTIC_MODELS as readonly string[]).includes(model);
-}
-
-/** Returns the resolved model param for runSkepticReview.
- * Single valid string → string (preserves existing behavior).
- * Array → filtered SkepticModel[] (explicit chain).
- * undefined / invalid → undefined (default chain). */
-function resolveSkepticModels(raw: string | string[] | undefined): SkepticModel | SkepticModel[] | undefined {
-  if (raw === undefined) return undefined;
-  if (Array.isArray(raw)) {
-    const valid = raw.filter(isValidSkepticModel);
-    return valid.length > 0 ? valid : undefined;
-  }
-  return isValidSkepticModel(raw) ? raw : undefined;
-}
+import { resolveSkepticModels } from "./skeptic-model-schema.js";
 
 // =============================================================================
 // Skeptic-review reaction — core implementation

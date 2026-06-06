@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ConfigNotFoundError, type OrchestratorConfig } from "./types.js";
+import { skepticModelSchema } from "./skeptic-model-schema.js";
 import { applyEnvSource } from "./env-source.js";
 import {
   findManagedConfigFile,
@@ -105,7 +106,7 @@ const ReactionConfigSchema = z.object({
     })
     .optional(),
   // bd-skp2: Skeptic review fields
-  skepticModel: z.union([z.enum(["codex", "claude", "gemini", "minimax", "agy"]), z.array(z.enum(["codex", "claude", "gemini", "minimax", "agy"]))]).optional(),
+  skepticModel: skepticModelSchema.optional(),
   skepticPostComment: z.boolean().optional(),
   skepticExcludePaths: z.array(z.string()).optional(),
 });

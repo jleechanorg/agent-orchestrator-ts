@@ -15,6 +15,8 @@
  *   8. Lifecycle Manager (core, not pluggable)
  */
 
+import type { SkepticModel } from "./skeptic-model-schema.js";
+
 // =============================================================================
 // SESSION
 // =============================================================================
@@ -1248,7 +1250,7 @@ export interface ReactionConfig {
 
   // bd-skp2: Skeptic review configuration
   /** Skeptic review: model(s) to use for skeptic evaluation. A list defines an explicit ordered fallback chain. Supported: "codex", "claude", "gemini", "minimax", "agy". */
-  skepticModel?: string | string[];
+  skepticModel?: SkepticModel | SkepticModel[];
   /** Skeptic review: post verdict as PR comment (default: true) */
   skepticPostComment?: boolean;
   /**

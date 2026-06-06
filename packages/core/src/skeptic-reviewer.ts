@@ -22,6 +22,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Session } from "./types.js";
+import type { SkepticModel } from "./skeptic-model-schema.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -123,7 +124,7 @@ export interface SkepticReviewResult {
 }
 
 /** Ordered fallback chain for skeptic LLM evaluation (bd-skp3). */
-const FALLBACK_CHAIN: Array<"codex" | "claude" | "gemini" | "minimax" | "agy" | "cursor"> = ["codex", "claude", "gemini", "minimax", "agy", "cursor"];
+const FALLBACK_CHAIN: Array<SkepticModel | "cursor"> = ["codex", "claude", "gemini", "minimax", "agy", "cursor"];
 
 // The nested skeptic CLI can spend up to 5 minutes per headless evaluator before
 // posting. Keep this wrapper above two-tool fallback time so slow reviews still
@@ -194,7 +195,7 @@ function extractVerdictFromError(
  */
 async function tryModel(
   session: Session,
-  model: "codex" | "claude" | "gemini" | "minimax" | "agy" | "cursor",
+  model: SkepticModel | "cursor",
   postComment: boolean,
   triggerSha: string | undefined,
   requestId: string | undefined,
@@ -279,7 +280,7 @@ export async function runSkepticReview(
   session: Session,
   options: {
     /** Model(s) for skeptic evaluation; a list defines an explicit ordered chain. */
-    model?: "codex" | "claude" | "gemini" | "minimax" | "agy" | Array<"codex" | "claude" | "gemini" | "minimax" | "agy">;
+    model?: SkepticModel | "cursor" | Array<SkepticModel | "cursor">;
     /** Whether to post the VERDICT comment on the PR (default: true) */
     postComment?: boolean;
     /** Glob patterns for files to exclude from skeptic evaluation */
