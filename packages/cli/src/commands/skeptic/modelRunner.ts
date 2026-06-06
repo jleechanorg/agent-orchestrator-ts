@@ -10,6 +10,7 @@
  */
 
 import { llmEval } from "../../lib/llm-eval.js";
+import type { ChainModel } from "../../lib/llm-eval.js";
 
 const SUPPORTED_MODELS = ["codex", "claude", "gemini", "minimax", "agy", "cursor"] as const;
 type SupportedModel = (typeof SUPPORTED_MODELS)[number];
@@ -34,5 +35,5 @@ export async function runSkepticEvaluation(
       }
     }
   }
-  return llmEval(prompt, { model });
+  return llmEval(prompt, { model: model as ChainModel | ChainModel[] });
 }
