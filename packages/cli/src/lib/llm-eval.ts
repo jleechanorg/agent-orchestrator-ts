@@ -512,6 +512,7 @@ export async function tryMinimaxPrint(prompt: string): Promise<LlmEvalResult> {
           env: {
             ...process.env,
             ANTHROPIC_API_KEY: apiKey,
+            ANTHROPIC_AUTH_TOKEN: apiKey,
             ANTHROPIC_BASE_URL: baseUrl,
           },
         },

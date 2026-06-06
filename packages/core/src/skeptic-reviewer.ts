@@ -129,7 +129,7 @@ const FALLBACK_CHAIN: Array<SkepticModel | "cursor"> = ["codex", "claude", "gemi
 // The nested skeptic CLI can spend up to 5 minutes per headless evaluator before
 // posting. Keep this wrapper above two-tool fallback time so slow reviews still
 // emit verdicts before the GitHub polling wrapper expires.
-const SKEPTIC_VERIFY_TIMEOUT_MS = 15 * 60_000;
+const SKEPTIC_VERIFY_TIMEOUT_MS = 30 * 60_000;
 
 /**
  * Determine whether a CLI error is an infrastructure failure (ENOBUFS, spawn errors)
