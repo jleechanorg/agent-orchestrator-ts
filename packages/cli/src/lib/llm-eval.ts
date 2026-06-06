@@ -24,18 +24,7 @@ const LLM_EVAL_TIMEOUT_MS = 300_000;
 const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.5";
 const DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/anthropic";
 
-/** Env vars to propagate minimax credentials to codex/claude exec calls.
- * Only overrides ANTHROPIC_API_KEY when MINIMAX_API_KEY is actually set —
- * otherwise the child inherits the parent's env (e.g. AO_WORKER_ANTHROPIC_KEY). */
-function minimaxEnv(): Record<string, string> {
-  const apiKey = process.env["MINIMAX_API_KEY"];
-  const baseUrl = process.env["MINIMAX_ANTHROPIC_BASE_URL"];
-  if (!apiKey) return {}; // No override — child inherits parent env including ANTHROPIC_API_KEY
-  return {
-    ANTHROPIC_API_KEY: apiKey,
-    ANTHROPIC_BASE_URL: baseUrl || DEFAULT_MINIMAX_BASE_URL,
-  };
-}
+
 
 /** Known claude binary locations, tried in order. */
 const CLAUDE_BINARY_CANDIDATES = [
@@ -127,7 +116,6 @@ export async function tryCodexPrint(prompt: string): Promise<LlmEvalResult> {
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      ...minimaxEnv(),
     },
   };
 
