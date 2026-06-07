@@ -173,7 +173,7 @@ describe("notifier-openclaw", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("propagates SLACK_CHANNEL_ID and SLACK_THREAD_TS", async () => {
+  it("propagates SLACK_CHANNEL_ID and SLACK_THREAD_TS from process.env", async () => {
     process.env.SLACK_CHANNEL_ID = "C12345";
     process.env.SLACK_THREAD_TS = "1778592802.014579";
 
@@ -191,5 +191,44 @@ describe("notifier-openclaw", () => {
 
     delete process.env.SLACK_CHANNEL_ID;
     delete process.env.SLACK_THREAD_TS;
+  });
+
+  it("propagates slackThreadTs and slackChannelId from event.data (thread-safe)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const notifier = create({ token: "tok" });
+    const event = makeEvent({
+      sessionId: "ao-100",
+      data: {
+        slackThreadTs: "1780000000.111111",
+        slackChannelId: "C99999",
+      },
+    });
+    await notifier.notify(event);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.sessionKey).toBe("hook:ao:ao-100:thread:1780000000.111111");
+    expect(body.channel).toBe("slack");
+    expect(body.to).toBe("C99999");
+  });
+
+  it("propagates slackThreadTs and slackChannelId from NotifyContext in post (thread-safe)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const notifier = create({ token: "tok" });
+    await notifier.post!("alert message", {
+      sessionId: "ao-200",
+      slackThreadTs: "1780000000.222222",
+      slackChannelId: "C88888",
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.sessionKey).toBe("hook:ao:ao-200:thread:1780000000.222222");
+    expect(body.channel).toBe("slack");
+    expect(body.to).toBe("C88888");
   });
 });

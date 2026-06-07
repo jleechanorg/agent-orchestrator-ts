@@ -1002,6 +1002,8 @@ export interface NotifyContext {
   projectId?: string;
   prUrl?: string;
   channel?: string;
+  slackThreadTs?: string;
+  slackChannelId?: string;
 }
 
 // =============================================================================

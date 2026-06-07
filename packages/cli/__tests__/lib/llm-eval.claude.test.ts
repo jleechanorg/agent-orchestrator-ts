@@ -246,6 +246,42 @@ describe("tryClaudePrint", () => {
     expect(result.validVerdict).toBe(true);
     expect(result.output).toBe("VERDICT: PASS");
   });
+
+  it("retries on 429 rate-limit error and returns validVerdict=true if retry succeeds", async () => {
+    allowFirstCandidate();
+    // First call throws a 429 rate-limit error; second call succeeds with PASS_VERDICT
+    mockExecFileSync
+      .mockImplementationOnce(() => {
+        throw new Error("HTTP 429 Too Many Requests — rate limit exceeded");
+      })
+      .mockReturnValueOnce(PASS_VERDICT);
+
+    const result = await tryClaudePrint("evaluate this");
+    expect(result.validVerdict).toBe(true);
+    expect(result.output).toBe(PASS_VERDICT);
+    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries on 429 rate-limit error in tryMinimaxPrint", async () => {
+    const originalMinimaxKey = process.env["MINIMAX_API_KEY"];
+    process.env["MINIMAX_API_KEY"] = "minimax-test-key";
+    try {
+      allowFirstCandidate();
+      mockExecFileSync
+        .mockImplementationOnce(() => {
+          throw new Error("HTTP 429 Too Many Requests");
+        })
+        .mockReturnValueOnce(PASS_VERDICT);
+
+      const result = await tryMinimaxPrint("evaluate this");
+      expect(result.validVerdict).toBe(true);
+      expect(result.output).toBe(PASS_VERDICT);
+      expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+    } finally {
+      if (originalMinimaxKey === undefined) delete process.env["MINIMAX_API_KEY"];
+      else process.env["MINIMAX_API_KEY"] = originalMinimaxKey;
+    }
+  });
 });
 
 describe("llmEval — explicit model=claude", () => {

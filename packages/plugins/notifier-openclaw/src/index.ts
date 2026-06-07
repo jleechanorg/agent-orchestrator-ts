@@ -194,8 +194,8 @@ export function create(config?: Record<string, unknown>): Notifier {
 
     async notify(event: OrchestratorEvent): Promise<void> {
       let sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
-      const slackThreadTs = process.env.SLACK_THREAD_TS;
-      const slackChannelId = process.env.SLACK_CHANNEL_ID;
+      const slackThreadTs = (event.data?.slackThreadTs as string | undefined) ?? process.env.SLACK_THREAD_TS;
+      const slackChannelId = (event.data?.slackChannelId as string | undefined) ?? process.env.SLACK_CHANNEL_ID;
       if (slackThreadTs) {
         sessionKey += `:thread:${slackThreadTs}`;
       }
@@ -211,8 +211,8 @@ export function create(config?: Record<string, unknown>): Notifier {
 
     async notifyWithActions(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void> {
       let sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
-      const slackThreadTs = process.env.SLACK_THREAD_TS;
-      const slackChannelId = process.env.SLACK_CHANNEL_ID;
+      const slackThreadTs = (event.data?.slackThreadTs as string | undefined) ?? process.env.SLACK_THREAD_TS;
+      const slackChannelId = (event.data?.slackChannelId as string | undefined) ?? process.env.SLACK_CHANNEL_ID;
       if (slackThreadTs) {
         sessionKey += `:thread:${slackThreadTs}`;
       }
@@ -232,8 +232,8 @@ export function create(config?: Record<string, unknown>): Notifier {
     async post(message: string, context?: NotifyContext): Promise<string | null> {
       const sessionId = context?.sessionId ? sanitizeSessionId(context.sessionId) : "default";
       let sessionKey = `${sessionKeyPrefix}${sessionId}`;
-      const slackThreadTs = process.env.SLACK_THREAD_TS;
-      const slackChannelId = process.env.SLACK_CHANNEL_ID;
+      const slackThreadTs = context?.slackThreadTs ?? process.env.SLACK_THREAD_TS;
+      const slackChannelId = context?.slackChannelId ?? process.env.SLACK_CHANNEL_ID;
       if (slackThreadTs) {
         sessionKey += `:thread:${slackThreadTs}`;
       }
