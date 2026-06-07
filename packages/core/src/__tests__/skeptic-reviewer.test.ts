@@ -220,6 +220,13 @@ describe("runSkepticReview", () => {
     ).rejects.toThrow("options.model must contain at least one valid model.");
   });
 
+  it("throws an error when model option is a single invalid model", async () => {
+    const session = makeSession();
+    await expect(
+      runSkepticReview(session, { model: "cursor" })
+    ).rejects.toThrow("options.model must contain at least one valid model.");
+  });
+
 
   it("skips --dry-run by default (postComment=true)", async () => {
     const session = makeSession();

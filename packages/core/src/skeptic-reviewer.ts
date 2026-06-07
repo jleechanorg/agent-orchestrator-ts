@@ -22,7 +22,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Session } from "./types.js";
-import type { SkepticModel } from "./skeptic-model-schema.js";
+import { type SkepticModel, isValidSkepticModel } from "./skeptic-model-schema.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -329,20 +329,19 @@ export async function runSkepticReview(
     );
   }
 
-  // Filter out "cursor" or invalid models from options.model
-  const resolvedModel: SkepticModel | SkepticModel[] | undefined =
-    Array.isArray(model)
-      ? model.filter((m): m is SkepticModel => m !== "cursor")
-      : model === "cursor"
-      ? undefined
-      : model;
+  if (model !== undefined) {
+    const models = Array.isArray(model) ? model : [model];
+    if (models.length === 0) {
+      throw new Error("options.model must contain at least one model.");
+    }
+    for (const m of models) {
+      if (!isValidSkepticModel(m)) {
+        throw new Error("options.model must contain at least one valid model.");
+      }
+    }
+  }
 
-  if (Array.isArray(model) && model.length === 0) {
-    throw new Error("options.model must contain at least one model.");
-  }
-  if (Array.isArray(resolvedModel) && resolvedModel.length === 0) {
-    throw new Error("options.model must contain at least one valid model.");
-  }
+  const resolvedModel = model as SkepticModel | SkepticModel[] | undefined;
 
   // Build the model chain. If a list is provided, use it as the explicit chain.
   // If a single model is provided, start from that position in FALLBACK_CHAIN.
