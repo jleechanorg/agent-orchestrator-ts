@@ -845,6 +845,7 @@ function prInfoFromView(
     baseRefName: string;
     isDraft: boolean;
     author?: string;
+    updatedAt?: string;
   },
   projectRepo: string,
 ): PRInfo {
@@ -860,6 +861,7 @@ function prInfoFromView(
     baseBranch: data.baseRefName,
     isDraft: data.isDraft,
     ...(data.author !== undefined ? { author: data.author } : {}),
+    ...(data.updatedAt !== undefined ? { updatedAt: data.updatedAt } : {}),
   };
 }
 
@@ -1569,6 +1571,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         base: { ref: string };
         draft: boolean;
         user: { login: string };
+        updated_at: string;
       };
 
       // Errors propagate naturally so the caller can distinguish "no open PRs"
@@ -1588,6 +1591,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             baseRefName: pr.base.ref,
             isDraft: pr.draft,
             author: pr.user.login,
+            updatedAt: pr.updated_at,
           },
           repoFull,
         ),

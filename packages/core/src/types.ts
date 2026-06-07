@@ -835,6 +835,8 @@ export interface PRInfo {
   state?: PRState;
   /** PR author login — used by merge-gate to filter PR-author comments from blocking counts */
   author?: string;
+  /** ISO string of when PR was last updated (optional) */
+  updatedAt?: string;
 }
 
 export type PRState = "open" | "merged" | "closed";

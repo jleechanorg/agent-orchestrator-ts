@@ -259,8 +259,21 @@ export async function runLocalSkepticCron(
     }
   };
 
-  // Collect eligible PRs (non-draft) in a single pass before running
-  const eligiblePRs = openPRs.filter(pr => !pr.isDraft);
+  // Collect eligible PRs (non-draft, modified within last 24 hours) in a single pass before running
+  const eligiblePRs = openPRs.filter((pr) => {
+    if (pr.isDraft) return false;
+    if (pr.updatedAt) {
+      const updatedAtMs = Date.parse(pr.updatedAt);
+      if (Number.isFinite(updatedAtMs)) {
+        const ageMs = Date.now() - updatedAtMs;
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        if (ageMs > oneDayMs) {
+          return false;
+        }
+      }
+    }
+    return true;
+  });
 
   // Run in bounded batches; Promise.allSettled so one observer throw
   // or rejection does not cancel the rest of the batch.

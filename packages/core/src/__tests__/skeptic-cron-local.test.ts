@@ -1053,4 +1053,50 @@ describe("runLocalSkepticCron", () => {
     expect(result).toBe(0);
     expect(mockRunSkepticReview).not.toHaveBeenCalled();
   });
+
+  it("skips PRs modified more than 24 hours ago", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-old-pr",
+      },
+    );
+
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+  });
+
+  it("evaluates PRs modified within the last 24 hours", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: recentDate })]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-recent-pr",
+      },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+  });
 });
