@@ -47,7 +47,7 @@ export type ChainModel = "codex" | "claude" | "gemini" | "minimax" | "agy";
 
 export async function llmEval(
   prompt: string,
-  options: { model?: ChainModel | ChainModel[] | "cursor" } = {},
+  options: { model?: ChainModel | ChainModel[] } = {},
 ): Promise<string> {
   const { model } = options;
 

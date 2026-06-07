@@ -5,7 +5,7 @@ import {
   STRICT_VERDICT_RE,
   type LlmEvalResult,
   isUnavailable,
-  makeClaudeExecOptions,
+  execClaudeBinaryWithRetry,
 } from "./llm-eval-shared.js";
 
 /**
@@ -19,7 +19,6 @@ export async function tryMinimaxPrint(prompt: string): Promise<LlmEvalResult> {
     return { validVerdict: false, output: "", error: undefined };
   }
   const baseUrl = process.env["MINIMAX_ANTHROPIC_BASE_URL"] ?? DEFAULT_MINIMAX_BASE_URL;
-  const { execFileSync } = await import("node:child_process");
 
   for (const candidate of CLAUDE_BINARY_CANDIDATES) {
     if (!candidate) continue;
@@ -32,20 +31,11 @@ export async function tryMinimaxPrint(prompt: string): Promise<LlmEvalResult> {
     }
 
     try {
-      const result = execFileSync(
-        candidate,
-        ["--bare", "--dangerously-skip-permissions", "--print"],
-        {
-          ...makeClaudeExecOptions(prompt),
-          env: {
-            ...process.env,
-            ANTHROPIC_API_KEY: apiKey,
-            ANTHROPIC_AUTH_TOKEN: apiKey,
-            ANTHROPIC_BASE_URL: baseUrl,
-          },
-        },
-      );
-      const output = result.trim();
+      const output = await execClaudeBinaryWithRetry(candidate, prompt, {
+        ANTHROPIC_API_KEY: apiKey,
+        ANTHROPIC_AUTH_TOKEN: apiKey,
+        ANTHROPIC_BASE_URL: baseUrl,
+      });
       if (!STRICT_VERDICT_RE.test(output)) {
         return {
           validVerdict: false,
@@ -65,3 +55,4 @@ export async function tryMinimaxPrint(prompt: string): Promise<LlmEvalResult> {
 
   return { validVerdict: false, output: "", error: undefined };
 }
+

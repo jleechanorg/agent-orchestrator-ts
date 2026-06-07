@@ -100,3 +100,49 @@ export function makeClaudeExecOptions(
     env,
   };
 }
+
+/**
+ * Shared helper to execute the Claude CLI binary with 429 retry logic.
+ * Avoids duplication of retry loops between Claude and MiniMax providers.
+ */
+export async function execClaudeBinaryWithRetry(
+  candidate: string,
+  prompt: string,
+  envOverrides?: Record<string, string | undefined>,
+): Promise<string> {
+  const { execFileSync } = await import("node:child_process");
+  const baseOptions = makeClaudeExecOptions(prompt);
+  const options = {
+    ...baseOptions,
+    env: {
+      ...baseOptions.env,
+      ...envOverrides,
+    },
+  };
+
+  try {
+    const result = execFileSync(
+      candidate,
+      ["--bare", "--dangerously-skip-permissions", "--print"],
+      options,
+    );
+    return result.trim();
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      /\b429\b/i.test(msg) ||
+      msg.toLowerCase().includes("rate_limit") ||
+      msg.toLowerCase().includes("rate limit")
+    ) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const result = execFileSync(
+        candidate,
+        ["--bare", "--dangerously-skip-permissions", "--print"],
+        options,
+      );
+      return result.trim();
+    }
+    throw err;
+  }
+}
+

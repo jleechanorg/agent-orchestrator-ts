@@ -431,6 +431,26 @@ describe("runSkepticReview", () => {
   // Fallback chain tests (bd-skp3) — codex → claude → gemini → SKIPPED
   // ---------------------------------------------------------------------------
   describe("LLM fallback chain", () => {
+    it("respects the custom-ordered array chain when model is a list", async () => {
+      const enobufsError = Object.assign(new Error("spawn ENOBUFS"), {
+        code: "ENOBUFS",
+      });
+      execFileMock
+        .mockResolvedValueOnce({ stdout: "a".repeat(40), stderr: "" }) // gh api SHA
+        .mockResolvedValueOnce({ stdout: "[[]]", stderr: "" }) // gh api comments
+        .mockRejectedValueOnce(enobufsError) // minimax fails
+        .mockResolvedValueOnce({ stdout: "VERDICT: PASS\nAll good.", stderr: "" }); // agy succeeds
+
+      const session = makeSession();
+      const result = await runSkepticReview(session, { model: ["minimax", "agy"] });
+      expect(result.verdict).toBe("PASS");
+      expect(result.modelUsed).toBe("agy");
+
+      const aoCalls = execFileMock.mock.calls.filter((c) => c[0] === "ao");
+      const aoModels = aoCalls.map((c) => c[1][c[1].indexOf("--model") + 1]);
+      expect(aoModels).toEqual(["minimax", "agy"]);
+    });
+
     it("falls back to claude when codex fails with ENOBUFS", async () => {
       const enobufsError = Object.assign(new Error("spawn ENOBUFS"), {
         code: "ENOBUFS",

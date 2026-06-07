@@ -280,7 +280,7 @@ export async function runSkepticReview(
   session: Session,
   options: {
     /** Model(s) for skeptic evaluation; a list defines an explicit ordered chain. */
-    model?: SkepticModel | "cursor" | Array<SkepticModel | "cursor">;
+    model?: SkepticModel | SkepticModel[];
     /** Whether to post the VERDICT comment on the PR (default: true) */
     postComment?: boolean;
     /** Glob patterns for files to exclude from skeptic evaluation */

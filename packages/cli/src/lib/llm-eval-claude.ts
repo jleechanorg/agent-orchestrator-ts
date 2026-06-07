@@ -4,7 +4,7 @@ import {
   STRICT_VERDICT_RE,
   type LlmEvalResult,
   isAuthError,
-  makeClaudeExecOptions,
+  execClaudeBinaryWithRetry,
 } from "./llm-eval-shared.js";
 
 /**
@@ -12,8 +12,6 @@ import {
  * Fail-closed: missing VERDICT = failure.
  */
 export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
-  const { execFileSync } = await import("node:child_process");
-
   let firstInfraError: string | undefined;
   let allMissing = true;
 
@@ -39,12 +37,7 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
     }
 
     try {
-      const result = execFileSync(
-        candidate,
-        ["--bare", "--dangerously-skip-permissions", "--print"],
-        makeClaudeExecOptions(prompt),
-      );
-      const output = result.trim();
+      const output = await execClaudeBinaryWithRetry(candidate, prompt);
       if (!STRICT_VERDICT_RE.test(output)) {
         return {
           validVerdict: false,
@@ -69,43 +62,6 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
         continue;
       }
 
-      // 429 = MiniMax rate-limit. Retry once with 2s backoff; if still failing,
-      // continue to next candidate (another binary may not hit the same rate limit).
-      if (/\b429\b/i.test(msg) || msg.toLowerCase().includes("rate_limit") || msg.toLowerCase().includes("rate limit")) {
-        await new Promise((r) => setTimeout(r, 2000));
-        try {
-          const retryResult = execFileSync(
-            candidate,
-            ["--bare", "--dangerously-skip-permissions", "--print"],
-            makeClaudeExecOptions(prompt),
-          );
-          const retryOutput = retryResult.trim();
-          if (STRICT_VERDICT_RE.test(retryOutput)) {
-            return { validVerdict: true, output: retryOutput };
-          }
-          return {
-            validVerdict: false,
-            output: retryOutput,
-            error: `Claude output missing VERDICT line (got ${retryOutput.slice(0, 100)}...)`,
-          };
-        } catch (retryErr: unknown) {
-          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          // Retry 429: give up on this candidate, continue to next
-          if (/\b429\b/i.test(retryMsg) || retryMsg.toLowerCase().includes("rate_limit") || retryMsg.toLowerCase().includes("rate limit")) {
-            allMissing = false;
-            continue;
-          }
-          // Retry 401/403: auth is global — no other binary will help, return immediately
-          if (isAuthError(retryMsg)) {
-            return { validVerdict: false, output: "", error: undefined };
-          }
-          // Any other retry error: treat as infra error, try next candidate
-          allMissing = false;
-          if (!firstInfraError) firstInfraError = retryMsg;
-          continue;
-        }
-      }
-
       // 401/403 = auth failure. All binaries share the same credentials → return immediately.
       if (isAuthError(msg)) {
         return { validVerdict: false, output: "", error: undefined };
@@ -127,3 +83,4 @@ export async function tryClaudePrint(prompt: string): Promise<LlmEvalResult> {
   // At least one binary was found but all failed with infra errors
   return { validVerdict: false, output: "", error: firstInfraError };
 }
+
