@@ -100,6 +100,15 @@ describe("runSkepticReview", () => {
     expect(execMock).not.toHaveBeenCalled();
   });
 
+  it("skips when session has no PR and records modelUsed", async () => {
+    const sessionWithoutPr = makeSession({ pr: null });
+    const result = await runSkepticReview(sessionWithoutPr, { model: ["claude"] });
+    expect(result.verdict).toBe("SKIPPED");
+    expect(result.modelUsed).toBe("claude");
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(execMock).not.toHaveBeenCalled();
+  });
+
   it("calls gh api to fetch PR head SHA", async () => {
     const session = makeSession();
     await runSkepticReview(session);

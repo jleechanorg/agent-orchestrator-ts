@@ -16,8 +16,8 @@ describe("skeptic-model-schema", () => {
       expect(resolveSkepticModels("invalid")).toBeUndefined();
     });
 
-    it("resolves empty array to empty array", () => {
-      expect(resolveSkepticModels([])).toEqual([]);
+    it("resolves empty array to undefined", () => {
+      expect(resolveSkepticModels([])).toBeUndefined();
     });
 
     it("resolves array of valid models", () => {
@@ -36,6 +36,10 @@ describe("skeptic-model-schema", () => {
 
     it("validates array of valid models", () => {
       expect(skepticModelSchema.safeParse(["codex", "claude"]).success).toBe(true);
+    });
+
+    it("rejects empty arrays", () => {
+      expect(skepticModelSchema.safeParse([]).success).toBe(false);
     });
 
     it("rejects invalid models", () => {

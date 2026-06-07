@@ -2,6 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotifyAction, OrchestratorEvent } from "@jleechanorg/ao-core";
 import { create, manifest } from "./index.js";
 
+interface Payload {
+  message?: string;
+  sessionKey?: string;
+  wakeMode?: string;
+  deliver?: boolean;
+  channel?: string;
+  to?: string;
+}
+
 function makeEvent(overrides: Partial<OrchestratorEvent> = {}): OrchestratorEvent {
   return {
     id: "evt-1",
@@ -76,7 +85,7 @@ describe("notifier-openclaw", () => {
     const notifier = create({ token: "tok", sessionKeyPrefix: "hook:ao:" });
     await notifier.notify(makeEvent({ sessionId: "ao-12" }));
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Payload;
     expect(body.sessionKey).toBe("hook:ao:ao-12");
   });
 
@@ -87,7 +96,7 @@ describe("notifier-openclaw", () => {
     const notifier = create({ token: "tok" });
     await notifier.notify(makeEvent({ sessionId: "ao/12?x" }));
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Payload;
     expect(body.sessionKey).toBe("hook:ao:ao-12-x");
   });
 
@@ -99,7 +108,7 @@ describe("notifier-openclaw", () => {
     const actions: NotifyAction[] = [{ label: "retry" }, { label: "kill" }];
     await notifier.notifyWithActions!(makeEvent(), actions);
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Payload;
     expect(body.message).toContain("Actions available: retry, kill");
   });
 
@@ -110,7 +119,7 @@ describe("notifier-openclaw", () => {
     const notifier = create({ token: "tok" });
     await notifier.post!("ready", { sessionId: "ao-77" });
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Payload;
     expect(body.sessionKey).toBe("hook:ao:ao-77");
     expect(body.message).toBe("ready");
   });
@@ -122,7 +131,7 @@ describe("notifier-openclaw", () => {
     const notifier = create({ token: "tok" });
     await notifier.notify(makeEvent());
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Payload;
     expect(body.wakeMode).toBe("now");
     expect(body.deliver).toBe(true);
   });
@@ -134,7 +143,7 @@ describe("notifier-openclaw", () => {
     const notifier = create({ token: "tok", wakeMode: "next-heartbeat" });
     await notifier.notify(makeEvent());
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Payload;
     expect(body.wakeMode).toBe("next-heartbeat");
   });
 
@@ -208,7 +217,7 @@ describe("notifier-openclaw", () => {
       await notifier.notify(makeEvent({ sessionId: "ao-99" }));
 
       expect(fetchMock).toHaveBeenCalledOnce();
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Payload;
       expect(body.sessionKey).toBe("hook:ao:ao-99:thread:1778592802.014579");
       expect(body.channel).toBe("slack");
       expect(body.to).toBe("C12345");
@@ -225,7 +234,7 @@ describe("notifier-openclaw", () => {
       await notifier.notify(makeEvent({ sessionId: "ao-99" }));
 
       expect(fetchMock).toHaveBeenCalledOnce();
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Payload;
       expect(body.sessionKey).toBe("hook:ao:ao-99:thread:1778592802-014579-unsafe-value-");
     });
   });
@@ -245,7 +254,7 @@ describe("notifier-openclaw", () => {
     await notifier.notify(event);
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Payload;
     expect(body.sessionKey).toBe("hook:ao:ao-100:thread:1780000000.111111");
     expect(body.channel).toBe("slack");
     expect(body.to).toBe("C99999");
@@ -263,9 +272,30 @@ describe("notifier-openclaw", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Payload;
     expect(body.sessionKey).toBe("hook:ao:ao-200:thread:1780000000.222222");
     expect(body.channel).toBe("slack");
     expect(body.to).toBe("C88888");
+  });
+
+  it("guards against non-string slackThreadTs and slackChannelId", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const notifier = create({ token: "tok" });
+    const event = makeEvent({
+      sessionId: "ao-300",
+      data: {
+        slackThreadTs: { nested: "object" } as any,
+        slackChannelId: 12345 as any,
+      },
+    });
+    await notifier.notify(event);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Payload;
+    expect(body.sessionKey).toBe("hook:ao:ao-300");
+    expect(body.channel).toBeUndefined();
+    expect(body.to).toBeUndefined();
   });
 });

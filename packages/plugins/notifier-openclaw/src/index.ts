@@ -198,58 +198,92 @@ export function create(config?: Record<string, unknown>): Notifier {
 
     async notify(event: OrchestratorEvent): Promise<void> {
       let sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
-      const slackThreadTs = (event.data?.slackThreadTs as string | undefined) ?? process.env.SLACK_THREAD_TS;
-      const slackChannelId = (event.data?.slackChannelId as string | undefined) ?? process.env.SLACK_CHANNEL_ID;
-      if (slackThreadTs) {
+      
+      const rawSlackThreadTs = event.data?.slackThreadTs;
+      const slackThreadTs = typeof rawSlackThreadTs === "string" ? rawSlackThreadTs : process.env.SLACK_THREAD_TS;
+      
+      const rawSlackChannelId = event.data?.slackChannelId;
+      const slackChannelId = typeof rawSlackChannelId === "string" ? rawSlackChannelId : process.env.SLACK_CHANNEL_ID;
+
+      if (typeof slackThreadTs === "string") {
         sessionKey += `:thread:${sanitizeThreadTs(slackThreadTs)}`;
       }
-      await sendPayload({
+
+      const payload: OpenClawWebhookPayload = {
         message: formatEscalationMessage(event),
         name: senderName,
         sessionKey,
         wakeMode,
         deliver,
-        ...(slackChannelId ? { channel: "slack", to: slackChannelId } : {}),
-      });
+      };
+
+      if (typeof slackChannelId === "string") {
+        payload.channel = "slack";
+        payload.to = slackChannelId;
+      }
+
+      await sendPayload(payload);
     },
 
     async notifyWithActions(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void> {
       let sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
-      const slackThreadTs = (event.data?.slackThreadTs as string | undefined) ?? process.env.SLACK_THREAD_TS;
-      const slackChannelId = (event.data?.slackChannelId as string | undefined) ?? process.env.SLACK_CHANNEL_ID;
-      if (slackThreadTs) {
+
+      const rawSlackThreadTs = event.data?.slackThreadTs;
+      const slackThreadTs = typeof rawSlackThreadTs === "string" ? rawSlackThreadTs : process.env.SLACK_THREAD_TS;
+
+      const rawSlackChannelId = event.data?.slackChannelId;
+      const slackChannelId = typeof rawSlackChannelId === "string" ? rawSlackChannelId : process.env.SLACK_CHANNEL_ID;
+
+      if (typeof slackThreadTs === "string") {
         sessionKey += `:thread:${sanitizeThreadTs(slackThreadTs)}`;
       }
       const actionsLine = formatActionsLine(actions);
       const message = [formatEscalationMessage(event), actionsLine].filter(Boolean).join("\n");
 
-      await sendPayload({
+      const payload: OpenClawWebhookPayload = {
         message,
         name: senderName,
         sessionKey,
         wakeMode,
         deliver,
-        ...(slackChannelId ? { channel: "slack", to: slackChannelId } : {}),
-      });
+      };
+
+      if (typeof slackChannelId === "string") {
+        payload.channel = "slack";
+        payload.to = slackChannelId;
+      }
+
+      await sendPayload(payload);
     },
 
     async post(message: string, context?: NotifyContext): Promise<string | null> {
       const sessionId = context?.sessionId ? sanitizeSessionId(context.sessionId) : "default";
       let sessionKey = `${sessionKeyPrefix}${sessionId}`;
-      const slackThreadTs = context?.slackThreadTs ?? process.env.SLACK_THREAD_TS;
-      const slackChannelId = context?.slackChannelId ?? process.env.SLACK_CHANNEL_ID;
-      if (slackThreadTs) {
+
+      const rawSlackThreadTs = context?.slackThreadTs;
+      const slackThreadTs = typeof rawSlackThreadTs === "string" ? rawSlackThreadTs : process.env.SLACK_THREAD_TS;
+
+      const rawSlackChannelId = context?.slackChannelId;
+      const slackChannelId = typeof rawSlackChannelId === "string" ? rawSlackChannelId : process.env.SLACK_CHANNEL_ID;
+
+      if (typeof slackThreadTs === "string") {
         sessionKey += `:thread:${sanitizeThreadTs(slackThreadTs)}`;
       }
 
-      await sendPayload({
+      const payload: OpenClawWebhookPayload = {
         message,
         name: senderName,
         sessionKey,
         wakeMode,
         deliver,
-        ...(slackChannelId ? { channel: "slack", to: slackChannelId } : {}),
-      });
+      };
+
+      if (typeof slackChannelId === "string") {
+        payload.channel = "slack";
+        payload.to = slackChannelId;
+      }
+
+      await sendPayload(payload);
 
       return null;
     },
