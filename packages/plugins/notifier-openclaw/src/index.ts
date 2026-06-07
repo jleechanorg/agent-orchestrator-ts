@@ -128,6 +128,10 @@ function sanitizeSessionId(id: string): string {
   return id.replace(/[^a-zA-Z0-9:_-]/g, "-");
 }
 
+function sanitizeThreadTs(ts: string): string {
+  return ts.replace(/[^a-zA-Z0-9_.-]/g, "-");
+}
+
 function eventHeadline(event: OrchestratorEvent): string {
   const priorityTag: Record<EventPriority, string> = {
     urgent: "URGENT",
@@ -197,7 +201,7 @@ export function create(config?: Record<string, unknown>): Notifier {
       const slackThreadTs = (event.data?.slackThreadTs as string | undefined) ?? process.env.SLACK_THREAD_TS;
       const slackChannelId = (event.data?.slackChannelId as string | undefined) ?? process.env.SLACK_CHANNEL_ID;
       if (slackThreadTs) {
-        sessionKey += `:thread:${slackThreadTs}`;
+        sessionKey += `:thread:${sanitizeThreadTs(slackThreadTs)}`;
       }
       await sendPayload({
         message: formatEscalationMessage(event),
@@ -214,7 +218,7 @@ export function create(config?: Record<string, unknown>): Notifier {
       const slackThreadTs = (event.data?.slackThreadTs as string | undefined) ?? process.env.SLACK_THREAD_TS;
       const slackChannelId = (event.data?.slackChannelId as string | undefined) ?? process.env.SLACK_CHANNEL_ID;
       if (slackThreadTs) {
-        sessionKey += `:thread:${slackThreadTs}`;
+        sessionKey += `:thread:${sanitizeThreadTs(slackThreadTs)}`;
       }
       const actionsLine = formatActionsLine(actions);
       const message = [formatEscalationMessage(event), actionsLine].filter(Boolean).join("\n");
@@ -235,7 +239,7 @@ export function create(config?: Record<string, unknown>): Notifier {
       const slackThreadTs = context?.slackThreadTs ?? process.env.SLACK_THREAD_TS;
       const slackChannelId = context?.slackChannelId ?? process.env.SLACK_CHANNEL_ID;
       if (slackThreadTs) {
-        sessionKey += `:thread:${slackThreadTs}`;
+        sessionKey += `:thread:${sanitizeThreadTs(slackThreadTs)}`;
       }
 
       await sendPayload({

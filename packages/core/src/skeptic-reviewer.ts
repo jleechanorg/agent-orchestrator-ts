@@ -289,6 +289,18 @@ export async function runSkepticReview(
 ): Promise<SkepticReviewResult> {
   const { model, postComment = true, excludePaths } = options;
 
+  if (model !== undefined) {
+    const models = Array.isArray(model) ? model : [model];
+    if (models.length === 0) {
+      throw new Error("options.model must contain at least one model.");
+    }
+    for (const m of models) {
+      if (!isValidSkepticModel(m)) {
+        throw new Error("options.model must contain at least one valid model.");
+      }
+    }
+  }
+
   if (!session.pr) {
     return {
       verdict: "SKIPPED",
@@ -327,18 +339,6 @@ export async function runSkepticReview(
       prNumber,
       triggerSha,
     );
-  }
-
-  if (model !== undefined) {
-    const models = Array.isArray(model) ? model : [model];
-    if (models.length === 0) {
-      throw new Error("options.model must contain at least one model.");
-    }
-    for (const m of models) {
-      if (!isValidSkepticModel(m)) {
-        throw new Error("options.model must contain at least one valid model.");
-      }
-    }
   }
 
   const resolvedModel = model as SkepticModel | SkepticModel[] | undefined;
