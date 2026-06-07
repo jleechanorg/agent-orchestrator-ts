@@ -108,6 +108,7 @@ import { runSkepticReviewReaction } from "./fork-skeptic-extension.js";
 import { runClaimVerification } from "./fork-claim-verification.js";
 import { detectAndTriggerSkepticComment } from "./fork-skeptic-comment-trigger.js";
 import { resolveReactionMaxRetries } from "./fork-reaction-retry-policy.js";
+import { runLocalSkepticCron } from "./skeptic-cron-local.js";
 
 /**
  * verify6Green — explicit 6-green pre-merge verification (bd-mjtn)
@@ -2790,6 +2791,20 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           if (projectCronSpawned) {
             allCompleteEmitted = false;
           }
+
+          // bd-skp2-cron: Local skeptic cron — evaluates open PRs using locally-available
+          // LLM tools (Codex/Claude). Replaces the broken GHA-based execution where no
+          // API keys exist. Throttled internally to run every 10 minutes.
+          // Fire-and-forget so a long-running LLM evaluation does not block the poll loop.
+          void runLocalSkepticCron(
+            { registry, sessionManager, observer },
+            { projectId: scopedProjectId, project, activeSessions, correlationId },
+          ).catch(skepticCronErr => {
+            const msg = skepticCronErr instanceof Error ? skepticCronErr.message : String(skepticCronErr);
+            console.error(
+              `[skeptic-cron] failed: projectId=${scopedProjectId} correlationId=${correlationId} error=${msg}`,
+            );
+          });
         }
       }
 

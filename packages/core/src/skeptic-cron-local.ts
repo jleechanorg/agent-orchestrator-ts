@@ -81,6 +81,27 @@ function normalizeMaxConcurrentSkepticReviews(value: number | undefined): number
   return Math.max(1, Math.trunc(value));
 }
 
+function hasValidTriggerComment(comments: Array<{ body: string; user?: { login: string } }>): boolean {
+  for (const c of comments) {
+    const body = c.body || "";
+    const login = c.user?.login || "";
+    const isBot = login.endsWith("[bot]");
+
+    // GHA Triggers (allow both human and bot)
+    if (body.includes("SKEPTIC_GATE_TRIGGER") || body.includes("SKEPTIC_CRON_TRIGGER")) {
+      return true;
+    }
+
+    // Human /skeptic trigger (must not be bot)
+    if (/^\s*\/skeptic\b/m.test(body)) {
+      if (!isBot) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 /** Reset throttle + pending state — exposed for testing only. */
 export function _resetSkepticCronTimer(): void {
   lastSkepticCronTimeByProject.clear();
@@ -195,6 +216,17 @@ export async function runLocalSkepticCron(
    * caching are contained here so the batched Promise.all below stays clean.
    */
   const evaluateOnePR = async (pr: PRInfo): Promise<boolean> => {
+    if (scm?.listPRComments) {
+      try {
+        const comments = await scm.listPRComments(pr);
+        if (!hasValidTriggerComment(comments)) {
+          return false;
+        }
+      } catch {
+        return false;
+      }
+    }
+
     // Use existing session if available, otherwise synthetic
     const session =
       sessionByPR.get(`${projectId}:${pr.number}`) ??
