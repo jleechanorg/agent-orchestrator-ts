@@ -87,8 +87,6 @@ export function makeClaudeExecOptions(
   env: Record<string, string | undefined>;
 } {
   const env = { ...process.env };
-  delete env.ANTHROPIC_BASE_URL;
-  delete env.ANTHROPIC_AUTH_TOKEN;
   delete env.MINIMAX_API_KEY;
   return {
     input: prompt,

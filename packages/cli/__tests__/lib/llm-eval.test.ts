@@ -87,7 +87,7 @@ describe("tryCodexPrint", () => {
     );
   });
 
-  it("uses the explicit gpt-5.4 codex model by default", async () => {
+  it("uses the explicit gpt-5.5 codex model by default", async () => {
     mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
     mockExecFileSync.mockReturnValue(PASS_VERDICT);
     await tryCodexPrint("evaluate this");
