@@ -24,6 +24,8 @@ interface OpenClawWebhookPayload {
   sessionKey?: string;
   wakeMode?: WakeMode;
   deliver?: boolean;
+  channel?: string;
+  to?: string;
 }
 
 async function postWithRetry(
@@ -191,18 +193,29 @@ export function create(config?: Record<string, unknown>): Notifier {
     name: "openclaw",
 
     async notify(event: OrchestratorEvent): Promise<void> {
-      const sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
+      let sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
+      const slackThreadTs = process.env.SLACK_THREAD_TS;
+      const slackChannelId = process.env.SLACK_CHANNEL_ID;
+      if (slackThreadTs) {
+        sessionKey += `:thread:${slackThreadTs}`;
+      }
       await sendPayload({
         message: formatEscalationMessage(event),
         name: senderName,
         sessionKey,
         wakeMode,
         deliver,
+        ...(slackChannelId ? { channel: "slack", to: slackChannelId } : {}),
       });
     },
 
     async notifyWithActions(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void> {
-      const sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
+      let sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
+      const slackThreadTs = process.env.SLACK_THREAD_TS;
+      const slackChannelId = process.env.SLACK_CHANNEL_ID;
+      if (slackThreadTs) {
+        sessionKey += `:thread:${slackThreadTs}`;
+      }
       const actionsLine = formatActionsLine(actions);
       const message = [formatEscalationMessage(event), actionsLine].filter(Boolean).join("\n");
 
@@ -212,12 +225,18 @@ export function create(config?: Record<string, unknown>): Notifier {
         sessionKey,
         wakeMode,
         deliver,
+        ...(slackChannelId ? { channel: "slack", to: slackChannelId } : {}),
       });
     },
 
     async post(message: string, context?: NotifyContext): Promise<string | null> {
       const sessionId = context?.sessionId ? sanitizeSessionId(context.sessionId) : "default";
-      const sessionKey = `${sessionKeyPrefix}${sessionId}`;
+      let sessionKey = `${sessionKeyPrefix}${sessionId}`;
+      const slackThreadTs = process.env.SLACK_THREAD_TS;
+      const slackChannelId = process.env.SLACK_CHANNEL_ID;
+      if (slackThreadTs) {
+        sessionKey += `:thread:${slackThreadTs}`;
+      }
 
       await sendPayload({
         message,
@@ -225,6 +244,7 @@ export function create(config?: Record<string, unknown>): Notifier {
         sessionKey,
         wakeMode,
         deliver,
+        ...(slackChannelId ? { channel: "slack", to: slackChannelId } : {}),
       });
 
       return null;

@@ -172,4 +172,24 @@ describe("notifier-openclaw", () => {
     await expect(notifier.notify(makeEvent())).rejects.toThrow("OpenClaw rejected the auth token (HTTP 401)");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("propagates SLACK_CHANNEL_ID and SLACK_THREAD_TS", async () => {
+    process.env.SLACK_CHANNEL_ID = "C12345";
+    process.env.SLACK_THREAD_TS = "1778592802.014579";
+
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const notifier = create({ token: "tok" });
+    await notifier.notify(makeEvent({ sessionId: "ao-99" }));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.sessionKey).toBe("hook:ao:ao-99:thread:1778592802.014579");
+    expect(body.channel).toBe("slack");
+    expect(body.to).toBe("C12345");
+
+    delete process.env.SLACK_CHANNEL_ID;
+    delete process.env.SLACK_THREAD_TS;
+  });
 });
