@@ -9,6 +9,7 @@ export function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
     repo: "app",
     branch: "feat/widget",
     baseBranch: "main",
+    isDraft: false,
     ...overrides,
   };
 }

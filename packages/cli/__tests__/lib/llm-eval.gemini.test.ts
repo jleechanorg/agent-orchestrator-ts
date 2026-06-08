@@ -38,7 +38,7 @@ const FAIL_VERDICT = "VERDICT: FAIL";
 
 let originalApiKey: string | undefined;
 let originalModel: string | undefined;
-let fetchSpy: any;
+let fetchSpy: ReturnType<typeof vi.spyOn<typeof globalThis, "fetch">>;
 
 beforeEach(() => {
   mockExecFileSync.mockReset();
@@ -167,32 +167,34 @@ describe("tryGeminiPrint", () => {
 
   it("uses an AbortSignal and aborts the fetch after timeout", async () => {
     vi.useFakeTimers();
-    let signal: AbortSignal | undefined;
-    fetchSpy.mockImplementation(async (url: any, init: any) => {
-      signal = init.signal;
-      return new Promise((resolve, reject) => {
-        const checkAbort = () => {
-          if (signal?.aborted) {
-            reject(new DOMException("The user aborted a request.", "AbortError"));
-          } else {
-            setTimeout(checkAbort, 100);
-          }
-        };
-        setTimeout(checkAbort, 100);
+    try {
+      let signal: AbortSignal | undefined;
+      fetchSpy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        signal = init?.signal;
+        return new Promise((resolve, reject) => {
+          const checkAbort = () => {
+            if (signal?.aborted) {
+              reject(new DOMException("The user aborted a request.", "AbortError"));
+            } else {
+              setTimeout(checkAbort, 100);
+            }
+          };
+          setTimeout(checkAbort, 100);
+        });
       });
-    });
 
-    const promise = tryGeminiPrint("evaluate this");
-    
-    // Fast-forward time
-    await vi.advanceTimersByTimeAsync(300000);
-    
-    const result = await promise;
-    expect(result.validVerdict).toBe(false);
-    expect(result.error).toContain("aborted");
-    expect(signal?.aborted).toBe(true);
-    
-    vi.useRealTimers();
+      const promise = tryGeminiPrint("evaluate this");
+      
+      // Fast-forward time
+      await vi.advanceTimersByTimeAsync(300000);
+      
+      const result = await promise;
+      expect(result.validVerdict).toBe(false);
+      expect(result.error).toContain("aborted");
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

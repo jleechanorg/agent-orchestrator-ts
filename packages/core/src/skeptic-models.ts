@@ -23,12 +23,22 @@ export function resolveSkepticModel(
 
   const resolvedModel = model;
 
-  const chain: typeof FALLBACK_CHAIN =
-    Array.isArray(resolvedModel) && resolvedModel.length > 0
-      ? resolvedModel
-      : resolvedModel && !Array.isArray(resolvedModel)
-      ? FALLBACK_CHAIN.slice(Math.max(0, FALLBACK_CHAIN.indexOf(resolvedModel)))
-      : FALLBACK_CHAIN.slice(0);
+  let chain: typeof FALLBACK_CHAIN;
+  if (Array.isArray(resolvedModel)) {
+    if (resolvedModel.length > 0) {
+      chain = resolvedModel;
+    } else {
+      chain = FALLBACK_CHAIN.slice(0);
+    }
+  } else if (resolvedModel) {
+    const idx = FALLBACK_CHAIN.indexOf(resolvedModel);
+    if (idx === -1) {
+      throw new Error(`Skeptic model "${resolvedModel}" is not present in FALLBACK_CHAIN.`);
+    }
+    chain = FALLBACK_CHAIN.slice(idx);
+  } else {
+    chain = FALLBACK_CHAIN.slice(0);
+  }
 
   return {
     validatedModel: resolvedModel,

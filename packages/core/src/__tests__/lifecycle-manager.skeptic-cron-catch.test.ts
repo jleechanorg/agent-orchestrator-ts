@@ -3,17 +3,19 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { createLifecycleManager } from "../lifecycle-manager.js";
-import type { OrchestratorConfig, Session } from "../types.js";
+import { createLifecycleManager, type LifecycleManagerDeps } from "../lifecycle-manager.js";
+import type { OrchestratorConfig, Session, SessionManager, PluginRegistry } from "../types.js";
+import type { SkepticCronDeps, SkepticCronParams } from "../skeptic-cron-local.js";
+import type { ProjectObserver } from "../observability.js";
 
 // Mock runLocalSkepticCron to throw/reject
-const mockRunLocalSkepticCron = vi.fn();
+const mockRunLocalSkepticCron = vi.fn<(deps: SkepticCronDeps, params: SkepticCronParams) => Promise<number>>();
 vi.mock("../skeptic-cron-local.js", () => ({
-  runLocalSkepticCron: (...args: any[]) => mockRunLocalSkepticCron(...args),
+  runLocalSkepticCron: (deps: SkepticCronDeps, params: SkepticCronParams): Promise<number> => mockRunLocalSkepticCron(deps, params),
 }));
 
 describe("lifecycle-manager skeptic-cron catch handler", () => {
-  let consoleErrorSpy: any;
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn<typeof console, "error">>;
   let tmpDir: string;
   let configPath: string;
 
@@ -37,7 +39,7 @@ describe("lifecycle-manager skeptic-cron catch handler", () => {
   it("should catch and log error when runLocalSkepticCron rejects", async () => {
     mockRunLocalSkepticCron.mockRejectedValue(new Error("test skeptic cron failure"));
 
-    const config: OrchestratorConfig = {
+    const config = {
       configPath,
       defaults: {},
       projects: {
@@ -50,9 +52,9 @@ describe("lifecycle-manager skeptic-cron catch handler", () => {
           scm: { plugin: "github" },
         },
       },
-    } as any;
+    } as unknown as OrchestratorConfig;
 
-    const mockSession: Session = {
+    const mockSession = {
       id: "app-1",
       projectId: "my-project",
       status: "working",
@@ -64,7 +66,7 @@ describe("lifecycle-manager skeptic-cron catch handler", () => {
       createdAt: new Date(),
       lastActivityAt: new Date(),
       metadata: {},
-    } as any;
+    } as unknown as Session;
 
     const sessionManager = {
       listSessions: vi.fn().mockResolvedValue([mockSession]),
@@ -72,25 +74,28 @@ describe("lifecycle-manager skeptic-cron catch handler", () => {
       get: vi.fn().mockResolvedValue(mockSession),
       saveSession: vi.fn().mockResolvedValue(undefined),
       list: vi.fn().mockResolvedValue([mockSession]),
-    } as any;
+    } as unknown as SessionManager;
 
     const registry = {
+      register: vi.fn(),
       get: vi.fn().mockReturnValue({}),
-    } as any;
+      getModule: vi.fn().mockReturnValue(null),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn().mockResolvedValue(undefined),
+    } as unknown as PluginRegistry;
 
     const observer = {
       recordOperation: vi.fn(),
       recordSessionStateChange: vi.fn(),
       recordSloStatus: vi.fn(),
-    } as any;
+    } as unknown as ProjectObserver;
 
     const lm = createLifecycleManager({
       config,
       sessionManager,
       registry,
-      observer,
       projectId: "my-project",
-    } as any);
+    } as unknown as LifecycleManagerDeps);
 
     lm.start(60_000);
 
@@ -104,11 +109,11 @@ describe("lifecycle-manager skeptic-cron catch handler", () => {
 
     expect(mockRunLocalSkepticCron).toHaveBeenCalled();
     expect(consoleErrorSpy).toHaveBeenCalled();
-    const errorLog = consoleErrorSpy.mock.calls.find((call: any[]) =>
-      call[0] && call[0].includes("[skeptic-cron] failed")
+    const errorLog = consoleErrorSpy.mock.calls.find((call: Parameters<typeof console.error>): boolean =>
+      typeof call[0] === "string" && call[0].includes("[skeptic-cron] failed")
     );
     expect(errorLog).toBeDefined();
-    expect(errorLog[0]).toContain("projectId=my-project");
-    expect(errorLog[0]).toContain("test skeptic cron failure");
+    expect(errorLog![0]).toContain("projectId=my-project");
+    expect(errorLog![0]).toContain("test skeptic cron failure");
   });
 });

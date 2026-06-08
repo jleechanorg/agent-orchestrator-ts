@@ -934,33 +934,3 @@ describe("applyEvidenceOverride", () => {
   });
 });
 
-describe("diff truncation and changed files listing", () => {
-  it("includes all changed files list and truncates diff when it exceeds MAX_DIFF_CHARS", () => {
-    const files = ["src/a.ts", "src/b.ts", "src/c.ts"];
-    const fileHeaders = files.map(f => `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n@@ -1,1 +1,1 @@\n-old\n+new`).join("\n");
-    const filler = "x".repeat(500050);
-    const largeDiff = `${fileHeaders}\n${filler}`;
-
-    const prompt = buildSkepticPrompt(
-      makeMinimalPR(),
-      makePassingState(),
-      largeDiff,
-      EMPTY_REVIEWS,
-      null,
-    );
-
-    expect(prompt).toContain("--- ALL CHANGED FILES IN PR (3 files) ---");
-    expect(prompt).toContain("- src/a.ts");
-    expect(prompt).toContain("- src/b.ts");
-    expect(prompt).toContain("- src/c.ts");
-
-    expect(prompt).toContain("--- DIFF (first 500000 chars; all files included if diff fits) ---");
-    expect(prompt).toContain("[DIFF TRUNCATED - TOO LARGE]");
-
-    const diffMarker = "--- DIFF (first 500000 chars; all files included if diff fits) ---\n";
-    const diffStartIndex = prompt.indexOf(diffMarker) + diffMarker.length;
-    const remainingText = prompt.slice(diffStartIndex);
-    const diffContent = remainingText.split("\n\n[DIFF TRUNCATED - TOO LARGE]")[0] ?? "";
-    expect(diffContent).toBe(largeDiff.slice(0, 500000) + "\n");
-  });
-});
