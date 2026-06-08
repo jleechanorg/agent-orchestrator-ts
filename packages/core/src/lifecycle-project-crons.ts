@@ -83,7 +83,7 @@ export async function runLifecycleProjectCrons(
     return { spawned };
   }
 
-  const backfillEnabled = params.project.backfillAllPRs !== false;
+  const backfillEnabled = params.project.backfillAllPRs === true;
   if (backfillEnabled) {
     const backfillSpawned = await runCron(
       deps,
@@ -102,7 +102,7 @@ export async function runLifecycleProjectCrons(
       false,
     );
     spawned = spawned || backfillSpawned;
-  } else {
+  } else if (params.project.backfillAllPRs === false) {
     await runCron(
       deps,
       params,

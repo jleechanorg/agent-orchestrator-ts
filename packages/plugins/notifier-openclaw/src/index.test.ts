@@ -45,6 +45,9 @@ describe("notifier-openclaw", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    delete process.env.OPENCLAW_HOOKS_TOKEN;
+    delete process.env.SLACK_THREAD_TS;
+    delete process.env.SLACK_CHANNEL_ID;
   });
 
   it("has correct manifest", () => {
