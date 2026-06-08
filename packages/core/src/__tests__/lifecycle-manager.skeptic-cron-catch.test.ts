@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import { createLifecycleManager, type LifecycleManagerDeps } from "../lifecycle-manager.js";
 import type { OrchestratorConfig, Session, SessionManager, PluginRegistry } from "../types.js";
 import type { SkepticCronDeps, SkepticCronParams } from "../skeptic-cron-local.js";
-import type { ProjectObserver } from "../observability.js";
 
 // Mock runLocalSkepticCron to throw/reject
 const mockRunLocalSkepticCron = vi.fn<(deps: SkepticCronDeps, params: SkepticCronParams) => Promise<number>>();
@@ -83,12 +82,6 @@ describe("lifecycle-manager skeptic-cron catch handler", () => {
       list: vi.fn().mockReturnValue([]),
       loadBuiltins: vi.fn().mockResolvedValue(undefined),
     } as unknown as PluginRegistry;
-
-    const observer = {
-      recordOperation: vi.fn(),
-      recordSessionStateChange: vi.fn(),
-      recordSloStatus: vi.fn(),
-    } as unknown as ProjectObserver;
 
     const lm = createLifecycleManager({
       config,
