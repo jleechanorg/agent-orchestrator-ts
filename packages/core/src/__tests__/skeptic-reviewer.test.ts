@@ -100,9 +100,18 @@ describe("runSkepticReview", () => {
     expect(execMock).not.toHaveBeenCalled();
   });
 
-  it("skips when session has no PR and records modelUsed", async () => {
+  it("skips when session has no PR and records modelUsed for string option", async () => {
     const sessionWithoutPr = makeSession({ pr: null });
-    const result = await runSkepticReview(sessionWithoutPr, { model: ["claude"] });
+    const result = await runSkepticReview(sessionWithoutPr, { model: "claude" });
+    expect(result.verdict).toBe("SKIPPED");
+    expect(result.modelUsed).toBe("claude");
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(execMock).not.toHaveBeenCalled();
+  });
+
+  it("skips when session has no PR and records modelUsed for array option", async () => {
+    const sessionWithoutPr = makeSession({ pr: null });
+    const result = await runSkepticReview(sessionWithoutPr, { model: ["claude", "gemini"] });
     expect(result.verdict).toBe("SKIPPED");
     expect(result.modelUsed).toBe("claude");
     expect(execFileMock).not.toHaveBeenCalled();
