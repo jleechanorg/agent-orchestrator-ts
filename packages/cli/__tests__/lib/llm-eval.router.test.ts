@@ -211,3 +211,44 @@ describe("llmEval model validation", () => {
     ).rejects.toThrow('Invalid model: "invalid-model". Expected a ChainModel value from DEFAULT_CHAIN.');
   });
 });
+
+describe("llmEval — explicit model=claude", () => {
+  it("tries claude first when model=claude is specified", async () => {
+    mockExecFileSync.mockReturnValue(FAIL_VERDICT);
+    const result = await llmEval("evaluate this", { model: "claude" });
+    expect(result).toBe(FAIL_VERDICT);
+    expect(mockResolveCodexBinary).not.toHaveBeenCalled();
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to codex when claude is unavailable", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    // Rotation: ["claude","gemini","codex"]
+    // claude→all accessSync ENOENT, gemini→ENOENT from execFileSync (including bare "gemini"),
+    // codex→resolveCodexBinary resolves, execFileSync returns PASS
+    mockExecFileSync
+      .mockImplementationOnce(() => { throw enoent; }) // gemini bare-name candidate
+      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
+    const result = await llmEval("evaluate this", { model: "claude" });
+    expect(result).toBe(PASS_VERDICT);
+  });
+
+  it("returns FAIL and tries codex fallback when claude has infra error", async () => {
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    const etimeout = new Error("ETIMEDOUT") as NodeJS.ErrnoException;
+    etimeout.code = "ETIMEDOUT";
+    // Call 1: claude → ETIMEDOUT (infra error); then gemini and codex tried (both unavailable via default ENOENT)
+    // Chain exhausted → FAIL
+    mockExecFileSync
+      .mockImplementationOnce(() => {
+        throw etimeout; // claude (infra error)
+      });
+    const result = await llmEval("evaluate this", { model: "claude" });
+    expect(result).toContain("VERDICT: FAIL");
+    expect(result).toContain("All LLM tools exhausted");
+    expect(mockResolveCodexBinary).toHaveBeenCalled();
+    expect(mockExecFileSync).toHaveBeenCalled(); // claude + gemini candidates + codex
+  });
+});
