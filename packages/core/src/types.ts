@@ -2093,8 +2093,8 @@ export interface LifecycleManager {
 
 /** Plugin registry — discovery + loading */
 export interface PluginRegistry {
-  /** Register a plugin, optionally with config to pass to create() */
-  register(plugin: PluginModule, config?: Record<string, unknown>): void;
+  /** Register a plugin, optionally with config to pass to create() and an optional name override */
+  register(plugin: PluginModule, config?: Record<string, unknown>, nameOverride?: string): void;
 
   /** Get a plugin by slot and name */
   get<T>(slot: PluginSlot, name: string): T | null;
