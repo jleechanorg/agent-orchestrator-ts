@@ -160,6 +160,37 @@ function formatActionsLine(actions: NotifyAction[]): string {
   return `Actions available: ${labels}`;
 }
 
+interface SlackMetadata {
+  threadTs?: string;
+  channelId?: string;
+}
+
+function extractSlackMetadata(data?: { slackThreadTs?: unknown; slackChannelId?: unknown } | null): SlackMetadata {
+  const rawSlackThreadTs = data?.slackThreadTs;
+  const threadTs = typeof rawSlackThreadTs === "string" ? rawSlackThreadTs : process.env.SLACK_THREAD_TS;
+
+  const rawSlackChannelId = data?.slackChannelId;
+  const channelId = typeof rawSlackChannelId === "string" ? rawSlackChannelId : process.env.SLACK_CHANNEL_ID;
+
+  return { threadTs, channelId };
+}
+
+function applySlackRouting(
+  sessionKey: string,
+  payload: OpenClawWebhookPayload,
+  metadata: SlackMetadata,
+): string {
+  let updatedSessionKey = sessionKey;
+  if (metadata.threadTs) {
+    updatedSessionKey += `:thread:${sanitizeThreadTs(metadata.threadTs)}`;
+  }
+  if (metadata.channelId) {
+    payload.channel = "slack";
+    payload.to = metadata.channelId;
+  }
+  return updatedSessionKey;
+}
+
 export function create(config?: Record<string, unknown>): Notifier {
   const url =
     (typeof config?.url === "string" ? config.url : undefined) ??
@@ -199,16 +230,6 @@ export function create(config?: Record<string, unknown>): Notifier {
 
     async notify(event: OrchestratorEvent): Promise<void> {
       let sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
-      
-      const rawSlackThreadTs = event.data?.slackThreadTs;
-      const slackThreadTs = typeof rawSlackThreadTs === "string" ? rawSlackThreadTs : process.env.SLACK_THREAD_TS;
-      
-      const rawSlackChannelId = event.data?.slackChannelId;
-      const slackChannelId = typeof rawSlackChannelId === "string" ? rawSlackChannelId : process.env.SLACK_CHANNEL_ID;
-
-      if (typeof slackThreadTs === "string") {
-        sessionKey += `:thread:${sanitizeThreadTs(slackThreadTs)}`;
-      }
 
       const payload: OpenClawWebhookPayload = {
         message: formatEscalationMessage(event),
@@ -218,26 +239,15 @@ export function create(config?: Record<string, unknown>): Notifier {
         deliver,
       };
 
-      if (typeof slackChannelId === "string") {
-        payload.channel = "slack";
-        payload.to = slackChannelId;
-      }
+      const metadata = extractSlackMetadata(event.data);
+      sessionKey = applySlackRouting(sessionKey, payload, metadata);
+      payload.sessionKey = sessionKey;
 
       await sendPayload(payload);
     },
 
     async notifyWithActions(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void> {
       let sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
-
-      const rawSlackThreadTs = event.data?.slackThreadTs;
-      const slackThreadTs = typeof rawSlackThreadTs === "string" ? rawSlackThreadTs : process.env.SLACK_THREAD_TS;
-
-      const rawSlackChannelId = event.data?.slackChannelId;
-      const slackChannelId = typeof rawSlackChannelId === "string" ? rawSlackChannelId : process.env.SLACK_CHANNEL_ID;
-
-      if (typeof slackThreadTs === "string") {
-        sessionKey += `:thread:${sanitizeThreadTs(slackThreadTs)}`;
-      }
       const actionsLine = formatActionsLine(actions);
       const message = [formatEscalationMessage(event), actionsLine].filter(Boolean).join("\n");
 
@@ -249,10 +259,9 @@ export function create(config?: Record<string, unknown>): Notifier {
         deliver,
       };
 
-      if (typeof slackChannelId === "string") {
-        payload.channel = "slack";
-        payload.to = slackChannelId;
-      }
+      const metadata = extractSlackMetadata(event.data);
+      sessionKey = applySlackRouting(sessionKey, payload, metadata);
+      payload.sessionKey = sessionKey;
 
       await sendPayload(payload);
     },
@@ -260,16 +269,6 @@ export function create(config?: Record<string, unknown>): Notifier {
     async post(message: string, context?: NotifyContext): Promise<string | null> {
       const sessionId = context?.sessionId ? sanitizeSessionId(context.sessionId) : "default";
       let sessionKey = `${sessionKeyPrefix}${sessionId}`;
-
-      const rawSlackThreadTs = context?.slackThreadTs;
-      const slackThreadTs = typeof rawSlackThreadTs === "string" ? rawSlackThreadTs : process.env.SLACK_THREAD_TS;
-
-      const rawSlackChannelId = context?.slackChannelId;
-      const slackChannelId = typeof rawSlackChannelId === "string" ? rawSlackChannelId : process.env.SLACK_CHANNEL_ID;
-
-      if (typeof slackThreadTs === "string") {
-        sessionKey += `:thread:${sanitizeThreadTs(slackThreadTs)}`;
-      }
 
       const payload: OpenClawWebhookPayload = {
         message,
@@ -279,10 +278,9 @@ export function create(config?: Record<string, unknown>): Notifier {
         deliver,
       };
 
-      if (typeof slackChannelId === "string") {
-        payload.channel = "slack";
-        payload.to = slackChannelId;
-      }
+      const metadata = extractSlackMetadata(context);
+      sessionKey = applySlackRouting(sessionKey, payload, metadata);
+      payload.sessionKey = sessionKey;
 
       await sendPayload(payload);
 

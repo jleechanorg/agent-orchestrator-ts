@@ -22,7 +22,8 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Session } from "./types.js";
-import { type SkepticModel, isValidSkepticModel } from "./skeptic-model-schema.js";
+import { type SkepticModel } from "./skeptic-model-schema.js";
+import { resolveSkepticModel, FALLBACK_CHAIN } from "./skeptic-models.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -123,8 +124,7 @@ export interface SkepticReviewResult {
   reportWritten?: boolean;
 }
 
-/** Ordered fallback chain for skeptic LLM evaluation (bd-skp3). */
-const FALLBACK_CHAIN: SkepticModel[] = ["codex", "claude", "gemini", "minimax", "agy"];
+
 
 // The nested skeptic CLI can spend up to 5 minutes per headless evaluator before
 // posting. Keep this wrapper above two-tool fallback time so slow reviews still
@@ -289,23 +289,13 @@ export async function runSkepticReview(
 ): Promise<SkepticReviewResult> {
   const { model, postComment = true, excludePaths } = options;
 
-  if (model !== undefined) {
-    const models = Array.isArray(model) ? model : [model];
-    if (models.length === 0) {
-      throw new Error("options.model must contain at least one model.");
-    }
-    for (const m of models) {
-      if (!isValidSkepticModel(m)) {
-        throw new Error("options.model must contain at least one valid model.");
-      }
-    }
-  }
+  const { validatedModel, chain } = resolveSkepticModel(model);
 
   if (!session.pr) {
     return {
       verdict: "SKIPPED",
       details: "No PR associated with session — cannot run skeptic evaluation",
-      modelUsed: (Array.isArray(model) ? model[0] : model) ?? "codex",
+      modelUsed: (Array.isArray(validatedModel) ? validatedModel[0] : validatedModel) ?? "codex",
     };
   }
 
@@ -340,18 +330,6 @@ export async function runSkepticReview(
       triggerSha,
     );
   }
-
-  const resolvedModel = model as SkepticModel | SkepticModel[] | undefined;
-
-  // Build the model chain. If a list is provided, use it as the explicit chain.
-  // If a single model is provided, start from that position in FALLBACK_CHAIN.
-  // Default starts from codex (index 0).
-  const chain: typeof FALLBACK_CHAIN =
-    Array.isArray(resolvedModel) && resolvedModel.length > 0
-      ? resolvedModel
-      : resolvedModel && !Array.isArray(resolvedModel)
-      ? FALLBACK_CHAIN.slice(Math.max(0, FALLBACK_CHAIN.indexOf(resolvedModel)))
-      : FALLBACK_CHAIN.slice(0);
 
   const infraErrors: string[] = [];
 

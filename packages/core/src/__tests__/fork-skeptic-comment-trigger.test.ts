@@ -210,6 +210,7 @@ describe("detectAndTriggerSkepticComment", () => {
     const session = makeSession({ pr: makePR() });
     const scm = makeMockSCM([
       { id: 1, user: { login: "jleechan2015" }, body: "/skeptic", isSkepticTrigger: false },
+      { id: 2, user: { login: "jleechan2015" }, body: "/skeptic" },
     ]);
     registry = {
       get: vi.fn().mockReturnValue(scm),

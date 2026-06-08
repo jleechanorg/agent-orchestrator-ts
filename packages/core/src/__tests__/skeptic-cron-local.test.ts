@@ -1168,4 +1168,23 @@ describe("runLocalSkepticCron", () => {
     expect(result).toBe(1);
     expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
   });
+
+  it("skips runSkepticReview if listPRComments rejects", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    listPRComments.mockRejectedValue(new Error("boom"));
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-boom",
+      },
+    );
+
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+  });
 });
