@@ -302,7 +302,9 @@ const antigravityOverrides: Partial<Agent> = {
           ].filter(Boolean) as string[];
 
           for (let p of pathsToTrust) {
-            if (p.startsWith("~/") || p === "~") {
+            if (p === "~") {
+              p = userHome;
+            } else if (p.startsWith("~/")) {
               p = path.join(userHome, p.slice(2));
             }
             trustedFolders[p] = "TRUST_FOLDER";

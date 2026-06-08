@@ -665,7 +665,7 @@ describe("antigravity getEnvironment", () => {
         ...makeLaunchConfig().projectConfig,
         path: "~/project-tilde-path",
       },
-      workspacePath: "~/.worktrees/workspace-tilde-path",
+      workspacePath: "~",
     });
     expect(env).toBeDefined();
 
@@ -681,12 +681,14 @@ describe("antigravity getEnvironment", () => {
     // The tilde paths must be expanded to the user's home directory
     expect(sessionContent["/Users/mockuser/project-tilde-path"]).toBe("TRUST_FOLDER");
     expect(globalContent["/Users/mockuser/project-tilde-path"]).toBe("TRUST_FOLDER");
-    expect(sessionContent["/Users/mockuser/.worktrees/workspace-tilde-path"]).toBe("TRUST_FOLDER");
-    expect(globalContent["/Users/mockuser/.worktrees/workspace-tilde-path"]).toBe("TRUST_FOLDER");
+    expect(sessionContent["/Users/mockuser"]).toBe("TRUST_FOLDER");
+    expect(globalContent["/Users/mockuser"]).toBe("TRUST_FOLDER");
 
     // Literal tilde paths should NOT be present
     expect(sessionContent["~/project-tilde-path"]).toBeUndefined();
     expect(globalContent["~/project-tilde-path"]).toBeUndefined();
+    expect(sessionContent["~"]).toBeUndefined();
+    expect(globalContent["~"]).toBeUndefined();
   });
 });
 
