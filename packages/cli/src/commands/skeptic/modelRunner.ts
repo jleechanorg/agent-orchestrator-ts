@@ -21,6 +21,12 @@ export async function runSkepticEvaluation(
   const { model } = options;
   if (model !== undefined) {
     const models = Array.isArray(model) ? model : [model];
+    if (models.length === 0) {
+      throw new Error(
+        "runSkepticEvaluation: `model` must be a non-empty string or non-empty array of model names. " +
+          `Supported models are: ${SUPPORTED_MODELS.join(", ")}.`,
+      );
+    }
     for (const m of models) {
       if (!SUPPORTED_MODELS.includes(m as SupportedModel)) {
         throw new Error(

@@ -33,4 +33,16 @@ describe("runSkepticEvaluation", () => {
 
     expect(mockLlmEval).not.toHaveBeenCalled();
   });
+
+  it("rejects an empty model array and does not call llmEval", async () => {
+    const { llmEval } = await import("../../../src/lib/llm-eval.js");
+    const mockLlmEval = vi.mocked(llmEval);
+    mockLlmEval.mockClear();
+
+    await expect(
+      runSkepticEvaluation("test prompt", { model: [] }),
+    ).rejects.toThrow();
+
+    expect(mockLlmEval).not.toHaveBeenCalled();
+  });
 });
