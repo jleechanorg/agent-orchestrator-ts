@@ -173,14 +173,14 @@ describe("runSkepticReview", () => {
     const session = makeSession();
     await expect(
       runSkepticReview(session, { model: ["cursor"] })
-    ).rejects.toThrow("options.model must contain at least one valid model.");
+    ).rejects.toThrow("options.model contains invalid model(s); all entries must be valid Skeptic models");
   });
 
   it("throws an error when model option is a single invalid model", async () => {
     const session = makeSession();
     await expect(
       runSkepticReview(session, { model: "cursor" })
-    ).rejects.toThrow("options.model must contain at least one valid model.");
+    ).rejects.toThrow("options.model contains invalid model(s); all entries must be valid Skeptic models");
   });
 
 

@@ -2948,11 +2948,8 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             "api",
             `repos/${repoFlag(pr)}/issues/${pr.number}/comments?per_page=${perPage}&page=${page}`,
           ]);
-          const comments: Array<{
-            id: number;
-            user?: { login?: string; type?: string } | null;
-            body?: string;
-          }> = JSON.parse(raw);
+          const comments: Array<{ id: number; user: { login: string; type?: string }; body: string }> =
+            JSON.parse(raw);
           if (comments.length === 0) break;
           for (const c of comments) {
             // Compute the structured trigger flag at the SCM boundary so that

@@ -1,4 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 import {
   backfillUncoveredPRs,
   _resetBackfillTimer,
@@ -22,6 +26,11 @@ vi.mock("../tmux.js", () => ({
 }));
 
 import { hasSession } from "../tmux.js";
+import { getSessionsDir } from "../paths.js";
+import {
+  GLOBAL_PAUSE_UNTIL_KEY,
+  GLOBAL_PAUSE_REASON_KEY,
+} from "../global-pause.js";
 
 function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
   return {
@@ -755,3 +764,189 @@ describe("backfillUncoveredPRs", () => {
 // A spawn success resets spawnFailures; a claim success resets claimFailures.
 // A spawn success does NOT reset claimFailures — claim failures accumulate
 // across the entire cycle, not just consecutive ones.
+
+describe("backfillUncoveredPRs respawn guard", () => {
+  let guardTmpDir: string;
+  let guardConfigPath: string;
+  let guardDeps: BackfillDeps;
+  let guardSCM: SCM;
+  let guardSessionManager: SessionManager;
+  let guardObserver: ProjectObserver;
+  let guardRegistry: PluginRegistry;
+
+  beforeEach(() => {
+    _resetBackfillTimer();
+    guardTmpDir = join(tmpdir(), `ao-backfill-guard-ext-${randomUUID()}`);
+    mkdirSync(guardTmpDir, { recursive: true });
+    guardConfigPath = join(guardTmpDir, "agent-orchestrator.yaml");
+    writeFileSync(guardConfigPath, "# test\n", "utf-8");
+
+    guardSCM = {
+      listOpenPRs: vi.fn<(p: ProjectConfig) => Promise<PRInfo[]>>().mockResolvedValue([]),
+      detectPR: vi.fn().mockResolvedValue(null),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      getCIChecks: vi.fn().mockResolvedValue([]),
+      getCISummary: vi.fn().mockResolvedValue("pending"),
+      getReviews: vi.fn().mockResolvedValue([]),
+      getReviewDecision: vi.fn().mockResolvedValue("pending"),
+      getPendingComments: vi.fn().mockResolvedValue([]),
+      getAutomatedComments: vi.fn().mockResolvedValue([]),
+      getMergeability: vi.fn().mockResolvedValue({ mergeable: false, reason: "unknown" }),
+      mergePR: vi.fn().mockResolvedValue(undefined),
+      closePR: vi.fn().mockResolvedValue(undefined),
+    } as unknown as SCM;
+
+    guardSessionManager = {
+      spawn: vi.fn().mockResolvedValue(makeSession({ id: "new-guard" })),
+      spawnOrchestrator: vi.fn(),
+      restore: vi.fn(),
+      list: vi.fn(),
+      get: vi.fn(),
+      kill: vi.fn().mockResolvedValue(undefined),
+      cleanup: vi.fn(),
+      send: vi.fn(),
+      claimPR: vi.fn().mockResolvedValue({
+        sessionId: "new-guard",
+        projectId: "proj",
+        pr: makePR(),
+        branchChanged: true,
+        githubAssigned: false,
+        takenOverFrom: [],
+      }),
+    };
+
+    guardObserver = {
+      component: "test",
+      recordOperation: vi.fn(),
+      setHealth: vi.fn(),
+    };
+
+    guardRegistry = {
+      get: vi.fn().mockReturnValue(guardSCM),
+      register: vi.fn(),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn(),
+    } as unknown as PluginRegistry;
+
+    guardDeps = {
+      registry: guardRegistry,
+      sessionManager: guardSessionManager,
+      observer: guardObserver,
+    };
+  });
+
+  afterEach(() => {
+    rmSync(guardTmpDir, { recursive: true, force: true });
+  });
+
+  function guardParams(overrides: Partial<BackfillParams> = {}): BackfillParams {
+    return {
+      projectId: "proj",
+      project: makeProject({ path: guardTmpDir, sessionPrefix: "app" }),
+      activeSessions: [],
+      correlationId: "corr-guard",
+      configPath: guardConfigPath,
+      ...overrides,
+    };
+  }
+
+  function writeOrchestratorSeed(sessionsDir: string, content = "status=active\n"): void {
+    mkdirSync(sessionsDir, { recursive: true });
+    const orchestratorPath = join(sessionsDir, "app-orchestrator");
+    if (existsSync(orchestratorPath)) {
+      rmSync(orchestratorPath, { recursive: true, force: true });
+    }
+    writeFileSync(orchestratorPath, content, "utf-8");
+  }
+
+  it("skips backfill when project is paused for model rate limit", async () => {
+    const sessionsDir = getSessionsDir(guardConfigPath, guardTmpDir);
+    mkdirSync(sessionsDir, { recursive: true });
+    const until = new Date(Date.now() + 60 * 60_000).toISOString();
+    writeFileSync(
+      join(sessionsDir, "app-orchestrator"),
+      `status=active\n${GLOBAL_PAUSE_UNTIL_KEY}=${until}\n${GLOBAL_PAUSE_REASON_KEY}=quota\n`,
+      "utf-8",
+    );
+
+    const pr = makePR({ number: 654, branch: "feat/test" });
+    vi.mocked(guardSCM.listOpenPRs!).mockResolvedValue([pr]);
+
+    const result = await backfillUncoveredPRs(guardDeps, guardParams());
+
+    expect(result).toBe(false);
+    expect(guardSessionManager.spawn).not.toHaveBeenCalled();
+    expect(guardObserver.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "lifecycle.backfill.project_paused",
+      }),
+    );
+  });
+
+  it("skips PRs at respawn cap and escalates to Slack once", async () => {
+    const pr = makePR({ number: 654, branch: "feat/skeptic-model-list", url: "https://github.com/org/repo/pull/654" });
+    vi.mocked(guardSCM.listOpenPRs!).mockResolvedValue([pr]);
+
+    const sessionsDir = getSessionsDir(guardConfigPath, guardTmpDir);
+    writeOrchestratorSeed(sessionsDir);
+
+    const archiveDir = join(sessionsDir, "archive");
+    mkdirSync(archiveDir, { recursive: true });
+    for (const id of ["app-97", "app-98", "app-99"]) {
+      writeFileSync(
+        join(archiveDir, `${id}_2026-06-08T12-00-00-000Z`),
+        "status=killed\npr=https://github.com/org/repo/pull/654\n",
+        "utf-8",
+      );
+    }
+
+    const notifyHuman = vi.fn().mockResolvedValue(undefined);
+    const depsWithNotify = { ...guardDeps, notifyHuman };
+
+    const result = await backfillUncoveredPRs(depsWithNotify, guardParams());
+
+    expect(result).toBe(false);
+    expect(guardSessionManager.spawn).not.toHaveBeenCalled();
+    expect(notifyHuman).toHaveBeenCalledOnce();
+    expect(notifyHuman).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "reaction.escalated",
+        message: expect.stringContaining("PR #654"),
+        data: expect.objectContaining({ prNumber: 654, respawnCount: 3 }),
+      }),
+      "urgent",
+    );
+    expect(guardObserver.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "lifecycle.backfill.respawn_cap_escalated",
+      }),
+    );
+    expect(guardObserver.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "lifecycle.backfill.respawn_cap_skip",
+      }),
+    );
+  });
+
+  it("does not re-notify Slack when respawn cap escalation was already sent", async () => {
+    const pr = makePR({ number: 654, branch: "feat/skeptic-model-list" });
+    vi.mocked(guardSCM.listOpenPRs!).mockResolvedValue([pr]);
+
+    const sessionsDir = getSessionsDir(guardConfigPath, guardTmpDir);
+    writeOrchestratorSeed(sessionsDir, "status=active\nbackfillRespawnNotified_654=true\n");
+    const archiveDir = join(sessionsDir, "archive");
+    mkdirSync(archiveDir, { recursive: true });
+    for (const id of ["app-97", "app-98", "app-99"]) {
+      writeFileSync(
+        join(archiveDir, `${id}_2026-06-08T12-00-00-000Z`),
+        "status=killed\npr=https://github.com/org/repo/pull/654\n",
+        "utf-8",
+      );
+    }
+
+    const notifyHuman = vi.fn().mockResolvedValue(undefined);
+    await backfillUncoveredPRs({ ...guardDeps, notifyHuman }, guardParams());
+
+    expect(notifyHuman).not.toHaveBeenCalled();
+  });
+});

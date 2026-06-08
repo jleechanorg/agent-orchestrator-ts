@@ -7,7 +7,17 @@
  * @module backfill-extensions
  */
 
-import { type PluginRegistry, type SessionManager, type Session, type SCM, type ProjectConfig, TERMINAL_STATUSES } from "./types.js";
+import { randomUUID } from "node:crypto";
+import {
+  type PluginRegistry,
+  type SessionManager,
+  type Session,
+  type SCM,
+  type ProjectConfig,
+  type OrchestratorEvent,
+  type EventPriority,
+  TERMINAL_STATUSES,
+} from "./types.js";
 import type { ProjectObserver } from "./observability.js";
 import { sortReviewsNewestFirst } from "./merge-gate-coderabbit.js";
 import { hasSession } from "./tmux.js";
@@ -17,6 +27,15 @@ import { existsSync, readdirSync, rmSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolveSpawnQueueConfig } from "./spawn-queue.js";
+import { getSessionsDir } from "./paths.js";
+import {
+  BACKFILL_MAX_RESPAWNS_PER_PR,
+  clearPrRespawnCapNotified,
+  getPrNumbersAtRespawnCap,
+  isPrRespawnCapNotified,
+  markPrRespawnCapNotified,
+  readProjectPause,
+} from "./backfill-respawn-guard.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -30,6 +49,8 @@ export interface BackfillDeps {
   registry: PluginRegistry;
   sessionManager: SessionManager;
   observer: ProjectObserver;
+  /** Routes to configured notifiers (e.g. Slack) via notificationRouting. */
+  notifyHuman?: (event: OrchestratorEvent, priority: EventPriority) => Promise<void>;
 }
 
 /** Parameters for a single backfill invocation. */
@@ -40,6 +61,56 @@ export interface BackfillParams {
   correlationId: string;
   /** Optional configured worktree root (from config.worktreeDir). */
   worktreeDir?: string;
+  /** AO config path — required for project pause and respawn-cap guards. */
+  configPath?: string;
+}
+
+async function maybeEscalateRespawnCap(
+  deps: BackfillDeps,
+  params: BackfillParams,
+  pr: { number: number; url: string; title: string },
+  respawnCount: number,
+): Promise<void> {
+  const { configPath, projectId, project, correlationId } = params;
+  if (!configPath || !deps.notifyHuman) return;
+  if (isPrRespawnCapNotified(configPath, project, pr.number)) return;
+
+  const event: OrchestratorEvent = {
+    id: randomUUID(),
+    type: "reaction.escalated",
+    priority: "urgent",
+    sessionId: `${project.sessionPrefix}-orchestrator`,
+    projectId,
+    timestamp: new Date(),
+    message:
+      `Backfill respawn cap reached for PR #${pr.number}: ${respawnCount} prior worker(s) archived. ` +
+      `Human intervention required — check quota, fix blockers, or manually spawn.`,
+    data: {
+      prNumber: pr.number,
+      prUrl: pr.url,
+      prTitle: pr.title,
+      respawnCount,
+      maxRespawns: BACKFILL_MAX_RESPAWNS_PER_PR,
+      correlationId,
+    },
+  };
+
+  await deps.notifyHuman(event, "urgent");
+  markPrRespawnCapNotified(configPath, project, pr.number);
+
+  deps.observer.recordOperation({
+    metric: "lifecycle_poll",
+    operation: "lifecycle.backfill.respawn_cap_escalated",
+    outcome: "success",
+    correlationId,
+    projectId,
+    data: {
+      prNumber: pr.number,
+      respawnCount,
+      maxRespawns: BACKFILL_MAX_RESPAWNS_PER_PR,
+    },
+    level: "warn",
+  });
 }
 
 // ---- module-level throttle state ----
@@ -79,10 +150,29 @@ export async function backfillUncoveredPRs(
   params: BackfillParams,
 ): Promise<boolean> {
   const { registry, sessionManager, observer } = deps;
-  const { projectId, project, activeSessions, correlationId } = params;
+  const { projectId, project, activeSessions, correlationId, configPath } = params;
 
   const now = Date.now();
   if (now - lastBackfillTime < BACKFILL_INTERVAL_MS) return false;
+
+  if (configPath) {
+    const pause = readProjectPause(configPath, project, now);
+    if (pause) {
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "lifecycle.backfill.project_paused",
+        outcome: "success",
+        correlationId,
+        projectId,
+        data: {
+          pauseUntil: pause.until.toISOString(),
+          reason: pause.reason,
+        },
+        level: "info",
+      });
+      return false;
+    }
+  }
 
   const scmNullable = project.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
   if (!scmNullable) return false;
@@ -152,12 +242,56 @@ export async function backfillUncoveredPRs(
       }
     }
 
+    const sessionsDir = configPath ? getSessionsDir(configPath, project.path) : null;
+    const respawnCapCounts = sessionsDir
+      ? getPrNumbersAtRespawnCap(sessionsDir, BACKFILL_MAX_RESPAWNS_PER_PR)
+      : new Map<number, number>();
+
+    // Escalate uncovered PRs that exceeded the respawn cap (once per PR).
+    if (configPath && sessionsDir) {
+      for (const pr of openPRs) {
+        if (pr.isDraft) continue;
+        if (coveredPRs.has(pr.number) || coveredBranches.has(pr.branch)) {
+          if (respawnCapCounts.has(pr.number)) {
+            clearPrRespawnCapNotified(configPath, project, pr.number);
+          }
+          continue;
+        }
+        const respawnCount = respawnCapCounts.get(pr.number);
+        if (respawnCount === undefined) continue;
+        await maybeEscalateRespawnCap(deps, params, pr, respawnCount);
+      }
+    }
+
     // Find uncovered PRs (skip drafts, check both PR number and branch)
     const uncovered = openPRs.filter(
-      (pr) => !pr.isDraft && !coveredPRs.has(pr.number) && !coveredBranches.has(pr.branch),
+      (pr) =>
+        !pr.isDraft &&
+        !coveredPRs.has(pr.number) &&
+        !coveredBranches.has(pr.branch) &&
+        !respawnCapCounts.has(pr.number),
     );
 
-    if (uncovered.length === 0) return false;
+    if (uncovered.length === 0) {
+      if (respawnCapCounts.size > 0) {
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "lifecycle.backfill.respawn_cap_skip",
+          outcome: "success",
+          correlationId,
+          projectId,
+          data: {
+            cappedPrs: [...respawnCapCounts.entries()].map(([prNumber, count]) => ({
+              prNumber,
+              respawnCount: count,
+            })),
+            maxRespawns: BACKFILL_MAX_RESPAWNS_PER_PR,
+          },
+          level: "debug",
+        });
+      }
+      return false;
+    }
 
     observer.recordOperation({
       metric: "lifecycle_poll",

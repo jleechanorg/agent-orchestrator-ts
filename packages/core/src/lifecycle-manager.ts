@@ -2775,7 +2775,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const project = config.projects[scopedProjectId];
         if (project) {
           const cronResult = await runLifecycleProjectCrons(
-            { registry, sessionManager, observer },
+            { registry, sessionManager, observer, notifyHuman },
             {
               projectId: scopedProjectId,
               project,

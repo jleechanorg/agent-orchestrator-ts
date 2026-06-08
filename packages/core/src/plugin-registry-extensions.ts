@@ -23,7 +23,11 @@ export function applyForkExtensions(registry: PluginRegistry): void {
     if (warning) {
       console.warn(formatVersionMismatchWarning(warning));
     }
-    origRegister(plugin, config, nameOverride);
+    if (nameOverride !== undefined) {
+      origRegister(plugin, config, nameOverride);
+    } else {
+      origRegister(plugin, config);
+    }
   };
 }
 

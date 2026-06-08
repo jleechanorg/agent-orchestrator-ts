@@ -174,6 +174,37 @@ describe("parseRateLimitReset", () => {
     expect(result?.resetAt.getTime()).toBeCloseTo(expected, -3);
   });
 
+  it("parses Antigravity individual quota reached with Resets in 1h28m21s", () => {
+    vi.setSystemTime(new Date("2026-06-08T12:00:00"));
+    const output = [
+      "Individual quota reached. Contact your administrator to enable overages.",
+      "Resets in 1h28m21s.",
+    ].join("\n");
+    const result = parseRateLimitReset(output);
+    expect(result).not.toBeNull();
+    expect(result?.isDurationBased).toBe(true);
+    const expected = Date.now() + ((1 * 3600 + 28 * 60 + 21) * 1000);
+    expect(result?.resetAt.getTime()).toBeCloseTo(expected, -3);
+  });
+
+  it("parses Antigravity quota with Resets in 57m5s", () => {
+    vi.setSystemTime(new Date("2026-06-08T12:00:00"));
+    const output = "Individual quota reached.\nResets in 57m5s";
+    const result = parseRateLimitReset(output);
+    expect(result).not.toBeNull();
+    expect(result?.isDurationBased).toBe(true);
+    const expected = Date.now() + ((57 * 60 + 5) * 1000);
+    expect(result?.resetAt.getTime()).toBeCloseTo(expected, -3);
+  });
+
+  it("defaults to 1h duration-based pause when Antigravity quota has no reset time", () => {
+    vi.setSystemTime(new Date("2026-06-08T12:00:00"));
+    const result = parseRateLimitReset("Individual quota reached.");
+    expect(result).not.toBeNull();
+    expect(result?.isDurationBased).toBe(true);
+    expect(result?.resetAt.getTime()).toBeCloseTo(Date.now() + 3_600_000, -3);
+  });
+
   it("rejects malformed explicit reset timestamps with overflowed fields", () => {
     // Date("2026-99-99 99:99") would silently normalize to a different date.
     // Round-trip validation should reject it.

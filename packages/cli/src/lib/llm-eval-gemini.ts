@@ -2,7 +2,6 @@ import {
   LLM_EVAL_TIMEOUT_MS,
   STRICT_VERDICT_RE,
   type LlmEvalResult,
-  isUnavailable,
 } from "./llm-eval-shared.js";
 
 /**
@@ -78,16 +77,16 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
 
     return { validVerdict: true, output };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
     const isAbort = err instanceof Error && err.name === "AbortError";
     const isTimeout = controller.signal.aborted;
-    if (isAbort || isTimeout || isUnavailable(msg)) {
+    if (isAbort || isTimeout) {
       return {
         validVerdict: false,
         output: "",
         error: undefined,
       };
     }
+    const msg = err instanceof Error ? err.message : String(err);
     return {
       validVerdict: false,
       output: "",
