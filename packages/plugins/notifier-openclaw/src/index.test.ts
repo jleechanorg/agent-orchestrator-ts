@@ -1,6 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotifyAction, OrchestratorEvent } from "@jleechanorg/ao-core";
 import { create, manifest } from "./index.js";
+
+process.env.SLACK_CHANNEL_ID = "PRE_EXISTING_CHANNEL";
+process.env.SLACK_THREAD_TS = "PRE_EXISTING_THREAD";
 
 interface Payload {
   message?: string;
@@ -35,19 +38,34 @@ function makeEvent(overrides: Partial<OrchestratorEvent> = {}): OrchestratorEven
 }
 
 describe("notifier-openclaw", () => {
+  let origSlackChannelId: string | undefined;
+  let origSlackThreadTs: string | undefined;
+
   beforeEach(() => {
     vi.restoreAllMocks();
     delete process.env.OPENCLAW_HOOKS_TOKEN;
-    delete process.env.SLACK_THREAD_TS;
+
+    origSlackChannelId = process.env.SLACK_CHANNEL_ID;
+    origSlackThreadTs = process.env.SLACK_THREAD_TS;
     delete process.env.SLACK_CHANNEL_ID;
+    delete process.env.SLACK_THREAD_TS;
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
     delete process.env.OPENCLAW_HOOKS_TOKEN;
-    delete process.env.SLACK_THREAD_TS;
-    delete process.env.SLACK_CHANNEL_ID;
+
+    if (origSlackChannelId !== undefined) {
+      process.env.SLACK_CHANNEL_ID = origSlackChannelId;
+    } else {
+      delete process.env.SLACK_CHANNEL_ID;
+    }
+    if (origSlackThreadTs !== undefined) {
+      process.env.SLACK_THREAD_TS = origSlackThreadTs;
+    } else {
+      delete process.env.SLACK_THREAD_TS;
+    }
   });
 
   it("has correct manifest", () => {
@@ -197,28 +215,6 @@ describe("notifier-openclaw", () => {
   });
 
   describe("Slack environment variable propagation", () => {
-    let origSlackChannelId: string | undefined;
-    let origSlackThreadTs: string | undefined;
-
-    beforeEach(() => {
-      origSlackChannelId = process.env.SLACK_CHANNEL_ID;
-      origSlackThreadTs = process.env.SLACK_THREAD_TS;
-      delete process.env.SLACK_CHANNEL_ID;
-      delete process.env.SLACK_THREAD_TS;
-    });
-
-    afterEach(() => {
-      if (origSlackChannelId !== undefined) {
-        process.env.SLACK_CHANNEL_ID = origSlackChannelId;
-      } else {
-        delete process.env.SLACK_CHANNEL_ID;
-      }
-      if (origSlackThreadTs !== undefined) {
-        process.env.SLACK_THREAD_TS = origSlackThreadTs;
-      } else {
-        delete process.env.SLACK_THREAD_TS;
-      }
-    });
 
     it("propagates SLACK_CHANNEL_ID and SLACK_THREAD_TS from process.env", async () => {
       process.env.SLACK_CHANNEL_ID = "C12345";
@@ -311,5 +307,12 @@ describe("notifier-openclaw", () => {
     expect(body.sessionKey).toBe("hook:ao:ao-300");
     expect(body.channel).toBeUndefined();
     expect(body.to).toBeUndefined();
+  });
+
+  afterAll(() => {
+    expect(process.env.SLACK_CHANNEL_ID).toBe("PRE_EXISTING_CHANNEL");
+    expect(process.env.SLACK_THREAD_TS).toBe("PRE_EXISTING_THREAD");
+    delete process.env.SLACK_CHANNEL_ID;
+    delete process.env.SLACK_THREAD_TS;
   });
 });

@@ -786,13 +786,15 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
           for (const n of notes) {
             if (n.system) continue;
             const body = n.body ?? "";
-            const username = n.author?.username ?? "";
+            const username = (n.author?.username ?? "").trim();
+            const hasAuthor = username.length > 0;
             const bot = isBot(username);
 
             const isGhaTrigger =
-              body.includes("SKEPTIC_GATE_TRIGGER") ||
-              body.includes("SKEPTIC_CRON_TRIGGER");
-            const isHumanSlashCommand = !bot && /^\s*\/skeptic\b/m.test(body);
+              hasAuthor &&
+              (body.includes("SKEPTIC_GATE_TRIGGER") ||
+                body.includes("SKEPTIC_CRON_TRIGGER"));
+            const isHumanSlashCommand = hasAuthor && !bot && /^\s*\/skeptic\b/m.test(body);
 
             result.push({
               id: n.id,
