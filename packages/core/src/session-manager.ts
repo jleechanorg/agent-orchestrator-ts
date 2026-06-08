@@ -55,6 +55,7 @@ import {
   type Issue,
   type AreaLock,
   type LockEntry,
+  type SessionStatus,
   isOrchestratorSession,
   PR_STATE,
   TERMINAL_STATUSES,
@@ -1723,7 +1724,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           );
           persisted.metadata["orchestratorSessionReused"] = "true";
           const rawStatus = persistedRaw["status"] ?? "";
-          if (TERMINAL_STATUSES.has(rawStatus as any)) {
+          if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
             updateMetadata(sessionsDir, sessionId, { status: "working" });
             persisted.status = "working";
           }
@@ -1763,7 +1764,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         if (concurrentAlive && orchestratorSessionStrategy === "reuse") {
           concurrentSession.metadata["orchestratorSessionReused"] = "true";
           const rawStatus = concurrentRaw?.["status"] ?? "";
-          if (TERMINAL_STATUSES.has(rawStatus as any)) {
+          if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
             updateMetadata(sessionsDir, sessionId, { status: "working" });
             concurrentSession.status = "working";
           }

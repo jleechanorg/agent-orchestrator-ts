@@ -3532,7 +3532,6 @@ describe("spawnOrchestrator", () => {
   });
 
   it("resets terminal status to working when reusing an existing orchestrator session", async () => {
-    const listLogPath = join(tmpDir, "opencode-list-orchestrator-reuse-terminal.log");
     const mockBin = join(tmpDir, "mock-bin-reuse-terminal");
     mkdirSync(mockBin, { recursive: true });
     const scriptPath = join(mockBin, "opencode");
