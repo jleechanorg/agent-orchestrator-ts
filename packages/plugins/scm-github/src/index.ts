@@ -2948,7 +2948,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             "api",
             `repos/${repoFlag(pr)}/issues/${pr.number}/comments?per_page=${perPage}&page=${page}`,
           ]);
-          const comments: Array<{ id: number; user: { login: string }; body: string }> =
+          const comments: Array<{ id: number; user: { login: string; type?: string }; body: string }> =
             JSON.parse(raw);
           if (comments.length === 0) break;
           for (const c of comments) {
@@ -2957,7 +2957,14 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             // - GHA Triggers (allow both human and bot authors)
             // - Human /skeptic slash-command (must not be authored by a bot)
             const body = c.body ?? "";
-            const isBot = (c.user?.login ?? "").endsWith("[bot]");
+            const login = c.user?.login ?? "";
+            const normalizedLogin = login.toLowerCase();
+            const isBot =
+              normalizedLogin.endsWith("[bot]") ||
+              c.user?.type === "Bot" ||
+              Array.from(BOT_AUTHORS).some(
+                (bot) => bot.toLowerCase() === normalizedLogin,
+              );
             const isGhaTrigger =
               body.includes("SKEPTIC_GATE_TRIGGER") ||
               body.includes("SKEPTIC_CRON_TRIGGER");

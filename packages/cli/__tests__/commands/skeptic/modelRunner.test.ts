@@ -41,7 +41,10 @@ describe("runSkepticEvaluation", () => {
 
     await expect(
       runSkepticEvaluation("test prompt", { model: [] }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(
+      "runSkepticEvaluation: `model` must be a non-empty string or non-empty array of model names. " +
+        "Supported models are: codex, claude, gemini, minimax, agy.",
+    );
 
     expect(mockLlmEval).not.toHaveBeenCalled();
   });

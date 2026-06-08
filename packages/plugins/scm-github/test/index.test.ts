@@ -390,6 +390,40 @@ describe("scm-github plugin", () => {
     });
   });
 
+  describe("listPRComments", () => {
+    it("flags skeptic triggers correctly and detects bots case-insensitively and by type", async () => {
+      mockGh([
+        { id: 1, user: { login: "user-1", type: "User" }, body: "/skeptic do it" },
+        { id: 2, user: { login: "Copilot", type: "User" }, body: "/skeptic do it" },
+        { id: 3, user: { login: "copilot-pull-request-reviewer", type: "User" }, body: "/skeptic do it" },
+        { id: 4, user: { login: "some-system-bot", type: "Bot" }, body: "/skeptic do it" },
+        { id: 5, user: { login: "user-2", type: "User" }, body: "SKEPTIC_GATE_TRIGGER" },
+        { id: 6, user: { login: "some-system-bot", type: "Bot" }, body: "SKEPTIC_GATE_TRIGGER" },
+      ]);
+
+      const comments = await scm.listPRComments!(pr);
+      expect(comments).toHaveLength(6);
+
+      // User 1 is human and comments /skeptic -> trigger
+      expect(comments[0].isSkepticTrigger).toBe(true);
+
+      // Copilot is in DEFAULT_BOT_AUTHORS (case-insensitive check) -> bot, not trigger
+      expect(comments[1].isSkepticTrigger).toBe(false);
+
+      // copilot-pull-request-reviewer is in DEFAULT_BOT_AUTHORS -> bot, not trigger
+      expect(comments[2].isSkepticTrigger).toBe(false);
+
+      // type: "Bot" -> bot, not trigger
+      expect(comments[3].isSkepticTrigger).toBe(false);
+
+      // Human posting GHA marker -> trigger
+      expect(comments[4].isSkepticTrigger).toBe(true);
+
+      // Bot posting GHA marker -> trigger (allow bot triggers for GHA markers)
+      expect(comments[5].isSkepticTrigger).toBe(true);
+    });
+  });
+
   describe("verifyWebhook", () => {
     it("accepts unsigned webhooks when no secret is configured", async () => {
       await expect(scm.verifyWebhook?.(makeWebhookRequest(), project)).resolves.toEqual({

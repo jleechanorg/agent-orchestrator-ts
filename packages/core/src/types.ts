@@ -763,14 +763,16 @@ export interface SCM {
    *  extract structured guidance for workers. */
   getSkepticComments?(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>>;
   /**
-   * Fetch all PR issue comments without author filtering. Used by /skeptic comment trigger.
+   * Fetch all PR issue comments without author filtering using the listPRComments method with a PRInfo parameter.
    *
-   * Each comment includes an `isSkepticTrigger` boolean that the SCM plugin
-   * computes deterministically (e.g. GitHub markers `SKEPTIC_GATE_TRIGGER` /
-   * `SKEPTIC_CRON_TRIGGER` or a `/skeptic` slash-command from a non-bot author).
-   * Application code MUST consume the structured flag and MUST NOT re-parse
-   * the comment body — heuristic keyword routing violates the ZFC coding
-   * guideline and is centrally the SCM provider's responsibility.
+   * Each comment returned by listPRComments may include an optional `isSkepticTrigger` boolean field.
+   * The `isSkepticTrigger` flag indicates a trigger comment computed deterministically by the SCM plugin
+   * (e.g., GitHub markers `SKEPTIC_GATE_TRIGGER` / `SKEPTIC_CRON_TRIGGER` or a `/skeptic` slash-command
+   * from a non-bot author). When present, callers MUST consume this structured flag and MUST NOT
+   * re-parse the comment body (as heuristic keyword routing violates the ZFC coding guideline).
+   * When the `isSkepticTrigger` field is absent (which can be the case for older SCM plugins that do not
+   * yet implement this contract), callers should treat it as undefined and avoid relying on re-parsing
+   * the comment body, or implement their own appropriate fallback behavior.
    */
   listPRComments?(pr: PRInfo): Promise<
     Array<{
