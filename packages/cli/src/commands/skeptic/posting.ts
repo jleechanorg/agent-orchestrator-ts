@@ -110,6 +110,12 @@ function isGhForbiddenError(err: unknown): boolean {
         ? err
         : "";
 
+  const is403 = /\b403\b/i.test(msg);
+  const isForbidden = /forbidden/i.test(msg);
+  if (!is403 && !isForbidden) {
+    return false;
+  }
+
   // Explicitly return false for messages indicating authentication, token, or rate-limit issues
   const isNonRecoverable =
     /rate\s*limit/i.test(msg) ||

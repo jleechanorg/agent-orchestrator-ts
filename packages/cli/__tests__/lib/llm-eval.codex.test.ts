@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+const originalCodexModel = vi.hoisted(() => process.env["AO_LLM_EVAL_CODEX_MODEL"]);
 
 vi.hoisted(() => {
-  delete process.env.AO_LLM_EVAL_CODEX_MODEL;
+  delete process.env["AO_LLM_EVAL_CODEX_MODEL"];
 });
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
@@ -30,6 +32,14 @@ vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
 }));
 
 import { tryCodexPrint } from "../../src/lib/llm-eval.js";
+
+afterAll(() => {
+  if (originalCodexModel === undefined) {
+    delete process.env["AO_LLM_EVAL_CODEX_MODEL"];
+  } else {
+    process.env["AO_LLM_EVAL_CODEX_MODEL"] = originalCodexModel;
+  }
+});
 
 const PASS_VERDICT = "VERDICT: PASS";
 const FAIL_VERDICT = "VERDICT: FAIL";
