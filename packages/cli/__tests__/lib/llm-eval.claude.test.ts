@@ -21,7 +21,7 @@ vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
   resolveCodexBinary: mockResolveCodexBinary,
 }));
 
-import { tryClaudePrint, tryMinimaxPrint } from "../../src/lib/llm-eval.js";
+import { tryClaudePrint } from "../../src/lib/llm-eval.js";
 
 const PASS_VERDICT = "VERDICT: PASS";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
@@ -145,44 +145,7 @@ describe("tryClaudePrint", () => {
     }
   });
 
-  it("injects minimax credentials when calling tryMinimaxPrint", async () => {
-    const originalMinimaxKey = process.env["MINIMAX_API_KEY"];
-    const originalMinimaxBaseUrl = process.env["MINIMAX_ANTHROPIC_BASE_URL"];
-    const originalAnthropicKey = process.env["ANTHROPIC_API_KEY"];
-    const originalAnthropicBaseUrl = process.env["ANTHROPIC_BASE_URL"];
-    const originalAnthropicAuthToken = process.env["ANTHROPIC_AUTH_TOKEN"];
 
-    process.env["MINIMAX_API_KEY"] = "minimax-test-key";
-    process.env["MINIMAX_ANTHROPIC_BASE_URL"] = "https://minimax-base-url";
-    try {
-      allowFirstCandidate();
-      mockExecFileSync.mockReturnValue(PASS_VERDICT);
-      const result = await tryMinimaxPrint("evaluate this");
-      expect(result.validVerdict).toBe(true);
-      expect(mockExecFileSync).toHaveBeenCalledWith(
-        expect.stringMatching(/(^|\/)claude$/),
-        ["--bare", "--dangerously-skip-permissions", "--print"],
-        expect.objectContaining({
-          env: expect.objectContaining({
-            ANTHROPIC_API_KEY: "minimax-test-key",
-            ANTHROPIC_AUTH_TOKEN: "minimax-test-key",
-            ANTHROPIC_BASE_URL: "https://minimax-base-url",
-          }),
-        }),
-      );
-    } finally {
-      if (originalMinimaxKey === undefined) delete process.env["MINIMAX_API_KEY"];
-      else process.env["MINIMAX_API_KEY"] = originalMinimaxKey;
-      if (originalMinimaxBaseUrl === undefined) delete process.env["MINIMAX_ANTHROPIC_BASE_URL"];
-      else process.env["MINIMAX_ANTHROPIC_BASE_URL"] = originalMinimaxBaseUrl;
-      if (originalAnthropicKey === undefined) delete process.env["ANTHROPIC_API_KEY"];
-      else process.env["ANTHROPIC_API_KEY"] = originalAnthropicKey;
-      if (originalAnthropicBaseUrl === undefined) delete process.env["ANTHROPIC_BASE_URL"];
-      else process.env["ANTHROPIC_BASE_URL"] = originalAnthropicBaseUrl;
-      if (originalAnthropicAuthToken === undefined) delete process.env["ANTHROPIC_AUTH_TOKEN"];
-      else process.env["ANTHROPIC_AUTH_TOKEN"] = originalAnthropicAuthToken;
-    }
-  });
 
   it("returns validVerdict=false with error string when VERDICT is missing", async () => {
     allowFirstCandidate();
@@ -261,58 +224,5 @@ describe("tryClaudePrint", () => {
     expect(mockExecFileSync).toHaveBeenCalledTimes(2);
   });
 
-  it("retries on 429 rate-limit error in tryMinimaxPrint", async () => {
-    const originalMinimaxKey = process.env["MINIMAX_API_KEY"];
-    process.env["MINIMAX_API_KEY"] = "minimax-test-key";
-    try {
-      allowFirstCandidate();
-      mockExecFileSync
-        .mockImplementationOnce(() => {
-          throw new Error("HTTP 429 Too Many Requests");
-        })
-        .mockReturnValueOnce(PASS_VERDICT);
 
-      const result = await tryMinimaxPrint("evaluate this");
-      expect(result.validVerdict).toBe(true);
-      expect(result.output).toBe(PASS_VERDICT);
-      expect(mockExecFileSync).toHaveBeenCalledTimes(2);
-    } finally {
-      if (originalMinimaxKey === undefined) delete process.env["MINIMAX_API_KEY"];
-      else process.env["MINIMAX_API_KEY"] = originalMinimaxKey;
-    }
-  });
-
-  it("continues to next candidate if first candidate throws EPERM but second candidate succeeds in tryMinimaxPrint", async () => {
-    const originalMinimaxKey = process.env["MINIMAX_API_KEY"];
-    process.env["MINIMAX_API_KEY"] = "minimax-test-key";
-    const originalClaudeBinary = process.env["CLAUDE_BINARY"];
-    process.env["CLAUDE_BINARY"] = "/mock/claude";
-    try {
-      mockAccessSync.mockImplementation((path: unknown) => {
-        if (path === "/mock/claude" || path === "/opt/homebrew/bin/claude") return undefined;
-        const err = new Error("ENOENT") as NodeJS.ErrnoException;
-        err.code = "ENOENT";
-        throw err;
-      });
-
-      const eperm = new Error("EPERM: operation not permitted") as NodeJS.ErrnoException;
-      eperm.code = "EPERM";
-
-      mockExecFileSync
-        .mockImplementationOnce(() => {
-          throw eperm;
-        })
-        .mockReturnValueOnce(PASS_VERDICT);
-
-      const result = await tryMinimaxPrint("evaluate this");
-      expect(result.validVerdict).toBe(true);
-      expect(result.output).toBe(PASS_VERDICT);
-      expect(mockExecFileSync).toHaveBeenCalledTimes(2);
-    } finally {
-      if (originalMinimaxKey === undefined) delete process.env["MINIMAX_API_KEY"];
-      else process.env["MINIMAX_API_KEY"] = originalMinimaxKey;
-      if (originalClaudeBinary === undefined) delete process.env["CLAUDE_BINARY"];
-      else process.env["CLAUDE_BINARY"] = originalClaudeBinary;
-    }
-  });
 });
