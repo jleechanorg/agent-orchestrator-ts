@@ -49,7 +49,10 @@ export async function llmEval(
   prompt: string,
   options: { model?: ChainModel | ChainModel[] } = {},
 ): Promise<string> {
-  const { model } = options;
+  let { model } = options;
+  if (model === ("cursor" as any)) {
+    model = "codex";
+  }
 
   const isMissingVerdict = (err?: string) =>
     err !== undefined && /missing VERDICT/i.test(err);
@@ -77,7 +80,12 @@ export async function llmEval(
   } else {
     const preferred = model as string;
     const startIdx = DEFAULT_CHAIN.findIndex((m) => m === preferred);
-    ordered = startIdx >= 0 ? [...DEFAULT_CHAIN.slice(startIdx), ...DEFAULT_CHAIN.slice(0, startIdx)] : DEFAULT_CHAIN;
+    if (startIdx === -1) {
+      throw new Error(
+        `Invalid model: "${preferred}". Expected a ChainModel value from DEFAULT_CHAIN.`
+      );
+    }
+    ordered = [...DEFAULT_CHAIN.slice(startIdx), ...DEFAULT_CHAIN.slice(0, startIdx)];
   }
 
   let lastError = "";

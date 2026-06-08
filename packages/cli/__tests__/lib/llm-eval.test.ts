@@ -813,6 +813,36 @@ describe("tryAgyPrint", () => {
       else process.env["AGY_BINARY"] = originalAgyBinary;
     }
   });
+
+  it("continues to next candidate if first candidate throws EPERM but second candidate succeeds", async () => {
+    const originalAgyBinary = process.env["AGY_BINARY"];
+    process.env["AGY_BINARY"] = "/usr/local/bin/agy";
+    try {
+      mockAccessSync.mockImplementation((path: unknown) => {
+        if (path === "/usr/local/bin/agy" || path === "/opt/homebrew/bin/agy") return undefined;
+        const err = new Error("ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        throw err;
+      });
+
+      const eperm = new Error("EPERM: operation not permitted") as NodeJS.ErrnoException;
+      eperm.code = "EPERM";
+
+      mockExecFileSync
+        .mockImplementationOnce(() => {
+          throw eperm;
+        })
+        .mockReturnValueOnce(PASS_VERDICT);
+
+      const result = await tryAgyPrint("evaluate this");
+      expect(result.validVerdict).toBe(true);
+      expect(result.output).toBe(PASS_VERDICT);
+      expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+    } finally {
+      if (originalAgyBinary === undefined) delete process.env["AGY_BINARY"];
+      else process.env["AGY_BINARY"] = originalAgyBinary;
+    }
+  });
 });
 
 describe("llmEval model validation", () => {
@@ -826,6 +856,12 @@ describe("llmEval model validation", () => {
     await expect(
       llmEval("test prompt", { model: [] })
     ).rejects.toThrow("Invalid model: empty array; expected one or more ChainModel values.");
+  });
+
+  it("throws a clear error when options.model is an unknown single model string", async () => {
+    await expect(
+      llmEval("test prompt", { model: "invalid-model" as any })
+    ).rejects.toThrow('Invalid model: "invalid-model". Expected a ChainModel value from DEFAULT_CHAIN.');
   });
 });
 

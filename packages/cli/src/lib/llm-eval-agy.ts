@@ -21,6 +21,8 @@ const AGY_BINARY_CANDIDATES = [
  */
 export async function tryAgyPrint(prompt: string): Promise<LlmEvalResult> {
   const { execFileSync } = await import("node:child_process");
+  let firstInfraError: string | undefined;
+  let allMissing = true;
 
   for (const candidate of AGY_BINARY_CANDIDATES) {
     if (!candidate) continue;
@@ -28,12 +30,21 @@ export async function tryAgyPrint(prompt: string): Promise<LlmEvalResult> {
     if (candidate !== "agy") {
       try {
         accessSync(candidate, fsConstants.X_OK);
-      } catch {
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") {
+          continue;
+        }
+        allMissing = false;
+        if (!firstInfraError) {
+          firstInfraError = err instanceof Error ? err.message : String(err);
+        }
         continue;
       }
     }
 
     try {
+      allMissing = false;
       const result = execFileSync(
         candidate,
         ["--yolo", "-p", ""],
@@ -58,11 +69,25 @@ export async function tryAgyPrint(prompt: string): Promise<LlmEvalResult> {
     } catch (err: unknown) {
       const errno = (err as NodeJS.ErrnoException).code;
       const msg = err instanceof Error ? err.message : String(err);
-      if (errno === "ENOENT") continue;
-      if (isUnavailable(msg, errno as string)) continue;
-      return { validVerdict: false, output: "", error: msg.split("\n")[0]?.slice(0, 300) };
+      if (errno === "ENOENT") {
+        continue;
+      }
+      if (errno === "ETIMEDOUT") {
+        continue;
+      }
+      if (isAuthError(msg) || isUnavailable(msg, errno as string)) {
+        return { validVerdict: false, output: "", error: undefined };
+      }
+      if (!firstInfraError) {
+        firstInfraError = msg.split("\n")[0]?.slice(0, 300);
+      }
+      continue;
     }
   }
 
-  return { validVerdict: false, output: "", error: undefined };
+  if (allMissing) {
+    return { validVerdict: false, output: "", error: undefined };
+  }
+
+  return { validVerdict: false, output: "", error: firstInfraError };
 }

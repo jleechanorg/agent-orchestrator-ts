@@ -282,6 +282,40 @@ describe("tryClaudePrint", () => {
       else process.env["MINIMAX_API_KEY"] = originalMinimaxKey;
     }
   });
+
+  it("continues to next candidate if first candidate throws EPERM but second candidate succeeds in tryMinimaxPrint", async () => {
+    const originalMinimaxKey = process.env["MINIMAX_API_KEY"];
+    process.env["MINIMAX_API_KEY"] = "minimax-test-key";
+    const originalClaudeBinary = process.env["CLAUDE_BINARY"];
+    process.env["CLAUDE_BINARY"] = "/mock/claude";
+    try {
+      mockAccessSync.mockImplementation((path: unknown) => {
+        if (path === "/mock/claude" || path === "/opt/homebrew/bin/claude") return undefined;
+        const err = new Error("ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        throw err;
+      });
+
+      const eperm = new Error("EPERM: operation not permitted") as NodeJS.ErrnoException;
+      eperm.code = "EPERM";
+
+      mockExecFileSync
+        .mockImplementationOnce(() => {
+          throw eperm;
+        })
+        .mockReturnValueOnce(PASS_VERDICT);
+
+      const result = await tryMinimaxPrint("evaluate this");
+      expect(result.validVerdict).toBe(true);
+      expect(result.output).toBe(PASS_VERDICT);
+      expect(mockExecFileSync).toHaveBeenCalledTimes(2);
+    } finally {
+      if (originalMinimaxKey === undefined) delete process.env["MINIMAX_API_KEY"];
+      else process.env["MINIMAX_API_KEY"] = originalMinimaxKey;
+      if (originalClaudeBinary === undefined) delete process.env["CLAUDE_BINARY"];
+      else process.env["CLAUDE_BINARY"] = originalClaudeBinary;
+    }
+  });
 });
 
 describe("llmEval — explicit model=claude", () => {
