@@ -14,7 +14,7 @@ interface Payload {
   to?: string;
 }
 
-function parsePayload(fetchMock: any): Payload {
+function parsePayload(fetchMock: { mock: { calls: unknown[][] } }): Payload {
   const options = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
   const body = options?.body;
   if (typeof body !== "string") {
@@ -296,8 +296,8 @@ describe("notifier-openclaw", () => {
     const event = makeEvent({
       sessionId: "ao-300",
       data: {
-        slackThreadTs: { nested: "object" } as any,
-        slackChannelId: 12345 as any,
+        slackThreadTs: { nested: "object" },
+        slackChannelId: 12345,
       },
     });
     await notifier.notify(event);
