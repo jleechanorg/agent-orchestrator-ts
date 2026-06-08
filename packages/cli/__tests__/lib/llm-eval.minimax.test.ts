@@ -1,3 +1,4 @@
+// Unit tests for tryMinimaxPrint
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
