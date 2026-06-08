@@ -57,10 +57,20 @@ export async function postVerdict(
     try {
       await patchComment(owner, repo, existingCommentId, body);
     } catch (err) {
-      // bd-479: only fallback for deleted/stale comment IDs (404).
-      // Rethrow all other errors (auth, rate-limit, network, 422) so upstream
-      // can handle retries/failures and avoid creating duplicate verdict comments.
-      if (!isGhNotFoundError(err)) {
+      // bd-479: 404 (comment deleted) → fall back to CREATE.
+      // 403 (cross-user edit blocked) → fall back to CREATE.
+      //   When the existing verdict comment was posted by a different GitHub
+      //   user (e.g. jleechan-af) and the current gh CLI is authenticated as
+      //   a different account (e.g. jleechan2015), GitHub returns 403 because
+      //   cross-user comment edits are not allowed. The previous behavior
+      //   rethrew the 403, causing `ao skeptic verify` to fail with
+      //   "Failed to post verdict" and silently drop the new verdict.
+      //   Falling back to CREATE loses idempotent re-use but guarantees the
+      //   verdict comment lands on the PR — which is what Skeptic Gate polls.
+      // Rethrow all other errors (auth failure on the caller's account,
+      // rate-limit, network, 422 oversized body) so upstream can handle
+      // retries/failures and avoid creating duplicate verdict comments.
+      if (!isGhNotFoundError(err) && !isGhForbiddenError(err)) {
         throw err;
       }
       await createComment(owner, repo, prNumber, body);
@@ -84,4 +94,20 @@ function isGhNotFoundError(err: unknown): boolean {
         ? err
         : "";
   return /\b404\b/i.test(msg) || /not\s+found/i.test(msg);
+}
+
+/**
+ * Returns true when the error indicates a GitHub API 403 / "forbidden" response.
+ * The `gh` CLI prints "HTTP 403: Forbidden" or "status: 403" in stderr on such
+ * errors. We treat 403 as a recoverable condition (cross-user comment edit)
+ * and fall back to creating a new comment — see the catch block in postVerdict.
+ */
+function isGhForbiddenError(err: unknown): boolean {
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : "";
+  return /\b403\b/i.test(msg) || /forbidden/i.test(msg);
 }
