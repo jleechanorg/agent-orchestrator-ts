@@ -301,7 +301,10 @@ const antigravityOverrides: Partial<Agent> = {
             launchConfig.workspacePath,
           ].filter(Boolean) as string[];
 
-          for (const p of pathsToTrust) {
+          for (let p of pathsToTrust) {
+            if (p.startsWith("~/") || p === "~") {
+              p = path.join(userHome, p.slice(2));
+            }
             trustedFolders[p] = "TRUST_FOLDER";
             try {
               const resolvedPath = fs.realpathSync(p);
