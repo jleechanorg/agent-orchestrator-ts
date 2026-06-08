@@ -168,10 +168,13 @@ export function createPluginRegistry(): PluginRegistry {
       validatePluginName(finalName);
       const key = makeKey(manifest.slot, finalName);
       const instance = plugin.create(config);
+      const finalModule = nameOverride
+        ? { ...plugin, manifest: { ...manifest, name: finalName } }
+        : plugin;
       plugins.set(key, {
         manifest: { ...manifest, name: finalName },
         instance,
-        module: plugin,
+        module: finalModule,
       });
     },
 

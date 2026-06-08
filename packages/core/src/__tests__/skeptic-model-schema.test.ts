@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { resolveSkepticModels, skepticModelSchema } from "../skeptic-model-schema.js";
+import { resolveSkepticModel } from "../skeptic-models.js";
 
 describe("skeptic-model-schema", () => {
   describe("resolveSkepticModels", () => {
@@ -26,6 +27,24 @@ describe("skeptic-model-schema", () => {
 
     it("filters out invalid models in array", () => {
       expect(resolveSkepticModels(["codex", "invalid", "claude"])).toEqual(["codex", "claude"]);
+    });
+  });
+
+  describe("resolveSkepticModel", () => {
+    it("throws if array is empty", () => {
+      expect(() => resolveSkepticModel([])).toThrow("options.model must contain at least one model.");
+    });
+
+    it("throws if any model is invalid", () => {
+      expect(() => resolveSkepticModel(["codex", "invalid" as any])).toThrow(
+        "options.model contains invalid model(s); all entries must be valid Skeptic models"
+      );
+    });
+
+    it("resolves valid models and sets chain", () => {
+      const res = resolveSkepticModel(["codex", "claude"]);
+      expect(res.validatedModel).toEqual(["codex", "claude"]);
+      expect(res.chain).toEqual(["codex", "claude"]);
     });
   });
 

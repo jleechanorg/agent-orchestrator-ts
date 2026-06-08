@@ -155,14 +155,14 @@ describe("tryGeminiPrint", () => {
     expect(result.error).toContain("Network error");
   });
 
-  it("returns validVerdict=false with error when fetch times out (aborted)", async () => {
+  it("returns validVerdict=false with error=undefined when fetch times out (aborted)", async () => {
     fetchSpy.mockImplementation(async () => {
       throw new DOMException("The user aborted a request.", "AbortError");
     });
 
     const result = await tryGeminiPrint("evaluate this");
     expect(result.validVerdict).toBe(false);
-    expect(result.error).toContain("aborted");
+    expect(result.error).toBeUndefined();
   });
 
   it("uses an AbortSignal and aborts the fetch after timeout", async () => {
@@ -190,7 +190,7 @@ describe("tryGeminiPrint", () => {
       
       const result = await promise;
       expect(result.validVerdict).toBe(false);
-      expect(result.error).toContain("aborted");
+      expect(result.error).toBeUndefined();
       expect(signal?.aborted).toBe(true);
     } finally {
       vi.useRealTimers();

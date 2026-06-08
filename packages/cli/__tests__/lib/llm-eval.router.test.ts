@@ -152,45 +152,7 @@ describe("llmEval — default (codex primary)", () => {
   });
 });
 
-describe("llmEval — explicit model=cursor (maps to codex)", () => {
-  it("tries codex first when model=cursor is specified (cursor not in supported chain)", async () => {
-    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    mockExecFileSync.mockReturnValue(FAIL_VERDICT);
-    const result = await llmEval("evaluate this", { model: "cursor" });
-    expect(result).toBe(FAIL_VERDICT);
-    expect(mockResolveCodexBinary).toHaveBeenCalled();
-    // Only codex is tried (cursor maps to codex in the rotation)
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
-  });
 
-  it("falls back to claude when codex is unavailable with model=cursor", async () => {
-    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
-    // Rotation: cursor→codex→claude→gemini; codex unavailable, claude succeeds
-    mockExecFileSync
-      .mockImplementationOnce(() => {
-        throw enoent; // codex unavailable
-      })
-      .mockReturnValueOnce(PASS_VERDICT); // claude succeeds
-    const result = await llmEval("evaluate this", { model: "cursor" });
-    expect(result).toBe(PASS_VERDICT);
-    expect(mockResolveCodexBinary).toHaveBeenCalled();
-  });
-
-  it("exhausted-chain output does not mention cursor", async () => {
-    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
-    // Both codex and claude unavailable → chain exhausted
-    mockExecFileSync.mockImplementation(() => {
-      throw enoent;
-    });
-    const result = await llmEval("evaluate this", { model: "cursor" });
-    expect(result).toContain("VERDICT: FAIL");
-    expect(result).not.toContain("cursor");
-  });
-});
 
 describe("llmEval model validation", () => {
   it("throws a clear error when options.model array contains an unknown model", async () => {

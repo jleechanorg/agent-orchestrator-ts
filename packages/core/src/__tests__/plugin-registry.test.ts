@@ -133,6 +133,20 @@ describe("register + get", () => {
     expect(registry.get("runtime", "worktree")).toBeNull();
     expect(registry.get("workspace", "tmux")).toBeNull();
   });
+
+  it("updates module manifest name when registered with nameOverride", () => {
+    const registry = createPluginRegistry();
+    const plugin = makePlugin("runtime", "tmux");
+
+    registry.register(plugin, undefined, "custom-tmux");
+
+    const instance = registry.get("runtime", "custom-tmux");
+    expect(instance).not.toBeNull();
+
+    const module = registry.getModule("runtime", "custom-tmux");
+    expect(module).not.toBeNull();
+    expect(module!.manifest.name).toBe("custom-tmux");
+  });
 });
 
 describe("list", () => {

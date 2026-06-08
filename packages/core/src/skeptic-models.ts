@@ -16,7 +16,7 @@ export function resolveSkepticModel(
     }
     for (const m of models) {
       if (!isValidSkepticModel(m)) {
-        throw new Error("options.model must contain at least one valid model.");
+        throw new Error("options.model contains invalid model(s); all entries must be valid Skeptic models");
       }
     }
   }

@@ -1725,8 +1725,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           persisted.metadata["orchestratorSessionReused"] = "true";
           const rawStatus = persistedRaw["status"] ?? "";
           if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
-            updateMetadata(sessionsDir, sessionId, { status: "working" });
+            updateMetadata(sessionsDir, sessionId, {
+              status: "working",
+              activity: "",
+              exitCode: "",
+              finishedAt: "",
+            });
             persisted.status = "working";
+            persisted.activity = null;
+            if (persisted.metadata) {
+              delete persisted.metadata.activity;
+              delete persisted.metadata.exitCode;
+              delete persisted.metadata.finishedAt;
+            }
           }
           return persisted;
         }
@@ -1765,8 +1776,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           concurrentSession.metadata["orchestratorSessionReused"] = "true";
           const rawStatus = concurrentRaw?.["status"] ?? "";
           if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
-            updateMetadata(sessionsDir, sessionId, { status: "working" });
+            updateMetadata(sessionsDir, sessionId, {
+              status: "working",
+              activity: "",
+              exitCode: "",
+              finishedAt: "",
+            });
             concurrentSession.status = "working";
+            concurrentSession.activity = null;
+            if (concurrentSession.metadata) {
+              delete concurrentSession.metadata.activity;
+              delete concurrentSession.metadata.exitCode;
+              delete concurrentSession.metadata.finishedAt;
+            }
           }
           return concurrentSession;
         }

@@ -21,32 +21,34 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
   try {
     const model = process.env["GEMINI_MODEL"] || "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
-            },
-          ],
-        }),
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+      }),
+    });
 
     if (!response.ok) {
       const errText = await response.text();
+      if ([401, 403, 429].includes(response.status)) {
+        return {
+          validVerdict: false,
+          output: "",
+          error: undefined,
+        };
+      }
       return {
         validVerdict: false,
         output: "",
@@ -75,11 +77,22 @@ export async function tryGeminiPrint(prompt: string): Promise<LlmEvalResult> {
 
     return { validVerdict: true, output };
   } catch (err: unknown) {
+    const isAbort = err instanceof Error && err.name === "AbortError";
+    const isTimeout = controller.signal.aborted;
+    if (isAbort || isTimeout) {
+      return {
+        validVerdict: false,
+        output: "",
+        error: undefined,
+      };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return {
       validVerdict: false,
       output: "",
       error: `Gemini API call failed: ${msg}`,
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.hoisted(() => {
+  delete process.env.AO_LLM_EVAL_CODEX_MODEL;
+});
+
 const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockResolveCodexBinary = vi.hoisted(() => vi.fn());
 const mockAccessSync = vi.hoisted(() => vi.fn());
