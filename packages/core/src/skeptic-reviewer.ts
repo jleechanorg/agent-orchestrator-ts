@@ -23,7 +23,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Session } from "./types.js";
 import { type SkepticModel } from "./skeptic-model-schema.js";
-import { resolveSkepticModel, FALLBACK_CHAIN } from "./skeptic-models.js";
+import { resolveSkepticModel } from "./skeptic-models.js";
 
 const execFileAsync = promisify(execFile);
 

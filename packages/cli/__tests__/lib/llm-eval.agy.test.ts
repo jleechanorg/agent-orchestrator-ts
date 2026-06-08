@@ -23,7 +23,6 @@ vi.mock("node:fs", async () => {
 import { tryAgyPrint } from "../../src/lib/llm-eval.js";
 
 const PASS_VERDICT = "VERDICT: PASS";
-const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
 
 beforeEach(() => {

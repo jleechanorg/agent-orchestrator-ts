@@ -29,7 +29,9 @@ describe("lifecycle-manager skeptic-cron catch handler", () => {
     consoleErrorSpy.mockRestore();
     try {
       rmSync(tmpDir, { recursive: true, force: true });
-    } catch {}
+    } catch {
+      // ignore
+    }
   });
 
   it("should catch and log error when runLocalSkepticCron rejects", async () => {
