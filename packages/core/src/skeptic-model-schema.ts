@@ -19,7 +19,8 @@ export function isValidSkepticModel(model: unknown): model is SkepticModel {
  * Returns:
  * - Single SkepticModel -> SkepticModel
  * - Array of valid SkepticModels -> SkepticModel[]
- * - undefined if invalid, undefined, or empty.
+ * - undefined if invalid or undefined/null.
+ *   (For array input, invalid entries are filtered; empty arrays remain empty.)
  */
 export function resolveSkepticModels(raw: unknown): SkepticModel | SkepticModel[] | undefined {
   if (raw === undefined || raw === null) return undefined;

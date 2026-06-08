@@ -222,7 +222,18 @@ export async function runLocalSkepticCron(
         if (!hasValidTriggerComment(comments)) {
           return false;
         }
-      } catch {
+      } catch (err) {
+        try {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "skeptic.cron.list_pr_comments_failed",
+            outcome: "failure",
+            correlationId,
+            projectId,
+            data: { prNumber: pr.number, error: err instanceof Error ? err.message : String(err) },
+            level: "warn",
+          });
+        } catch { /* observer failure must not block cron flow */ }
         return false;
       }
     }

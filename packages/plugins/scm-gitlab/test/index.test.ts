@@ -1148,7 +1148,7 @@ describe("scm-gitlab plugin", () => {
           id: 106,
           body: "/skeptic trigger review",
           system: false,
-          author: null as any,
+          author: null,
         },
         {
           id: 107,

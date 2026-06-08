@@ -1186,5 +1186,18 @@ describe("runLocalSkepticCron", () => {
 
     expect(result).toBe(0);
     expect(mockRunSkepticReview).not.toHaveBeenCalled();
+    expect(observer.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metric: "lifecycle_poll",
+        operation: "skeptic.cron.list_pr_comments_failed",
+        outcome: "failure",
+        projectId: "proj",
+        correlationId: "c-boom",
+        data: expect.objectContaining({
+          prNumber: 1,
+          error: "boom",
+        }),
+      }),
+    );
   });
 });
