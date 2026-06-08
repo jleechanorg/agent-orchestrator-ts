@@ -72,11 +72,22 @@ function makeProject(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
 function makeDeps() {
   const listOpenPRs = vi.fn<[ProjectConfig], Promise<PRInfo[]>>();
   const getPRHeadSha = vi.fn<(pr: PRInfo) => Promise<string>>();
-  const listPRComments = vi.fn<(pr: PRInfo) => Promise<Array<{ id: number; body: string; user: { login: string } }>>>();
-  
+  const listPRComments = vi.fn<
+    (
+      pr: PRInfo,
+    ) => Promise<
+      Array<{
+        id: number;
+        body: string;
+        user: { login: string };
+        isSkepticTrigger?: boolean;
+      }>
+    >
+  >();
+
   // Default to returning a trigger comment so existing tests continue to pass
   listPRComments.mockResolvedValue([
-    { id: 100, body: "/skeptic", user: { login: "jleechan2015" } }
+    { id: 100, body: "/skeptic", user: { login: "jleechan2015" }, isSkepticTrigger: true }
   ]);
 
   const mockSCM: Partial<SCM> = { listOpenPRs, getPRHeadSha, listPRComments };
@@ -958,7 +969,7 @@ describe("runLocalSkepticCron", () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
     listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
     listPRComments.mockResolvedValue([
-      { id: 101, body: "just a normal comment", user: { login: "alice" } }
+      { id: 101, body: "just a normal comment", user: { login: "alice" }, isSkepticTrigger: false }
     ]);
     mockRunSkepticReview.mockResolvedValue({
       verdict: "PASS",
@@ -983,7 +994,7 @@ describe("runLocalSkepticCron", () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
     listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
     listPRComments.mockResolvedValue([
-      { id: 101, body: "SKEPTIC_GATE_TRIGGER\n<!-- skeptic-gate-trigger-sha -->", user: { login: "github-actions[bot]" } }
+      { id: 101, body: "SKEPTIC_GATE_TRIGGER\n<!-- skeptic-gate-trigger-sha -->", user: { login: "github-actions[bot]" }, isSkepticTrigger: true }
     ]);
     mockRunSkepticReview.mockResolvedValue({
       verdict: "PASS",
@@ -1008,7 +1019,7 @@ describe("runLocalSkepticCron", () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
     listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
     listPRComments.mockResolvedValue([
-      { id: 101, body: "SKEPTIC_CRON_TRIGGER\n<!-- skeptic-cron-trigger-sha -->", user: { login: "github-actions[bot]" } }
+      { id: 101, body: "SKEPTIC_CRON_TRIGGER\n<!-- skeptic-cron-trigger-sha -->", user: { login: "github-actions[bot]" }, isSkepticTrigger: true }
     ]);
     mockRunSkepticReview.mockResolvedValue({
       verdict: "PASS",
@@ -1033,7 +1044,8 @@ describe("runLocalSkepticCron", () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
     listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
     listPRComments.mockResolvedValue([
-      { id: 101, body: "/skeptic", user: { login: "some-bot[bot]" } }
+      // SCM plugin would NOT set isSkepticTrigger: true for a bot /skeptic
+      { id: 101, body: "/skeptic", user: { login: "some-bot[bot]" }, isSkepticTrigger: false }
     ]);
     mockRunSkepticReview.mockResolvedValue({
       verdict: "PASS",
@@ -1052,6 +1064,63 @@ describe("runLocalSkepticCron", () => {
 
     expect(result).toBe(0);
     expect(mockRunSkepticReview).not.toHaveBeenCalled();
+  });
+
+  // ZFC regression: even when a comment body literally contains the trigger
+  // keywords, application code must NOT match on the body. Trigger detection
+  // is the SCM plugin's responsibility and is consumed via the structured
+  // `isSkepticTrigger` flag.
+  it("ignores trigger-looking body text when isSkepticTrigger is not set", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    listPRComments.mockResolvedValue([
+      // Body matches the legacy heuristic, but the structured flag is false.
+      // The cron must skip this PR — the SCM plugin decided it is not a trigger.
+      { id: 201, body: "SKEPTIC_GATE_TRIGGER\n<!-- stale marker -->", user: { login: "github-actions[bot]" }, isSkepticTrigger: false },
+      { id: 202, body: "/skeptic run please", user: { login: "jleechan2015" }, isSkepticTrigger: false },
+    ]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-zfc-regression",
+      },
+    );
+
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+  });
+
+  it("honors a non-bot comment when the SCM plugin marks it as a trigger", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    listPRComments.mockResolvedValue([
+      { id: 301, body: "/skeptic", user: { login: "jleechan2015" }, isSkepticTrigger: true },
+    ]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-struct-flag",
+      },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
   });
 
   it("skips PRs modified more than 24 hours ago", async () => {

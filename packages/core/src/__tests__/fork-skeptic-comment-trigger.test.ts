@@ -1,5 +1,12 @@
 /**
  * Unit tests for detectAndTriggerSkepticComment.
+ *
+ * The trigger detection is intentionally narrow: this function only
+ * CONSUMES the structured `isSkepticTrigger` flag set by the SCM plugin
+ * and does NOT re-parse comment bodies. Heuristic keyword routing
+ * violates the ZFC coding guideline and is the SCM provider's
+ * responsibility (see packages/plugins/scm-github/src/index.ts
+ * listPRComments for the keyword/regex detector).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { detectAndTriggerSkepticComment } from "../fork-skeptic-comment-trigger.js";
@@ -25,7 +32,9 @@ function makePR(): Session["pr"] {
   };
 }
 
-function makeMockSCM(comments: Array<{ id: number; user: { login: string }; body: string }> = []) {
+function makeMockSCM(
+  comments: Array<{ id: number; user: { login: string }; body: string; isSkepticTrigger?: boolean }> = [],
+) {
   return {
     name: "mock-scm",
     detectPR: vi.fn(),
@@ -70,7 +79,7 @@ describe("detectAndTriggerSkepticComment", () => {
 
   it("returns early when session has no pr", async () => {
     const session = makeSession({ pr: undefined });
-    const scm = makeMockSCM([{ id: 1, user: { login: "jleechan2015" }, body: "/skeptic" }]);
+    const scm = makeMockSCM([{ id: 1, user: { login: "jleechan2015" }, body: "/skeptic", isSkepticTrigger: true }]);
     registry = {
       get: vi.fn().mockReturnValue(scm),
     } as unknown as PluginRegistry;
@@ -91,7 +100,7 @@ describe("detectAndTriggerSkepticComment", () => {
 
   it("returns early when project is not in config", async () => {
     const session = makeSession({ projectId: "unknown-app", pr: makePR() });
-    const scm = makeMockSCM([{ id: 1, user: { login: "jleechan2015" }, body: "/skeptic" }]);
+    const scm = makeMockSCM([{ id: 1, user: { login: "jleechan2015" }, body: "/skeptic", isSkepticTrigger: true }]);
     registry = {
       get: vi.fn().mockReturnValue(scm),
     } as unknown as PluginRegistry;
@@ -141,7 +150,7 @@ describe("detectAndTriggerSkepticComment", () => {
 
     const session = makeSession({ id: "sess-1", pr: makePR() });
     const scm = makeMockSCM([
-      { id: 1, user: { login: "jleechan2015" }, body: "/skeptic" },
+      { id: 1, user: { login: "jleechan2015" }, body: "/skeptic", isSkepticTrigger: true },
     ]);
 
     registry = {
@@ -168,10 +177,13 @@ describe("detectAndTriggerSkepticComment", () => {
     expect(mockTrigger).toHaveBeenCalledTimes(1);
   });
 
-  it("skips bot-authored comments", async () => {
+  it("skips bot-authored comments even when isSkepticTrigger is set", async () => {
+    // SCM plugin should NOT have set isSkepticTrigger for a bot /skeptic,
+    // but the app code still defensively skips bot authors. This guards
+    // against an SCM plugin mis-classifying a bot comment as a trigger.
     const session = makeSession({ pr: makePR() });
     const scm = makeMockSCM([
-      { id: 1, user: { login: "github-actions[bot]" }, body: "/skeptic" },
+      { id: 1, user: { login: "github-actions[bot]" }, body: "/skeptic", isSkepticTrigger: true },
     ]);
     registry = {
       get: vi.fn().mockReturnValue(scm),
@@ -191,10 +203,13 @@ describe("detectAndTriggerSkepticComment", () => {
     expect(mockTrigger).not.toHaveBeenCalled();
   });
 
-  it("skips non-/skeptic comments", async () => {
+  it("skips comments whose isSkepticTrigger is not set (ZFC contract)", async () => {
+    // Body contains /skeptic but the structured flag is false. App code
+    // must not match on the body — the SCM plugin is the single source of
+    // truth for trigger detection.
     const session = makeSession({ pr: makePR() });
     const scm = makeMockSCM([
-      { id: 1, user: { login: "jleechan2015" }, body: "looks good!" },
+      { id: 1, user: { login: "jleechan2015" }, body: "/skeptic", isSkepticTrigger: false },
     ]);
     registry = {
       get: vi.fn().mockReturnValue(scm),
@@ -214,10 +229,10 @@ describe("detectAndTriggerSkepticComment", () => {
     expect(mockTrigger).not.toHaveBeenCalled();
   });
 
-  it("fires triggerSkepticReaction when a human posts /skeptic", async () => {
+  it("fires triggerSkepticReaction when a human comment has isSkepticTrigger=true", async () => {
     const session = makeSession({ id: "sess-1", pr: makePR() });
     const scm = makeMockSCM([
-      { id: 1, user: { login: "jleechan2015" }, body: "/skeptic" },
+      { id: 1, user: { login: "jleechan2015" }, body: "/skeptic", isSkepticTrigger: true },
     ]);
     registry = {
       get: vi.fn().mockReturnValue(scm),
@@ -241,7 +256,7 @@ describe("detectAndTriggerSkepticComment", () => {
   it("deduplicates: same comment ID does not fire trigger twice", async () => {
     const session = makeSession({ id: "sess-1", pr: makePR() });
     const scm = makeMockSCM([
-      { id: 99, user: { login: "jleechan2015" }, body: "/skeptic" },
+      { id: 99, user: { login: "jleechan2015" }, body: "/skeptic", isSkepticTrigger: true },
     ]);
     registry = {
       get: vi.fn().mockReturnValue(scm),
@@ -274,11 +289,11 @@ describe("detectAndTriggerSkepticComment", () => {
     expect(mockTrigger).toHaveBeenCalledTimes(1);
   });
 
-  it("processes only the first /skeptic comment when multiple are present in one cycle", async () => {
+  it("processes only the first trigger comment when multiple are present in one cycle", async () => {
     const session = makeSession({ id: "sess-1", pr: makePR() });
     const scm = makeMockSCM([
-      { id: 10, user: { login: "alice" }, body: "/skeptic" },
-      { id: 11, user: { login: "bob" }, body: "/skeptic" },
+      { id: 10, user: { login: "alice" }, body: "/skeptic", isSkepticTrigger: true },
+      { id: 11, user: { login: "bob" }, body: "/skeptic", isSkepticTrigger: true },
     ]);
     registry = {
       get: vi.fn().mockReturnValue(scm),
@@ -325,80 +340,10 @@ describe("detectAndTriggerSkepticComment", () => {
     expect(mockTrigger).not.toHaveBeenCalled();
   });
 
-  it("trims body and still detects /skeptic", async () => {
-    const session = makeSession({ id: "sess-1", pr: makePR() });
-    const scm = makeMockSCM([
-      { id: 1, user: { login: "jleechan2015" }, body: "/skeptic" },
-    ]);
-    registry = {
-      get: vi.fn().mockReturnValue(scm),
-    } as unknown as PluginRegistry;
-
-    await detectAndTriggerSkepticComment(
-      session,
-      processedCommentIds,
-      failedCommentIds,
-      lastSkepticSha,
-      "test-corr",
-      config,
-      registry,
-      mockTrigger,
-    );
-
-    expect(mockTrigger).toHaveBeenCalledTimes(1);
-  });
-
-  it("allows leading whitespace before /skeptic", async () => {
-    const session = makeSession({ id: "sess-1", pr: makePR() });
-    const scm = makeMockSCM([
-      { id: 1, user: { login: "jleechan2015" }, body: "  /skeptic" },
-    ]);
-    registry = {
-      get: vi.fn().mockReturnValue(scm),
-    } as unknown as PluginRegistry;
-
-    await detectAndTriggerSkepticComment(
-      session,
-      processedCommentIds,
-      failedCommentIds,
-      lastSkepticSha,
-      "test-corr",
-      config,
-      registry,
-      mockTrigger,
-    );
-
-    expect(mockTrigger).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not fire trigger when /skeptic has trailing content on same line", async () => {
-    const session = makeSession({ id: "sess-1", pr: makePR() });
-    const scm = makeMockSCM([
-      { id: 1, user: { login: "jleechan2015" }, body: "please run /skeptic on this" },
-    ]);
-    registry = {
-      get: vi.fn().mockReturnValue(scm),
-    } as unknown as PluginRegistry;
-
-    await detectAndTriggerSkepticComment(
-      session,
-      processedCommentIds,
-      failedCommentIds,
-      lastSkepticSha,
-      "test-corr",
-      config,
-      registry,
-      mockTrigger,
-    );
-
-    // /skeptic embedded in a sentence does not trigger — requires line-start match
-    expect(mockTrigger).not.toHaveBeenCalled();
-  });
-
   it("marks comment processed only after trigger returns true", async () => {
     const session = makeSession({ id: "sess-1", pr: makePR() });
     const scm = makeMockSCM([
-      { id: 99, user: { login: "jleechan2015" }, body: "/skeptic" },
+      { id: 99, user: { login: "jleechan2015" }, body: "/skeptic", isSkepticTrigger: true },
     ]);
     registry = {
       get: vi.fn().mockReturnValue(scm),
@@ -435,7 +380,7 @@ describe("detectAndTriggerSkepticComment", () => {
   it("permanently skips failed comment across poll cycles", async () => {
     const session = makeSession({ id: "sess-1", pr: makePR() });
     const scm = makeMockSCM([
-      { id: 99, user: { login: "jleechan2015" }, body: "/skeptic" },
+      { id: 99, user: { login: "jleechan2015" }, body: "/skeptic", isSkepticTrigger: true },
     ]);
     registry = {
       get: vi.fn().mockReturnValue(scm),

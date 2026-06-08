@@ -2927,10 +2927,22 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async listPRComments(
       pr: PRInfo,
-    ): Promise<Array<{ id: number; body: string; user: { login: string } }>> {
+    ): Promise<
+      Array<{
+        id: number;
+        body: string;
+        user: { login: string };
+        isSkepticTrigger?: boolean;
+      }>
+    > {
       try {
         const perPage = 100;
-        const result: Array<{ id: number; body: string; user: { login: string } }> = [];
+        const result: Array<{
+          id: number;
+          body: string;
+          user: { login: string };
+          isSkepticTrigger?: boolean;
+        }> = [];
         for (let page = 1; ; page++) {
           const raw = await gh([
             "api",
@@ -2940,7 +2952,22 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             JSON.parse(raw);
           if (comments.length === 0) break;
           for (const c of comments) {
-            result.push({ id: c.id, body: c.body ?? "", user: c.user });
+            // Compute the structured trigger flag at the SCM boundary so that
+            // application code does not need to re-parse comment bodies.
+            // - GHA Triggers (allow both human and bot authors)
+            // - Human /skeptic slash-command (must not be authored by a bot)
+            const body = c.body ?? "";
+            const isBot = (c.user?.login ?? "").endsWith("[bot]");
+            const isGhaTrigger =
+              body.includes("SKEPTIC_GATE_TRIGGER") ||
+              body.includes("SKEPTIC_CRON_TRIGGER");
+            const isHumanSlashCommand = !isBot && /^\s*\/skeptic\b/m.test(body);
+            result.push({
+              id: c.id,
+              body,
+              user: c.user,
+              isSkepticTrigger: isGhaTrigger || isHumanSlashCommand,
+            });
           }
           if (comments.length < perPage) break;
         }

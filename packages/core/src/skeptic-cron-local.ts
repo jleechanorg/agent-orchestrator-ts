@@ -81,22 +81,22 @@ function normalizeMaxConcurrentSkepticReviews(value: number | undefined): number
   return Math.max(1, Math.trunc(value));
 }
 
-function hasValidTriggerComment(comments: Array<{ body: string; user?: { login: string } }>): boolean {
+function hasValidTriggerComment(
+  comments: Array<{
+    body: string;
+    user?: { login: string };
+    /**
+     * Structured signal set by the SCM plugin. Application code MUST NOT
+     * re-parse the comment body — heuristic keyword routing in app code
+     * violates the ZFC coding guideline. If a comment does not arrive with
+     * `isSkepticTrigger: true`, it is not a trigger.
+     */
+    isSkepticTrigger?: boolean;
+  }>,
+): boolean {
   for (const c of comments) {
-    const body = c.body || "";
-    const login = c.user?.login || "";
-    const isBot = login.endsWith("[bot]");
-
-    // GHA Triggers (allow both human and bot)
-    if (body.includes("SKEPTIC_GATE_TRIGGER") || body.includes("SKEPTIC_CRON_TRIGGER")) {
+    if (c.isSkepticTrigger === true) {
       return true;
-    }
-
-    // Human /skeptic trigger (must not be bot)
-    if (/^\s*\/skeptic\b/m.test(body)) {
-      if (!isBot) {
-        return true;
-      }
     }
   }
   return false;

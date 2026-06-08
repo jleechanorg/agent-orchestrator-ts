@@ -762,8 +762,24 @@ export interface SCM {
    *  Used by the skeptic-advice reaction to detect new FAIL verdicts and
    *  extract structured guidance for workers. */
   getSkepticComments?(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>>;
-  /** Fetch all PR issue comments without author filtering. Used by /skeptic comment trigger. */
-  listPRComments?(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>>;
+  /**
+   * Fetch all PR issue comments without author filtering. Used by /skeptic comment trigger.
+   *
+   * Each comment includes an `isSkepticTrigger` boolean that the SCM plugin
+   * computes deterministically (e.g. GitHub markers `SKEPTIC_GATE_TRIGGER` /
+   * `SKEPTIC_CRON_TRIGGER` or a `/skeptic` slash-command from a non-bot author).
+   * Application code MUST consume the structured flag and MUST NOT re-parse
+   * the comment body — heuristic keyword routing violates the ZFC coding
+   * guideline and is centrally the SCM provider's responsibility.
+   */
+  listPRComments?(pr: PRInfo): Promise<
+    Array<{
+      id: number;
+      body: string;
+      user: { login: string };
+      isSkepticTrigger?: boolean;
+    }>
+  >;
 
   // --- Review Actions (bd-yjo: atomic re-review transaction) ---
 
