@@ -109,5 +109,22 @@ function isGhForbiddenError(err: unknown): boolean {
       : typeof err === "string"
         ? err
         : "";
-  return /\b403\b/i.test(msg) || /forbidden/i.test(msg);
+
+  // Explicitly return false for messages indicating authentication, token, or rate-limit issues
+  const isNonRecoverable =
+    /rate\s*limit/i.test(msg) ||
+    /abuse/i.test(msg) ||
+    /authentication/i.test(msg) ||
+    /invalid\s+token/i.test(msg) ||
+    /resource\s+not\s+accessible/i.test(msg);
+
+  if (isNonRecoverable) {
+    return false;
+  }
+
+  // Return true only when the message indicates a cross-user/edit-authority conflict
+  const isEditConflict =
+    /cannot\s+edit|not\s+the\s+author|only\s+the\s+creator|edit\s+conflict|must\s+be\s+the\s+author|must\s+be\s+the\s+repository/i.test(msg);
+
+  return isEditConflict;
 }
