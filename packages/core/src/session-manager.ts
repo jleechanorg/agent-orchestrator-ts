@@ -1722,6 +1722,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
             orchestratorConfig.projectId,
           );
           persisted.metadata["orchestratorSessionReused"] = "true";
+          const rawStatus = persistedRaw["status"] ?? "";
+          if (TERMINAL_STATUSES.has(rawStatus as any)) {
+            updateMetadata(sessionsDir, sessionId, { status: "working" });
+            persisted.status = "working";
+          }
           return persisted;
         }
         await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
@@ -1757,6 +1762,11 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           .catch(() => false);
         if (concurrentAlive && orchestratorSessionStrategy === "reuse") {
           concurrentSession.metadata["orchestratorSessionReused"] = "true";
+          const rawStatus = concurrentRaw?.["status"] ?? "";
+          if (TERMINAL_STATUSES.has(rawStatus as any)) {
+            updateMetadata(sessionsDir, sessionId, { status: "working" });
+            concurrentSession.status = "working";
+          }
           return concurrentSession;
         }
         if (!concurrentAlive) {
