@@ -110,6 +110,25 @@ function isGhForbiddenError(err: unknown): boolean {
         ? err
         : "";
 
+  // First verify this is actually a 403/forbidden error
+  let is403OrForbidden = false;
+  if (err && typeof err === "object") {
+    const status = (err as Record<string, unknown>).status ?? (err as Record<string, unknown>).statusCode;
+    if (status === 403) {
+      is403OrForbidden = true;
+    }
+  }
+  if (!is403OrForbidden) {
+    const is403Text = /\b403\b/i.test(msg);
+    const isForbiddenText = /forbidden/i.test(msg);
+    if (is403Text || isForbiddenText) {
+      is403OrForbidden = true;
+    }
+  }
+  if (!is403OrForbidden) {
+    return false;
+  }
+
   // Explicitly return false for messages indicating authentication, token, or rate-limit issues
   const isNonRecoverable =
     /rate\s*limit/i.test(msg) ||
