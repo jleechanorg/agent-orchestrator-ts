@@ -24,8 +24,7 @@ export function isValidSkepticModel(model: unknown): model is SkepticModel {
 export function resolveSkepticModels(raw: unknown): SkepticModel | SkepticModel[] | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (Array.isArray(raw)) {
-    const filtered = raw.filter(isValidSkepticModel);
-    return filtered.length > 0 ? filtered : undefined;
+    return raw.filter(isValidSkepticModel);
   }
   return isValidSkepticModel(raw) ? raw : undefined;
 }

@@ -630,4 +630,12 @@ export {
 
 // SCM retry 5xx — retry transient server errors for GitHub API calls
 export { withScmRetry, type ScmRetryOptions } from "./scm-retry-5xx.js";
-// force coderabbit review
+
+// Skeptic model schema exports
+export {
+  VALID_SKEPTIC_MODELS,
+  skepticModelSchema,
+  resolveSkepticModels,
+  type SkepticModel,
+  type SkepticModelArray,
+} from "./skeptic-model-schema.js";

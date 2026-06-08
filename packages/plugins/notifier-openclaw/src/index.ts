@@ -142,7 +142,8 @@ function eventHeadline(event: OrchestratorEvent): string {
   return `[AO ${priorityTag[event.priority]}] ${event.sessionId} ${event.type}`;
 }
 
-function stringifyData(data: Record<string, unknown>): string {
+function stringifyData(data?: Record<string, unknown> | null): string {
+  if (!data) return "";
   const entries = Object.entries(data);
   if (entries.length === 0) return "";
   return `Context: ${JSON.stringify(data)}`;

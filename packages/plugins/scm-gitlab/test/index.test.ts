@@ -1092,6 +1092,57 @@ describe("scm-gitlab plugin", () => {
     });
   });
 
+  // ---- listPRComments ----------------------------------------------------
+
+  describe("listPRComments", () => {
+    it("returns comments and correctly identifies isSkepticTrigger", async () => {
+      mockGlab([
+        {
+          id: 101,
+          body: "/skeptic do a review",
+          system: false,
+          author: { username: "alice" },
+        },
+        {
+          id: 102,
+          body: "/skeptic trigger review",
+          system: false,
+          author: { username: "renovate[bot]" }, // bot, should not trigger slash cmd
+        },
+        {
+          id: 103,
+          body: "SKEPTIC_GATE_TRIGGER direct",
+          system: false,
+          author: { username: "renovate[bot]" }, // GHA trigger, bot allowed
+        },
+        {
+          id: 104,
+          body: "Some other message",
+          system: false,
+          author: { username: "bob" },
+        },
+        {
+          id: 105,
+          body: "/skeptic system change",
+          system: true, // system note, should be skipped
+          author: { username: "gitlab-bot" },
+        },
+      ]);
+
+      if (!scm.listPRComments) {
+        throw new Error("listPRComments is not implemented");
+      }
+
+      const comments = await scm.listPRComments(pr);
+      expect(comments).toHaveLength(4); // 101, 102, 103, 104
+
+      expect(comments.find((c) => c.id === 101)?.isSkepticTrigger).toBe(true);
+      expect(comments.find((c) => c.id === 102)?.isSkepticTrigger).toBe(false);
+      expect(comments.find((c) => c.id === 103)?.isSkepticTrigger).toBe(true);
+      expect(comments.find((c) => c.id === 104)?.isSkepticTrigger).toBe(false);
+    });
+  });
+
   // ---- getMergeability ---------------------------------------------------
 
   describe("getMergeability", () => {

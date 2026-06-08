@@ -16,8 +16,8 @@ describe("skeptic-model-schema", () => {
       expect(resolveSkepticModels("invalid")).toBeUndefined();
     });
 
-    it("resolves empty array to undefined", () => {
-      expect(resolveSkepticModels([])).toBeUndefined();
+    it("resolves empty array to empty array", () => {
+      expect(resolveSkepticModels([])).toEqual([]);
     });
 
     it("resolves array of valid models", () => {
