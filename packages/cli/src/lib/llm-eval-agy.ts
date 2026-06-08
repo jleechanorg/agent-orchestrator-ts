@@ -4,6 +4,7 @@ import {
   STRICT_VERDICT_RE,
   type LlmEvalResult,
   isUnavailable,
+  isAuthError,
 } from "./llm-eval-shared.js";
 
 /** Known agy (Google Antigravity/Gemini CLI) binary locations, tried in order. */

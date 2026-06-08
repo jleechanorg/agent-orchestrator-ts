@@ -5,6 +5,7 @@ import {
   STRICT_VERDICT_RE,
   type LlmEvalResult,
   isUnavailable,
+  isAuthError,
   execClaudeBinaryWithRetry,
 } from "./llm-eval-shared.js";
 
