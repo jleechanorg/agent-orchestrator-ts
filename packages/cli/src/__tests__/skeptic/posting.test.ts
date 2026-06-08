@@ -179,7 +179,9 @@ describe("postVerdict — PATCH/CREATE fallback chain", () => {
     ).rejects.toThrow(/Resource not accessible/i);
 
     expect(patchCalled).toBe(1);
+    expect(createCalled).toBe(0);
   });
+
 
   it("rethrows unmatched/unknown 403 errors without falling back", async () => {
     let patchCalled = 0;
