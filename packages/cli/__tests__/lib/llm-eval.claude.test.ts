@@ -24,7 +24,6 @@ vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
 import { tryClaudePrint, tryMinimaxPrint } from "../../src/lib/llm-eval.js";
 
 const PASS_VERDICT = "VERDICT: PASS";
-const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
 
 let originalApiKeyGlobal: string | undefined;
