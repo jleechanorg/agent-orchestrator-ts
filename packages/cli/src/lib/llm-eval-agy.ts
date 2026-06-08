@@ -76,8 +76,11 @@ export async function tryAgyPrint(prompt: string): Promise<LlmEvalResult> {
       if (errno === "ETIMEDOUT") {
         continue;
       }
-      if (isAuthError(msg) || isUnavailable(msg, errno as string)) {
+      if (isAuthError(msg)) {
         return { validVerdict: false, output: "", error: undefined };
+      }
+      if (isUnavailable(msg, errno as string)) {
+        continue;
       }
       if (!firstInfraError) {
         firstInfraError = msg.split("\n")[0]?.slice(0, 300);

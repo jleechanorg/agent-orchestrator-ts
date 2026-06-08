@@ -49,9 +49,31 @@ export function isEvidenceAuthentic(body: string): boolean {
 // Truncation limits for content included in the skeptic prompt
 const MAX_DESIGN_DOC_CHARS = 15_000;
 const MAX_PR_DESCRIPTION_CHARS = 100_000;
-const MAX_DIFF_CHARS = 150_000;
+const MAX_DIFF_CHARS = 500_000;
 const MAX_REVIEW_BODY_CHARS = 200;
 const MAX_REVIEWS_TO_SHOW = 8;
+
+/** Extract file paths from a unified diff string. */
+function getChangedFiles(diff: string): string[] {
+  const files = new Set<string>();
+  for (const line of diff.split("\n")) {
+    const m1 = line.match(/^[+-]{3}[ \t][ab]\/(.+)$/);
+    if (m1) {
+      files.add(m1[1]);
+      continue;
+    }
+    const m2 = line.match(/^diff --git [ab]\/(.+?) [ab]\/(.+)$/);
+    if (m2) {
+      files.add(m2[2]);
+      continue;
+    }
+    const m3 = line.match(/^Binary files [ab]\/(.+) and [ab]\/(.+) differ$/);
+    if (m3) {
+      files.add(m3[2]);
+    }
+  }
+  return Array.from(files);
+}
 
 /** Sort reviews newest-first, tolerating missing timestamps. */
 function sortReviewsNewestFirst(a: ReviewInfo, b: ReviewInfo): number {
@@ -161,8 +183,12 @@ export function buildSkepticPrompt(
           `[${r.submittedAt.slice(0, 16)}] ${r.author?.login} (${r.state}): ${(r.body ?? "(no body)").slice(0, MAX_REVIEW_BODY_CHARS)}`,
       ),
     "",
+    `--- ALL CHANGED FILES IN PR (${getChangedFiles(diff).length} files) ---`,
+    getChangedFiles(diff).map((f) => `- ${f}`).join("\n"),
+    "",
     `--- DIFF (first ${MAX_DIFF_CHARS} chars; all files included if diff fits) ---`,
     diff.slice(0, MAX_DIFF_CHARS),
+    ...(diff.length > MAX_DIFF_CHARS ? ["\n\n[DIFF TRUNCATED - TOO LARGE]"] : []),
   ].join("\n");
 
   // Test file contents section — enables Rule 12 behavioral goal verification
