@@ -50,7 +50,7 @@ export async function llmEval(
   options: { model?: ChainModel | ChainModel[] } = {},
 ): Promise<string> {
   let { model } = options;
-  if (model === ("cursor" as any)) {
+  if (model === ("cursor" as unknown)) {
     model = "codex";
   }
 
