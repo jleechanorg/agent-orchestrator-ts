@@ -2957,25 +2957,31 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             // - GHA Triggers (allow both human and bot authors)
             // - Human /skeptic slash-command (must not be authored by a bot)
             const body = c.body ?? "";
-            const login = c.user?.login ?? "";
+            const user = {
+              login: c.user?.login ?? "",
+              type: c.user?.type ?? null,
+            };
+            const login = user.login;
             const normalizedLogin = login.toLowerCase();
             const isBot =
-              normalizedLogin.endsWith("[bot]") ||
-              c.user?.type === "Bot" ||
-              Array.from(BOT_AUTHORS).some(
-                (bot) => bot.toLowerCase() === normalizedLogin,
-              );
+              login !== "" &&
+              (normalizedLogin.endsWith("[bot]") ||
+                user.type === "Bot" ||
+                Array.from(BOT_AUTHORS).some(
+                  (bot) => bot.toLowerCase() === normalizedLogin,
+                ));
             const isGhaTrigger =
               body.includes("SKEPTIC_GATE_TRIGGER") ||
               body.includes("SKEPTIC_CRON_TRIGGER");
-            const isHumanSlashCommand = !isBot && /^\s*\/skeptic\b/m.test(body);
+            const isHumanSlashCommand = !isBot && login !== "" && /^\s*\/skeptic\b/m.test(body);
             result.push({
               id: c.id,
               body,
-              user: c.user,
+              user,
               isSkepticTrigger: isGhaTrigger || isHumanSlashCommand,
             });
           }
+
           if (comments.length < perPage) break;
         }
         return result;

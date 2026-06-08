@@ -207,9 +207,10 @@ describe("llmEval model validation", () => {
 
   it("throws a clear error when options.model is an unknown single model string", async () => {
     await expect(
-      llmEval("test prompt", { model: "invalid-model" as any })
+      llmEval("test prompt", { model: "invalid-model" } as unknown as Parameters<typeof llmEval>[1])
     ).rejects.toThrow('Invalid model: "invalid-model". Expected a ChainModel value from DEFAULT_CHAIN.');
   });
+
 });
 
 describe("llmEval — explicit model=claude", () => {

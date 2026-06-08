@@ -179,8 +179,41 @@ describe("postVerdict — PATCH/CREATE fallback chain", () => {
     ).rejects.toThrow(/Resource not accessible/i);
 
     expect(patchCalled).toBe(1);
+  });
+
+  it("rethrows unmatched/unknown 403 errors without falling back", async () => {
+    let patchCalled = 0;
+    let createCalled = 0;
+    execMock.mockImplementation(async (cmd: string, args: string[]) => {
+      const argStr = args.join(" ");
+      if (argStr.includes("--method") && argStr.includes("PATCH")) {
+        patchCalled += 1;
+        throw makeGhApiError(403, "Forbidden: unknown reason");
+      }
+      if (argStr.includes("/issues/654/comments") && !argStr.includes("--method")) {
+        createCalled += 1;
+        return { stdout: "{}", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    await expect(
+      postVerdict(
+        "owner",
+        "repo",
+        654,
+        "VERDICT: FAIL",
+        12345,
+        "github-actions[bot]",
+        "abc1234",
+        "Full LLM output\n\nVERDICT: FAIL",
+      ),
+    ).rejects.toThrow(/Forbidden: unknown reason/i);
+
+    expect(patchCalled).toBe(1);
     expect(createCalled).toBe(0);
   });
+
 
   it("rethrows non-404/403 errors (e.g. 422 oversized body) without falling back", async () => {
     let patchCalled = 0;

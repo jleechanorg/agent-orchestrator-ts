@@ -67,4 +67,49 @@ describe("diff truncation and changed files listing", () => {
     const diffContent = remainingText.split("\n\n[DIFF TRUNCATED - TOO LARGE]")[0] ?? "";
     expect(diffContent).toBe(largeDiff.slice(0, 500000) + "\n");
   });
+
+  it("correctly identifies changed files with renames, deletions, and modifications without duplication or /dev/null", () => {
+    const diff = [
+      "diff --git a/src/old-name.ts b/src/new-name.ts",
+      "similarity index 85%",
+      "rename from src/old-name.ts",
+      "rename to src/new-name.ts",
+      "index 1234567..89abcdef 100644",
+      "--- a/src/old-name.ts",
+      "+++ b/src/new-name.ts",
+      "@@ -1,1 +1,2 @@",
+      "-content",
+      "+content changed",
+      "diff --git a/src/deleted.ts b/src/deleted.ts",
+      "deleted file mode 100644",
+      "index abc1234..0000000 100644",
+      "--- a/src/deleted.ts",
+      "+++ /dev/null",
+      "@@ -1,1 +0,0 @@",
+      "-deleted content",
+      "diff --git a/src/modified.ts b/src/modified.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/modified.ts",
+      "+++ b/src/modified.ts",
+      "@@ -1,1 +1,1 @@",
+      "-foo",
+      "+bar"
+    ].join("\n");
+
+    const prompt = buildSkepticPrompt(
+      makeMinimalPR(),
+      makePassingState(),
+      diff,
+      EMPTY_REVIEWS,
+      null,
+    );
+
+    expect(prompt).toContain("--- ALL CHANGED FILES IN PR (3 files) ---");
+    expect(prompt).toContain("- src/new-name.ts");
+    expect(prompt).toContain("- src/deleted.ts");
+    expect(prompt).toContain("- src/modified.ts");
+    expect(prompt).not.toContain("- src/old-name.ts");
+    expect(prompt).not.toContain("- /dev/null");
+  });
 });
+

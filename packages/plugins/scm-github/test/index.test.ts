@@ -399,10 +399,11 @@ describe("scm-github plugin", () => {
         { id: 4, user: { login: "some-system-bot", type: "Bot" }, body: "/skeptic do it" },
         { id: 5, user: { login: "user-2", type: "User" }, body: "SKEPTIC_GATE_TRIGGER" },
         { id: 6, user: { login: "some-system-bot", type: "Bot" }, body: "SKEPTIC_GATE_TRIGGER" },
+        { id: 7, user: null, body: "/skeptic do it" } as any,
       ]);
 
       const comments = await scm.listPRComments!(pr);
-      expect(comments).toHaveLength(6);
+      expect(comments).toHaveLength(7);
 
       // User 1 is human and comments /skeptic -> trigger
       expect(comments[0].isSkepticTrigger).toBe(true);
@@ -421,8 +422,13 @@ describe("scm-github plugin", () => {
 
       // Bot posting GHA marker -> trigger (allow bot triggers for GHA markers)
       expect(comments[5].isSkepticTrigger).toBe(true);
+
+      // Missing user (null) -> not trigger, should have normalized user object
+      expect(comments[6].isSkepticTrigger).toBe(false);
+      expect(comments[6].user).toEqual({ login: "", type: null });
     });
   });
+
 
   describe("verifyWebhook", () => {
     it("accepts unsigned webhooks when no secret is configured", async () => {

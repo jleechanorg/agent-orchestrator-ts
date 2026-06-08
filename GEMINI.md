@@ -36,3 +36,12 @@ Verified local output from `pnpm test` run:
       Tests  2278 passed (2278)
    Duration  66.51s
 ```
+
+#### 3. Red→Green TDD Proofs (CodeRabbit addressal)
+- **Skeptic prompt file path identification**:
+  - [TDD Red failure log (skeptic-prompt.diff-truncation.test.ts)](https://gist.github.com/jleechan-af/8f451bf2aca9b198d14ac06f2b3dad0a): Verifies getChangedFiles failed by duplicating old paths for renamed files.
+  - [TDD Green success log (skeptic-prompt.diff-truncation.test.ts)](https://gist.github.com/jleechan-af/af0b4d75b9d40f70c62f76dc24bae733): Demonstrates correct file path parsing with renames and deletions after the fix.
+- **SCM GitHub PR comment author normalization**:
+  - [TDD Red failure log (scm-github index.test.ts)](https://gist.github.com/jleechan-af/ec14dc325de15f0049b868c788376355): Shows that listPRComments fails on null user input and triggers `/skeptic` erroneously.
+  - [TDD Green success log (scm-github index.test.ts)](https://gist.github.com/jleechan-af/56edbb0a82392c4b1a8c03538bf87b65): Shows normalized user object `{ login: "", type: null }` preventing false skeptic triggers on comments with null users.
+

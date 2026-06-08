@@ -56,24 +56,35 @@ const MAX_REVIEWS_TO_SHOW = 8;
 /** Extract file paths from a unified diff string. */
 function getChangedFiles(diff: string): string[] {
   const files = new Set<string>();
+  let lastOldPath: string | null = null;
   for (const line of diff.split("\n")) {
-    const m1 = line.match(/^[+-]{3}[ \t][ab]\/(.+)$/);
-    if (m1) {
-      files.add(m1[1]);
-      continue;
-    }
     const m2 = line.match(/^diff --git [ab]\/(.+?) [ab]\/(.+)$/);
     if (m2) {
       files.add(m2[2]);
+      lastOldPath = null;
+      continue;
+    }
+    const m1 = line.match(/^---[ \t]a\/(.+)$/);
+    if (m1) {
+      lastOldPath = m1[1];
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      if (line.startsWith("+++ /dev/null") && lastOldPath) {
+        files.add(lastOldPath);
+      }
+      lastOldPath = null;
       continue;
     }
     const m3 = line.match(/^Binary files [ab]\/(.+) and [ab]\/(.+) differ$/);
     if (m3) {
       files.add(m3[2]);
+      lastOldPath = null;
     }
   }
   return Array.from(files);
 }
+
 
 /** Sort reviews newest-first, tolerating missing timestamps. */
 function sortReviewsNewestFirst(a: ReviewInfo, b: ReviewInfo): number {
