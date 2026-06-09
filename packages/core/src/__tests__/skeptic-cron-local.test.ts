@@ -72,7 +72,25 @@ function makeProject(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
 function makeDeps() {
   const listOpenPRs = vi.fn<[ProjectConfig], Promise<PRInfo[]>>();
   const getPRHeadSha = vi.fn<(pr: PRInfo) => Promise<string>>();
-  const mockSCM: Partial<SCM> = { listOpenPRs, getPRHeadSha };
+  const listPRComments = vi.fn<
+    (
+      pr: PRInfo,
+    ) => Promise<
+      Array<{
+        id: number;
+        body: string;
+        user: { login: string };
+        isSkepticTrigger?: boolean;
+      }>
+    >
+  >();
+
+  // Default to returning a trigger comment so existing tests continue to pass
+  listPRComments.mockResolvedValue([
+    { id: 100, body: "/skeptic", user: { login: "jleechan2015" }, isSkepticTrigger: true }
+  ]);
+
+  const mockSCM: Partial<SCM> = { listOpenPRs, getPRHeadSha, listPRComments };
   const registry = {
     get: vi.fn().mockReturnValue(mockSCM),
   } as unknown as PluginRegistry;
@@ -80,7 +98,7 @@ function makeDeps() {
   const observer = {
     recordOperation: vi.fn(),
   } as unknown as ProjectObserver;
-  return { registry, sessionManager, observer, listOpenPRs, getPRHeadSha };
+  return { registry, sessionManager, observer, listOpenPRs, getPRHeadSha, listPRComments };
 }
 
 // --- Tests ---
@@ -945,5 +963,241 @@ describe("runLocalSkepticCron", () => {
     );
 
     expect(result).toBe(0);
+  });
+
+  it("skips PRs without any trigger comments", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    listPRComments.mockResolvedValue([
+      { id: 101, body: "just a normal comment", user: { login: "alice" }, isSkepticTrigger: false }
+    ]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-no-trigger",
+      },
+    );
+
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+  });
+
+  it("evaluates PRs with SKEPTIC_GATE_TRIGGER comment", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    listPRComments.mockResolvedValue([
+      { id: 101, body: "SKEPTIC_GATE_TRIGGER\n<!-- skeptic-gate-trigger-sha -->", user: { login: "github-actions[bot]" }, isSkepticTrigger: true }
+    ]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-gate-trigger",
+      },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("evaluates PRs with SKEPTIC_CRON_TRIGGER comment", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    listPRComments.mockResolvedValue([
+      { id: 101, body: "SKEPTIC_CRON_TRIGGER\n<!-- skeptic-cron-trigger-sha -->", user: { login: "github-actions[bot]" }, isSkepticTrigger: true }
+    ]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-cron-trigger",
+      },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips PRs if the trigger comment is posted by a bot but is just /skeptic", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    listPRComments.mockResolvedValue([
+      // SCM plugin would NOT set isSkepticTrigger: true for a bot /skeptic
+      { id: 101, body: "/skeptic", user: { login: "some-bot[bot]" }, isSkepticTrigger: false }
+    ]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-bot-skeptic",
+      },
+    );
+
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+  });
+
+  // ZFC regression: even when a comment body literally contains the trigger
+  // keywords, application code must NOT match on the body. Trigger detection
+  // is the SCM plugin's responsibility and is consumed via the structured
+  // `isSkepticTrigger` flag.
+  it("ignores trigger-looking body text when isSkepticTrigger is not set", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    listPRComments.mockResolvedValue([
+      // Body matches the legacy heuristic, but the structured flag is false.
+      // The cron must skip this PR — the SCM plugin decided it is not a trigger.
+      { id: 201, body: "SKEPTIC_GATE_TRIGGER\n<!-- stale marker -->", user: { login: "github-actions[bot]" }, isSkepticTrigger: false },
+      { id: 202, body: "/skeptic run please", user: { login: "jleechan2015" }, isSkepticTrigger: false },
+    ]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-zfc-regression",
+      },
+    );
+
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+  });
+
+  it("honors a non-bot comment when the SCM plugin marks it as a trigger", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    listPRComments.mockResolvedValue([
+      { id: 301, body: "/skeptic", user: { login: "jleechan2015" }, isSkepticTrigger: true },
+    ]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-struct-flag",
+      },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips PRs modified more than 24 hours ago", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-old-pr",
+      },
+    );
+
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+  });
+
+  it("evaluates PRs modified within the last 24 hours", async () => {
+    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: recentDate })]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-recent-pr",
+      },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips runSkepticReview if listPRComments rejects", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    listPRComments.mockRejectedValue(new Error("boom"));
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-boom",
+      },
+    );
+
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+    expect(observer.recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metric: "lifecycle_poll",
+        operation: "skeptic.cron.list_pr_comments_failed",
+        outcome: "failure",
+        projectId: "proj",
+        correlationId: "c-boom",
+        data: expect.objectContaining({
+          prNumber: 1,
+          error: "boom",
+        }),
+      }),
+    );
   });
 });

@@ -24,6 +24,8 @@ interface OpenClawWebhookPayload {
   sessionKey?: string;
   wakeMode?: WakeMode;
   deliver?: boolean;
+  channel?: string;
+  to?: string;
 }
 
 async function postWithRetry(
@@ -126,6 +128,10 @@ function sanitizeSessionId(id: string): string {
   return id.replace(/[^a-zA-Z0-9:_-]/g, "-");
 }
 
+function sanitizeThreadTs(ts: string): string {
+  return ts.replace(/[^a-zA-Z0-9_.-]/g, "-");
+}
+
 function eventHeadline(event: OrchestratorEvent): string {
   const priorityTag: Record<EventPriority, string> = {
     urgent: "URGENT",
@@ -136,7 +142,8 @@ function eventHeadline(event: OrchestratorEvent): string {
   return `[AO ${priorityTag[event.priority]}] ${event.sessionId} ${event.type}`;
 }
 
-function stringifyData(data: Record<string, unknown>): string {
+function stringifyData(data?: Record<string, unknown> | null): string {
+  if (!data) return "";
   const entries = Object.entries(data);
   if (entries.length === 0) return "";
   return `Context: ${JSON.stringify(data)}`;
@@ -151,6 +158,37 @@ function formatActionsLine(actions: NotifyAction[]): string {
   if (actions.length === 0) return "";
   const labels = actions.map((a) => a.label).join(", ");
   return `Actions available: ${labels}`;
+}
+
+interface SlackMetadata {
+  threadTs?: string;
+  channelId?: string;
+}
+
+function extractSlackMetadata(data?: { slackThreadTs?: unknown; slackChannelId?: unknown } | null): SlackMetadata {
+  const rawSlackThreadTs = data?.slackThreadTs;
+  const threadTs = typeof rawSlackThreadTs === "string" ? rawSlackThreadTs : process.env.SLACK_THREAD_TS;
+
+  const rawSlackChannelId = data?.slackChannelId;
+  const channelId = typeof rawSlackChannelId === "string" ? rawSlackChannelId : process.env.SLACK_CHANNEL_ID;
+
+  return { threadTs, channelId };
+}
+
+function applySlackRouting(
+  sessionKey: string,
+  payload: OpenClawWebhookPayload,
+  metadata: SlackMetadata,
+): string {
+  let updatedSessionKey = sessionKey;
+  if (metadata.threadTs) {
+    updatedSessionKey += `:thread:${sanitizeThreadTs(metadata.threadTs)}`;
+  }
+  if (metadata.channelId) {
+    payload.channel = "slack";
+    payload.to = metadata.channelId;
+  }
+  return updatedSessionKey;
 }
 
 export function create(config?: Record<string, unknown>): Notifier {
@@ -191,41 +229,60 @@ export function create(config?: Record<string, unknown>): Notifier {
     name: "openclaw",
 
     async notify(event: OrchestratorEvent): Promise<void> {
-      const sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
-      await sendPayload({
+      let sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
+
+      const payload: OpenClawWebhookPayload = {
         message: formatEscalationMessage(event),
         name: senderName,
         sessionKey,
         wakeMode,
         deliver,
-      });
+      };
+
+      const metadata = extractSlackMetadata(event.data);
+      sessionKey = applySlackRouting(sessionKey, payload, metadata);
+      payload.sessionKey = sessionKey;
+
+      await sendPayload(payload);
     },
 
     async notifyWithActions(event: OrchestratorEvent, actions: NotifyAction[]): Promise<void> {
-      const sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
+      let sessionKey = `${sessionKeyPrefix}${sanitizeSessionId(event.sessionId)}`;
       const actionsLine = formatActionsLine(actions);
       const message = [formatEscalationMessage(event), actionsLine].filter(Boolean).join("\n");
 
-      await sendPayload({
+      const payload: OpenClawWebhookPayload = {
         message,
         name: senderName,
         sessionKey,
         wakeMode,
         deliver,
-      });
+      };
+
+      const metadata = extractSlackMetadata(event.data);
+      sessionKey = applySlackRouting(sessionKey, payload, metadata);
+      payload.sessionKey = sessionKey;
+
+      await sendPayload(payload);
     },
 
     async post(message: string, context?: NotifyContext): Promise<string | null> {
       const sessionId = context?.sessionId ? sanitizeSessionId(context.sessionId) : "default";
-      const sessionKey = `${sessionKeyPrefix}${sessionId}`;
+      let sessionKey = `${sessionKeyPrefix}${sessionId}`;
 
-      await sendPayload({
+      const payload: OpenClawWebhookPayload = {
         message,
         name: senderName,
         sessionKey,
         wakeMode,
         deliver,
-      });
+      };
+
+      const metadata = extractSlackMetadata(context);
+      sessionKey = applySlackRouting(sessionKey, payload, metadata);
+      payload.sessionKey = sessionKey;
+
+      await sendPayload(payload);
 
       return null;
     },

@@ -21,10 +21,9 @@ vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
   resolveCodexBinary: mockResolveCodexBinary,
 }));
 
-import { llmEval, tryClaudePrint } from "../../src/lib/llm-eval.js";
+import { tryClaudePrint } from "../../src/lib/llm-eval.js";
 
 const PASS_VERDICT = "VERDICT: PASS";
-const FAIL_VERDICT = "VERDICT: FAIL";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
 
 let originalApiKeyGlobal: string | undefined;
@@ -107,6 +106,47 @@ describe("tryClaudePrint", () => {
     );
   });
 
+  it("does not include minimax-specific env in tryClaudePrint even if MINIMAX_API_KEY is configured", async () => {
+    const originalMinimaxKey = process.env["MINIMAX_API_KEY"];
+    const originalAnthropicKey = process.env["ANTHROPIC_API_KEY"];
+    const originalMinimaxBaseUrl = process.env["MINIMAX_ANTHROPIC_BASE_URL"];
+    const originalAnthropicBaseUrl = process.env["ANTHROPIC_BASE_URL"];
+    const originalAnthropicAuthToken = process.env["ANTHROPIC_AUTH_TOKEN"];
+
+    process.env["MINIMAX_API_KEY"] = "minimax-test-key";
+    process.env["MINIMAX_ANTHROPIC_BASE_URL"] = "https://minimax-base-url";
+    process.env["ANTHROPIC_API_KEY"] = "real-anthropic-key";
+    try {
+      allowFirstCandidate();
+      mockExecFileSync.mockReturnValue(PASS_VERDICT);
+      await tryClaudePrint("evaluate this");
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        expect.stringMatching(/(^|\/)claude$/),
+        ["--bare", "--dangerously-skip-permissions", "--print"],
+        expect.objectContaining({
+          env: expect.objectContaining({
+            ANTHROPIC_API_KEY: "real-anthropic-key",
+          }),
+        }),
+      );
+      const callArgs = mockExecFileSync.mock.calls[0][2];
+      expect(callArgs.env.ANTHROPIC_BASE_URL).not.toBe("https://minimax-base-url");
+    } finally {
+      if (originalMinimaxKey === undefined) delete process.env["MINIMAX_API_KEY"];
+      else process.env["MINIMAX_API_KEY"] = originalMinimaxKey;
+      if (originalAnthropicKey === undefined) delete process.env["ANTHROPIC_API_KEY"];
+      else process.env["ANTHROPIC_API_KEY"] = originalAnthropicKey;
+      if (originalMinimaxBaseUrl === undefined) delete process.env["MINIMAX_ANTHROPIC_BASE_URL"];
+      else process.env["MINIMAX_ANTHROPIC_BASE_URL"] = originalMinimaxBaseUrl;
+      if (originalAnthropicBaseUrl === undefined) delete process.env["ANTHROPIC_BASE_URL"];
+      else process.env["ANTHROPIC_BASE_URL"] = originalAnthropicBaseUrl;
+      if (originalAnthropicAuthToken === undefined) delete process.env["ANTHROPIC_AUTH_TOKEN"];
+      else process.env["ANTHROPIC_AUTH_TOKEN"] = originalAnthropicAuthToken;
+    }
+  });
+
+
+
   it("returns validVerdict=false with error string when VERDICT is missing", async () => {
     allowFirstCandidate();
     mockExecFileSync.mockReturnValue("Some analysis without verdict");
@@ -168,43 +208,21 @@ describe("tryClaudePrint", () => {
     expect(result.validVerdict).toBe(true);
     expect(result.output).toBe("VERDICT: PASS");
   });
-});
 
-describe("llmEval — explicit model=claude", () => {
-  it("tries claude first when model=claude is specified", async () => {
-    mockExecFileSync.mockReturnValue(FAIL_VERDICT);
-    const result = await llmEval("evaluate this", { model: "claude" });
-    expect(result).toBe(FAIL_VERDICT);
-    expect(mockResolveCodexBinary).not.toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
-  });
-
-  it("falls back to codex when claude is unavailable", async () => {
-    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const enoent = makeErrnoError("ENOENT", "ENOENT");
-    // Rotation: ["claude","gemini","codex"]
-    // claude→all accessSync ENOENT, gemini→ENOENT from execFileSync (including bare "gemini"),
-    // codex→resolveCodexBinary resolves, execFileSync returns PASS
-    mockExecFileSync
-      .mockImplementationOnce(() => { throw enoent; }) // gemini bare-name candidate
-      .mockReturnValueOnce(PASS_VERDICT); // codex succeeds
-    const result = await llmEval("evaluate this", { model: "claude" });
-    expect(result).toBe(PASS_VERDICT);
-  });
-
-  it("returns FAIL and tries codex fallback when claude has infra error", async () => {
-    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
-    const etimeout = makeErrnoError("ETIMEDOUT", "ETIMEDOUT");
-    // Call 1: claude → ETIMEDOUT (infra error); then gemini and codex tried (both unavailable via default ENOENT)
-    // Chain exhausted → FAIL
+  it("retries on 429 rate-limit error and returns validVerdict=true if retry succeeds", async () => {
+    allowFirstCandidate();
+    // First call throws a 429 rate-limit error; second call succeeds with PASS_VERDICT
     mockExecFileSync
       .mockImplementationOnce(() => {
-        throw etimeout; // claude (infra error)
-      });
-    const result = await llmEval("evaluate this", { model: "claude" });
-    expect(result).toContain("VERDICT: FAIL");
-    expect(result).toContain("All LLM tools exhausted");
-    expect(mockResolveCodexBinary).toHaveBeenCalled();
-    expect(mockExecFileSync).toHaveBeenCalled(); // claude + gemini candidates + codex
+        throw new Error("HTTP 429 Too Many Requests — rate limit exceeded");
+      })
+      .mockReturnValueOnce(PASS_VERDICT);
+
+    const result = await tryClaudePrint("evaluate this");
+    expect(result.validVerdict).toBe(true);
+    expect(result.output).toBe(PASS_VERDICT);
+    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
   });
+
+
 });

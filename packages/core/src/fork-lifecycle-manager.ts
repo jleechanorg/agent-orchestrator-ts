@@ -36,10 +36,87 @@ export interface RateLimitResetResult {
 }
 
 /**
+ * Parse Antigravity (agy) / Google AI Ultra quota banners.
+ * Example: "Individual quota reached ... Resets in 1h28m21s"
+ */
+function parseAntigravityQuotaReset(output: string): RateLimitResetResult | null {
+  if (!/individual\s+quota\s+reached/i.test(output)) return null;
+
+  const hms = output.match(/resets\s+in\s+(\d+)h(\d+)m(\d+)s/i);
+  if (hms) {
+    const hours = Number.parseInt(hms[1], 10);
+    const minutes = Number.parseInt(hms[2], 10);
+    const seconds = Number.parseInt(hms[3], 10);
+    const millis =
+      ((Number.isFinite(hours) ? hours : 0) * 3_600 +
+        (Number.isFinite(minutes) ? minutes : 0) * 60 +
+        (Number.isFinite(seconds) ? seconds : 0)) *
+      1_000;
+    if (millis > 0) {
+      return { resetAt: new Date(Date.now() + millis), isDurationBased: true };
+    }
+  }
+
+  const hm = output.match(/resets\s+in\s+(\d+)h(\d+)m/i);
+  if (hm) {
+    const hours = Number.parseInt(hm[1], 10);
+    const minutes = Number.parseInt(hm[2], 10);
+    const millis =
+      ((Number.isFinite(hours) ? hours : 0) * 3_600 +
+        (Number.isFinite(minutes) ? minutes : 0) * 60) *
+      1_000;
+    if (millis > 0) {
+      return { resetAt: new Date(Date.now() + millis), isDurationBased: true };
+    }
+  }
+
+  const ms = output.match(/resets\s+in\s+(\d+)m(\d+)s/i);
+  if (ms) {
+    const minutes = Number.parseInt(ms[1], 10);
+    const seconds = Number.parseInt(ms[2], 10);
+    const millis =
+      ((Number.isFinite(minutes) ? minutes : 0) * 60 +
+        (Number.isFinite(seconds) ? seconds : 0)) *
+      1_000;
+    if (millis > 0) {
+      return { resetAt: new Date(Date.now() + millis), isDurationBased: true };
+    }
+  }
+
+  const hoursOnly = output.match(/resets\s+in\s+(\d+)h\b/i);
+  if (hoursOnly) {
+    const hours = Number.parseInt(hoursOnly[1], 10);
+    if (Number.isFinite(hours) && hours > 0) {
+      return {
+        resetAt: new Date(Date.now() + hours * 3_600_000),
+        isDurationBased: true,
+      };
+    }
+  }
+
+  const minutesOnly = output.match(/resets\s+in\s+(\d+)m\b/i);
+  if (minutesOnly) {
+    const minutes = Number.parseInt(minutesOnly[1], 10);
+    if (Number.isFinite(minutes) && minutes > 0) {
+      return {
+        resetAt: new Date(Date.now() + minutes * 60_000),
+        isDurationBased: true,
+      };
+    }
+  }
+
+  // Quota banner without a parseable reset — default to a 1h duration-based pause.
+  return { resetAt: new Date(Date.now() + 3_600_000), isDurationBased: true };
+}
+
+/**
  * Parse a terminal output string looking for Claude Code / OpenCode rate-limit messages.
  * Returns the reset time and source type, or null if no rate limit is detected.
  */
 export function parseRateLimitReset(output: string): RateLimitResetResult | null {
+  const antigravity = parseAntigravityQuotaReset(output);
+  if (antigravity) return antigravity;
+
   if (!/usage\s+limit\s+reached/i.test(output)) return null;
 
   // Scan ALL "limit will reset at YYYY-MM-DD HH:MM" occurrences and pick the

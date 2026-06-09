@@ -34,8 +34,10 @@ export async function detectAndTriggerSkepticComment(
     for (const c of comments) {
       // Skip bot authors
       if (c.user.login.endsWith("[bot]")) continue;
-      // Detect /skeptic at the start of a line (not just any prefix in the body)
-      if (!/^\s*\/skeptic\b/m.test(c.body)) continue;
+      // Consume the structured trigger signal set by the SCM plugin — app
+      // code MUST NOT re-parse the comment body. The SCM provider is the
+      // single source of truth for "is this a /skeptic trigger?".
+      if (c.isSkepticTrigger !== true) continue;
       const seen = processedCommentIds.get(session.id) ?? new Set<number>();
       // Skip permanently failed comments to avoid infinite polling
       const failed = failedCommentIds.get(session.id) ?? new Set<number>();

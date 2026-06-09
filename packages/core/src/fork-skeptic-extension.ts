@@ -12,13 +12,7 @@
 
 import type { Session, ReactionConfig, ReactionResult } from "./types.js";
 import { runSkepticReview } from "./skeptic-reviewer.js";
-
-const VALID_SKEPTIC_MODELS = ["codex", "claude", "gemini"] as const;
-type SkepticModel = (typeof VALID_SKEPTIC_MODELS)[number];
-
-function isValidSkepticModel(model: string | undefined): model is SkepticModel {
-  return model === undefined || (VALID_SKEPTIC_MODELS as readonly string[]).includes(model);
-}
+import { resolveSkepticModels } from "./skeptic-model-schema.js";
 
 // =============================================================================
 // Skeptic-review reaction — core implementation
@@ -39,7 +33,7 @@ export async function runSkepticReviewReaction(params: {
   const { session, reactionConfig, reactionKey } = params;
 
   const rawModel = reactionConfig.skepticModel;
-  const skepticModel = isValidSkepticModel(rawModel) ? rawModel : undefined;
+  const skepticModel = resolveSkepticModels(rawModel);
   const skepticPostComment = reactionConfig.skepticPostComment ?? true;
   const excludePaths = reactionConfig.skepticExcludePaths;
 

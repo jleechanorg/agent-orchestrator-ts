@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ConfigNotFoundError, type OrchestratorConfig } from "./types.js";
+import { skepticModelSchema } from "./skeptic-model-schema.js";
 import { applyEnvSource } from "./env-source.js";
 import {
   findManagedConfigFile,
@@ -105,7 +106,7 @@ const ReactionConfigSchema = z.object({
     })
     .optional(),
   // bd-skp2: Skeptic review fields
-  skepticModel: z.enum(["codex", "claude", "gemini"]).optional(),
+  skepticModel: skepticModelSchema.optional(),
   skepticPostComment: z.boolean().optional(),
   skepticExcludePaths: z.array(z.string()).optional(),
 });
@@ -310,7 +311,7 @@ const ProjectConfigSchema = z.object({
   // Inherits from global autoMerge when not set.
   autoMerge: AutoMergeOverrideSchema.optional(),
   // Lifecycle-worker auto-spawns sessions for open PRs without an active worker.
-  backfillAllPRs: z.boolean().optional(),
+  backfillAllPRs: z.boolean().default(false),
   // bd-uxs.8: Merge gate configuration
   mergeGate: MergeGateConfigSchema.optional(),
   // Override the global worktree base directory for this project.

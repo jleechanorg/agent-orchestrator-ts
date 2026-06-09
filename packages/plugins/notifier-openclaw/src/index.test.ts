@@ -1,6 +1,27 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotifyAction, OrchestratorEvent } from "@jleechanorg/ao-core";
 import { create, manifest } from "./index.js";
+
+process.env.SLACK_CHANNEL_ID = "PRE_EXISTING_CHANNEL";
+process.env.SLACK_THREAD_TS = "PRE_EXISTING_THREAD";
+
+interface Payload {
+  message?: string;
+  sessionKey?: string;
+  wakeMode?: string;
+  deliver?: boolean;
+  channel?: string;
+  to?: string;
+}
+
+function parsePayload(fetchMock: { mock: { calls: unknown[][] } }): Payload {
+  const options = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+  const body = options?.body;
+  if (typeof body !== "string") {
+    throw new Error("Expected fetch body to be a string");
+  }
+  return JSON.parse(body) as Payload;
+}
 
 function makeEvent(overrides: Partial<OrchestratorEvent> = {}): OrchestratorEvent {
   return {
@@ -17,14 +38,34 @@ function makeEvent(overrides: Partial<OrchestratorEvent> = {}): OrchestratorEven
 }
 
 describe("notifier-openclaw", () => {
+  let origSlackChannelId: string | undefined;
+  let origSlackThreadTs: string | undefined;
+
   beforeEach(() => {
     vi.restoreAllMocks();
     delete process.env.OPENCLAW_HOOKS_TOKEN;
+
+    origSlackChannelId = process.env.SLACK_CHANNEL_ID;
+    origSlackThreadTs = process.env.SLACK_THREAD_TS;
+    delete process.env.SLACK_CHANNEL_ID;
+    delete process.env.SLACK_THREAD_TS;
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    delete process.env.OPENCLAW_HOOKS_TOKEN;
+
+    if (origSlackChannelId !== undefined) {
+      process.env.SLACK_CHANNEL_ID = origSlackChannelId;
+    } else {
+      delete process.env.SLACK_CHANNEL_ID;
+    }
+    if (origSlackThreadTs !== undefined) {
+      process.env.SLACK_THREAD_TS = origSlackThreadTs;
+    } else {
+      delete process.env.SLACK_THREAD_TS;
+    }
   });
 
   it("has correct manifest", () => {
@@ -76,7 +117,7 @@ describe("notifier-openclaw", () => {
     const notifier = create({ token: "tok", sessionKeyPrefix: "hook:ao:" });
     await notifier.notify(makeEvent({ sessionId: "ao-12" }));
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = parsePayload(fetchMock);
     expect(body.sessionKey).toBe("hook:ao:ao-12");
   });
 
@@ -87,7 +128,7 @@ describe("notifier-openclaw", () => {
     const notifier = create({ token: "tok" });
     await notifier.notify(makeEvent({ sessionId: "ao/12?x" }));
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = parsePayload(fetchMock);
     expect(body.sessionKey).toBe("hook:ao:ao-12-x");
   });
 
@@ -99,7 +140,7 @@ describe("notifier-openclaw", () => {
     const actions: NotifyAction[] = [{ label: "retry" }, { label: "kill" }];
     await notifier.notifyWithActions!(makeEvent(), actions);
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = parsePayload(fetchMock);
     expect(body.message).toContain("Actions available: retry, kill");
   });
 
@@ -110,7 +151,7 @@ describe("notifier-openclaw", () => {
     const notifier = create({ token: "tok" });
     await notifier.post!("ready", { sessionId: "ao-77" });
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = parsePayload(fetchMock);
     expect(body.sessionKey).toBe("hook:ao:ao-77");
     expect(body.message).toBe("ready");
   });
@@ -122,7 +163,7 @@ describe("notifier-openclaw", () => {
     const notifier = create({ token: "tok" });
     await notifier.notify(makeEvent());
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = parsePayload(fetchMock);
     expect(body.wakeMode).toBe("now");
     expect(body.deliver).toBe(true);
   });
@@ -134,7 +175,7 @@ describe("notifier-openclaw", () => {
     const notifier = create({ token: "tok", wakeMode: "next-heartbeat" });
     await notifier.notify(makeEvent());
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = parsePayload(fetchMock);
     expect(body.wakeMode).toBe("next-heartbeat");
   });
 
@@ -171,5 +212,107 @@ describe("notifier-openclaw", () => {
     const notifier = create({ token: "tok", retries: 2, retryDelayMs: 1 });
     await expect(notifier.notify(makeEvent())).rejects.toThrow("OpenClaw rejected the auth token (HTTP 401)");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe("Slack environment variable propagation", () => {
+
+    it("propagates SLACK_CHANNEL_ID and SLACK_THREAD_TS from process.env", async () => {
+      process.env.SLACK_CHANNEL_ID = "C12345";
+      process.env.SLACK_THREAD_TS = "1778592802.014579";
+
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({ token: "tok" });
+      await notifier.notify(makeEvent({ sessionId: "ao-99" }));
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const body = parsePayload(fetchMock);
+      expect(body.sessionKey).toBe("hook:ao:ao-99:thread:1778592802.014579");
+      expect(body.channel).toBe("slack");
+      expect(body.to).toBe("C12345");
+    });
+
+    it("sanitizes SLACK_THREAD_TS when constructing sessionKey", async () => {
+      process.env.SLACK_CHANNEL_ID = "C12345";
+      process.env.SLACK_THREAD_TS = "1778592802:014579 unsafe value!";
+
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({ token: "tok" });
+      await notifier.notify(makeEvent({ sessionId: "ao-99" }));
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const body = parsePayload(fetchMock);
+      expect(body.sessionKey).toBe("hook:ao:ao-99:thread:1778592802-014579-unsafe-value-");
+    });
+  });
+
+  it("propagates slackThreadTs and slackChannelId from event.data (thread-safe)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const notifier = create({ token: "tok" });
+    const event = makeEvent({
+      sessionId: "ao-100",
+      data: {
+        slackThreadTs: "1780000000.111111",
+        slackChannelId: "C99999",
+      },
+    });
+    await notifier.notify(event);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = parsePayload(fetchMock);
+    expect(body.sessionKey).toBe("hook:ao:ao-100:thread:1780000000.111111");
+    expect(body.channel).toBe("slack");
+    expect(body.to).toBe("C99999");
+  });
+
+  it("propagates slackThreadTs and slackChannelId from NotifyContext in post (thread-safe)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const notifier = create({ token: "tok" });
+    await notifier.post!("alert message", {
+      sessionId: "ao-200",
+      slackThreadTs: "1780000000.222222",
+      slackChannelId: "C88888",
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = parsePayload(fetchMock);
+    expect(body.sessionKey).toBe("hook:ao:ao-200:thread:1780000000.222222");
+    expect(body.channel).toBe("slack");
+    expect(body.to).toBe("C88888");
+  });
+
+  it("guards against non-string slackThreadTs and slackChannelId", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const notifier = create({ token: "tok" });
+    const event = makeEvent({
+      sessionId: "ao-300",
+      data: {
+        slackThreadTs: { nested: "object" },
+        slackChannelId: 12345,
+      },
+    });
+    await notifier.notify(event);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = parsePayload(fetchMock);
+    expect(body.sessionKey).toBe("hook:ao:ao-300");
+    expect(body.channel).toBeUndefined();
+    expect(body.to).toBeUndefined();
+  });
+
+  afterAll(() => {
+    expect(process.env.SLACK_CHANNEL_ID).toBe("PRE_EXISTING_CHANNEL");
+    expect(process.env.SLACK_THREAD_TS).toBe("PRE_EXISTING_THREAD");
+    delete process.env.SLACK_CHANNEL_ID;
+    delete process.env.SLACK_THREAD_TS;
   });
 });

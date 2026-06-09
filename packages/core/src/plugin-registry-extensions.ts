@@ -18,12 +18,16 @@ import {
 export function applyForkExtensions(registry: PluginRegistry): void {
   const origRegister = registry.register.bind(registry);
 
-  registry.register = (plugin, config) => {
+  registry.register = (plugin, config, nameOverride) => {
     const warning = checkPluginVersionMismatch(plugin.manifest);
     if (warning) {
       console.warn(formatVersionMismatchWarning(warning));
     }
-    origRegister(plugin, config);
+    if (nameOverride !== undefined) {
+      origRegister(plugin, config, nameOverride);
+    } else {
+      origRegister(plugin, config);
+    }
   };
 }
 

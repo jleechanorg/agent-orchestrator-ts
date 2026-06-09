@@ -3531,6 +3531,77 @@ describe("spawnOrchestrator", () => {
     expect(existsSync(listLogPath)).toBe(false);
   });
 
+  it("resets terminal status to working when reusing an existing orchestrator session", async () => {
+    const mockBin = join(tmpDir, "mock-bin-reuse-terminal");
+    mkdirSync(mockBin, { recursive: true });
+    const scriptPath = join(mockBin, "opencode");
+    writeFileSync(
+      scriptPath,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'if [[ "$1" == "session" && "$2" == "list" ]]; then',
+        "  printf '[]\\n'",
+        "  exit 0",
+        "fi",
+        "exit 0",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    chmodSync(scriptPath, 0o755);
+    process.env.PATH = `${mockBin}:${originalPath ?? ""}`;
+
+    const opencodeAgent: Agent = {
+      ...mockAgent,
+      name: "opencode",
+    };
+    const registryWithOpenCode: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return opencodeAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const configWithReuse: OrchestratorConfig = {
+      ...config,
+      defaults: { ...config.defaults, agent: "opencode" },
+      projects: {
+        ...config.projects,
+        "my-app": {
+          ...config.projects["my-app"],
+          agent: "opencode",
+          orchestratorSessionStrategy: "reuse",
+        },
+      },
+    };
+
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "done",
+      role: "orchestrator",
+      project: "my-app",
+      agent: "opencode",
+      runtimeHandle: JSON.stringify(makeHandle("rt-existing")),
+      opencodeSessionId: "ses_existing",
+      createdAt: new Date().toISOString(),
+    });
+
+    const sm = createSessionManager({ config: configWithReuse, registry: registryWithOpenCode });
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    expect(session.id).toBe("app-orchestrator");
+    expect(session.metadata["orchestratorSessionReused"]).toBe("true");
+    expect(session.status).toBe("working");
+
+    const meta = readMetadataRaw(sessionsDir, "app-orchestrator");
+    expect(meta?.["status"]).toBe("working");
+  });
+
   it("destroys orphaned runtime when reuse strategy finds alive runtime but get returns null", async () => {
     const deleteLogPath = join(tmpDir, "opencode-delete-orphaned-runtime.log");
     const mockBin = installMockOpencode("[]", deleteLogPath);

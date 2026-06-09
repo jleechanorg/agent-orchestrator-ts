@@ -15,6 +15,8 @@
  *   8. Lifecycle Manager (core, not pluggable)
  */
 
+import type { SkepticModel } from "./skeptic-model-schema.js";
+
 // =============================================================================
 // SESSION
 // =============================================================================
@@ -760,8 +762,26 @@ export interface SCM {
    *  Used by the skeptic-advice reaction to detect new FAIL verdicts and
    *  extract structured guidance for workers. */
   getSkepticComments?(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>>;
-  /** Fetch all PR issue comments without author filtering. Used by /skeptic comment trigger. */
-  listPRComments?(pr: PRInfo): Promise<Array<{ id: number; body: string; user: { login: string } }>>;
+  /**
+   * Fetch all PR issue comments without author filtering using the listPRComments method with a PRInfo parameter.
+   *
+   * Each comment returned by listPRComments may include an optional `isSkepticTrigger` boolean field.
+   * The `isSkepticTrigger` flag indicates a trigger comment computed deterministically by the SCM plugin
+   * (e.g., GitHub markers `SKEPTIC_GATE_TRIGGER` / `SKEPTIC_CRON_TRIGGER` or a `/skeptic` slash-command
+   * from a non-bot author). When present, callers MUST consume this structured flag and MUST NOT
+   * re-parse the comment body (as heuristic keyword routing violates the ZFC coding guideline).
+   * When the `isSkepticTrigger` field is absent (which can be the case for older SCM plugins that do not
+   * yet implement this contract), callers should treat it as undefined and avoid relying on re-parsing
+   * the comment body, or implement their own appropriate fallback behavior.
+   */
+  listPRComments?(pr: PRInfo): Promise<
+    Array<{
+      id: number;
+      body: string;
+      user: { login: string };
+      isSkepticTrigger?: boolean;
+    }>
+  >;
 
   // --- Review Actions (bd-yjo: atomic re-review transaction) ---
 
@@ -833,6 +853,8 @@ export interface PRInfo {
   state?: PRState;
   /** PR author login — used by merge-gate to filter PR-author comments from blocking counts */
   author?: string;
+  /** ISO string of when PR was last updated (optional) */
+  updatedAt?: string;
 }
 
 export type PRState = "open" | "merged" | "closed";
@@ -1000,6 +1022,8 @@ export interface NotifyContext {
   projectId?: string;
   prUrl?: string;
   channel?: string;
+  slackThreadTs?: string;
+  slackChannelId?: string;
 }
 
 // =============================================================================
@@ -1247,8 +1271,8 @@ export interface ReactionConfig {
   };
 
   // bd-skp2: Skeptic review configuration
-  /** Skeptic review: alternate model to use for skeptic evaluation (e.g. "claude" or "gemini") */
-  skepticModel?: string;
+  /** Skeptic review: model(s) to use for skeptic evaluation. A list defines an explicit ordered fallback chain. Supported: "codex", "claude", "gemini", "minimax", "agy". */
+  skepticModel?: SkepticModel | SkepticModel[];
   /** Skeptic review: post verdict as PR comment (default: true) */
   skepticPostComment?: boolean;
   /**
@@ -1631,12 +1655,10 @@ export interface ProjectConfig {
    * gap where workers die (or finish early) and nobody restarts them, so
    * CI-green PRs blocked on CHANGES_REQUESTED do not leak from the queue.
    *
-   * **Default: enabled** (opt-out). Set to `false` explicitly to disable
-   * for projects that manage dispatch by hand. Any value other than
-   * `false` — including `undefined` or `true` — is treated as
-   * enabled. Projects with open PRs and `backfillAllPRs === false` will
-   * emit a warn-level `lifecycle.backfill.disabled_with_open_prs`
-   * observation so operators can spot the misconfiguration.
+   * **Default: disabled** (opt-in). Set to `true` explicitly to enable
+   * for projects that want automatic backfill. Projects with open PRs and
+   * `backfillAllPRs === false` will emit a warn-level
+   * `lifecycle.backfill.disabled_with_open_prs` observation.
    */
   backfillAllPRs?: boolean;
 
@@ -2087,8 +2109,8 @@ export interface LifecycleManager {
 
 /** Plugin registry — discovery + loading */
 export interface PluginRegistry {
-  /** Register a plugin, optionally with config to pass to create() */
-  register(plugin: PluginModule, config?: Record<string, unknown>): void;
+  /** Register a plugin, optionally with config to pass to create() and an optional name override */
+  register(plugin: PluginModule, config?: Record<string, unknown>, nameOverride?: string): void;
 
   /** Get a plugin by slot and name */
   get<T>(slot: PluginSlot, name: string): T | null;

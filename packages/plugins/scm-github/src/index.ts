@@ -845,6 +845,7 @@ function prInfoFromView(
     baseRefName: string;
     isDraft: boolean;
     author?: string;
+    updatedAt?: string;
   },
   projectRepo: string,
 ): PRInfo {
@@ -860,6 +861,7 @@ function prInfoFromView(
     baseBranch: data.baseRefName,
     isDraft: data.isDraft,
     ...(data.author !== undefined ? { author: data.author } : {}),
+    ...(data.updatedAt !== undefined ? { updatedAt: data.updatedAt } : {}),
   };
 }
 
@@ -1569,6 +1571,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
         base: { ref: string };
         draft: boolean;
         user: { login: string };
+        updated_at: string;
       };
 
       // Errors propagate naturally so the caller can distinguish "no open PRs"
@@ -1588,6 +1591,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             baseRefName: pr.base.ref,
             isDraft: pr.draft,
             author: pr.user.login,
+            updatedAt: pr.updated_at,
           },
           repoFull,
         ),
@@ -2923,21 +2927,61 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
     async listPRComments(
       pr: PRInfo,
-    ): Promise<Array<{ id: number; body: string; user: { login: string } }>> {
+    ): Promise<
+      Array<{
+        id: number;
+        body: string;
+        user: { login: string };
+        isSkepticTrigger?: boolean;
+      }>
+    > {
       try {
         const perPage = 100;
-        const result: Array<{ id: number; body: string; user: { login: string } }> = [];
+        const result: Array<{
+          id: number;
+          body: string;
+          user: { login: string };
+          isSkepticTrigger?: boolean;
+        }> = [];
         for (let page = 1; ; page++) {
           const raw = await gh([
             "api",
             `repos/${repoFlag(pr)}/issues/${pr.number}/comments?per_page=${perPage}&page=${page}`,
           ]);
-          const comments: Array<{ id: number; user: { login: string }; body: string }> =
+          const comments: Array<{ id: number; user: { login: string; type?: string }; body: string }> =
             JSON.parse(raw);
           if (comments.length === 0) break;
           for (const c of comments) {
-            result.push({ id: c.id, body: c.body ?? "", user: c.user });
+            // Compute the structured trigger flag at the SCM boundary so that
+            // application code does not need to re-parse comment bodies.
+            // - GHA Triggers (allow both human and bot authors)
+            // - Human /skeptic slash-command (must not be authored by a bot)
+            const body = c.body ?? "";
+            const user = {
+              login: c.user?.login ?? "",
+              type: c.user?.type ?? null,
+            };
+            const login = user.login;
+            const normalizedLogin = login.toLowerCase();
+            const isBot =
+              login !== "" &&
+              (normalizedLogin.endsWith("[bot]") ||
+                user.type === "Bot" ||
+                Array.from(BOT_AUTHORS).some(
+                  (bot) => bot.toLowerCase() === normalizedLogin,
+                ));
+            const isGhaTrigger =
+              body.includes("SKEPTIC_GATE_TRIGGER") ||
+              body.includes("SKEPTIC_CRON_TRIGGER");
+            const isHumanSlashCommand = !isBot && login !== "" && /^\s*\/skeptic\b/m.test(body);
+            result.push({
+              id: c.id,
+              body,
+              user,
+              isSkepticTrigger: isGhaTrigger || isHumanSlashCommand,
+            });
           }
+
           if (comments.length < perPage) break;
         }
         return result;

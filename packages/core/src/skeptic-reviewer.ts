@@ -22,6 +22,8 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Session } from "./types.js";
+import { type SkepticModel } from "./skeptic-model-schema.js";
+import { resolveSkepticModel } from "./skeptic-models.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -122,13 +124,12 @@ export interface SkepticReviewResult {
   reportWritten?: boolean;
 }
 
-/** Ordered fallback chain for skeptic LLM evaluation (bd-skp3). */
-const FALLBACK_CHAIN: Array<"codex" | "claude" | "gemini" | "cursor"> = ["codex", "claude", "gemini", "cursor"];
+
 
 // The nested skeptic CLI can spend up to 5 minutes per headless evaluator before
 // posting. Keep this wrapper above two-tool fallback time so slow reviews still
 // emit verdicts before the GitHub polling wrapper expires.
-const SKEPTIC_VERIFY_TIMEOUT_MS = 15 * 60_000;
+const SKEPTIC_VERIFY_TIMEOUT_MS = 30 * 60_000;
 
 /**
  * Determine whether a CLI error is an infrastructure failure (ENOBUFS, spawn errors)
@@ -194,7 +195,7 @@ function extractVerdictFromError(
  */
 async function tryModel(
   session: Session,
-  model: "codex" | "claude" | "gemini" | "cursor",
+  model: SkepticModel,
   postComment: boolean,
   triggerSha: string | undefined,
   requestId: string | undefined,
@@ -278,8 +279,8 @@ async function tryModel(
 export async function runSkepticReview(
   session: Session,
   options: {
-    /** Alternate model for skeptic evaluation */
-    model?: "codex" | "claude" | "gemini";
+    /** Model(s) for skeptic evaluation; a list defines an explicit ordered chain. */
+    model?: SkepticModel | SkepticModel[];
     /** Whether to post the VERDICT comment on the PR (default: true) */
     postComment?: boolean;
     /** Glob patterns for files to exclude from skeptic evaluation */
@@ -288,11 +289,13 @@ export async function runSkepticReview(
 ): Promise<SkepticReviewResult> {
   const { model, postComment = true, excludePaths } = options;
 
+  const { validatedModel, chain } = resolveSkepticModel(model);
+
   if (!session.pr) {
     return {
       verdict: "SKIPPED",
       details: "No PR associated with session — cannot run skeptic evaluation",
-      modelUsed: model ?? "codex",
+      modelUsed: (Array.isArray(validatedModel) ? validatedModel[0] : validatedModel) ?? "codex",
     };
   }
 
@@ -327,11 +330,6 @@ export async function runSkepticReview(
       triggerSha,
     );
   }
-
-  // Build the model chain: if a specific model is requested, start from that
-  // model's position in the chain. Default starts from codex (index 0).
-  const startIdx = model ? FALLBACK_CHAIN.indexOf(model) : 0;
-  const chain = FALLBACK_CHAIN.slice(startIdx >= 0 ? startIdx : 0);
 
   const infraErrors: string[] = [];
 

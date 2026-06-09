@@ -756,6 +756,62 @@ function createGitLabSCM(config?: Record<string, unknown>): SCM {
       return comments;
     },
 
+    async listPRComments(
+      pr: PRInfo,
+    ): Promise<
+      Array<{
+        id: number;
+        body: string;
+        user: { login: string };
+        isSkepticTrigger?: boolean;
+      }>
+    > {
+      try {
+        const perPage = 100;
+        const result: Array<{
+          id: number;
+          body: string;
+          user: { login: string };
+          isSkepticTrigger?: boolean;
+        }> = [];
+        for (let page = 1; ; page++) {
+          const raw = await glab(
+            ["api", `${mrApiPath(pr)}/notes?per_page=${perPage}&page=${page}`],
+            resolveHostname(pr),
+          );
+          const notes = parseJSON<
+            Array<{ id: number; body: string; system: boolean; author: { username: string } }>
+          >(raw, `listPRComments notes for MR !${pr.number}`);
+          if (notes.length === 0) break;
+          for (const n of notes) {
+            if (n.system) continue;
+            const body = n.body ?? "";
+            const username = (n.author?.username ?? "").trim();
+            const hasAuthor = username.length > 0;
+            const bot = isBot(username);
+
+            const isGhaTrigger =
+              hasAuthor &&
+              (body.includes("SKEPTIC_GATE_TRIGGER") ||
+                body.includes("SKEPTIC_CRON_TRIGGER"));
+            const isHumanSlashCommand = hasAuthor && !bot && /^\s*\/skeptic\b/m.test(body);
+
+            result.push({
+              id: n.id,
+              body,
+              user: { login: username },
+              isSkepticTrigger: isGhaTrigger || isHumanSlashCommand,
+            });
+          }
+          if (notes.length < perPage) break;
+        }
+        return result;
+      } catch (err) {
+        console.warn(`listPRComments failed for MR !${pr.number}: ${(err as Error).message}`);
+        return [];
+      }
+    },
+
     async getMergeability(pr: PRInfo): Promise<MergeReadiness> {
       const hostname = resolveHostname(pr);
 

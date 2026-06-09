@@ -3,6 +3,8 @@ import { drainSpawnQueue } from "./spawn-queue.js";
 import { drainTaskQueue } from "./task-queue.js";
 import type {
   OrchestratorConfig,
+  OrchestratorEvent,
+  EventPriority,
   PluginRegistry,
   ProjectConfig,
   SCM,
@@ -15,6 +17,7 @@ export interface LifecycleProjectCronDeps {
   registry: PluginRegistry;
   sessionManager: SessionManager;
   observer: ProjectObserver;
+  notifyHuman?: (event: OrchestratorEvent, priority: EventPriority) => Promise<void>;
 }
 
 export interface LifecycleProjectCronParams {
@@ -83,26 +86,32 @@ export async function runLifecycleProjectCrons(
     return { spawned };
   }
 
-  const backfillEnabled = params.project.backfillAllPRs !== false;
+  const backfillEnabled = params.project.backfillAllPRs === true;
   if (backfillEnabled) {
     const backfillSpawned = await runCron(
       deps,
       params,
       "backfill",
       () => backfillUncoveredPRs(
-        { registry: deps.registry, sessionManager: deps.sessionManager, observer: deps.observer },
+        {
+          registry: deps.registry,
+          sessionManager: deps.sessionManager,
+          observer: deps.observer,
+          notifyHuman: deps.notifyHuman,
+        },
         {
           projectId: params.projectId,
           project: params.project,
           activeSessions: params.activeSessions,
           correlationId: params.correlationId,
           worktreeDir: (params.config as { worktreeDir?: string }).worktreeDir,
+          configPath: params.config.configPath ?? "",
         },
       ),
       false,
     );
     spawned = spawned || backfillSpawned;
-  } else {
+  } else if (params.project.backfillAllPRs === false) {
     await runCron(
       deps,
       params,

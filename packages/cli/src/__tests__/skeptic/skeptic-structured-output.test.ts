@@ -933,3 +933,4 @@ describe("applyEvidenceOverride", () => {
     expect(result).toContain("<!-- skeptic-gate-3:PASS -->");
   });
 });
+

@@ -92,6 +92,7 @@ export const BUILTIN_PLUGINS: ReadonlyArray<{ slot: PluginSlot; name: string; pk
   { slot: "notifier", name: "discord", pkg: "@jleechanorg/ao-plugin-notifier-discord" },
   { slot: "notifier", name: "mcp-mail", pkg: "@jleechanorg/ao-plugin-notifier-mcp-mail" },
   { slot: "notifier", name: "openclaw", pkg: "@jleechanorg/ao-plugin-notifier-openclaw" },
+  { slot: "notifier", name: "hermes", pkg: "@jleechanorg/ao-plugin-notifier-openclaw" },
   { slot: "notifier", name: "slack", pkg: "@jleechanorg/ao-plugin-notifier-slack" },
   { slot: "notifier", name: "webhook", pkg: "@jleechanorg/ao-plugin-notifier-webhook" },
   // Terminals
@@ -161,12 +162,20 @@ export function createPluginRegistry(): PluginRegistry {
   const plugins: PluginMap = new Map();
 
   const registry: PluginRegistry = {
-    register(plugin: PluginModule, config?: Record<string, unknown>): void {
+    register(plugin: PluginModule, config?: Record<string, unknown>, nameOverride?: string): void {
       const { manifest } = plugin;
-      validatePluginName(manifest.name);
-      const key = makeKey(manifest.slot, manifest.name);
+      const finalName = nameOverride ?? manifest.name;
+      validatePluginName(finalName);
+      const key = makeKey(manifest.slot, finalName);
       const instance = plugin.create(config);
-      plugins.set(key, { manifest, instance, module: plugin });
+      const finalModule = nameOverride
+        ? { ...plugin, manifest: { ...manifest, name: finalName } }
+        : plugin;
+      plugins.set(key, {
+        manifest: { ...manifest, name: finalName },
+        instance,
+        module: finalModule,
+      });
     },
 
     get<T>(slot: PluginSlot, name: string): T | null {
@@ -223,7 +232,7 @@ export function createPluginRegistry(): PluginRegistry {
           const pluginConfig = orchestratorConfig
             ? extractPluginConfig(builtin.slot, builtin.name, orchestratorConfig)
             : undefined;
-          registry.register(mod, pluginConfig);
+          registry.register(mod, pluginConfig, builtin.name);
         }
       }
     },

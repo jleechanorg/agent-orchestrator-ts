@@ -81,6 +81,27 @@ function normalizeMaxConcurrentSkepticReviews(value: number | undefined): number
   return Math.max(1, Math.trunc(value));
 }
 
+function hasValidTriggerComment(
+  comments: Array<{
+    body: string;
+    user?: { login: string };
+    /**
+     * Structured signal set by the SCM plugin. Application code MUST NOT
+     * re-parse the comment body — heuristic keyword routing in app code
+     * violates the ZFC coding guideline. If a comment does not arrive with
+     * `isSkepticTrigger: true`, it is not a trigger.
+     */
+    isSkepticTrigger?: boolean;
+  }>,
+): boolean {
+  for (const c of comments) {
+    if (c.isSkepticTrigger === true) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Reset throttle + pending state — exposed for testing only. */
 export function _resetSkepticCronTimer(): void {
   lastSkepticCronTimeByProject.clear();
@@ -195,6 +216,28 @@ export async function runLocalSkepticCron(
    * caching are contained here so the batched Promise.all below stays clean.
    */
   const evaluateOnePR = async (pr: PRInfo): Promise<boolean> => {
+    if (scm?.listPRComments) {
+      try {
+        const comments = await scm.listPRComments(pr);
+        if (!hasValidTriggerComment(comments)) {
+          return false;
+        }
+      } catch (err) {
+        try {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "skeptic.cron.list_pr_comments_failed",
+            outcome: "failure",
+            correlationId,
+            projectId,
+            data: { prNumber: pr.number, error: err instanceof Error ? err.message : String(err) },
+            level: "warn",
+          });
+        } catch { /* observer failure must not block cron flow */ }
+        return false;
+      }
+    }
+
     // Use existing session if available, otherwise synthetic
     const session =
       sessionByPR.get(`${projectId}:${pr.number}`) ??
@@ -227,8 +270,21 @@ export async function runLocalSkepticCron(
     }
   };
 
-  // Collect eligible PRs (non-draft) in a single pass before running
-  const eligiblePRs = openPRs.filter(pr => !pr.isDraft);
+  // Collect eligible PRs (non-draft, modified within last 24 hours) in a single pass before running
+  const eligiblePRs = openPRs.filter((pr) => {
+    if (pr.isDraft) return false;
+    if (pr.updatedAt) {
+      const updatedAtMs = Date.parse(pr.updatedAt);
+      if (Number.isFinite(updatedAtMs)) {
+        const ageMs = Date.now() - updatedAtMs;
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        if (ageMs > oneDayMs) {
+          return false;
+        }
+      }
+    }
+    return true;
+  });
 
   // Run in bounded batches; Promise.allSettled so one observer throw
   // or rejection does not cancel the rest of the batch.

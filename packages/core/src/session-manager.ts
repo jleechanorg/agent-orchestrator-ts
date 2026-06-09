@@ -55,6 +55,7 @@ import {
   type Issue,
   type AreaLock,
   type LockEntry,
+  type SessionStatus,
   isOrchestratorSession,
   PR_STATE,
   TERMINAL_STATUSES,
@@ -1722,6 +1723,22 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
             orchestratorConfig.projectId,
           );
           persisted.metadata["orchestratorSessionReused"] = "true";
+          const rawStatus = persistedRaw["status"] ?? "";
+          if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
+            updateMetadata(sessionsDir, sessionId, {
+              status: "working",
+              activity: "",
+              exitCode: "",
+              finishedAt: "",
+            });
+            persisted.status = "working";
+            persisted.activity = null;
+            if (persisted.metadata) {
+              delete persisted.metadata.activity;
+              delete persisted.metadata.exitCode;
+              delete persisted.metadata.finishedAt;
+            }
+          }
           return persisted;
         }
         await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
@@ -1757,6 +1774,22 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           .catch(() => false);
         if (concurrentAlive && orchestratorSessionStrategy === "reuse") {
           concurrentSession.metadata["orchestratorSessionReused"] = "true";
+          const rawStatus = concurrentRaw?.["status"] ?? "";
+          if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
+            updateMetadata(sessionsDir, sessionId, {
+              status: "working",
+              activity: "",
+              exitCode: "",
+              finishedAt: "",
+            });
+            concurrentSession.status = "working";
+            concurrentSession.activity = null;
+            if (concurrentSession.metadata) {
+              delete concurrentSession.metadata.activity;
+              delete concurrentSession.metadata.exitCode;
+              delete concurrentSession.metadata.finishedAt;
+            }
+          }
           return concurrentSession;
         }
         if (!concurrentAlive) {

@@ -643,5 +643,52 @@ describe("antigravity getEnvironment", () => {
     const globalLockPath = path.join("/Users/mockuser", ".gemini", "trustedFolders.lock");
     expect(unlinkedPaths).not.toContain(globalLockPath);
   });
+
+  it("expands tilde (~) in projectConfig.path and workspacePath when writing trustedFolders.json", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+
+    const writtenFiles = new Map<string, string>();
+    mockWriteFileSync.mockImplementation((filepath, content) => {
+      if (typeof filepath === "string") {
+        writtenFiles.set(filepath, content as string);
+      }
+    });
+
+    const env = agent.getEnvironment({
+      ...makeLaunchConfig(),
+      projectConfig: {
+        ...makeLaunchConfig().projectConfig,
+        path: "~/project-tilde-path",
+      },
+      workspacePath: "~",
+    });
+    expect(env).toBeDefined();
+
+    const sessionPath = path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini", "trustedFolders.json");
+    const globalPath = path.join("/Users/mockuser", ".gemini", "trustedFolders.json");
+
+    expect(writtenFiles.has(sessionPath)).toBe(true);
+    expect(writtenFiles.has(globalPath)).toBe(true);
+
+    const sessionContent = JSON.parse(writtenFiles.get(sessionPath) || "{}");
+    const globalContent = JSON.parse(writtenFiles.get(globalPath) || "{}");
+
+    // The tilde paths must be expanded to the user's home directory
+    expect(sessionContent["/Users/mockuser/project-tilde-path"]).toBe("TRUST_FOLDER");
+    expect(globalContent["/Users/mockuser/project-tilde-path"]).toBe("TRUST_FOLDER");
+    expect(sessionContent["/Users/mockuser"]).toBe("TRUST_FOLDER");
+    expect(globalContent["/Users/mockuser"]).toBe("TRUST_FOLDER");
+
+    // Literal tilde paths should NOT be present
+    expect(sessionContent["~/project-tilde-path"]).toBeUndefined();
+    expect(globalContent["~/project-tilde-path"]).toBeUndefined();
+    expect(sessionContent["~"]).toBeUndefined();
+    expect(globalContent["~"]).toBeUndefined();
+  });
 });
 
