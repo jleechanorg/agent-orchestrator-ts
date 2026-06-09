@@ -4,6 +4,16 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-06-09 — Skeptic chain decoupling (three chapters)
+
+- **PR [#654](https://github.com/jleechanorg/agent-orchestrator/pull/654) MERGED** — skepticModel list fallback + minimax/agy. **Unintentionally introduced `eligiblePRs` 24h age filter** at top of `runLocalSkepticCron` — this is the runtime coupling that caused the worldarchitect fleet-wide skeptic silence (rev-itrz9). The 251 `lifecycle.backfill.disabled_with_open_prs` warnings were operational noise; the actual cause was a fresh `/skeptic` trigger being silently dropped on a stale PR.
+- **PR [#661](https://github.com/jleechanorg/agent-orchestrator/pull/661) OPEN** — `fix(bd-rgk0)`: re-decouples skeptic cron from PR recency. 9 commits on `fix/bd-rgk0-skeptic-cron-trigger-age-filter`, head `1a9767f55`, +360/-34, `mergeable: MERGEABLE`, `reviewDecision: REVIEW_REQUIRED`. Awaiting: Test, Green Gate, Skeptic Gate. The fix: comments checked first via `scm.listPRComments`; 24h filter is a fallback only when the SCM comment API is missing.
+- **PR [#662](https://github.com/jleechanorg/agent-orchestrator/pull/662) OPEN** — `fix(bd-a7mq)`: session-manager reuse path honors `NON_RESTORABLE_STATUSES`.
+- **PR [#663](https://github.com/jleechanorg/agent-orchestrator/pull/663) CLOSED** 2026-06-09T22:26:18Z (closed-not-merged) — user closed in favor of [PR #665](https://github.com/jleechanorg/agent-orchestrator/pull/665) (replacement with opt-in propagation whitelist).
+- **Three-chapter history**: PR #497 (2026-04-27) decoupled call site at `lifecycle-manager.ts:2799`; PR #654 (2026-06-09) reintroduced coupling via `eligiblePRs` filter; PR #661 (OPEN) re-decouples. Lesson: decoupling must be verified at the call site AND every filter inside the called function.
+- **Beads**: [bd-rgk0](https://github.com/jleechanorg/agent-orchestrator/pull/661) (P0), [bd-a7mq](https://github.com/jleechanorg/agent-orchestrator/pull/662) (P1), [bd-q3tt](https://github.com/jleechanorg/agent-orchestrator/pull/665) (P1 — closed-via-#665)
+- **Nextsteps doc**: `nextsteps-2026-06-09-skeptic-decoupling-proof.md`
+
 ### 2026-06-04
 
 - **Dark-factory deletion investigation** — Reported deletion of `~/projects/dark-factory` was a false alarm; repo intact (HEAD `49c2276`). Root cause of May 29 incident confirmed: AO lifecycle worker `pruneStaleWorktrees` deleted `~/projects/worldarchitect.ai` because `wa-orchestrator` session config had `worktree == path` (main clone treated as stale worktree).
