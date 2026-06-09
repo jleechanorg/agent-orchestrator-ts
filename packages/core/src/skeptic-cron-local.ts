@@ -216,7 +216,6 @@ export async function runLocalSkepticCron(
    * caching are contained here so the batched Promise.all below stays clean.
    */
   const evaluateOnePR = async (pr: PRInfo): Promise<boolean> => {
-    let hasTrigger = false;
     let isStale = false;
 
     if (pr.updatedAt) {
@@ -234,9 +233,7 @@ export async function runLocalSkepticCron(
       if (scm?.listPRComments) {
         try {
           const comments = await scm.listPRComments(pr);
-          if (hasValidTriggerComment(comments)) {
-            hasTrigger = true;
-          } else {
+          if (!hasValidTriggerComment(comments)) {
             return false;
           }
         } catch (err) {
