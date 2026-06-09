@@ -217,40 +217,47 @@ export async function runLocalSkepticCron(
    */
   const evaluateOnePR = async (pr: PRInfo): Promise<boolean> => {
     let hasTrigger = false;
-    if (scm?.listPRComments) {
-      try {
-        const comments = await scm.listPRComments(pr);
-        if (hasValidTriggerComment(comments)) {
-          hasTrigger = true;
-        } else {
-          return false;
-        }
-      } catch (err) {
-        try {
-          observer.recordOperation({
-            metric: "lifecycle_poll",
-            operation: "skeptic.cron.list_pr_comments_failed",
-            outcome: "failure",
-            correlationId,
-            projectId,
-            data: { prNumber: pr.number, error: err instanceof Error ? err.message : String(err) },
-            level: "warn",
-          });
-        } catch { /* observer failure must not block cron flow */ }
-        return false;
-      }
-    }
+    let isStale = false;
 
-    if (!hasTrigger && pr.updatedAt) {
+    if (pr.updatedAt) {
       const updatedAtMs = Date.parse(pr.updatedAt);
       if (Number.isFinite(updatedAtMs)) {
         const ageMs = Date.now() - updatedAtMs;
         const oneDayMs = 24 * 60 * 60 * 1000;
         if (ageMs > oneDayMs) {
-          return false;
+          isStale = true;
         }
       }
     }
+
+    if (isStale) {
+      if (scm?.listPRComments) {
+        try {
+          const comments = await scm.listPRComments(pr);
+          if (hasValidTriggerComment(comments)) {
+            hasTrigger = true;
+          } else {
+            return false;
+          }
+        } catch (err) {
+          try {
+            observer.recordOperation({
+              metric: "lifecycle_poll",
+              operation: "skeptic.cron.list_pr_comments_failed",
+              outcome: "failure",
+              correlationId,
+              projectId,
+              data: { prNumber: pr.number, error: err instanceof Error ? err.message : String(err) },
+              level: "warn",
+            });
+          } catch { /* observer failure must not block cron flow */ }
+          return false;
+        }
+      } else {
+        return false;
+      }
+    }
+
 
     // Use existing session if available, otherwise synthetic
     const session =

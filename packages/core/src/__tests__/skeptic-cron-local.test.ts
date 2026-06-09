@@ -967,7 +967,9 @@ describe("runLocalSkepticCron", () => {
 
   it("skips PRs without any trigger comments", async () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
-    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
+
     listPRComments.mockResolvedValue([
       { id: 101, body: "just a normal comment", user: { login: "alice" }, isSkepticTrigger: false }
     ]);
@@ -1042,7 +1044,8 @@ describe("runLocalSkepticCron", () => {
 
   it("skips PRs if the trigger comment is posted by a bot but is just /skeptic", async () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
-    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
     listPRComments.mockResolvedValue([
       // SCM plugin would NOT set isSkepticTrigger: true for a bot /skeptic
       { id: 101, body: "/skeptic", user: { login: "some-bot[bot]" }, isSkepticTrigger: false }
@@ -1072,7 +1075,8 @@ describe("runLocalSkepticCron", () => {
   // `isSkepticTrigger` flag.
   it("ignores trigger-looking body text when isSkepticTrigger is not set", async () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
-    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
     listPRComments.mockResolvedValue([
       // Body matches the legacy heuristic, but the structured flag is false.
       // The cron must skip this PR — the SCM plugin decided it is not a trigger.
@@ -1199,7 +1203,8 @@ describe("runLocalSkepticCron", () => {
 
   it("skips runSkepticReview if listPRComments rejects", async () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
-    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
     listPRComments.mockRejectedValue(new Error("boom"));
 
     const result = await runLocalSkepticCron(
@@ -1228,4 +1233,53 @@ describe("runLocalSkepticCron", () => {
       }),
     );
   });
+
+  it("evaluates PRs modified within the last 24 hours even if they have no trigger comment", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listPRComments.mockResolvedValue([]);
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: recentDate })]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-recent-pr-no-trigger",
+      },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call listPRComments for recent PRs (performance optimization)", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: recentDate })]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-recent-pr-no-comment-check",
+      },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(listPRComments).not.toHaveBeenCalled();
+  });
 });
+
