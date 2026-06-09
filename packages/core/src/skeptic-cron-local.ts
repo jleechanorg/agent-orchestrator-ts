@@ -72,6 +72,9 @@ class BoundedMap<K, V> extends Map<K, V> {
 // Bounded to avoid unbounded growth in long-running lifecycle workers.
 const MAX_SKEPTIC_DEDUP_ENTRIES = 10_000;
 const lastEvaluatedShaByPR = new BoundedMap<string, string>(MAX_SKEPTIC_DEDUP_ENTRIES);
+// Per-PR checked comments SHA dedup — keyed by `${projectId}:${prNumber}`.
+// Bounded to avoid unbounded growth in long-running lifecycle workers.
+const lastCheckedCommentsShaByPR = new BoundedMap<string, string>(MAX_SKEPTIC_DEDUP_ENTRIES);
 const SKEPTIC_CRON_INTERVAL_MS = 10 * 60_000; // 10 minutes
 const DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS = 3;
 
@@ -111,6 +114,7 @@ export function _resetSkepticCronTimer(): void {
 /** Reset SHA dedup map — exposed for testing only. */
 export function _resetSkepticDedupMap(): void {
   lastEvaluatedShaByPR.clear();
+  lastCheckedCommentsShaByPR.clear();
 }
 
 /** Returns the stored SHA for a PR cache key — exposed for testing only. */
@@ -216,8 +220,21 @@ export async function runLocalSkepticCron(
    * caching are contained here so the batched Promise.all below stays clean.
    */
   const evaluateOnePR = async (pr: PRInfo): Promise<boolean> => {
-    let isStale = false;
+    const cacheKey = `${projectId}:${pr.number}`;
+    let headSha: string | undefined;
+    try {
+      headSha = await scm?.getPRHeadSha?.(pr);
+    } catch {
+      // getPRHeadSha unavailable or threw — fail open, evaluate normally
+    }
 
+    // 1. If already successfully evaluated for this HEAD SHA, skip entirely
+    if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_dedup_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
+      return false;
+    }
+
+    let isStale = false;
     if (pr.updatedAt) {
       const updatedAtMs = Date.parse(pr.updatedAt);
       if (Number.isFinite(updatedAtMs)) {
@@ -229,49 +246,44 @@ export async function runLocalSkepticCron(
       }
     }
 
-    if (isStale) {
-      if (scm?.listPRComments) {
-        try {
-          const comments = await scm.listPRComments(pr);
-          if (!hasValidTriggerComment(comments)) {
-            return false;
-          }
-        } catch (err) {
-          try {
-            observer.recordOperation({
-              metric: "lifecycle_poll",
-              operation: "skeptic.cron.list_pr_comments_failed",
-              outcome: "failure",
-              correlationId,
-              projectId,
-              data: { prNumber: pr.number, error: err instanceof Error ? err.message : String(err) },
-              level: "warn",
-            });
-          } catch { /* observer failure must not block cron flow */ }
-          return false;
-        }
-      } else {
-        return false;
-      }
+    // 2. If the PR is stale and we already checked comments for this HEAD SHA (finding no trigger), skip comment check
+    if (isStale && headSha && lastCheckedCommentsShaByPR.get(cacheKey) === headSha) {
+      return false;
     }
 
+    // 3. Fetch comments and check for a trigger comment (required for both recent and stale PRs)
+    if (scm?.listPRComments) {
+      try {
+        const comments = await scm.listPRComments(pr);
+        // Cache that we've checked comments for this HEAD SHA
+        if (headSha) {
+          lastCheckedCommentsShaByPR.set(cacheKey, headSha);
+        }
+        if (!hasValidTriggerComment(comments)) {
+          return false;
+        }
+      } catch (err) {
+        try {
+          observer.recordOperation({
+            metric: "lifecycle_poll",
+            operation: "skeptic.cron.list_pr_comments_failed",
+            outcome: "failure",
+            correlationId,
+            projectId,
+            data: { prNumber: pr.number, error: err instanceof Error ? err.message : String(err) },
+            level: "warn",
+          });
+        } catch { /* observer failure must not block cron flow */ }
+        return false;
+      }
+    } else {
+      return false;
+    }
 
     // Use existing session if available, otherwise synthetic
     const session =
       sessionByPR.get(`${projectId}:${pr.number}`) ??
       createSyntheticSession(pr, projectId, project.path ?? null);
-
-    const cacheKey = `${projectId}:${pr.number}`;
-    let headSha: string | undefined;
-    try {
-      headSha = await scm?.getPRHeadSha?.(pr);
-    } catch {
-      // getPRHeadSha unavailable or threw — fail open, evaluate normally
-    }
-    if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
-      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_dedup_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
-      return false;
-    }
 
     try {
       try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluating", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, hasSession: sessionByPR.has(`${projectId}:${pr.number}`) }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
