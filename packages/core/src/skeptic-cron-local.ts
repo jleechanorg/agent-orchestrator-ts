@@ -248,11 +248,11 @@ export async function runLocalSkepticCron(
     if (scm?.listPRComments) {
       try {
         const comments = await scm.listPRComments(pr);
-        // Cache this updatedAt as checked
-        if (pr.updatedAt) {
-          lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
-        }
         if (!hasValidTriggerComment(comments)) {
+          // No trigger comment, so it's safe to cache the updatedAt so we don't check comments again
+          if (pr.updatedAt) {
+            lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
+          }
           return false;
         }
       } catch (err) {

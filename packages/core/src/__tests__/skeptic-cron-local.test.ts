@@ -1350,5 +1350,58 @@ describe("runLocalSkepticCron", () => {
     expect(listPRComments).not.toHaveBeenCalled();
     expect(mockRunSkepticReview).not.toHaveBeenCalled();
   });
+
+  it("retries evaluations on next run if runSkepticReview fails (transient failure resilience)", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments, getPRHeadSha } = makeDeps();
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    const pr = makePR({ number: 1, updatedAt: recentDate });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    // Mock comments return a trigger
+    listPRComments.mockResolvedValue([
+      { id: 100, body: "/skeptic", user: { login: "jleechan2015" }, isSkepticTrigger: true }
+    ]);
+
+    // First run fails transiently
+    mockRunSkepticReview.mockRejectedValueOnce(new Error("Transient LLM error"));
+
+    const firstResult = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-first",
+      },
+    );
+    expect(firstResult).toBe(0); // failed
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+
+    // Reset throttle and mock counts
+    _resetSkepticCronTimer();
+    mockRunSkepticReview.mockClear();
+    listPRComments.mockClear();
+
+    // Second run succeeds
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const secondResult = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-second",
+      },
+    );
+
+    // Should retry and succeed
+    expect(secondResult).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(listPRComments).toHaveBeenCalledTimes(1);
+  });
 });
 
