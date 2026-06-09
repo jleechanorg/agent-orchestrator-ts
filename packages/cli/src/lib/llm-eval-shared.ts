@@ -1,4 +1,6 @@
 import { buildVerdictLineRe } from "../commands/skeptic/verdict-utils.js";
+import { loadConfig } from "@jleechanorg/ao-core";
+import path from "node:path";
 
 export const LLM_EVAL_TIMEOUT_MS = 300_000;
 export const DEFAULT_CODEX_MODEL = process.env["AO_LLM_EVAL_CODEX_MODEL"] ?? "gpt-5.5";
@@ -88,6 +90,62 @@ export function makeClaudeExecOptions(
 } {
   const env = { ...process.env };
   delete env.MINIMAX_API_KEY;
+
+  let shouldKeepEnv = false;
+  let reason = "";
+  let activeAgent: string | undefined;
+  let useShellEnv = false;
+
+  try {
+    const config = loadConfig();
+    activeAgent = config.defaults?.agent;
+
+    const cwd = process.cwd();
+    if (config.projects) {
+      for (const proj of Object.values(config.projects)) {
+        if (proj.agent && proj.path) {
+          const resolvedProjPath = path.resolve(proj.path);
+          if (cwd === resolvedProjPath || cwd.startsWith(resolvedProjPath + path.sep)) {
+            activeAgent = proj.agent;
+            break;
+          }
+        }
+      }
+    }
+
+    const claudePluginConfig = config.plugins?.["claude-code"];
+    if (claudePluginConfig && typeof claudePluginConfig === "object" && "useShellEnv" in claudePluginConfig) {
+      useShellEnv = !!claudePluginConfig.useShellEnv;
+    }
+  } catch {
+    // Config not found or invalid
+  }
+
+  if (useShellEnv) {
+    shouldKeepEnv = true;
+    reason = "useShellEnv flag is enabled in claude-code plugin config";
+  } else if (activeAgent && activeAgent !== "claude-code" && activeAgent !== "codex" && activeAgent !== "gemini") {
+    shouldKeepEnv = true;
+    reason = `active agent is provider plugin "${activeAgent}"`;
+  }
+
+  const hasBaseUrl = process.env.ANTHROPIC_BASE_URL !== undefined;
+  const hasAuthToken = process.env.ANTHROPIC_AUTH_TOKEN !== undefined;
+
+  if (hasBaseUrl || hasAuthToken) {
+    if (shouldKeepEnv) {
+      if (hasBaseUrl) {
+        console.debug(`[llm-eval-shared] Reading ANTHROPIC_BASE_URL from process.env (Reason: ${reason})`);
+      }
+      if (hasAuthToken) {
+        console.debug(`[llm-eval-shared] Reading ANTHROPIC_AUTH_TOKEN from process.env (Reason: ${reason})`);
+      }
+    } else {
+      delete env.ANTHROPIC_BASE_URL;
+      delete env.ANTHROPIC_AUTH_TOKEN;
+    }
+  }
+
   return {
     input: prompt,
     encoding: "utf-8",
