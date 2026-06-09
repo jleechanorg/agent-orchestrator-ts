@@ -234,21 +234,15 @@ export async function runLocalSkepticCron(
       // getPRHeadSha unavailable or threw — fail open, evaluate normally
     }
 
-    // 2. If already successfully evaluated for this HEAD SHA, skip entirely
-    if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
-      // Also cache this updatedAt so we skip next time immediately
-      if (pr.updatedAt) {
-        lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
-      }
-      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_dedup_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
-      return false;
-    }
+    let isTriggerPresent = false;
 
-    // 3. Fetch comments and check for a trigger comment (required for both recent and stale PRs)
+    // 2. Fetch comments and check for a trigger comment (required for both recent and stale PRs)
     if (scm?.listPRComments) {
       try {
         const comments = await scm.listPRComments(pr);
-        if (!hasValidTriggerComment(comments)) {
+        if (hasValidTriggerComment(comments)) {
+          isTriggerPresent = true;
+        } else {
           // No trigger comment, so it's safe to cache the updatedAt so we don't check comments again
           if (pr.updatedAt) {
             lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
@@ -270,6 +264,28 @@ export async function runLocalSkepticCron(
         return false;
       }
     } else {
+      // Fallback: if scm.listPRComments is missing, fall back to the 24-hour PR age check
+      if (pr.updatedAt) {
+        const updatedAtMs = Date.parse(pr.updatedAt);
+        if (Number.isFinite(updatedAtMs)) {
+          const ageMs = Date.now() - updatedAtMs;
+          const oneDayMs = 24 * 60 * 60 * 1000;
+          if (ageMs > oneDayMs) {
+            // Older than 24h, skip
+            return false;
+          }
+        }
+      }
+    }
+
+    // 3. If already successfully evaluated for this HEAD SHA, skip entirely
+    // BUT bypass this SHA cache check if a valid trigger comment is present
+    if (!isTriggerPresent && headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
+      // Also cache this updatedAt so we skip next time immediately
+      if (pr.updatedAt) {
+        lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
+      }
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_dedup_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
       return false;
     }
 
@@ -286,6 +302,7 @@ export async function runLocalSkepticCron(
       try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluated", outcome: result.verdict === "PASS" ? "success" : "failure", correlationId, projectId, data: { prNumber: pr.number, verdict: result.verdict, modelUsed: result.modelUsed }, level: result.verdict === "FAIL" ? "warn" : "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
 
       if (headSha) lastEvaluatedShaByPR.set(cacheKey, headSha);
+      if (pr.updatedAt) lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
       return true;
     } catch (err) {
       try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.pr_failed", outcome: "failure", correlationId, projectId, data: { prNumber: pr.number, error: err instanceof Error ? err.message : String(err) }, level: "warn" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }

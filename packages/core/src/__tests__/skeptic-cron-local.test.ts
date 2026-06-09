@@ -392,6 +392,8 @@ describe("runLocalSkepticCron", () => {
 
   it("stores SHA in dedup map after successful evaluation", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -411,6 +413,8 @@ describe("runLocalSkepticCron", () => {
 
   it("second call with same SHA is skipped (sha_dedup_skip logged)", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -443,6 +447,8 @@ describe("runLocalSkepticCron", () => {
 
   it("re-evaluates same SHA from different projectId after first run stores SHA", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -477,6 +483,8 @@ describe("runLocalSkepticCron", () => {
 
   it("same projectId, new SHA triggers re-evaluation (throttle reset)", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -512,6 +520,8 @@ describe("runLocalSkepticCron", () => {
 
   it("fail-open: evaluates when getPRHeadSha throws", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockRejectedValue(new Error("network failure"));
@@ -535,6 +545,8 @@ describe("runLocalSkepticCron", () => {
 
   it("throw: runSkepticReview rejection does not store SHA — allows retry", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -555,6 +567,8 @@ describe("runLocalSkepticCron", () => {
 
   it("throw then success: rejection skips SHA cache, subsequent run stores SHA", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -613,6 +627,8 @@ describe("runLocalSkepticCron", () => {
 
   it("different projectId has independent SHA dedup state", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     listOpenPRs.mockResolvedValue([makePR({ number: 10 })]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
     mockRunSkepticReview.mockResolvedValue({
@@ -1402,6 +1418,85 @@ describe("runLocalSkepticCron", () => {
     expect(secondResult).toBe(1);
     expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
     expect(listPRComments).toHaveBeenCalledTimes(1);
+  });
+
+  it("bypasses SHA cache check when a valid trigger comment is present", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    // Run once to evaluate and cache the SHA
+    await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1" },
+    );
+
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+
+    // Reset throttle and clear mock history
+    _resetSkepticCronTimer();
+    mockRunSkepticReview.mockClear();
+
+    // Run again with same SHA but we have a trigger comment.
+    // It should bypass SHA cache check and evaluate again!
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2" },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to 24h PR age check if listPRComments is missing", async () => {
+    const listOpenPRs = vi.fn<[ProjectConfig], Promise<PRInfo[]>>();
+    const getPRHeadSha = vi.fn<(pr: PRInfo) => Promise<string>>();
+    // SCM has NO listPRComments
+    const mockSCMWithout: Partial<SCM> = { listOpenPRs, getPRHeadSha };
+    const registry = {
+      get: vi.fn().mockReturnValue(mockSCMWithout),
+    } as unknown as PluginRegistry;
+    const observer = { recordOperation: vi.fn() } as unknown as ProjectObserver;
+    const sessionManager = {} as SessionManager;
+
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    // 1. PR is recent (< 24h)
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    const prRecent = makePR({ number: 10, updatedAt: recentDate });
+    listOpenPRs.mockResolvedValue([prRecent]);
+
+    const resultRecent = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-recent" },
+    );
+    expect(resultRecent).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+
+    // Reset throttle and clear mock history
+    _resetSkepticCronTimer();
+    mockRunSkepticReview.mockClear();
+
+    // 2. PR is stale (> 24h)
+    const staleDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const prStale = makePR({ number: 11, updatedAt: staleDate });
+    listOpenPRs.mockResolvedValue([prStale]);
+
+    const resultStale = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-stale" },
+    );
+    expect(resultStale).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
   });
 });
 
