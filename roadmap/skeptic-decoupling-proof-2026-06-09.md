@@ -25,7 +25,7 @@ The `agent-orchestrator` skeptic cron is responsible for running periodic local 
 
 ### Chapter 1: The Initial Decoupling (PR #497)
 * **Goal**: Decouple the execution of local skeptic reviews from the project-level `backfillAllPRs` setting.
-* **Mechanism**: The call site for `runLocalSkepticCron` in [lifecycle-manager.ts](file:///Users/jleechan/project_agento/agent-orchestrator/packages/core/src/lifecycle-manager.ts#L2799) was modified to remove the `backfillAllPRs !== false` check, ensuring that the local cron is unconditionally executed during project poll cycles.
+* **Mechanism**: The call site for `runLocalSkepticCron` in [lifecycle-manager.ts](../packages/core/src/lifecycle-manager.ts#L2799) was modified to remove the `backfillAllPRs !== false` check, ensuring that the local cron is unconditionally executed during project poll cycles.
 * **Citation Proof**: PR [PR #497](https://github.com/jleechanorg/agent-orchestrator/pull/497) (Merge commit `e1f11d0033e0a7a7c57ff981a43de26389fb1af8`), modified lines 2762-2774 (corresponding to the current line 2799):
 ```diff
        if (scopedProjectId) {
@@ -40,7 +40,7 @@ The `agent-orchestrator` skeptic cron is responsible for running periodic local 
 
 ### Chapter 2: The Unintentional Re-coupling (PR #654)
 * **Goal**: Optimize the skeptic cron to support explicit model fallbacks and list fallback chains (e.g. minimax/agy).
-* **Mechanism**: To prevent scanning every stale PR in large repositories, a 24-hour age/recency filter was added to the top of `runLocalSkepticCron` in [skeptic-cron-local.ts](file:///Users/jleechan/project_agento/agent-orchestrator/packages/core/src/skeptic-cron-local.ts#L314) during `eligiblePRs` collection. This caused the cron to discard any PR that hadn't been modified in the last 24 hours *before* checking if there was a fresh `/skeptic` comment, breaking the manual re-trigger flow for older PRs and silencing skeptic evaluations across the worldarchitect fleet.
+* **Mechanism**: To prevent scanning every stale PR in large repositories, a 24-hour age/recency filter was added to the top of `runLocalSkepticCron` in [skeptic-cron-local.ts](../packages/core/src/skeptic-cron-local.ts#L314) during `eligiblePRs` collection. This caused the cron to discard any PR that hadn't been modified in the last 24 hours *before* checking if there was a fresh `/skeptic` comment, breaking the manual re-trigger flow for older PRs and silencing skeptic evaluations across the worldarchitect fleet.
 * **Citation Proof**: PR [PR #654](https://github.com/jleechanorg/agent-orchestrator/pull/654) (Merge commit `8dfd5c207f2963e2ff9964f1d6d8ae5855538a86`), modified lines 227-242 in `packages/core/src/skeptic-cron-local.ts`:
 ```diff
 -  // Collect eligible PRs (non-draft) in a single pass before running
@@ -125,7 +125,7 @@ Inside `evaluateOnePR`, retrieval of trigger comments via the SCM plugin must ha
 
 ## 3. Regression test contract
 
-The decoupling invariants are enforced via three specific test cases in [skeptic-cron-local.test.ts](file:///Users/jleechan/project_agento/agent-orchestrator/packages/core/src/__tests__/skeptic-cron-local.test.ts):
+The decoupling invariants are enforced via three specific test cases in [skeptic-cron-local.test.ts](../packages/core/src/__tests__/skeptic-cron-local.test.ts):
 
 ### Case I: Stale PR + Fresh trigger comment
 * **Assertion**: PR is modified > 24 hours ago but has a valid `isSkepticTrigger` comment. The local cron must evaluate the PR.
