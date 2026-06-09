@@ -72,9 +72,9 @@ class BoundedMap<K, V> extends Map<K, V> {
 // Bounded to avoid unbounded growth in long-running lifecycle workers.
 const MAX_SKEPTIC_DEDUP_ENTRIES = 10_000;
 const lastEvaluatedShaByPR = new BoundedMap<string, string>(MAX_SKEPTIC_DEDUP_ENTRIES);
-// Per-PR checked comments SHA dedup — keyed by `${projectId}:${prNumber}`.
+// Per-PR checked comments updatedAt dedup — keyed by `${projectId}:${prNumber}`.
 // Bounded to avoid unbounded growth in long-running lifecycle workers.
-const lastCheckedCommentsShaByPR = new BoundedMap<string, string>(MAX_SKEPTIC_DEDUP_ENTRIES);
+const lastCheckedUpdatedAtByPR = new BoundedMap<string, string>(MAX_SKEPTIC_DEDUP_ENTRIES);
 const SKEPTIC_CRON_INTERVAL_MS = 10 * 60_000; // 10 minutes
 const DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS = 3;
 
@@ -114,7 +114,7 @@ export function _resetSkepticCronTimer(): void {
 /** Reset SHA dedup map — exposed for testing only. */
 export function _resetSkepticDedupMap(): void {
   lastEvaluatedShaByPR.clear();
-  lastCheckedCommentsShaByPR.clear();
+  lastCheckedUpdatedAtByPR.clear();
 }
 
 /** Returns the stored SHA for a PR cache key — exposed for testing only. */
@@ -221,6 +221,12 @@ export async function runLocalSkepticCron(
    */
   const evaluateOnePR = async (pr: PRInfo): Promise<boolean> => {
     const cacheKey = `${projectId}:${pr.number}`;
+
+    // 1. If PR's updatedAt matches our last checked updatedAt, we know nothing changed (no comments, commits, etc.)
+    if (pr.updatedAt && lastCheckedUpdatedAtByPR.get(cacheKey) === pr.updatedAt) {
+      return false;
+    }
+
     let headSha: string | undefined;
     try {
       headSha = await scm?.getPRHeadSha?.(pr);
@@ -228,26 +234,13 @@ export async function runLocalSkepticCron(
       // getPRHeadSha unavailable or threw — fail open, evaluate normally
     }
 
-    // 1. If already successfully evaluated for this HEAD SHA, skip entirely
+    // 2. If already successfully evaluated for this HEAD SHA, skip entirely
     if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
-      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_dedup_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
-      return false;
-    }
-
-    let isStale = false;
-    if (pr.updatedAt) {
-      const updatedAtMs = Date.parse(pr.updatedAt);
-      if (Number.isFinite(updatedAtMs)) {
-        const ageMs = Date.now() - updatedAtMs;
-        const oneDayMs = 24 * 60 * 60 * 1000;
-        if (ageMs > oneDayMs) {
-          isStale = true;
-        }
+      // Also cache this updatedAt so we skip next time immediately
+      if (pr.updatedAt) {
+        lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
       }
-    }
-
-    // 2. If the PR is stale and we already checked comments for this HEAD SHA (finding no trigger), skip comment check
-    if (isStale && headSha && lastCheckedCommentsShaByPR.get(cacheKey) === headSha) {
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_dedup_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
       return false;
     }
 
@@ -255,9 +248,9 @@ export async function runLocalSkepticCron(
     if (scm?.listPRComments) {
       try {
         const comments = await scm.listPRComments(pr);
-        // Cache that we've checked comments for this HEAD SHA
-        if (headSha) {
-          lastCheckedCommentsShaByPR.set(cacheKey, headSha);
+        // Cache this updatedAt as checked
+        if (pr.updatedAt) {
+          lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
         }
         if (!hasValidTriggerComment(comments)) {
           return false;

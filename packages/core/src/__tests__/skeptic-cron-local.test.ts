@@ -1304,12 +1304,11 @@ describe("runLocalSkepticCron", () => {
     expect(listPRComments).not.toHaveBeenCalled();
   });
 
-  it("does not call listPRComments for stale PRs if HEAD SHA is already checked and has no trigger", async () => {
-    const { registry, sessionManager, observer, listOpenPRs, listPRComments, getPRHeadSha } = makeDeps();
-    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
-    const pr = makePR({ number: 1, updatedAt: oldDate });
+  it("does not call listPRComments if PR updatedAt has not changed since last check (performance optimization)", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    const pr = makePR({ number: 1, updatedAt: recentDate });
     listOpenPRs.mockResolvedValue([pr]);
-    getPRHeadSha.mockResolvedValue("sha-stale-no-trigger");
     // Mock comments return empty (no trigger)
     listPRComments.mockResolvedValue([]);
     mockRunSkepticReview.mockResolvedValue({
@@ -1335,7 +1334,7 @@ describe("runLocalSkepticCron", () => {
     listPRComments.mockClear();
     mockRunSkepticReview.mockClear();
 
-    // Run again with same SHA
+    // Run again with same updatedAt
     const secondResult = await runLocalSkepticCron(
       { registry, sessionManager, observer },
       {
