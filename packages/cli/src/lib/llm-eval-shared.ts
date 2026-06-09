@@ -91,6 +91,11 @@ export function makeClaudeExecOptions(
   const env = { ...process.env };
   delete env.MINIMAX_API_KEY;
 
+  /** Provider gateway agents that legitimately need ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
+   *  to route requests through their own proxy endpoints. This is an explicit opt-in whitelist;
+   *  any agent not in this set will have those vars stripped unless useShellEnv is set. */
+  const PROVIDER_AGENT_PLUGINS = new Set(["wafer", "minimax", "agy"]);
+
   let shouldKeepEnv = false;
   let reason = "";
   let activeAgent: string | undefined;
@@ -102,9 +107,10 @@ export function makeClaudeExecOptions(
 
     const cwd = process.cwd();
     if (config.projects) {
+      const configDir = path.dirname(config.configPath);
       for (const proj of Object.values(config.projects)) {
         if (proj.agent && proj.path) {
-          const resolvedProjPath = path.resolve(proj.path);
+          const resolvedProjPath = path.resolve(configDir, proj.path);
           if (cwd === resolvedProjPath || cwd.startsWith(resolvedProjPath + path.sep)) {
             activeAgent = proj.agent;
             break;
@@ -124,7 +130,7 @@ export function makeClaudeExecOptions(
   if (useShellEnv) {
     shouldKeepEnv = true;
     reason = "useShellEnv flag is enabled in claude-code plugin config";
-  } else if (activeAgent && activeAgent !== "claude-code" && activeAgent !== "codex" && activeAgent !== "gemini") {
+  } else if (activeAgent && PROVIDER_AGENT_PLUGINS.has(activeAgent)) {
     shouldKeepEnv = true;
     reason = `active agent is provider plugin "${activeAgent}"`;
   }
