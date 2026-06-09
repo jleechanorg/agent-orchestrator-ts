@@ -216,10 +216,13 @@ export async function runLocalSkepticCron(
    * caching are contained here so the batched Promise.all below stays clean.
    */
   const evaluateOnePR = async (pr: PRInfo): Promise<boolean> => {
+    let hasTrigger = false;
     if (scm?.listPRComments) {
       try {
         const comments = await scm.listPRComments(pr);
-        if (!hasValidTriggerComment(comments)) {
+        if (hasValidTriggerComment(comments)) {
+          hasTrigger = true;
+        } else {
           return false;
         }
       } catch (err) {
@@ -235,6 +238,17 @@ export async function runLocalSkepticCron(
           });
         } catch { /* observer failure must not block cron flow */ }
         return false;
+      }
+    }
+
+    if (!hasTrigger && pr.updatedAt) {
+      const updatedAtMs = Date.parse(pr.updatedAt);
+      if (Number.isFinite(updatedAtMs)) {
+        const ageMs = Date.now() - updatedAtMs;
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        if (ageMs > oneDayMs) {
+          return false;
+        }
       }
     }
 
@@ -270,21 +284,8 @@ export async function runLocalSkepticCron(
     }
   };
 
-  // Collect eligible PRs (non-draft, modified within last 24 hours) in a single pass before running
-  const eligiblePRs = openPRs.filter((pr) => {
-    if (pr.isDraft) return false;
-    if (pr.updatedAt) {
-      const updatedAtMs = Date.parse(pr.updatedAt);
-      if (Number.isFinite(updatedAtMs)) {
-        const ageMs = Date.now() - updatedAtMs;
-        const oneDayMs = 24 * 60 * 60 * 1000;
-        if (ageMs > oneDayMs) {
-          return false;
-        }
-      }
-    }
-    return true;
-  });
+  // Collect eligible PRs (non-draft) in a single pass before running
+  const eligiblePRs = openPRs.filter((pr) => !pr.isDraft);
 
   // Run in bounded batches; Promise.allSettled so one observer throw
   // or rejection does not cancel the rest of the batch.
