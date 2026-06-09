@@ -106,7 +106,7 @@ export function makeClaudeExecOptions(
     activeAgent = config.defaults?.agent;
 
     const cwd = process.cwd();
-    if (config.projects) {
+    if (config.projects && config.configPath) {
       const configDir = path.dirname(config.configPath);
       for (const proj of Object.values(config.projects)) {
         if (proj.agent && proj.path) {
