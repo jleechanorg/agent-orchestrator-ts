@@ -234,15 +234,11 @@ export async function runLocalSkepticCron(
       // getPRHeadSha unavailable or threw — fail open, evaluate normally
     }
 
-    let isTriggerPresent = false;
-
     // 2. Fetch comments and check for a trigger comment (required for both recent and stale PRs)
     if (scm?.listPRComments) {
       try {
         const comments = await scm.listPRComments(pr);
-        if (hasValidTriggerComment(comments)) {
-          isTriggerPresent = true;
-        } else {
+        if (!hasValidTriggerComment(comments)) {
           // No trigger comment, so it's safe to cache the updatedAt so we don't check comments again
           if (pr.updatedAt) {
             lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
