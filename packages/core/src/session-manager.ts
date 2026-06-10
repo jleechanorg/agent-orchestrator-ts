@@ -31,7 +31,7 @@ import { emitActivityTransition } from "./lifecycle-activity-events.js";
 import {
   isIssueNotFoundError,
   isRestorable,
-  NON_RESTORABLE_STATUSES,
+  NON_RESTORABLE_STATUSES, // verified import
   SessionNotFoundError,
   SessionNotRestorableError,
   WorkspaceMissingError,
