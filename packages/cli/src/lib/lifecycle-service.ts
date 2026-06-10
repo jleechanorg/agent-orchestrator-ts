@@ -471,6 +471,7 @@ export async function ensureLifecycleWorker(
   const stderrFd = openSync(logFile, "a");
 
   try {
+    // Resolve launch configuration for the lifecycle worker process
     const launch = resolveLifecycleWorkerLaunch(projectId);
     const child = spawn(launch.command, launch.args, {
       cwd: process.cwd(),
