@@ -27,8 +27,7 @@ The `agent-orchestrator` skeptic cron is responsible for running periodic local 
 * **Goal**: Decouple the execution of local skeptic reviews from the project-level `backfillAllPRs` setting.
 * **Mechanism**: The call site for `runLocalSkepticCron` in [lifecycle-manager.ts](../packages/core/src/lifecycle-manager.ts) was modified to remove the `backfillAllPRs !== false` check, ensuring that the local cron is unconditionally executed during project poll cycles.
 * **Citation Proof**: PR [PR #497](https://github.com/jleechanorg/agent-orchestrator/pull/497) (Merge commit `e1f11d0033e0a7a7c57ff981a43de26389fb1af8`), modified the call site to runLocalSkepticCron:
-```
-diff
+```diff
        if (scopedProjectId) {
          const skepticProject = config.projects[scopedProjectId];
 -        if (skepticProject && skepticProject.backfillAllPRs !== false) {
@@ -43,8 +42,7 @@ diff
 * **Goal**: Optimize the skeptic cron to support explicit model fallbacks and list fallback chains (e.g. minimax/agy).
 * **Mechanism**: To prevent scanning every stale PR in large repositories, a 24-hour age/recency filter was added to the top of `runLocalSkepticCron` in [skeptic-cron-local.ts](../packages/core/src/skeptic-cron-local.ts) during `eligiblePRs` collection. This caused the cron to discard any PR that hadn't been modified in the last 24 hours *before* checking if there was a fresh `/skeptic` comment, breaking the manual re-trigger flow for older PRs and silencing skeptic evaluations across the worldarchitect fleet.
 * **Citation Proof**: PR [PR #654](https://github.com/jleechanorg/agent-orchestrator/pull/654) (Merge commit `8dfd5c207f2963e2ff9964f1d6d8ae5855538a86`), modified the eligiblePRs filter in `packages/core/src/skeptic-cron-local.ts`:
-```
-diff
+```diff
 -  // Collect eligible PRs (non-draft) in a single pass before running
 -  const eligiblePRs = openPRs.filter(pr => !pr.isDraft);
 +  // Collect eligible PRs (non-draft, modified within last 24 hours) in a single pass before running
@@ -69,8 +67,7 @@ diff
 * **Goal**: Re-decouple the skeptic cron from PR recency by prioritizing comment triggers over age limits.
 * **Mechanism**: The 24-hour age check was moved inside `evaluateOnePR` in `packages/core/src/skeptic-cron-local.ts` and gated behind the SCM comments retrieval. By checking comments first, any PR (regardless of age) containing a valid `/skeptic` trigger comment is evaluated. The 24-hour age check is preserved only as a fallback when the SCM comment API is unavailable.
 * **Citation Proof**: PR [PR #661](https://github.com/jleechanorg/agent-orchestrator/pull/661) (Head commit `1a9767f55c07d3c848cbdcdff421b50faff7c68b`), moved the age check logic inside evaluateOnePR in `packages/core/src/skeptic-cron-local.ts`:
-```
-diff
+```diff
 +    let isTriggerPresent = false;
  
 -    // 2. If already successfully evaluated for this HEAD SHA, skip entirely

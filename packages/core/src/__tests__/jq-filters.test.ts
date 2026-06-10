@@ -253,7 +253,7 @@ function jqLatestCRReview(
       (comment) =>
         isCodeRabbitUser(comment.user.login) &&
         (!headCommittedAt || comment.created_at >= headCommittedAt) &&
-        /(?:^\s*\[approve\]\s*$|changes approved\.)/im.test(comment.body),
+        /(?:^\s*\[approve\]\s*$|\bchanges approved\.)/im.test(comment.body),
     );
     return codeRabbitStatus === "success" && hasApprovalComment ? "APPROVED" : "none";
   }
@@ -273,7 +273,7 @@ function jqLatestCRReview(
       isCodeRabbitUser(comment.user.login) &&
       (!headCommittedAt || comment.created_at >= headCommittedAt) &&
       (!latestReviewAt || comment.created_at > latestReviewAt) &&
-      /(?:^\s*\[approve\]\s*$|changes approved\.)/im.test(comment.body),
+      /(?:^\s*\[approve\]\s*$|\bchanges approved\.)/im.test(comment.body),
   );
   return codeRabbitStatus === "success" && hasApprovalComment
     ? "APPROVED"
