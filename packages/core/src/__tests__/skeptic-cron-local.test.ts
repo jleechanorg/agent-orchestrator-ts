@@ -1277,7 +1277,7 @@ describe("runLocalSkepticCron", () => {
     expect(mockRunSkepticReview).not.toHaveBeenCalled();
   });
 
-  it("does not call listPRComments for PRs if HEAD SHA is already evaluated (performance optimization)", async () => {
+  it("does not call listPRComments for PRs if updatedAt has not changed since successful evaluation (performance optimization)", async () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments, getPRHeadSha } = makeDeps();
     const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
     const pr = makePR({ number: 1, updatedAt: recentDate });
