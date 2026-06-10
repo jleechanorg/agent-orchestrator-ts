@@ -1,0 +1,91 @@
+^D===================================================================
+TDD Red→Green evidence for all 6 doctor-v2 checks
+===================================================================
+
+=== Check 1: check_scm_config_in_staging ===
+RED phase (real ~/.hermes/agent-orchestrator.yaml — 0 scm:):
+FAIL staging config /Users/jleechan/.hermes/agent-orchestrator.yaml has NO 'scm:' field — skeptic will silently return 0 for all PRs (see fragility 2026-06-10)
+
+GREEN phase (test config — 10/10 scm:):
+PASS staging config /tmp/doctor-v2-test/staging-fixed.yaml has scm: for all 10 project(s)
+
+=== Check 2: check_skeptic_age_filter_order ===
+RED phase (pre-bd-rgk0-fix state — commit ac2207e1e^):
+  // Collect eligible PRs (non-draft, modified within last 24 hours) in a single pass before running
+  const eligiblePRs = openPRs.filter((pr) => {
+    if (pr.isDraft) return false;
+    if (pr.updatedAt) {
+      const updatedAtMs = Date.parse(pr.updatedAt);
+      if (Number.isFinite(updatedAtMs)) {
+        const ageMs = Date.now() - updatedAtMs;
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        if (ageMs > oneDayMs) {
+          return false;
+        }
+      }
+    }
+    return true;
+  });
+
+  // Run in bounded batches; Promise.allSettled so one observer throw
+  // or rejection does not cancel the rest of the batch.
+(filter @ L276 ran BEFORE per-PR evaluation — fresh /skeptic on >24h PRs silently dropped)
+
+GREEN phase (post-bd-rgk0 fix — PR #661 merged):
+     * `isSkepticTrigger: true`, it is not a trigger.
+     */
+    isSkepticTrigger?: boolean;
+  }>,
+): boolean {
+  for (const c of comments) {
+...
+  const evaluateOnePR = async (pr: PRInfo): Promise<boolean> => {
+    const cacheKey = `${projectId}:${pr.number}`;
+
+    // 1. If PR's updatedAt matches our last checked updatedAt, we know nothing changed (no comments, commits, etc.)
+    if (pr.updatedAt && lastCheckedUpdatedAtByPR.get(cacheKey) === pr.updatedAt) {
+      return false;
+    }
+(trigger @ L97 fetched FIRST; updatedAt dedup @ L226 applied AFTER trigger check)
+
+PASS skeptic-cron age filter is AFTER trigger check at code level (bd-rgk0 guard): trigger@L97, filter@L226 (/Users/jleechan/.worktrees/agent-orchestrator/ao-6321/packages/core/src/skeptic-cron-local.ts)
+
+=== Check 3: check_gh_token_not_redacted ===
+RED phase (simulated __OPENCLAW_REDACTED__ token):
+FAIL AO_BOT_GH_TOKEN is a redacted placeholder (__OPENCLAW_REDACTED__) — workers will get 401
+
+GREEN phase (real ghp_ token):
+PASS AO_BOT_GH_TOKEN is a real token (length=40, prefix=ghp_...)
+
+=== Check 4: check_dist_md5_match ===
+RED phase (simulated source/binary mismatch — corrupt source dist):
+WARN dist md5 mismatch: source=acab3d9b64c328bbbb4c830d4e7b0d94 binary=aa9b94d7956b8d4b66dd7e3182bfbb1b — workers may be running stale code (PR-merged ≠ fix-deployed)
+(restored source dist)
+
+GREEN phase (source == binary):
+PASS dist md5 matches between source and binary (aa9b94d7956b8d4b66dd7e3182bfbb1b)
+
+=== Check 5: check_running_json_present ===
+RED phase (simulated missing running.json):
+FAIL running.json missing at /Users/jleechan/.agent-orchestrator/running.json — 'ao spawn' will fail. Fix: run 'ao start' or 'setup-launchd.sh lifecycle'
+(restored running.json)
+
+GREEN phase (running.json exists):
+PASS running.json present at /Users/jleechan/.agent-orchestrator/running.json
+
+=== Check 6: check_watchdog_chain ===
+RED phase (simulated missing plist — bootout ai.agento.health):
+WARN watchdog plist ai.agento.health not registered with launchd
+PASS watchdog plist ai.agento.health-guardian is registered
+PASS watchdog plist ai.hermes-watchdog is registered
+WARN watchdog chain has 1 missing link(s) — fragility window unbounded
+(rebootstrapping ai.agento.health)
+
+GREEN phase (all watchdogs registered):
+PASS watchdog plist ai.agento.health is registered
+PASS watchdog plist ai.agento.health-guardian is registered
+PASS watchdog plist ai.hermes-watchdog is registered
+
+===================================================================
+TDD Red→Green evidence complete — all 6 checks exercised
+===================================================================
