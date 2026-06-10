@@ -36,11 +36,20 @@ post_slack() {
     log "no SLACK token; cannot post: $text"
     return 1
   fi
+  # Use python for safe JSON construction (escapes quotes, newlines, etc.).
+  # printf '{"text":"%s"}' $text is unsafe — alert text may contain
+  # newlines, backslashes, and unicode from upstream log scraping.
   local payload
-  payload=$(printf '{"channel":"%s","text":"%s"}' "$CHANNEL" "$text")
+  payload=$(CHANNEL="$CHANNEL" TEXT="$text" python3 -c '
+import json, os
+print(json.dumps({"channel": os.environ["CHANNEL"], "text": os.environ["TEXT"]}))
+' 2>/dev/null) || {
+    log "python3 unavailable for JSON encoding; falling back to printf"
+    payload=$(printf '{"channel":"%s","text":"%s"}' "$CHANNEL" "$text")
+  }
   curl -sS -X POST \
     -H "Authorization: Bearer $token" \
-    -H "Content-Type: application/json" \
+    -H "Content-Type: application/json; charset=utf-8" \
     -d "$payload" \
     https://slack.com/api/chat.postMessage >/dev/null 2>&1 \
     || log "slack post failed for: $text"
