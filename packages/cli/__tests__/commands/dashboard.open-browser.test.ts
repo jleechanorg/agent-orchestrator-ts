@@ -3,7 +3,6 @@ import {
   mkdtempSync,
   writeFileSync,
   rmSync,
-  existsSync,
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -127,9 +126,24 @@ function makeConfig(configOverrides: Record<string, unknown> = {}): Record<strin
 }
 
 describe("dashboard command — browser open regression tests (bd-#667)", () => {
-  it("skips browser open when AO_NO_OPEN_BROWSER env var is set", async () => {
+  it("skips browser open when AO_NO_OPEN_BROWSER env var is set to 1", async () => {
     const prev = process.env["AO_NO_OPEN_BROWSER"];
     process.env["AO_NO_OPEN_BROWSER"] = "1";
+    try {
+      mockConfigRef.current = makeConfig();
+
+      await program.parseAsync(["node", "test", "dashboard"]);
+
+      expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
+    } finally {
+      if (prev === undefined) delete process.env["AO_NO_OPEN_BROWSER"];
+      else process.env["AO_NO_OPEN_BROWSER"] = prev;
+    }
+  });
+
+  it("skips browser open when AO_NO_OPEN_BROWSER env var is set to true", async () => {
+    const prev = process.env["AO_NO_OPEN_BROWSER"];
+    process.env["AO_NO_OPEN_BROWSER"] = "true";
     try {
       mockConfigRef.current = makeConfig();
 
