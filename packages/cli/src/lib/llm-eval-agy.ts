@@ -33,6 +33,11 @@ export async function tryAgyPrint(prompt: string): Promise<LlmEvalResult> {
   try {
     fs.mkdirSync(path.dirname(trustedFoldersPath), { recursive: true });
     let trustedFolders: Record<string, string> = {};
+    // Skip the write if we fail to read/parse an existing file — overwriting
+    // could erase unrelated trust entries in the user's global Gemini config.
+    // Mirrors the skip-on-parse-failure pattern in
+    // packages/plugins/agent-antigravity/src/index.ts.
+    let shouldWrite = true;
     if (fs.existsSync(trustedFoldersPath)) {
       try {
         const raw = fs.readFileSync(trustedFoldersPath, "utf-8").trim();
@@ -43,7 +48,8 @@ export async function tryAgyPrint(prompt: string): Promise<LlmEvalResult> {
           }
         }
       } catch {
-        // ignore parse error
+        // Parse failure — do not overwrite the user's existing config
+        shouldWrite = false;
       }
     }
 
@@ -59,8 +65,10 @@ export async function tryAgyPrint(prompt: string): Promise<LlmEvalResult> {
       }
     }
 
-    fs.writeFileSync(trustedFoldersPath, JSON.stringify(trustedFolders, null, 2), "utf-8");
-  } catch (err) {
+    if (shouldWrite) {
+      fs.writeFileSync(trustedFoldersPath, JSON.stringify(trustedFolders, null, 2), "utf-8");
+    }
+  } catch {
     // ignore write error
   }
 

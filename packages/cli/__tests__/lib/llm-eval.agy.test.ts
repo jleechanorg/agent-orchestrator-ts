@@ -1,7 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockAccessSync = vi.hoisted(() => vi.fn());
+const mockMkdirSync = vi.hoisted(() => vi.fn());
+const mockExistsSync = vi.hoisted(() => vi.fn(() => false));
+const mockReadFileSync = vi.hoisted(() => vi.fn(() => ""));
+const mockWriteFileSync = vi.hoisted(() => vi.fn());
+const mockRealpathSync = vi.hoisted(() => vi.fn((p: string) => p));
 
 vi.mock("node:child_process", async () => {
   const original = await vi.importActual<typeof import("node:child_process")>("node:child_process");
@@ -11,12 +19,22 @@ vi.mock("node:child_process", async () => {
   };
 });
 
+// Fully stub the new filesystem side effects of tryAgyPrint() (which reads
+// and writes ~/.gemini/trustedFolders.json). Without these mocks the test
+// would mutate the developer's real HOME config and depend on whatever is
+// already present on disk. We also redirect HOME to a per-suite fixture
+// directory so any real-fs fallback path is still isolated.
 vi.mock("node:fs", async () => {
   const original = await vi.importActual<typeof import("node:fs")>("node:fs");
   return {
     ...original,
     accessSync: mockAccessSync,
     constants: { ...original.constants, X_OK: 1 },
+    mkdirSync: mockMkdirSync,
+    existsSync: mockExistsSync,
+    readFileSync: mockReadFileSync,
+    writeFileSync: mockWriteFileSync,
+    realpathSync: mockRealpathSync,
   };
 });
 
@@ -25,10 +43,43 @@ import { tryAgyPrint } from "../../src/lib/llm-eval.js";
 const PASS_VERDICT = "VERDICT: PASS";
 const SKIPPED_VERDICT = "VERDICT: SKIPPED";
 
+const ORIGINAL_HOME = process.env["HOME"];
+let FIXTURE_HOME = "";
+
+beforeAll(() => {
+  FIXTURE_HOME = mkdtempSync(join(tmpdir(), "llm-eval-agy-test-"));
+  process.env["HOME"] = FIXTURE_HOME;
+});
+
+afterAll(() => {
+  if (ORIGINAL_HOME === undefined) delete process.env["HOME"];
+  else process.env["HOME"] = ORIGINAL_HOME;
+  if (FIXTURE_HOME) {
+    try {
+      rmSync(FIXTURE_HOME, { recursive: true, force: true });
+    } catch {
+      // best-effort cleanup; do not fail the suite
+    }
+  }
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockExecFileSync.mockReset();
   mockAccessSync.mockReset();
+  mockMkdirSync.mockReset();
+  mockExistsSync.mockReset();
+  mockReadFileSync.mockReset();
+  mockWriteFileSync.mockReset();
+  mockRealpathSync.mockReset();
+  // Default fs: no existing trusted-folder file, all writes are no-ops on the
+  // fixture dir (mocked). This prevents the test from touching the real
+  // ~/.gemini/trustedFolders.json even if a fallback path is taken.
+  mockExistsSync.mockImplementation(() => false);
+  mockReadFileSync.mockImplementation(() => "");
+  mockWriteFileSync.mockImplementation(() => undefined);
+  mockMkdirSync.mockImplementation(() => undefined);
+  mockRealpathSync.mockImplementation((p: string) => p);
   // Default: throw ENOENT for all calls (test overrides per-case as needed)
   mockExecFileSync.mockImplementation(() => {
     const err = new Error("ENOENT") as NodeJS.ErrnoException;
