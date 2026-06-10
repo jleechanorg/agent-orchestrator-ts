@@ -477,13 +477,91 @@ install_health_plist() {
   echo "Installed launchd: $plist_path"
 }
 
+install_health_guardian_plist() {
+  local template="$TEMPLATE_DIR/ai.agento.health-guardian.plist.template"
+  local plist_path="$LAUNCH_AGENTS_DIR/ai.agento.health-guardian.plist"
+  local script="$REPO_ROOT/scripts/ai.agento.health-guardian.sh"
+  local launcher="$REPO_ROOT/scripts/launchd-launcher.sh"
+  local log_file="$BASE_LOG_DIR/ao-health-guardian.log"
+  local label="ai.agento.health-guardian"
+
+  if [ ! -f "$template" ]; then
+    echo "ERROR: Missing template at $template"
+    return 1
+  fi
+
+  if [ ! -x "$launcher" ]; then
+    echo "ERROR: Missing or non-executable launcher: $launcher"
+    return 1
+  fi
+
+  if [ ! -f "$script" ]; then
+    echo "ERROR: Missing script: $script"
+    return 1
+  fi
+
+  chmod +x "$script" 2>/dev/null || true
+
+  mkdir -p "$LAUNCH_AGENTS_DIR" "$BASE_LOG_DIR"
+
+  local tmp_plist
+  tmp_plist="$(mktemp)"
+  local path_value
+  path_value="$(escape_sed "$(path_for_launchd)")"
+
+  local slack_bot_token=""
+  local slack_user_token=""
+
+  slack_bot_token=$(bash -lic 'echo "${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${OPENCLAW_SLACK_BOT_TOKEN:-${HERMES_SLACK_BOT_TOKEN:-}}}"' 2>/dev/null || true)
+  if [ -z "$slack_bot_token" ]; then
+    slack_bot_token=$(bash -ic 'source ~/.bashrc 2>/dev/null; echo "${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${OPENCLAW_SLACK_BOT_TOKEN:-${HERMES_SLACK_BOT_TOKEN:-}}}"' 2>/dev/null || true)
+  fi
+
+  slack_user_token=$(bash -lic 'echo "$SLACK_USER_TOKEN"' 2>/dev/null || true)
+  if [ -z "$slack_user_token" ]; then
+    slack_user_token=$(bash -ic 'source ~/.bashrc 2>/dev/null; echo "$SLACK_USER_TOKEN"' 2>/dev/null || true)
+  fi
+
+  # Fallback to current process env if profile sourcing is empty
+  [ -z "$slack_bot_token" ] && slack_bot_token="${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${OPENCLAW_SLACK_BOT_TOKEN:-${HERMES_SLACK_BOT_TOKEN:-}}}"
+  [ -z "$slack_user_token" ] && slack_user_token="${SLACK_USER_TOKEN:-}"
+
+  [ -z "$slack_bot_token" ] && slack_bot_token="__SET_BY_SETUP_LAUNCHD__"
+  [ -z "$slack_user_token" ] && slack_user_token="__SET_BY_SETUP_LAUNCHD__"
+
+  sed \
+    -e "s|@HOME@|$(escape_sed "$HOME")|g" \
+    -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
+    -e "s|@LAUNCHER_SCRIPT@|$(escape_sed "$launcher")|g" \
+    -e "s|@LOG_FILE@|$(escape_sed "$log_file")|g" \
+    -e "s|@PATH@|$path_value|g" \
+    -e "s|@SLACK_BOT_TOKEN@|$(escape_sed "$slack_bot_token")|g" \
+    -e "s|@SLACK_USER_TOKEN@|$(escape_sed "$slack_user_token")|g" \
+    "$template" > "$tmp_plist"
+
+  plutil -lint "$tmp_plist" >/dev/null
+  install -m 600 "$tmp_plist" "$plist_path"
+  rm -f "$tmp_plist"
+
+  launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$(id -u)" "$plist_path"
+  launchctl enable "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+  launchctl kickstart -k "gui/$(id -u)/$label"
+
+  echo "Installed launchd: $plist_path"
+}
+
 case "$action_script" in
   all)
     install_health_plist
     install_novel_plist
+    install_health_guardian_plist
     ;;
   health)
     install_health_plist
+    ;;
+  health-guardian)
+    install_health_guardian_plist
     ;;
   lifecycle)
     echo "NOTE: 'lifecycle' mode is deprecated. Installing unified 'health' job instead."
@@ -497,10 +575,11 @@ case "$action_script" in
     install_health_plist
     ;;
   *)
-    echo "ERROR: Unknown mode '$action_script'. Use all|health|novel"
-    echo "  health   — unified AO health check (replaces lifecycle + watchdog)"
-    echo "  novel    — daily novel aggregation"
-    echo "  all      — health + novel"
+    echo "ERROR: Unknown mode '$action_script'. Use all|health|health-guardian|novel"
+    echo "  health          — unified AO health check (replaces lifecycle + watchdog)"
+    echo "  health-guardian — hourly watchdog-of-watchdogs guardian"
+    echo "  novel           — daily novel aggregation"
+    echo "  all             — health + novel + health-guardian"
     exit 1
     ;;
 esac
