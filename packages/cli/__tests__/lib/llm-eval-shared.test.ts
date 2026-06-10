@@ -166,4 +166,58 @@ describe("llm-eval-shared propagation test", () => {
     expect(options.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-fake");
     expect(consoleDebugSpy).toHaveBeenCalled();
   });
+
+  it("propagates ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN and logs debug if the active agent is a provider plugin like agy", async () => {
+    mockLoadConfig.mockReturnValue({
+      defaults: { agent: "agy" },
+      plugins: {},
+      projects: {},
+    });
+
+    process.env["ANTHROPIC_BASE_URL"] = "https://pass.wafer.ai";
+    process.env["ANTHROPIC_AUTH_TOKEN"] = "sk-fake";
+
+    await tryClaudePrint("evaluate this");
+
+    expect(mockLoadConfig).toHaveBeenCalled();
+    expect(mockExecFileSync).toHaveBeenCalled();
+    const callArgs = mockExecFileSync.mock.calls[0];
+    const options = callArgs[2];
+    expect(options.env.ANTHROPIC_BASE_URL).toBe("https://pass.wafer.ai");
+    expect(options.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-fake");
+    expect(consoleDebugSpy).toHaveBeenCalled();
+  });
+
+  it("resolves project-specific agent from CWD and config projects", async () => {
+    const originalCwd = process.cwd;
+    process.cwd = () => "/mock/project/path/sub";
+
+    mockLoadConfig.mockReturnValue({
+      configPath: "/mock/config.yaml",
+      defaults: { agent: "claude-code" },
+      plugins: {},
+      projects: {
+        "my-project": {
+          path: "./project/path",
+          agent: "wafer",
+        },
+      },
+    });
+
+    process.env["ANTHROPIC_BASE_URL"] = "https://pass.wafer.ai";
+    process.env["ANTHROPIC_AUTH_TOKEN"] = "sk-fake";
+
+    try {
+      await tryClaudePrint("evaluate this");
+
+      expect(mockLoadConfig).toHaveBeenCalled();
+      expect(mockExecFileSync).toHaveBeenCalled();
+      const callArgs = mockExecFileSync.mock.calls[0];
+      const options = callArgs[2];
+      expect(options.env.ANTHROPIC_BASE_URL).toBe("https://pass.wafer.ai");
+      expect(options.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-fake");
+    } finally {
+      process.cwd = originalCwd;
+    }
+  });
 });
