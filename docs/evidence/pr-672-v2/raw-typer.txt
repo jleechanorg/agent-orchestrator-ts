@@ -1,0 +1,63 @@
+^D===================================================================
+PR #672 Skeptic-fix evidence — head sha f49672806
+Commit log:
+[?1h=[33mf49672806[m[33m ([m[1;36mHEAD -> [m[1;32msession/ao-6321[m[33m)[m [agento] fix(doctor-v2): address Skeptic 3-i[m [33m[m[33m[m[1;36m[m[1;32m[m[33m[mssue FAIL (local out-of-fn, regex over-count, missing TDD for watchdogs)[m
+[33m329894c9a[m[33m ([m[1;31morigin/feat/doctor-sh-v2-fragility-fix-2026-06-10[m[33m, [m[1;32mfeat/doctor-sh-v2-[m [33m[m[33m[m[1;31m[m[33m[m[1;32mfragility-fix-2026-06-10[m[33m)[m Merge feat/doctor-sh-v2-fragility-fix-2026-06-10 (AO w[m [33m[m[33m[m[1;31m[m[33m[m[1;32m[m[33m[morker CodeRabbit fixes) into evidence branch[m
+[33m7139638ad[m[33m ([m[1;31morigin/session/ao-6321[m[33m)[m [agento] docs(evidence): add terminal evidenc[m [33m[m[33m[m[1;31m[m[33m[me bundle for PR #672 (TDD Red-Green)[m
+[K[?1l>===================================================================
+
+=== Step 1: Skeptic verdict on prior head 329894c9a ===
+(rejected with 3 blockers — see PR comments)
+
+=== Step 2: Bug #1 fix — local tmp_plist outside function ===
+    launchctl bootstrap "gui/$(id -u)" "$TIER1_PLIST" 2>/dev/null \
+      && log "bootstrap attempted for $TIER1_LABEL" \
+      || log "bootstrap FAILED for $TIER1_LABEL (live plist present but rejected)"
+  elif [ -f "$TIER1_FROZEN_PLIST" ]; then
+    # Frozen template contains @REPO_ROOT@, @HOME@, @PATH@ placeholders.
+    # Substitute them in place to ~/Library/LaunchAgents and bootstrap.
+    log "frozen template found at $TIER1_FROZEN_PLIST — substituting placeholders"
+    tmp_plist=$(mktemp "/tmp/health-guardian-XXXXXX.plist")
+    if sed -e "s|@REPO_ROOT@|$REPO_ROOT|g" \
+           -e "s|@HOME@|$HOME|g" \
+           -e "s|@PATH@|${PATH:-/usr/local/bin:/usr/bin:/bin}|g" \
+           "$TIER1_FROZEN_PLIST" > "$tmp_plist" 2>/dev/null; then
+      mv -f "$tmp_plist" "$TIER1_PLIST"
+
+=== Step 3: Bug #2 fix — project-counting regex scoped to projects: ===
+  if ! grep -q "scm:" "$cfg"; then
+    fail "staging config $cfg has NO 'scm:' field — skeptic will silently return 0 for all PRs (see fragility 2026-06-10)"
+    return
+  fi
+  # Count projects defined under the top-level `projects:` map only. The
+  # project entries sit at exactly 2 spaces of indent (`  <name>:`). Nested
+  # sub-keys like `tracker:`, `agentConfig:`, `scm-github:`, etc. also
+  # match a 2-or-4-space YAML key pattern, so we anchor on the
+  # `projects:` section header and count keys until the next
+  # non-indented or shallower-indented key. This avoids false positives
+  # from `reactions:`, `notifier-routing:`, plugin configs, etc.
+  local project_count
+  project_count=$(awk '
+    BEGIN { in_projects=0; count=0 }
+    /^projects:[[:space:]]*$/ { in_projects=1; next }
+    in_projects && /^[^[:space:]]/ { in_projects=0 }
+    in_projects && /^  [a-zA-Z][a-zA-Z0-9_-]*:[[:space:]]*(#.*)?$/ { count++ }
+    END { print count+0 }
+  ' "$cfg")
+  local scm_count
+  scm_count=$(grep -cE "^\s+scm:" "$cfg" 2>/dev/null || echo 0)
+  if [ "$project_count" -gt 0 ] && [ "$scm_count" -lt "$project_count" ]; then
+    warn "staging config $cfg has $scm_count 'scm:' entries but $project_count project(s) — some projects will be silently skipped"
+  else
+
+=== Step 4: TDD Red phase — current staging config has 0 scm: ===
+=== ao-doctor-v2 (2026-06-10 fragility audit) ===
+FAIL staging config /Users/jleechan/.hermes/agent-orchestrator.yaml has NO 'scm:' field — skeptic will silently return 0 for all PRs (see fragility 2026-06-10)
+PASS skeptic-cron age filter is AFTER trigger check at code level (bd-rgk0 guard): trigger@L97, filter@L226 (/Users/jleechan/.worktrees/agent-orchestrator/ao-6321/packages/core/src/skeptic-cron-local.ts)
+PASS AO_BOT_GH_TOKEN is a real token (length=40, prefix=ghp_...)
+PASS dist md5 matches between source and binary (aa9b94d7956b8d4b66dd7e3182bfbb1b)
+PASS running.json present at /Users/jleechan/.agent-orchestrator/running.json
+PASS watchdog plist ai.agento.health is registered
+PASS watchdog plist ai.agento.health-guardian is registered
+PASS watchdog plist ai.hermes-watchdog is registered
+=== summary: 7 pass, 0 warn, 1 fail ===
