@@ -5,7 +5,6 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 import { findRepoPathForWorktree, recordActivityEvent, type PluginModule, type Workspace, type WorkspaceCreateConfig, type WorkspaceInfo, type ProjectConfig } from "@jleechanorg/ao-core";
-import { expandHome } from "@jleechanorg/ao-core/paths";
 
 /** Timeout for git commands (30 seconds) */
 const GIT_TIMEOUT = 30_000;
@@ -390,9 +389,12 @@ function assertSafePathSegment(value: string, label: string): void {
   }
 }
 
-/** Expand ~ to home directory — delegates to the canonical helper. */
+/** Expand ~ to home directory */
 function expandPath(p: string): string {
-  return expandHome(p);
+  if (p.startsWith("~/")) {
+    return join(homedir(), p.slice(2));
+  }
+  return p;
 }
 
 /**

@@ -41,23 +41,7 @@ import {
   type ProjectConfig,
   type ParsedRepoUrl,
 } from "@jleechanorg/ao-core";
-import { expandHome } from "@jleechanorg/ao-core/paths";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
-
-/**
- * Expand user home shortcuts in a project path.
- *
- * The canonical `expandHome` helper in `@jleechanorg/ao-core/paths` only
- * handles the `~/...` form (returns `~` unchanged for a bare tilde). This
- * wrapper extends it with the bare-`~` → `homedir()` case so that callers
- * passing `"~"` resolve to the user's home directory instead of
- * `<cwd>/~`. See PR #674 review (CodeRabbit Minor on start.ts:526).
- *
- * Exported for unit testing; safe to call from any start.ts consumer.
- */
-export function expandUserPath(input: string): string {
-  return input === "~" ? homedir() : expandHome(input);
-}
 import { exec, execSilent, git } from "../lib/shell.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
 import { ensureLifecycleWorker, stopLifecycleWorker } from "../lib/lifecycle-service.js";
@@ -375,7 +359,7 @@ async function handleUrlStart(
     const existingEntry = Object.entries(config.projects).find(
       ([, project]) =>
         project.repo === parsed.ownerRepo ||
-        resolve(expandUserPath(project.path)) === targetDir,
+        resolve(project.path.replace(/^~/, process.env["HOME"] || "")) === targetDir,
     );
 
     if (existingEntry) {
@@ -538,7 +522,7 @@ async function addProjectToConfig(
   config: OrchestratorConfig,
   projectPath: string,
 ): Promise<{ projectId: string; project: ProjectConfig }> {
-  const resolvedPath = resolve(expandUserPath(projectPath));
+  const resolvedPath = resolve(projectPath.replace(/^~/, process.env["HOME"] || ""));
   let projectId = basename(resolvedPath);
 
   // Avoid overwriting an existing project with the same directory name
@@ -757,7 +741,7 @@ async function runStartup(
 
   // Guard: refuse to operate directly on the main repo — use a worktree instead.
   // realpathSync.native resolves ~/ and any symlinks so the comparison is reliable.
-  const projectPath = expandUserPath(project.path);
+  const projectPath = project.path.replace(/^~\//, `${process.env["HOME"] || ""}/`);
   let resolvedProjectPath: string;
   try {
     resolvedProjectPath = realpathSync.native(projectPath);
@@ -1003,7 +987,7 @@ export function registerStart(program: Command): void {
             ({ projectId, project } = resolveProjectByRepo(config, result.parsed));
           } else if (projectArg && isLocalPath(projectArg)) {
             // ── Path argument: add project if new, then start ──
-            const resolvedPath = resolve(expandUserPath(projectArg));
+            const resolvedPath = resolve(projectArg.replace(/^~/, process.env["HOME"] || ""));
             // Guard: reject the main repo before any config write
             const mainRepoPath = getMainRepoPath();
             let resolvedPathForGuard: string;
@@ -1046,7 +1030,7 @@ export function registerStart(program: Command): void {
               // Check if project is already in config (match by path)
               const existingEntry = Object.entries(config.projects).find(
                 ([, p]) =>
-                  resolve(expandUserPath(p.path)) === resolvedPath,
+                  resolve(p.path.replace(/^~/, process.env["HOME"] || "")) === resolvedPath,
               );
 
               if (existingEntry) {
@@ -1138,7 +1122,7 @@ export function registerStart(program: Command): void {
                 config &&
                 Object.values(config.projects).some(
                   (p) =>
-                    resolve(expandUserPath(p.path)) === resolve(cwdPath),
+                    resolve(p.path.replace(/^~/, process.env["HOME"] || "")) === resolve(cwdPath),
                 );
               const menuOptions: Array<{ value: string; label: string }> = [
                 { value: "open", label: "Open dashboard (keep current)" },
@@ -1238,7 +1222,7 @@ export function registerStart(program: Command): void {
             const isGlobalRegistry = !!(globalConfigPath && globalConfigPath === config.configPath);
             const localConfigPath = isGlobalRegistry
               ? join(
-                  resolve(expandUserPath(project.path)),
+                  resolve(project.path.replace(/^~/, process.env["HOME"] || "")),
                   "agent-orchestrator.yaml",
                 )
               : null;

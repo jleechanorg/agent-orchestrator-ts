@@ -11,7 +11,6 @@ import {
   type WorkspaceInfo,
   type ProjectConfig,
 } from "@jleechanorg/ao-core";
-import { expandHome } from "@jleechanorg/ao-core/paths";
 
 const execFileAsync = promisify(execFile);
 
@@ -37,9 +36,12 @@ function assertSafePathSegment(value: string, label: string): void {
   }
 }
 
-/** Expand ~ to home directory — delegates to the canonical helper. */
+/** Expand ~ to home directory */
 function expandPath(p: string): string {
-  return expandHome(p);
+  if (p.startsWith("~/")) {
+    return join(homedir(), p.slice(2));
+  }
+  return p;
 }
 
 export function create(config?: Record<string, unknown>): Workspace {

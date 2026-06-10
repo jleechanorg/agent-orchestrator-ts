@@ -27,7 +27,7 @@ import { existsSync, readdirSync, rmSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolveSpawnQueueConfig } from "./spawn-queue.js";
-import { getSessionsDir, expandHome } from "./paths.js";
+import { getSessionsDir } from "./paths.js";
 import {
   BACKFILL_MAX_RESPAWNS_PER_PR,
   clearPrRespawnCapNotified,
@@ -131,9 +131,12 @@ export function _resetCrRespawnCounter(): void {
   changesRequestedRespawnCount = 0;
 }
 
-/** Expand ~ to home directory — delegates to the canonical helper in paths.ts. */
+/** Expand ~ to home directory (mirrors workspace-worktree expandPath). */
 function expandPath(p: string): string {
-  return expandHome(p);
+  if (p.startsWith("~/")) {
+    return resolve(homedir(), p.slice(2));
+  }
+  return p;
 }
 
 /**
