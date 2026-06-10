@@ -44,6 +44,7 @@ import {
   parseWebhookJsonObject,
   parseWebhookTimestamp,
 } from "@jleechanorg/ao-core/scm-webhook-utils";
+import { expandHome } from "@jleechanorg/ao-core/paths";
 
 const execFileAsync = promisify(execFile);
 
@@ -986,10 +987,7 @@ async function getFailedJobLog(
 }
 
 function expandPath(p: string): string {
-  if (p.startsWith("~/")) {
-    return join(homedir(), p.slice(2));
-  }
-  return p;
+  return expandHome(p);
 }
 
 function extractCheckedOutWorktreePath(errorMessage: string): string | null {

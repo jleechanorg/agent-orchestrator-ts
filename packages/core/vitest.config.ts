@@ -25,6 +25,7 @@ export default defineConfig({
       "@jleechanorg/ao-core/scm-webhook-utils": resolve(__dirname, "src/scm-webhook-utils.ts"),
       "@jleechanorg/ao-core/types": resolve(__dirname, "src/types.ts"),
       "@jleechanorg/ao-core/utils": resolve(__dirname, "src/utils.ts"),
+      "@jleechanorg/ao-core/paths": resolve(__dirname, "src/paths.ts"),
       "@jleechanorg/ao-core": resolve(__dirname, "src/index.ts"),
     },
     coverage: {

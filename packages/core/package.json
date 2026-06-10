@@ -19,6 +19,10 @@
       "types": "./dist/utils.d.ts",
       "import": "./dist/utils.js"
     },
+    "./paths": {
+      "types": "./dist/paths.d.ts",
+      "import": "./dist/paths.js"
+    },
     "./scm-webhook-utils": {
       "types": "./dist/scm-webhook-utils.d.ts",
       "import": "./dist/scm-webhook-utils.js"

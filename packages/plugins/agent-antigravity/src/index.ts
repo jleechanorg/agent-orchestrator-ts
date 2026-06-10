@@ -8,6 +8,7 @@ import {
   type ActivityDetection,
   shellEscape,
 } from "@jleechanorg/ao-core";
+import { expandHome } from "@jleechanorg/ao-core/paths";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import fs from "node:fs";
@@ -305,11 +306,8 @@ const antigravityOverrides: Partial<Agent> = {
           ].filter(Boolean) as string[];
 
           for (let p of pathsToTrust) {
-            if (p === "~") {
-              p = userHome;
-            } else if (p.startsWith("~/")) {
-              p = path.join(userHome, p.slice(2));
-            }
+            // Canonical helper expands ~/...; bare ~ is the homedir itself.
+            p = p === "~" ? userHome : expandHome(p);
             trustedFolders[p] = "TRUST_FOLDER";
             try {
               const resolvedPath = fs.realpathSync(p);
