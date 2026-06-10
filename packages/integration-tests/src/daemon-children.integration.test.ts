@@ -117,6 +117,10 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
       AO_GLOBAL_CONFIG: configPath,
       PORT: String(port),
     };
+    // Verify that the configuration file suppresses browser auto-open
+    const configContent = readFileSync(configPath, "utf-8");
+    expect(configContent).toContain("openBrowser: false");
+
     const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator", "--no-open-browser"], {
       cwd: repoPath,
       env,

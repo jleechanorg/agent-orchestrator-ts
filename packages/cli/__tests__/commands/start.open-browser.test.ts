@@ -1,3 +1,4 @@
+// Verification of browser auto-open suppression priority logic (CLI flag vs config vs env)
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   mkdtempSync,
