@@ -90,6 +90,73 @@ export function makeClaudeExecOptions(
 } {
   const env = { ...process.env };
   delete env.MINIMAX_API_KEY;
+
+  /** Provider gateway agents that legitimately need ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
+   *  to route requests through their own proxy endpoints. This is an explicit opt-in whitelist;
+   *  any agent not in this set will have those vars stripped unless useShellEnv is set. */
+  const PROVIDER_AGENT_PLUGINS = new Set(["wafer", "minimax", "agy"]);
+
+  let shouldKeepEnv = false;
+  let reason = "";
+  let activeAgent: string | undefined;
+  let useShellEnv = false;
+
+  try {
+    const config = loadConfig();
+    activeAgent = config.defaults?.agent;
+
+    const cwd = process.cwd();
+    if (config.projects && config.configPath) {
+      const configDir = path.dirname(config.configPath);
+      const sortedProjects = Object.values(config.projects)
+        .filter((proj) => proj.agent && proj.path)
+        .map((proj) => ({
+          ...proj,
+          resolvedPath: path.resolve(configDir, proj.path!),
+        }))
+        .sort((a, b) => b.resolvedPath.length - a.resolvedPath.length);
+
+      for (const proj of sortedProjects) {
+        if (proj.resolvedPath === cwd || cwd.startsWith(proj.resolvedPath + path.sep)) {
+          activeAgent = proj.agent;
+          break;
+        }
+      }
+    }
+
+    const claudePluginConfig = config.plugins?.["claude-code"];
+    if (claudePluginConfig && typeof claudePluginConfig === "object" && "useShellEnv" in claudePluginConfig) {
+      useShellEnv = !!claudePluginConfig.useShellEnv;
+    }
+  } catch {
+    // Config not found or invalid
+  }
+
+  if (useShellEnv) {
+    shouldKeepEnv = true;
+    reason = "useShellEnv flag is enabled in claude-code plugin config";
+  } else if (activeAgent && PROVIDER_AGENT_PLUGINS.has(activeAgent)) {
+    shouldKeepEnv = true;
+    reason = `active agent is provider plugin "${activeAgent}"`;
+  }
+
+  const hasBaseUrl = process.env.ANTHROPIC_BASE_URL !== undefined;
+  const hasAuthToken = process.env.ANTHROPIC_AUTH_TOKEN !== undefined;
+
+  if (hasBaseUrl || hasAuthToken) {
+    if (shouldKeepEnv) {
+      if (hasBaseUrl) {
+        console.debug(`[llm-eval-shared] Reading ANTHROPIC_BASE_URL from process.env (Reason: ${reason})`);
+      }
+      if (hasAuthToken) {
+        console.debug(`[llm-eval-shared] Reading ANTHROPIC_AUTH_TOKEN from process.env (Reason: ${reason})`);
+      }
+    } else {
+      delete env.ANTHROPIC_BASE_URL;
+      delete env.ANTHROPIC_AUTH_TOKEN;
+    }
+  }
+
   return {
     input: prompt,
     encoding: "utf-8",
