@@ -78,6 +78,24 @@ const DEFAULT_PORT = 3000;
 // HELPERS
 // =============================================================================
 
+/**
+ * bd-#667: Determine whether the dashboard browser auto-open should fire.
+ * Returns `false` if ANY of the following are set:
+ *   - opts.openBrowser === false (--no-open-browser CLI flag)
+ *   - config.openBrowser === false (YAML config)
+ *   - process.env.AO_NO_OPEN_BROWSER is set (env var)
+ * Otherwise returns `true` (default — browser opens, preserves current behavior).
+ */
+function shouldOpenBrowser(
+  opts: { openBrowser?: boolean } | undefined,
+  config: { openBrowser?: boolean },
+): boolean {
+  if (opts?.openBrowser === false) return false;
+  if (config.openBrowser === false) return false;
+  if (process.env["AO_NO_OPEN_BROWSER"] !== undefined) return false;
+  return true;
+}
+
 interface ConfigValidationProblem {
   field: string;
   message: string;
@@ -734,7 +752,7 @@ async function runStartup(
   config: OrchestratorConfig,
   projectId: string,
   project: ProjectConfig,
-  opts?: { dashboard?: boolean; orchestrator?: boolean; rebuild?: boolean },
+  opts?: { dashboard?: boolean; orchestrator?: boolean; rebuild?: boolean; openBrowser?: boolean },
 ): Promise<number> {
   const mainRepoPath = getMainRepoPath();
 
@@ -885,8 +903,9 @@ async function runStartup(
   // Auto-open browser to orchestrator session page once the server is accepting connections.
   // Polls the port instead of using a fixed delay — deterministic and works regardless of
   // how long Next.js takes to compile. AbortController cancels polling on early exit.
+  // bd-#667: gated on shouldOpenBrowser (CLI flag, config field, env var).
   let openAbort: AbortController | undefined;
-  if (opts?.dashboard !== false) {
+  if (opts?.dashboard !== false && shouldOpenBrowser(opts, config)) {
     openAbort = new AbortController();
     const orchestratorUrl = `${dashboardUrl(port)}/sessions/${sessionId}`;
     void waitForPortAndOpen(port, orchestratorUrl, openAbort.signal);
@@ -958,6 +977,7 @@ export function registerStart(program: Command): void {
     )
     .option("--no-dashboard", "Skip starting the dashboard server")
     .option("--no-orchestrator", "Skip starting the orchestrator agent")
+    .option("--no-open-browser", "Skip auto-opening the dashboard URL in a browser (bd-#667)")
     .option("--rebuild", "Clean and rebuild dashboard before starting")
     .option("--interactive", "Interactive mode for agent selection")
     .action(
@@ -968,6 +988,7 @@ export function registerStart(program: Command): void {
           orchestrator?: boolean;
           rebuild?: boolean;
           interactive?: boolean;
+          openBrowser?: boolean;
         },
       ) => {
         try {

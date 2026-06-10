@@ -957,6 +957,91 @@ describe("start command — browser open waits for port", () => {
       "my-app",
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // bd-#667: openBrowser suppression (env var, YAML config, CLI flag)
+  // Regression guard: each suppression layer must independently skip the
+  // browser open while preserving the default (browser opens) behavior.
+  // ---------------------------------------------------------------------------
+
+  it("skips browser open when AO_NO_OPEN_BROWSER env var is set (regression: bd-#667)", async () => {
+    const prev = process.env["AO_NO_OPEN_BROWSER"];
+    process.env["AO_NO_OPEN_BROWSER"] = "1";
+    try {
+      mockConfigRef.current = makeConfig({ "my-app": makeProject() });
+
+      const { findWebDir } = await import("../../src/lib/web-dir.js");
+      vi.mocked(findWebDir).mockReturnValue(tmpDir);
+      writeFileSync(join(tmpDir, "package.json"), "{}");
+
+      mockSessionManager.get.mockResolvedValue(null);
+      mockSessionManager.spawnOrchestrator.mockResolvedValue({ id: "app-orchestrator" });
+
+      await program.parseAsync(["node", "test", "start", "--no-orchestrator"]);
+
+      expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
+    } finally {
+      if (prev === undefined) delete process.env["AO_NO_OPEN_BROWSER"];
+      else process.env["AO_NO_OPEN_BROWSER"] = prev;
+    }
+  });
+
+  it("skips browser open when openBrowser: false in YAML config (regression: bd-#667)", async () => {
+    mockConfigRef.current = makeConfig({ "my-app": makeProject() });
+    // Inject openBrowser: false into the persisted YAML
+    const cfg = mockConfigRef.current as Record<string, unknown>;
+    (cfg as { openBrowser?: boolean }).openBrowser = false;
+    writeFileSync(cfg.configPath as string, yamlStringify(cfg, { indent: 2 }));
+
+    const { findWebDir } = await import("../../src/lib/web-dir.js");
+    vi.mocked(findWebDir).mockReturnValue(tmpDir);
+    writeFileSync(join(tmpDir, "package.json"), "{}");
+
+    mockSessionManager.get.mockResolvedValue(null);
+    mockSessionManager.spawnOrchestrator.mockResolvedValue({ id: "app-orchestrator" });
+
+    await program.parseAsync(["node", "test", "start", "--no-orchestrator"]);
+
+    expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
+  });
+
+  it("skips browser open when --no-open-browser CLI flag is set (regression: bd-#667)", async () => {
+    mockConfigRef.current = makeConfig({ "my-app": makeProject() });
+
+    const { findWebDir } = await import("../../src/lib/web-dir.js");
+    vi.mocked(findWebDir).mockReturnValue(tmpDir);
+    writeFileSync(join(tmpDir, "package.json"), "{}");
+
+    mockSessionManager.get.mockResolvedValue(null);
+    mockSessionManager.spawnOrchestrator.mockResolvedValue({ id: "app-orchestrator" });
+
+    await program.parseAsync(["node", "test", "start", "--no-orchestrator", "--no-open-browser"]);
+
+    expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
+  });
+
+  it("still calls waitForPortAndOpen when no suppression is set (regression: bd-#667)", async () => {
+    // Explicitly clear env to be sure
+    const prev = process.env["AO_NO_OPEN_BROWSER"];
+    delete process.env["AO_NO_OPEN_BROWSER"];
+    try {
+      mockConfigRef.current = makeConfig({ "my-app": makeProject() });
+
+      const { findWebDir } = await import("../../src/lib/web-dir.js");
+      vi.mocked(findWebDir).mockReturnValue(tmpDir);
+      writeFileSync(join(tmpDir, "package.json"), "{}");
+
+      mockSessionManager.get.mockResolvedValue(null);
+      mockSessionManager.spawnOrchestrator.mockResolvedValue({ id: "app-orchestrator" });
+
+      await program.parseAsync(["node", "test", "start", "--no-orchestrator"]);
+
+      // Default behavior preserved: browser open fires
+      expect(mockWaitForPortAndOpen).toHaveBeenCalledTimes(1);
+    } finally {
+      if (prev !== undefined) process.env["AO_NO_OPEN_BROWSER"] = prev;
+    }
+  });
 });
 
 describe("start command — orchestrator session strategy display", () => {

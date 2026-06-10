@@ -1344,6 +1344,14 @@ export interface OrchestratorConfig {
   /** Web dashboard port (defaults to 3000) */
   port?: number;
 
+  /**
+   * When `false`, suppress auto-opening the browser to the dashboard URL on
+   * `ao start` and `ao dashboard`. Default is `true` (browser opens).
+   * Override with `AO_NO_OPEN_BROWSER=1` env var or `--no-open-browser` CLI flag.
+   * (bd-#667)
+   */
+  openBrowser?: boolean;
+
   /** Terminal WebSocket server port (defaults to 3001) */
   terminalPort?: number;
 

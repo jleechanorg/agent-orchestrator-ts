@@ -86,7 +86,16 @@ export function registerDashboard(program: Command): void {
 
       let openAbort: AbortController | undefined;
 
-      if (opts.open !== false) {
+      // bd-#667: Suppress browser auto-open when any of the following is set:
+      //   - opts.open === false  (--no-open CLI flag)
+      //   - config.openBrowser === false  (YAML)
+      //   - process.env.AO_NO_OPEN_BROWSER is set  (env var)
+      const shouldOpen =
+        opts.open !== false &&
+        config.openBrowser !== false &&
+        process.env["AO_NO_OPEN_BROWSER"] === undefined;
+
+      if (shouldOpen) {
         openAbort = new AbortController();
         void waitForPortAndOpen(port, dashboardUrl(port), openAbort.signal);
       }
