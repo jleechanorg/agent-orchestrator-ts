@@ -1,0 +1,34 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:05.000
+PR #672 — feat(doctor): add doctor.sh v2 + Tier 2 watchdog-of-watchdogs
+
+00:00:05.000 --> 00:00:15.000
+Section 1: Git provenance — HEAD, branch, merge-base, commits ahead.
+
+00:00:15.000 --> 00:00:25.000
+Section 2: Commit log (6 commits ahead of main).
+
+00:00:25.000 --> 00:00:35.000
+Section 3: Diff stat — 5 new files, 781 LOC.
+
+00:00:35.000 --> 00:00:45.000
+Section 4: PR status — headRefOid c6918fbbf, reviewDecision APPROVED, mergeable.
+
+00:00:45.000 --> 00:01:00.000
+Section 5a: Tier 1 hermes-watchdog restored — exit 0, dedup working.
+
+00:01:00.000 --> 00:01:15.000
+Section 5b: Tier 2 health-guardian new — exit 0, all checks green.
+
+00:01:15.000 --> 00:01:30.000
+Section 5c: Tier 1 ai.agento.health — state not running (interval job).
+
+00:01:30.000 --> 00:01:50.000
+Section 5d: TDD Red phase — broken staging config caught by check_scm_config_in_staging. Exits 1.
+
+00:01:50.000 --> 00:02:10.000
+Section 5e: TDD Green phase — test config with all 10 projects having scm: passes. Exits 0.
+
+00:02:10.000 --> 00:02:20.000
+Section 6: Post-run SHA matches initial HEAD. Captured at SHA c6918fbbf1041e87bc510d06f8d69c10effccc1c.
