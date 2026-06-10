@@ -75,12 +75,34 @@ check_skeptic_age_filter_order() {
     fail "skeptic-cron source has no updatedAt/updated_at check — bd-rgk0 regression risk ($src)"
     return
   fi
-  # If we find a comment-line "if (pr.updatedAt" before any "trigger" check,
-  # the bug is back. We can't easily prove ordering in pure bash, so we
-  # assert that the file mentions both: the filter, AND the trigger
-  # (a control-flow comment). If the filter is removed entirely, this check
-  # fails above.
-  pass "skeptic-cron source contains an updatedAt/updated_at filter (bd-rgk0 guard): $src"
+  # bd-rgk0: verify the trigger check is encountered BEFORE the age filter
+  # at CODE level (not comment level). Find the first non-comment occurrence
+  # of each pattern, where "comment" is a line whose first non-whitespace
+  # character is `*` (JSDoc continuation), `//` (single-line), or `#`.
+  local trigger_line filter_line
+  trigger_line=$(awk '
+    /^[ \t]*\/\// { next }
+    /^[ \t]*\*/ { next }
+    /^[ \t]*\/\*/ { next }
+    /trigger|isSkepticTrigger|isTrigger|has_trigger/ { print NR; exit }
+  ' "$src")
+  filter_line=$(awk '
+    /^[ \t]*\/\// { next }
+    /^[ \t]*\*/ { next }
+    /^[ \t]*\/\*/ { next }
+    /updatedAt|updated_at/ { print NR; exit }
+  ' "$src")
+  if [ -n "$trigger_line" ] && [ -n "$filter_line" ] \
+      && [ "$trigger_line" -lt "$filter_line" ]; then
+    pass "skeptic-cron age filter is AFTER trigger check at code level (bd-rgk0 guard): trigger@L${trigger_line}, filter@L${filter_line} ($src)"
+  elif [ -n "$trigger_line" ] && [ -n "$filter_line" ]; then
+    fail "skeptic-cron age filter is BEFORE trigger check at code level — bd-rgk0 regression! trigger@L${trigger_line}, filter@L${filter_line} ($src)"
+    return
+  else
+    # We can find one but not the other. Fail-safe: warn so the operator
+    # can manually verify, but don't blow up the doctor.
+    warn "skeptic-cron order could not be verified at code level: trigger_line=${trigger_line:-?}, filter_line=${filter_line:-?} ($src)"
+  fi
 }
 
 # --- Check 3: AO_BOT_GH_TOKEN is not a redacted placeholder ---
