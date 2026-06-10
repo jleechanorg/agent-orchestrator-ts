@@ -17,36 +17,36 @@ let mockExecFileImpl: ExecFileImpl | null = null;
 vi.mock("node:child_process", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:child_process")>();
   const { promisify } = await import("node:util");
-  const mockExecFile = (cmd: string, args: string[], ...rest: unknown[]) => {
-    if (mockExecFileImpl) {
-      const callback = rest[rest.length - 1] as ExecFileCallback;
-      return mockExecFileImpl(cmd, args, callback);
-    }
-    return original.execFile(cmd, args, ...(rest as []));
-  };
-  // Mirror Node's [promisify.custom] hook so promisify(execFile) resolves
-  // with {stdout, stderr} instead of just the second arg. Without this,
-  // tests that use execFileAsync(...).stdout blow up with
-  // "Cannot read properties of undefined (reading 'stdout')".
-  (mockExecFile as unknown as { [promisify.custom]: unknown })[promisify.custom] = (
-    cmd: string,
-    args: string[],
-    opts: Parameters<typeof original.execFile>[2],
-  ) => {
-    return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+  const mockExecFile = Object.assign(
+    (cmd: string, args: string[], ...rest: unknown[]) => {
       if (mockExecFileImpl) {
-        mockExecFileImpl(cmd, args, (err, stdout, stderr) => {
-          if (err) return reject(err);
-          resolve({ stdout, stderr });
-        });
-      } else {
-        original.execFile(cmd, args, opts, (err, stdout, stderr) => {
-          if (err) return reject(err);
-          resolve({ stdout, stderr });
+        const callback = rest[rest.length - 1] as ExecFileCallback;
+        return mockExecFileImpl(cmd, args, callback);
+      }
+      return original.execFile(cmd, args, ...(rest as []));
+    },
+    {
+      [promisify.custom]: (
+        cmd: string,
+        args: string[],
+        opts: Parameters<typeof original.execFile>[2],
+      ) => {
+        return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+          if (mockExecFileImpl) {
+            mockExecFileImpl(cmd, args, (err, stdout, stderr) => {
+              if (err) return reject(err);
+              resolve({ stdout, stderr });
+            });
+          } else {
+            original.execFile(cmd, args, opts, (err, stdout, stderr) => {
+              if (err) return reject(err);
+              resolve({ stdout: stdout as string, stderr: stderr as string });
+            });
+          }
         });
       }
-    });
-  };
+    }
+  );
   return {
     ...original,
     execFile: mockExecFile,
@@ -172,7 +172,7 @@ describe("backfillUncoveredPRs", () => {
         githubAssigned: false,
         takenOverFrom: [],
       }),
-    };
+    } as unknown as SessionManager;
 
     mockObserver = {
       component: "test",
@@ -700,7 +700,7 @@ describe("backfillUncoveredPRs", () => {
     vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue(prs);
     vi.mocked(mockSCM.getReviewDecision!).mockImplementation(async () => "changes_requested");
     vi.mocked(mockSCM.getReviews!).mockResolvedValue([
-      { author: "coderabbitai[bot]", state: "changes_requested" as const, body: "fix", submittedAt: new Date().toISOString(), commit_id: "x" },
+      { author: "coderabbitai[bot]", state: "changes_requested" as const, body: "fix", submittedAt: new Date() },
     ]);
     let spawnCount = 0;
     vi.mocked(mockSessionManager.spawn).mockImplementation(async () => {
@@ -835,64 +835,66 @@ describe("backfillUncoveredPRs", () => {
       return {};
     };
 
-    const pr = makePR({ number: 5, branch: "feat/some-branch" });
-    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
-    vi.mocked(mockSessionManager.claimPR).mockRejectedValue(new Error("conflict"));
-    vi.mocked(mockSessionManager.kill).mockRejectedValue(new Error("session already dead"));
+    try {
+      const pr = makePR({ number: 5, branch: "feat/some-branch" });
+      vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+      vi.mocked(mockSessionManager.claimPR).mockRejectedValue(new Error("conflict"));
+      vi.mocked(mockSessionManager.kill).mockRejectedValue(new Error("session already dead"));
 
-    const worktreeDir = join(tempDir, "test", "new-1");
-    mkdirSync(worktreeDir, { recursive: true });
+      const worktreeDir = join(tempDir, "test", "new-1");
+      mkdirSync(worktreeDir, { recursive: true });
 
-    const customProject = makeProject({
-      path: "/tmp/repo",
-    });
+      const customProject = makeProject({
+        path: "/tmp/repo",
+      });
 
-    const params = makeParams({
-      project: customProject,
-      worktreeDir: tempDir,
-    });
+      const params = makeParams({
+        project: customProject,
+        worktreeDir: tempDir,
+      });
 
-    const result = await backfillUncoveredPRs(deps, params);
+      const result = await backfillUncoveredPRs(deps, params);
 
-    expect(result).toBe(false);
+      expect(result).toBe(false);
 
-    // Verify the spy/mock was called with absolute git "/usr/bin/git"
-    expect(gitCalls.length).toBeGreaterThan(0);
-    let gitCallsCount = 0;
-    for (const call of gitCalls) {
-      if (call.cmd === "git" || call.cmd?.toString().endsWith("git")) {
-        gitCallsCount++;
+      // Verify the spy/mock was called with absolute git "/usr/bin/git"
+      expect(gitCalls.length).toBeGreaterThan(0);
+      let gitCallsCount = 0;
+      for (const call of gitCalls) {
+        if (call.cmd === "git" || call.cmd?.toString().endsWith("git")) {
+          gitCallsCount++;
+          expect(call.cmd).toBe("/usr/bin/git");
+        }
+      }
+      expect(gitCallsCount).toBeGreaterThan(0);
+
+      // Specifically verify the cleanup-path git calls (worktree unlock,
+      // worktree prune, branch -D) all use the absolute path. These are
+      // bd-#670 fix sites in backfill-extensions.ts error-recovery paths
+      // (lines 566, 579, 588) that the diff-coverage gate requires exercised.
+      const cleanupSubcommands = new Set(["unlock", "prune"]);
+      const cleanupCalls = gitCalls.filter(
+        (c) => Array.isArray(c.args) && c.args.some((a: string) => cleanupSubcommands.has(a)),
+      );
+      for (const call of cleanupCalls) {
         expect(call.cmd).toBe("/usr/bin/git");
       }
-    }
-    expect(gitCallsCount).toBeGreaterThan(0);
-
-    // Specifically verify the cleanup-path git calls (worktree unlock,
-    // worktree prune, branch -D) all use the absolute path. These are
-    // bd-#670 fix sites in backfill-extensions.ts error-recovery paths
-    // (lines 566, 579, 588) that the diff-coverage gate requires exercised.
-    const cleanupSubcommands = new Set(["unlock", "prune"]);
-    const cleanupCalls = gitCalls.filter(
-      (c) => Array.isArray(c.args) && c.args.some((a: any) => cleanupSubcommands.has(a)),
-    );
-    for (const call of cleanupCalls) {
-      expect(call.cmd).toBe("/usr/bin/git");
-    }
-    // branch -D cleanup at line 588: triggered when branch matches the
-    // feat/fix/chore/docs/refactor/session prefix pattern.
-    const branchDeleteCalls = gitCalls.filter(
-      (c) => Array.isArray(c.args) && c.args.includes("-D"),
-    );
-    for (const call of branchDeleteCalls) {
-      expect(call.cmd).toBe("/usr/bin/git");
-    }
-
-    // Clean up
-    mockExecFileImpl = null;
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {
-      // Ignored
+      // branch -D cleanup at line 588: triggered when branch matches the
+      // feat/fix/chore/docs/refactor/session prefix pattern.
+      const branchDeleteCalls = gitCalls.filter(
+        (c) => Array.isArray(c.args) && c.args.includes("-D"),
+      );
+      for (const call of branchDeleteCalls) {
+        expect(call.cmd).toBe("/usr/bin/git");
+      }
+    } finally {
+      // Clean up
+      mockExecFileImpl = null;
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Ignored
+      }
     }
   });
 
@@ -932,44 +934,46 @@ describe("backfillUncoveredPRs", () => {
       return {};
     };
 
-    const pr = makePR({ number: 6, branch: "feat/some-branch" });
-    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
-    vi.mocked(mockSessionManager.claimPR).mockRejectedValue(new Error("conflict"));
-    vi.mocked(mockSessionManager.kill).mockRejectedValue(new Error("session already dead"));
-
-    const customProject = makeProject({ path: fakeRepo });
-    const params = makeParams({
-      project: customProject,
-      worktreeDir: tempDir, // overrides resolve(homedir(), ".worktrees")
-    });
-
-    const result = await backfillUncoveredPRs(deps, params);
-    expect(result).toBe(false);
-
-    // Verify cleanup-path git calls use absolute /usr/bin/git
-    // (lines 566, 572, 579, 588 in backfill-extensions.ts).
-    const cleanupSubcommands = new Set(["unlock", "prune", "remove"]);
-    const cleanupCalls = gitCalls.filter(
-      (c) => Array.isArray(c.args) && c.args.some((a: any) => cleanupSubcommands.has(a)),
-    );
-    expect(cleanupCalls.length).toBeGreaterThan(0);
-    for (const call of cleanupCalls) {
-      expect(call.cmd).toBe("/usr/bin/git");
-    }
-    // branch -D cleanup
-    const branchDeleteCalls = gitCalls.filter(
-      (c) => Array.isArray(c.args) && c.args.includes("-D"),
-    );
-    expect(branchDeleteCalls.length).toBeGreaterThan(0);
-    for (const call of branchDeleteCalls) {
-      expect(call.cmd).toBe("/usr/bin/git");
-    }
-
-    mockExecFileImpl = null;
     try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {
-      // Ignored
+      const pr = makePR({ number: 6, branch: "feat/some-branch" });
+      vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+      vi.mocked(mockSessionManager.claimPR).mockRejectedValue(new Error("conflict"));
+      vi.mocked(mockSessionManager.kill).mockRejectedValue(new Error("session already dead"));
+
+      const customProject = makeProject({ path: fakeRepo });
+      const params = makeParams({
+        project: customProject,
+        worktreeDir: tempDir, // overrides resolve(homedir(), ".worktrees")
+      });
+
+      const result = await backfillUncoveredPRs(deps, params);
+      expect(result).toBe(false);
+
+      // Verify cleanup-path git calls use absolute /usr/bin/git
+      // (lines 566, 572, 579, 588 in backfill-extensions.ts).
+      const cleanupSubcommands = new Set(["unlock", "prune", "remove"]);
+      const cleanupCalls = gitCalls.filter(
+        (c) => Array.isArray(c.args) && c.args.some((a: string) => cleanupSubcommands.has(a)),
+      );
+      expect(cleanupCalls.length).toBeGreaterThan(0);
+      for (const call of cleanupCalls) {
+        expect(call.cmd).toBe("/usr/bin/git");
+      }
+      // branch -D cleanup
+      const branchDeleteCalls = gitCalls.filter(
+        (c) => Array.isArray(c.args) && c.args.includes("-D"),
+      );
+      expect(branchDeleteCalls.length).toBeGreaterThan(0);
+      for (const call of branchDeleteCalls) {
+        expect(call.cmd).toBe("/usr/bin/git");
+      }
+    } finally {
+      mockExecFileImpl = null;
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Ignored
+      }
     }
   });
 });
@@ -1027,7 +1031,7 @@ describe("backfillUncoveredPRs respawn guard", () => {
         githubAssigned: false,
         takenOverFrom: [],
       }),
-    };
+    } as unknown as SessionManager;
 
     guardObserver = {
       component: "test",
@@ -1158,8 +1162,11 @@ describe("backfillUncoveredPRs respawn guard", () => {
       );
     }
     const notifyHuman = vi.fn().mockResolvedValue(undefined);
-    await backfillUncoveredPRs({ ...guardDeps, notifyHuman }, guardParams());
+    const result = await backfillUncoveredPRs({ ...guardDeps, notifyHuman }, guardParams());
 
+    expect(result).toBe(false);
+    expect(notifyHuman).not.toHaveBeenCalled();
+    expect(guardSessionManager.spawn).not.toHaveBeenCalled();
   });
 });
 
