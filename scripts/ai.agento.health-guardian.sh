@@ -94,6 +94,15 @@ TIER1_REGISTERED=0
 if launchctl print "gui/$(id -u)/$TIER1_LABEL" 2>/dev/null | grep -q "type = LaunchAgent"; then
   TIER1_REGISTERED=1
 fi
+# Self-dep log: confirm the frozen template is reachable so the re-bootstrap
+# path can find it. This is informational only — TIER1_FROZEN_PLIST may be
+# absent during early bootstrap (e.g. fresh clone) and the live-plist path
+# will still work. See `wiki/concepts/WatchdogOfWatchdogsArchitecture.md`.
+if [ -f "$TIER1_FROZEN_PLIST" ]; then
+  log "frozen template available at $TIER1_FROZEN_PLIST (Tier 1 re-bootstrap source of truth)"
+else
+  log "frozen template NOT found at $TIER1_FROZEN_PLIST — Tier 1 re-bootstrap will fall back to live plist only"
+fi
 if [ -f "$TIER1_LOG" ]; then
   log_mtime=$(stat -f %m "$TIER1_LOG" 2>/dev/null || echo 0)
   now=$(date +%s)
