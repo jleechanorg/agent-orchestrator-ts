@@ -18,7 +18,7 @@ import {
   symlinkSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import type { SessionManager } from "@jleechanorg/ao-core";
 import { stringify as yamlStringify, parse as parseYaml } from "yaml";
 
