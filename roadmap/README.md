@@ -12,7 +12,7 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 - **PR [#663](https://github.com/jleechanorg/agent-orchestrator/pull/663) CLOSED** 2026-06-09T22:26:18Z (closed-not-merged) — user closed in favor of [PR #665](https://github.com/jleechanorg/agent-orchestrator/pull/665) (replacement with opt-in propagation whitelist).
 - **Three-chapter history**: PR #497 (2026-04-27) decoupled call site at `lifecycle-manager.ts:2799`; PR #654 (2026-06-09) reintroduced coupling via `eligiblePRs` filter; PR #661 (OPEN) re-decouples. Lesson: decoupling must be verified at the call site AND every filter inside the called function.
 - **Beads**: [bd-rgk0](https://github.com/jleechanorg/agent-orchestrator/pull/661) (P0), [bd-a7mq](https://github.com/jleechanorg/agent-orchestrator/pull/662) (P1), [bd-q3tt](https://github.com/jleechanorg/agent-orchestrator/pull/665) (P1 — closed-via-#665)
-- **Nextsteps doc**: `nextsteps-2026-06-09-skeptic-decoupling-proof.md`
+- **Nextsteps doc**: `skeptic-decoupling-proof-2026-06-09.md`
 
 ### 2026-06-04
 
