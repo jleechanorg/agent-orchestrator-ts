@@ -38,7 +38,7 @@ import { tryClaudePrint } from "../../src/lib/llm-eval-claude.js";
 describe("llm-eval-shared propagation test", () => {
   let originalBaseUrl: string | undefined;
   let originalAuthToken: string | undefined;
-  let consoleDebugSpy: any;
+  let consoleDebugSpy: ReturnType<typeof vi.spyOn<typeof console, "debug">>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -86,6 +86,7 @@ describe("llm-eval-shared propagation test", () => {
 
     await tryClaudePrint("evaluate this");
 
+    expect(mockLoadConfig).toHaveBeenCalled();
     expect(mockExecFileSync).toHaveBeenCalled();
     const callArgs = mockExecFileSync.mock.calls[0];
     const options = callArgs[2];
@@ -110,13 +111,14 @@ describe("llm-eval-shared propagation test", () => {
 
     await tryClaudePrint("evaluate this");
 
+    expect(mockLoadConfig).toHaveBeenCalled();
     expect(mockExecFileSync).toHaveBeenCalled();
     const callArgs = mockExecFileSync.mock.calls[0];
     const options = callArgs[2];
     expect(options.env.ANTHROPIC_BASE_URL).toBe("https://pass.wafer.ai");
     expect(options.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-fake");
     expect(consoleDebugSpy).toHaveBeenCalled();
-    const debugCalls = consoleDebugSpy.mock.calls.map((c: any) => c[0]);
+    const debugCalls = consoleDebugSpy.mock.calls.map((c) => c[0] as string);
     expect(debugCalls.some((c: string) => c.includes("Reading ANTHROPIC_BASE_URL"))).toBe(true);
     expect(debugCalls.some((c: string) => c.includes("Reading ANTHROPIC_AUTH_TOKEN"))).toBe(true);
   });
@@ -133,13 +135,14 @@ describe("llm-eval-shared propagation test", () => {
 
     await tryClaudePrint("evaluate this");
 
+    expect(mockLoadConfig).toHaveBeenCalled();
     expect(mockExecFileSync).toHaveBeenCalled();
     const callArgs = mockExecFileSync.mock.calls[0];
     const options = callArgs[2];
     expect(options.env.ANTHROPIC_BASE_URL).toBe("https://pass.wafer.ai");
     expect(options.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-fake");
     expect(consoleDebugSpy).toHaveBeenCalled();
-    const debugCalls = consoleDebugSpy.mock.calls.map((c: any) => c[0]);
+    const debugCalls = consoleDebugSpy.mock.calls.map((c) => c[0] as string);
     expect(debugCalls.some((c: string) => c.includes("active agent is provider plugin"))).toBe(true);
   });
 
@@ -155,6 +158,7 @@ describe("llm-eval-shared propagation test", () => {
 
     await tryClaudePrint("evaluate this");
 
+    expect(mockLoadConfig).toHaveBeenCalled();
     expect(mockExecFileSync).toHaveBeenCalled();
     const callArgs = mockExecFileSync.mock.calls[0];
     const options = callArgs[2];
