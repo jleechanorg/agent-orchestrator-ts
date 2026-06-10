@@ -6,31 +6,41 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 // Mutable hook to mock execFile calls dynamically in ESM
-let mockExecFileImpl: ((cmd: string, args: any[], callback: any) => any) | null = null;
+type ExecFileCallback = (
+  err: NodeJS.ErrnoException | null,
+  stdout: string,
+  stderr: string,
+) => void;
+type ExecFileImpl = (cmd: string, args: string[], callback: ExecFileCallback) => unknown;
+let mockExecFileImpl: ExecFileImpl | null = null;
 
 vi.mock("node:child_process", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:child_process")>();
   const { promisify } = await import("node:util");
-  const mockExecFile = (cmd: string, args: any[], ...rest: any[]) => {
+  const mockExecFile = (cmd: string, args: string[], ...rest: unknown[]) => {
     if (mockExecFileImpl) {
-      const callback = rest[rest.length - 1];
+      const callback = rest[rest.length - 1] as ExecFileCallback;
       return mockExecFileImpl(cmd, args, callback);
     }
-    return original.execFile(cmd, args, ...rest);
+    return original.execFile(cmd, args, ...(rest as []));
   };
   // Mirror Node's [promisify.custom] hook so promisify(execFile) resolves
   // with {stdout, stderr} instead of just the second arg. Without this,
   // tests that use execFileAsync(...).stdout blow up with
   // "Cannot read properties of undefined (reading 'stdout')".
-  (mockExecFile as any)[promisify.custom] = (cmd: string, args: any[], opts: any) => {
-    return new Promise((resolve, reject) => {
+  (mockExecFile as unknown as { [promisify.custom]: unknown })[promisify.custom] = (
+    cmd: string,
+    args: string[],
+    opts: Parameters<typeof original.execFile>[2],
+  ) => {
+    return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
       if (mockExecFileImpl) {
-        mockExecFileImpl(cmd, args, (err: Error | null, stdout: string, stderr: string) => {
+        mockExecFileImpl(cmd, args, (err, stdout, stderr) => {
           if (err) return reject(err);
           resolve({ stdout, stderr });
         });
       } else {
-        original.execFile(cmd, args, opts, (err: Error | null, stdout: string, stderr: string) => {
+        original.execFile(cmd, args, opts, (err, stdout, stderr) => {
           if (err) return reject(err);
           resolve({ stdout, stderr });
         });
@@ -182,6 +192,12 @@ describe("backfillUncoveredPRs", () => {
       sessionManager: mockSessionManager,
       observer: mockObserver,
     };
+  });
+
+  // Guarantee mockExecFileImpl reset even when individual tests throw — without
+  // this, a failing assertion would leak the mock into the next test.
+  afterEach(() => {
+    mockExecFileImpl = null;
   });
 
   function makeParams(overrides: Partial<BackfillParams> = {}): BackfillParams {
@@ -804,8 +820,8 @@ describe("backfillUncoveredPRs", () => {
     mkdirSync(tempDir, { recursive: true });
 
     // 2. Setup mutable mock execFile implementation
-    const gitCalls: { cmd: string; args: any[] }[] = [];
-    mockExecFileImpl = (cmd: string, args: any[], callback: any) => {
+    const gitCalls: { cmd: string; args: string[] }[] = [];
+    mockExecFileImpl = (cmd, args, callback) => {
       gitCalls.push({ cmd, args });
       let stdout = "";
       if (args && args.includes("branch") && args.includes("--show-current")) {
@@ -815,9 +831,8 @@ describe("backfillUncoveredPRs", () => {
       } else if (args && args.includes("worktree") && args.includes("list")) {
         stdout = `worktree ${tempDir}/test/new-1\nbranch refs/heads/feat/some-branch\n\n`;
       }
-      const cb = callback as (error: Error | null, stdout: string, stderr: string) => void;
-      process.nextTick(() => cb(null, stdout, ""));
-      return {} as any;
+      process.nextTick(() => callback(null, stdout, ""));
+      return {};
     };
 
     const pr = makePR({ number: 5, branch: "feat/some-branch" });
@@ -902,8 +917,8 @@ describe("backfillUncoveredPRs", () => {
     mkdirSync(join(expectedWorktreeDir, ".git"), { recursive: true });
 
     // Track every exec call to verify absolute git path is used.
-    const gitCalls: { cmd: string; args: any[] }[] = [];
-    mockExecFileImpl = (cmd: string, args: any[], callback: any) => {
+    const gitCalls: { cmd: string; args: string[] }[] = [];
+    mockExecFileImpl = (cmd, args, callback) => {
       gitCalls.push({ cmd, args });
       let stdout = "";
       if (args && args.includes("branch") && args.includes("--show-current")) {
@@ -913,9 +928,8 @@ describe("backfillUncoveredPRs", () => {
       } else if (args && args.includes("worktree") && args.includes("list")) {
         stdout = `worktree ${expectedWorktreeDir}\nbranch refs/heads/feat/some-branch\n\n`;
       }
-      const cb = callback as (error: Error | null, stdout: string, stderr: string) => void;
-      process.nextTick(() => cb(null, stdout, ""));
-      return {} as any;
+      process.nextTick(() => callback(null, stdout, ""));
+      return {};
     };
 
     const pr = makePR({ number: 6, branch: "feat/some-branch" });
