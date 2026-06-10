@@ -1213,11 +1213,8 @@ describe("spawn helpers use absolute /usr/bin/git (bd-#670)", () => {
     const callerPattern = new RegExp(
       `(?:${spawnCallers.join("|")})\\s*\\(`,
     );
-    // Match a string-only first arg (not a variable/expression).
-    // We strip the JS-escaped quote pair `""` (used inside backtick template
-    // strings) BEFORE matching, so that `""git""` is treated as `"git"`.
-    // Otherwise we'd miss multi-line call sites inside log-message templates.
-    const stringArgPattern = /(?:execFileAsync|execFileSync|execFile|exec)\s*\(\s*["']([^"']+)["']/;
+    // Match a string-only first arg (not a variable/expression). Supports single/double quotes and backticks.
+    const stringArgPattern = /(?:execFileAsync|execFileSync|execFile|exec)\s*\(\s*["'`\s\n]*([^"'`\s\n,)]+)/;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] ?? "";
@@ -1236,6 +1233,21 @@ describe("spawn helpers use absolute /usr/bin/git (bd-#670)", () => {
     }
     return violations;
   }
+
+  it("findBareGitViolations catches single quotes, double quotes, and backtick template literals (bd-#670)", () => {
+    const testCases = [
+      { code: `await execFileAsync("git", ["status"])`, expectedViolationsCount: 1 },
+      { code: `await execFileAsync('git', ["status"])`, expectedViolationsCount: 1 },
+      { code: "await execFileAsync(`git`, [\"status\"])", expectedViolationsCount: 1 },
+      { code: `await execFileAsync("/usr/bin/git", ["status"])`, expectedViolationsCount: 0 },
+      { code: `await execFileAsync(gitExecutable, ["status"])`, expectedViolationsCount: 0 },
+      { code: `execFileAsync(\n  "git",\n  ["status"]\n)`, expectedViolationsCount: 1 },
+    ];
+    for (const { code, expectedViolationsCount } of testCases) {
+      const violations = findBareGitViolations(code);
+      expect(violations.length).toBe(expectedViolationsCount);
+    }
+  });
 
   for (const relPath of filesUnderGuard) {
     const sourcePath = join(here, "..", relPath);
