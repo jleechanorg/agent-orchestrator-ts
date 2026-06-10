@@ -6480,11 +6480,11 @@ describe("SessionManager Domain Lock Integration", () => {
       createdAt: new Date().toISOString(),
     });
 
-    // Mock readMetadataRaw to return spawning for the first call, and the concurrent "merged" session for subsequent calls.
+    // Mock readMetadataRaw to return spawning for the first two calls, and the concurrent "merged" session for subsequent calls.
     let callCount = 0;
     const customReadMetadataRaw = vi.fn().mockImplementation((dir: string, id: string) => {
       callCount++;
-      if (callCount === 1) {
+      if (callCount <= 2) {
         return readMetadataRaw(dir, id);
       }
       return {
@@ -6535,11 +6535,11 @@ describe("SessionManager Domain Lock Integration", () => {
       createdAt: new Date().toISOString(),
     });
 
-    // Mock readMetadataRaw to return spawning for the first call, and the concurrent "killed" session for subsequent calls.
+    // Mock readMetadataRaw to return spawning for the first two calls, and the concurrent "killed" session for subsequent calls.
     let callCount = 0;
     const customReadMetadataRaw = vi.fn().mockImplementation((dir: string, id: string) => {
       callCount++;
-      if (callCount === 1) {
+      if (callCount <= 2) {
         return readMetadataRaw(dir, id);
       }
       return {
