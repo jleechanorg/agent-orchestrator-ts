@@ -10,15 +10,36 @@ let mockExecFileImpl: ((cmd: string, args: any[], callback: any) => any) | null 
 
 vi.mock("node:child_process", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:child_process")>();
+  const { promisify } = await import("node:util");
+  const mockExecFile = (cmd: string, args: any[], ...rest: any[]) => {
+    if (mockExecFileImpl) {
+      const callback = rest[rest.length - 1];
+      return mockExecFileImpl(cmd, args, callback);
+    }
+    return original.execFile(cmd, args, ...rest);
+  };
+  // Mirror Node's [promisify.custom] hook so promisify(execFile) resolves
+  // with {stdout, stderr} instead of just the second arg. Without this,
+  // tests that use execFileAsync(...).stdout blow up with
+  // "Cannot read properties of undefined (reading 'stdout')".
+  (mockExecFile as any)[promisify.custom] = (cmd: string, args: any[], opts: any) => {
+    return new Promise((resolve, reject) => {
+      if (mockExecFileImpl) {
+        mockExecFileImpl(cmd, args, (err: Error | null, stdout: string, stderr: string) => {
+          if (err) return reject(err);
+          resolve({ stdout, stderr });
+        });
+      } else {
+        original.execFile(cmd, args, opts, (err: Error | null, stdout: string, stderr: string) => {
+          if (err) return reject(err);
+          resolve({ stdout, stderr });
+        });
+      }
+    });
+  };
   return {
     ...original,
-    execFile: (cmd: string, args: any[], ...rest: any[]) => {
-      if (mockExecFileImpl) {
-        const callback = rest[rest.length - 1];
-        return mockExecFileImpl(cmd, args, callback);
-      }
-      return original.execFile(cmd, args, ...rest);
-    }
+    execFile: mockExecFile,
   };
 });
 import {
@@ -831,7 +852,105 @@ describe("backfillUncoveredPRs", () => {
     }
     expect(gitCallsCount).toBeGreaterThan(0);
 
+    // Specifically verify the cleanup-path git calls (worktree unlock,
+    // worktree prune, branch -D) all use the absolute path. These are
+    // bd-#670 fix sites in backfill-extensions.ts error-recovery paths
+    // (lines 566, 579, 588) that the diff-coverage gate requires exercised.
+    const cleanupSubcommands = new Set(["unlock", "prune"]);
+    const cleanupCalls = gitCalls.filter(
+      (c) => Array.isArray(c.args) && c.args.some((a: any) => cleanupSubcommands.has(a)),
+    );
+    for (const call of cleanupCalls) {
+      expect(call.cmd).toBe("/usr/bin/git");
+    }
+    // branch -D cleanup at line 588: triggered when branch matches the
+    // feat/fix/chore/docs/refactor/session prefix pattern.
+    const branchDeleteCalls = gitCalls.filter(
+      (c) => Array.isArray(c.args) && c.args.includes("-D"),
+    );
+    for (const call of branchDeleteCalls) {
+      expect(call.cmd).toBe("/usr/bin/git");
+    }
+
     // Clean up
+    mockExecFileImpl = null;
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      // Ignored
+    }
+  });
+
+  it("exercises cleanup path with worktreeDir matching projectId/session.id (bd-#670 coverage)", async () => {
+    // The cleanup IIFE inside the kill-failure branch computes
+    //   worktreeDir = resolve(worktreeRoot, projectId, session.id)
+    // For coverage on the in-block git calls (unlock, prune, branch -D,
+    // worktree remove), the test must:
+    //   1. Create that exact path so existsSync(worktreeDir) is true.
+    //   2. Make findRepoPathForWorktree succeed so repoDir is set
+    //      (the unlock/remove/prune/branch -D block is gated on repoDir).
+    //      findRepoPathForWorktree walks up from worktreeDir looking for
+    //      a `.git` dir. We create `.git` at the worktreeDir itself.
+    const tempDir = join(tmpdir(), `ao-test-wt2-${randomUUID()}`);
+    const fakeRepo = join(tempDir, "fake-repo");
+    mkdirSync(fakeRepo, { recursive: true });
+    // The worktree dir the IIFE will look for:
+    const worktreeRoot = tempDir;
+    const expectedWorktreeDir = join(worktreeRoot, "proj", "new-1");
+    mkdirSync(expectedWorktreeDir, { recursive: true });
+    // Create .git at worktreeDir so findRepoPathForWorktree resolves repoDir
+    mkdirSync(join(expectedWorktreeDir, ".git"), { recursive: true });
+
+    // Track every exec call to verify absolute git path is used.
+    const gitCalls: { cmd: string; args: any[] }[] = [];
+    mockExecFileImpl = (cmd: string, args: any[], callback: any) => {
+      gitCalls.push({ cmd, args });
+      let stdout = "";
+      if (args && args.includes("branch") && args.includes("--show-current")) {
+        stdout = "feat/some-branch\n";
+      } else if (args && args.includes("rev-parse") && args.includes("--git-common-dir")) {
+        stdout = join(fakeRepo, ".git") + "\n";
+      } else if (args && args.includes("worktree") && args.includes("list")) {
+        stdout = `worktree ${expectedWorktreeDir}\nbranch refs/heads/feat/some-branch\n\n`;
+      }
+      const cb = callback as (error: Error | null, stdout: string, stderr: string) => void;
+      process.nextTick(() => cb(null, stdout, ""));
+      return {} as any;
+    };
+
+    const pr = makePR({ number: 6, branch: "feat/some-branch" });
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+    vi.mocked(mockSessionManager.claimPR).mockRejectedValue(new Error("conflict"));
+    vi.mocked(mockSessionManager.kill).mockRejectedValue(new Error("session already dead"));
+
+    const customProject = makeProject({ path: fakeRepo });
+    const params = makeParams({
+      project: customProject,
+      worktreeDir: tempDir, // overrides resolve(homedir(), ".worktrees")
+    });
+
+    const result = await backfillUncoveredPRs(deps, params);
+    expect(result).toBe(false);
+
+    // Verify cleanup-path git calls use absolute /usr/bin/git
+    // (lines 566, 572, 579, 588 in backfill-extensions.ts).
+    const cleanupSubcommands = new Set(["unlock", "prune", "remove"]);
+    const cleanupCalls = gitCalls.filter(
+      (c) => Array.isArray(c.args) && c.args.some((a: any) => cleanupSubcommands.has(a)),
+    );
+    expect(cleanupCalls.length).toBeGreaterThan(0);
+    for (const call of cleanupCalls) {
+      expect(call.cmd).toBe("/usr/bin/git");
+    }
+    // branch -D cleanup
+    const branchDeleteCalls = gitCalls.filter(
+      (c) => Array.isArray(c.args) && c.args.includes("-D"),
+    );
+    expect(branchDeleteCalls.length).toBeGreaterThan(0);
+    for (const call of branchDeleteCalls) {
+      expect(call.cmd).toBe("/usr/bin/git");
+    }
+
     mockExecFileImpl = null;
     try {
       rmSync(tempDir, { recursive: true, force: true });
