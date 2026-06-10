@@ -108,6 +108,123 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
     await rm(tmpHome, { recursive: true, force: true }).catch(() => {});
   }, 30_000);
 
+  it("does not attempt to open the browser when suppressed", async () => {
+    const binDir = join(tmpHome, "bin");
+    mkdirSync(binDir, { recursive: true });
+    const mockOpenPath = join(binDir, "open");
+    const mockXdgOpenPath = join(binDir, "xdg-open");
+    const mockOpenLog = join(tmpHome, "mock-open.log");
+
+    const mockOpenScript = `#!/bin/sh\necho "$@" >> "${mockOpenLog}"\n`;
+    writeFileSync(mockOpenPath, mockOpenScript, { mode: 0o755 });
+    writeFileSync(mockXdgOpenPath, mockOpenScript, { mode: 0o755 });
+
+    const env = {
+      ...process.env,
+      HOME: tmpHome,
+      PATH: `${binDir}:${process.env.PATH}`,
+      AO_CALLER_TYPE: "agent",
+      AO_CONFIG_PATH: configPath,
+      AO_GLOBAL_CONFIG: configPath,
+      PORT: String(port),
+    };
+
+    // Verify config has openBrowser: false
+    const configContent = readFileSync(configPath, "utf-8");
+    expect(configContent).toContain("openBrowser: false");
+
+    const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator", "--no-open-browser"], {
+      cwd: repoPath,
+      env,
+      stdio: "ignore",
+    });
+    startPid = start.pid;
+    expect(startPid).toBeTypeOf("number");
+
+    const runningPath = join(tmpHome, ".agent-orchestrator/running.json");
+    let runningPid: number | undefined;
+    for (let i = 0; i < 100; i++) {
+      if (existsSync(runningPath)) {
+        const running = JSON.parse(readFileSync(runningPath, "utf-8")) as { pid?: number };
+        runningPid = running.pid;
+        break;
+      }
+      await sleep(100);
+    }
+    expect(runningPid).toBeTypeOf("number");
+
+    // Wait extra time for potential browser open attempts
+    await sleep(2000);
+
+    // Verify that our mock open was NEVER called
+    expect(existsSync(mockOpenLog)).toBe(false);
+
+    await execFileAsync(tsxBin, [cliEntry, "stop", "--all"], { cwd: repoPath, env, timeout: 20_000 });
+  }, 60_000);
+
+  it("attempts to open the browser when not suppressed", async () => {
+    // Write config with openBrowser: true
+    const configContent = readFileSync(configPath, "utf-8");
+    const modifiedConfig = configContent.replace("openBrowser: false", "openBrowser: true");
+    writeFileSync(configPath, modifiedConfig);
+
+    const binDir = join(tmpHome, "bin");
+    mkdirSync(binDir, { recursive: true });
+    const mockOpenPath = join(binDir, "open");
+    const mockXdgOpenPath = join(binDir, "xdg-open");
+    const mockOpenLog = join(tmpHome, "mock-open.log");
+
+    const mockOpenScript = `#!/bin/sh\necho "$@" >> "${mockOpenLog}"\n`;
+    writeFileSync(mockOpenPath, mockOpenScript, { mode: 0o755 });
+    writeFileSync(mockXdgOpenPath, mockOpenScript, { mode: 0o755 });
+
+    const env = {
+      ...process.env,
+      HOME: tmpHome,
+      PATH: `${binDir}:${process.env.PATH}`,
+      AO_CALLER_TYPE: "agent",
+      AO_CONFIG_PATH: configPath,
+      AO_GLOBAL_CONFIG: configPath,
+      PORT: String(port),
+    };
+
+    // Spawn without --no-open-browser flag
+    const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator"], {
+      cwd: repoPath,
+      env,
+      stdio: "ignore",
+    });
+    startPid = start.pid;
+
+    const runningPath = join(tmpHome, ".agent-orchestrator/running.json");
+    let runningPid: number | undefined;
+    for (let i = 0; i < 100; i++) {
+      if (existsSync(runningPath)) {
+        const running = JSON.parse(readFileSync(runningPath, "utf-8")) as { pid?: number };
+        runningPid = running.pid;
+        break;
+      }
+      await sleep(100);
+    }
+    expect(runningPid).toBeTypeOf("number");
+
+    // Wait for the browser open attempt
+    let opened = false;
+    for (let i = 0; i < 50; i++) {
+      if (existsSync(mockOpenLog)) {
+        opened = true;
+        break;
+      }
+      await sleep(100);
+    }
+    expect(opened).toBe(true);
+
+    const logContent = readFileSync(mockOpenLog, "utf-8");
+    expect(logContent).toContain(`http://localhost:${port}/sessions/daemon-int-orchestrator`);
+
+    await execFileAsync(tsxBin, [cliEntry, "stop", "--all"], { cwd: repoPath, env, timeout: 20_000 });
+  }, 60_000);
+
   it("ao stop terminates children spawned by ao start", async () => {
     const env = {
       ...process.env,
@@ -117,9 +234,6 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
       AO_GLOBAL_CONFIG: configPath,
       PORT: String(port),
     };
-    // Verify that the configuration file suppresses browser auto-open
-    const configContent = readFileSync(configPath, "utf-8");
-    expect(configContent).toContain("openBrowser: false");
 
     const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator", "--no-open-browser"], {
       cwd: repoPath,
