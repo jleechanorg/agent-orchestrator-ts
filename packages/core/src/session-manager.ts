@@ -61,6 +61,7 @@ import {
   TERMINAL_STATUSES,
 } from "./types.js";
 import {
+  readMetadataRaw,
   readMetadataRaw as _readMetadataRaw,
   readArchivedMetadataRaw,
   updateArchivedMetadata,
@@ -371,7 +372,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   // Shadow module-level execFileAsync with the injected test mock when provided
   const execFileAsync = injectedExecFileAsync ?? _execFileAsync;
   // Shadow module-level readMetadataRaw when injected (for test isolation)
-  const readMetadataRaw = injectedReadMeta ?? _readMetadataRaw;
+  const readMeta = injectedReadMeta ?? _readMetadataRaw;
   // Shadow listMetadata when injected (for test isolation)
   const sessionListMetadata = injectedListMetadata ?? listMetadata;
   const allSessionPrefixes = getAllSessionPrefixes(config.projects);
@@ -733,8 +734,6 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       if (raw["agent"] !== "opencode" && raw["agent"] !== "openw") return false;
       if (criteria.issueId !== undefined && raw["issue"] !== criteria.issueId) return false;
       if (criteria.sessionId !== undefined && id !== criteria.sessionId) return false;
-      const status = raw["status"];
-      if (status && NON_RESTORABLE_STATUSES.has(status as SessionStatus)) return false;
       return true;
     };
 
@@ -1717,28 +1716,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         .catch(() => false);
       if (existingAlive && orchestratorSessionStrategy === "reuse") {
         const persistedRaw = readMetadataRaw(sessionsDir, sessionId);
-        const rawStatus = persistedRaw?.["status"] ?? "";
-        if (NON_RESTORABLE_STATUSES.has(rawStatus as SessionStatus)) {
-          if (plugins.agent.name === "opencode" || plugins.agent.name === "openw") {
-            const opencodeSessionId =
-              asValidOpenCodeSessionId(persistedRaw?.["opencodeSessionId"]) ??
-              (await discoverOpenCodeSessionIdByTitle(
-                sessionId,
-                OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS,
-              ).catch(() => undefined));
-            if (opencodeSessionId) {
-              await deleteOpenCodeSession(opencodeSessionId).catch(() => undefined);
-            }
-          }
-          await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
-          deleteMetadata(sessionsDir, sessionId, false);
-        } else if (persistedRaw?.["runtimeHandle"]) {
+        if (persistedRaw?.["runtimeHandle"]) {
           const persisted = metadataToSession(
             sessionId,
             persistedRaw,
             orchestratorConfig.projectId,
           );
           persisted.metadata["orchestratorSessionReused"] = "true";
+          const rawStatus = persistedRaw["status"] ?? "";
           if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
             updateMetadata(sessionsDir, sessionId, {
               status: "working",
@@ -1755,10 +1740,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
             }
           }
           return persisted;
-        } else {
-          await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
-          deleteMetadata(sessionsDir, sessionId, false);
         }
+        await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
+        deleteMetadata(sessionsDir, sessionId, false);
       }
       if (existingAlive && orchestratorSessionStrategy !== "reuse") {
         await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
@@ -1789,41 +1773,24 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           .isAlive(concurrentSession.runtimeHandle)
           .catch(() => false);
         if (concurrentAlive && orchestratorSessionStrategy === "reuse") {
+          concurrentSession.metadata["orchestratorSessionReused"] = "true";
           const rawStatus = concurrentRaw?.["status"] ?? "";
-          if (NON_RESTORABLE_STATUSES.has(rawStatus as SessionStatus)) {
-            if (plugins.agent.name === "opencode" || plugins.agent.name === "openw") {
-              const opencodeSessionId =
-                asValidOpenCodeSessionId(concurrentRaw?.["opencodeSessionId"]) ??
-                (await discoverOpenCodeSessionIdByTitle(
-                  sessionId,
-                  OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS,
-                ).catch(() => undefined));
-              if (opencodeSessionId) {
-                await deleteOpenCodeSession(opencodeSessionId).catch(() => undefined);
-              }
+          if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
+            updateMetadata(sessionsDir, sessionId, {
+              status: "working",
+              activity: "",
+              exitCode: "",
+              finishedAt: "",
+            });
+            concurrentSession.status = "working";
+            concurrentSession.activity = null;
+            if (concurrentSession.metadata) {
+              delete concurrentSession.metadata.activity;
+              delete concurrentSession.metadata.exitCode;
+              delete concurrentSession.metadata.finishedAt;
             }
-            await plugins.runtime.destroy(concurrentSession.runtimeHandle).catch(() => undefined);
-            deleteMetadata(sessionsDir, sessionId, false);
-            reserved = reserveSessionId(sessionsDir, sessionId);
-          } else {
-            concurrentSession.metadata["orchestratorSessionReused"] = "true";
-            if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
-              updateMetadata(sessionsDir, sessionId, {
-                status: "working",
-                activity: "",
-                exitCode: "",
-                finishedAt: "",
-              });
-              concurrentSession.status = "working";
-              concurrentSession.activity = null;
-              if (concurrentSession.metadata) {
-                delete concurrentSession.metadata.activity;
-                delete concurrentSession.metadata.exitCode;
-                delete concurrentSession.metadata.finishedAt;
-              }
-            }
-            return concurrentSession;
           }
+          return concurrentSession;
         }
         if (!concurrentAlive) {
           deleteMetadata(sessionsDir, sessionId, orchestratorSessionStrategy === "reuse");
@@ -2360,7 +2327,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         let matchingRaw: Record<string, string> | null = null;
 
         for (const sessionId of sessionIds) {
-          const raw = readMetadataRaw(sessionsDir, sessionId);
+          const raw = readMeta(sessionsDir, sessionId);
           if (!raw) continue;
           const storedWorktree = raw["worktree"];
           if (storedWorktree && normalizePath(storedWorktree) === normalizedWorktree) {
@@ -2486,8 +2453,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     let didPurgeOpenCodeSession = false;
-    const isNonRestorable = NON_RESTORABLE_STATUSES.has(raw["status"] as SessionStatus);
-    if ((options?.purgeOpenCode === true || isNonRestorable) &&
+    if (options?.purgeOpenCode === true &&
         (cleanupAgent === "opencode" || cleanupAgent === "openw")) {
       const mappedOpenCodeSessionId =
         asValidOpenCodeSessionId(raw["opencodeSessionId"]) ??

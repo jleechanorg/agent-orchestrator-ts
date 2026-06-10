@@ -6423,7 +6423,4 @@ describe("SessionManager Domain Lock Integration", () => {
     // Should reserve for new owner
     expect(mockLock.reserve).toHaveBeenCalledWith(789, ["src/new.ts"], "mock-agent", "feat/new", join(tmpDir, "claimer-ws"));
   });
-
-
 });
-
