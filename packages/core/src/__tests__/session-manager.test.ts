@@ -4501,6 +4501,7 @@ describe("spawnOrchestrator", () => {
     });
 
     vi.mocked(mockRuntime.isAlive).mockImplementation(async (handle) => {
+      if (!handle) return false;
       if (handle.id === originalHandle.id) {
         writeMetadata(sessionsDir, "app-orchestrator", {
           worktree: join(tmpDir, "my-app"),
