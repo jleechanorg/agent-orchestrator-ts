@@ -35,6 +35,14 @@ describe("expandHome (canonical helper)", () => {
     expect(expandHome("~/a/b/c")).toBe(join(homedir(), "a/b/c"));
   });
 
+  it("expands ~\\foo to <HOME>/foo", () => {
+    expect(expandHome("~\\foo")).toBe(join(homedir(), "foo"));
+  });
+
+  it("expands ~\\ nested paths to <HOME>/a\\b\\c", () => {
+    expect(expandHome("~\\a\\b\\c")).toBe(join(homedir(), "a\\b\\c"));
+  });
+
   it("returns the input unchanged for an absolute path", () => {
     expect(expandHome("/abs/foo")).toBe("/abs/foo");
   });
