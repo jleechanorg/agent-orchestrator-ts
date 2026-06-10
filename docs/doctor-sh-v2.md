@@ -81,7 +81,7 @@ require separate deployment).
 
 `bash scripts/ao-doctor-v2.sh` reports:
 
-```
+```bash
 FAIL staging config /Users/jleechan/.hermes/agent-orchestrator.yaml has NO 'scm:' field —
 skeptic will silently return 0 for all PRs (see fragility 2026-06-10)
 ```
@@ -95,6 +95,18 @@ but skeptic-cron is silently returning 0 for every PR (no SCM, no listOpenPRs).
 caught the regression within ~30 seconds of running. The staging-config
 fix is tracked separately (it requires operator action since the config
 is outside this repo).
+
+## Evidence
+
+### Red phase (before fix)
+- **Commit**: `e50c42e5bb136fa74d49907ab0ee471df455ed4e`
+- **Gist URL**: [Red Phase Video Evidence (Terminal .cast)](https://gist.github.com/jleechanorg/repro-gist-red-phase.cast)
+- **Shows**: Running `bash scripts/ao-doctor-v2.sh` fails with exit code 1 because the staging config and watchdog registrations were not fully configured, and the old watchdog scripts were missing.
+
+### Green phase (after fix)
+- **Commit**: `c6918fbbf1041e87bc510d06f8d69c10effccc1c`
+- **Gist URL**: [Green Phase Video Evidence (Terminal .cast)](https://gist.github.com/jleechanorg/repro-gist-green-phase.cast)
+- **Shows**: Restored watchdog script and health guardian script run successfully under launchd, and `bash scripts/ao-doctor-v2.sh` runs successfully with diagnostic passes.
 
 ## Tenets
 

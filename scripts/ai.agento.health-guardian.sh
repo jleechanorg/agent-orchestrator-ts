@@ -45,23 +45,30 @@ post_slack() {
     log "no SLACK token; cannot post: $text"
     return 1
   fi
-  # Use python for safe JSON construction (escapes quotes, newlines, etc.).
-  # printf '{"text":"%s"}' $text is unsafe — alert text may contain
-  # newlines, backslashes, and unicode from upstream log scraping.
   local payload
-  payload=$(CHANNEL="$CHANNEL" TEXT="$text" python3 -c '
+  if command -v jq >/dev/null 2>&1; then
+    payload=$(jq -n --arg channel "$CHANNEL" --arg text "$text" '{"channel":$channel,"text":$text}')
+  elif command -v python3 >/dev/null 2>&1; then
+    payload=$(CHANNEL="$CHANNEL" TEXT="$text" python3 -c '
 import json, os
 print(json.dumps({"channel": os.environ["CHANNEL"], "text": os.environ["TEXT"]}))
-' 2>/dev/null) || {
-    log "python3 unavailable for JSON encoding; falling back to printf"
-    payload=$(printf '{"channel":"%s","text":"%s"}' "$CHANNEL" "$text")
-  }
-  curl -sS -X POST \
+' 2>/dev/null)
+  else
+    local escaped_text
+    escaped_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' | tr -d '\n' | sed 's/\\n$//')
+    payload=$(printf '{"channel":"%s","text":"%s"}' "$CHANNEL" "$escaped_text")
+  fi
+
+  local response
+  response=$(curl -sS -X POST \
     -H "Authorization: Bearer $token" \
     -H "Content-Type: application/json; charset=utf-8" \
     -d "$payload" \
-    https://slack.com/api/chat.postMessage >/dev/null 2>&1 \
-    || log "slack post failed for: $text"
+    https://slack.com/api/chat.postMessage 2>&1)
+  if [ $? -ne 0 ] || ! echo "$response" | grep -q '"ok":true'; then
+    log "slack post failed for: $text (response: $response)"
+    return 1
+  fi
 }
 
 dedup_should_send() {
@@ -127,15 +134,20 @@ if [ "$TIER1_REGISTERED" -eq 0 ]; then
     # Frozen template contains @REPO_ROOT@, @HOME@, @PATH@ placeholders.
     # Substitute them in place to ~/Library/LaunchAgents and bootstrap.
     log "frozen template found at $TIER1_FROZEN_PLIST — substituting placeholders"
+    local tmp_plist
+    tmp_plist=$(mktemp "/tmp/health-guardian-XXXXXX.plist")
     if sed -e "s|@REPO_ROOT@|$REPO_ROOT|g" \
            -e "s|@HOME@|$HOME|g" \
            -e "s|@PATH@|${PATH:-/usr/local/bin:/usr/bin:/bin}|g" \
-           "$TIER1_FROZEN_PLIST" > "$TIER1_PLIST" 2>/dev/null; then
+           "$TIER1_FROZEN_PLIST" > "$tmp_plist" 2>/dev/null; then
+      mv -f "$tmp_plist" "$TIER1_PLIST"
+      chmod 600 "$TIER1_PLIST"
       log "substituted plist written to $TIER1_PLIST"
       launchctl bootstrap "gui/$(id -u)" "$TIER1_PLIST" 2>/dev/null \
         && log "bootstrap from frozen template attempted for $TIER1_LABEL" \
         || log "bootstrap FAILED for $TIER1_LABEL (frozen template substituted but rejected)"
     else
+      rm -f "$tmp_plist"
       log "sed substitution FAILED for $TIER1_FROZEN_PLIST"
     fi
   else

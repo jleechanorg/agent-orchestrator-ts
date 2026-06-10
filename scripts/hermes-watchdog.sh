@@ -36,23 +36,30 @@ post_slack() {
     log "no SLACK token; cannot post: $text"
     return 1
   fi
-  # Use python for safe JSON construction (escapes quotes, newlines, etc.).
-  # printf '{"text":"%s"}' $text is unsafe — alert text may contain
-  # newlines, backslashes, and unicode from upstream log scraping.
   local payload
-  payload=$(CHANNEL="$CHANNEL" TEXT="$text" python3 -c '
+  if command -v jq >/dev/null 2>&1; then
+    payload=$(jq -n --arg channel "$CHANNEL" --arg text "$text" '{"channel":$channel,"text":$text}')
+  elif command -v python3 >/dev/null 2>&1; then
+    payload=$(CHANNEL="$CHANNEL" TEXT="$text" python3 -c '
 import json, os
 print(json.dumps({"channel": os.environ["CHANNEL"], "text": os.environ["TEXT"]}))
-' 2>/dev/null) || {
-    log "python3 unavailable for JSON encoding; falling back to printf"
-    payload=$(printf '{"channel":"%s","text":"%s"}' "$CHANNEL" "$text")
-  }
-  curl -sS -X POST \
+' 2>/dev/null)
+  else
+    local escaped_text
+    escaped_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' | tr -d '\n' | sed 's/\\n$//')
+    payload=$(printf '{"channel":"%s","text":"%s"}' "$CHANNEL" "$escaped_text")
+  fi
+
+  local response
+  response=$(curl -sS -X POST \
     -H "Authorization: Bearer $token" \
     -H "Content-Type: application/json; charset=utf-8" \
     -d "$payload" \
-    https://slack.com/api/chat.postMessage >/dev/null 2>&1 \
-    || log "slack post failed for: $text"
+    https://slack.com/api/chat.postMessage 2>&1)
+  if [ $? -ne 0 ] || ! echo "$response" | grep -q '"ok":true'; then
+    log "slack post failed for: $text (response: $response)"
+    return 1
+  fi
 }
 
 dedup_should_send() {
@@ -81,7 +88,15 @@ alert_lines=""
 # StartInterval (5 min => 600s for ai.agento.health; gateway is KeepAlive
 # so 300s is plenty).
 is_interval_job_fresh() {
-  local label="$1" log_path="$2" max_age="$3"
+  local label="${1:-}" log_path="${2:-}" max_age="${3:-}"
+  if [ -z "$label" ]; then
+    log "is_interval_job_fresh: missing label parameter"
+    return 1
+  fi
+  if [ -z "$log_path" ]; then
+    log "is_interval_job_fresh: missing log_path parameter"
+    return 1
+  fi
   # 1. Must be registered as a LaunchAgent
   if ! launchctl print "gui/$(id -u)/$label" 2>/dev/null | grep -q "type = LaunchAgent"; then
     return 1

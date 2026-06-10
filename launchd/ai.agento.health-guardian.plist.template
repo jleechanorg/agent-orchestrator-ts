@@ -60,9 +60,9 @@
          setup-launchd.sh reads from $HERMES_HOME/config.yaml and substitutes
          here at install time. Never commit a real token. -->
     <key>OPENCLAW_STAGING_SLACK_BOT_TOKEN</key>
-    <string>__SET_BY_SETUP_LAUNCHD__</string>
+    <string>@SLACK_BOT_TOKEN@</string>
     <key>SLACK_USER_TOKEN</key>
-    <string>__SET_BY_SETUP_LAUNCHD__</string>
+    <string>@SLACK_USER_TOKEN@</string>
     <key>PATH</key>
     <string>@PATH@</string>
   </dict>
