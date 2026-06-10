@@ -92,7 +92,8 @@ function shouldOpenBrowser(
 ): boolean {
   if (opts?.openBrowser === false) return false;
   if (config.openBrowser === false) return false;
-  if (process.env["AO_NO_OPEN_BROWSER"] !== undefined) return false;
+  const envVal = process.env["AO_NO_OPEN_BROWSER"]?.toLowerCase();
+  if (envVal === "1" || envVal === "true") return false;
   return true;
 }
 

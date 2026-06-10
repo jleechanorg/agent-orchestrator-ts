@@ -89,11 +89,12 @@ export function registerDashboard(program: Command): void {
       // bd-#667: Suppress browser auto-open when any of the following is set:
       //   - opts.open === false  (--no-open CLI flag)
       //   - config.openBrowser === false  (YAML)
-      //   - process.env.AO_NO_OPEN_BROWSER is set  (env var)
+      //   - process.env.AO_NO_OPEN_BROWSER is a truthy token ("1" or "true", case-insensitive)
+      const envVal = process.env["AO_NO_OPEN_BROWSER"]?.toLowerCase();
       const shouldOpen =
         opts.open !== false &&
         config.openBrowser !== false &&
-        process.env["AO_NO_OPEN_BROWSER"] === undefined;
+        !(envVal === "1" || envVal === "true");
 
       if (shouldOpen) {
         openAbort = new AbortController();

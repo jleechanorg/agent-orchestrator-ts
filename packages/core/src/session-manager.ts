@@ -733,6 +733,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       if (raw["agent"] !== "opencode" && raw["agent"] !== "openw") return false;
       if (criteria.issueId !== undefined && raw["issue"] !== criteria.issueId) return false;
       if (criteria.sessionId !== undefined && id !== criteria.sessionId) return false;
+      const status = raw["status"];
+      if (status && NON_RESTORABLE_STATUSES.has(status as SessionStatus)) return false;
       return true;
     };
 
@@ -1717,6 +1719,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         const persistedRaw = readMetadataRaw(sessionsDir, sessionId);
         const rawStatus = persistedRaw?.["status"] ?? "";
         if (NON_RESTORABLE_STATUSES.has(rawStatus as SessionStatus)) {
+          if (plugins.agent.name === "opencode" || plugins.agent.name === "openw") {
+            const opencodeSessionId =
+              asValidOpenCodeSessionId(persistedRaw?.["opencodeSessionId"]) ??
+              (await discoverOpenCodeSessionIdByTitle(
+                sessionId,
+                OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS,
+              ).catch(() => undefined));
+            if (opencodeSessionId) {
+              await deleteOpenCodeSession(opencodeSessionId).catch(() => undefined);
+            }
+          }
           await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
           deleteMetadata(sessionsDir, sessionId, false);
         } else if (persistedRaw?.["runtimeHandle"]) {
@@ -1778,6 +1791,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         if (concurrentAlive && orchestratorSessionStrategy === "reuse") {
           const rawStatus = concurrentRaw?.["status"] ?? "";
           if (NON_RESTORABLE_STATUSES.has(rawStatus as SessionStatus)) {
+            if (plugins.agent.name === "opencode" || plugins.agent.name === "openw") {
+              const opencodeSessionId =
+                asValidOpenCodeSessionId(concurrentRaw?.["opencodeSessionId"]) ??
+                (await discoverOpenCodeSessionIdByTitle(
+                  sessionId,
+                  OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS,
+                ).catch(() => undefined));
+              if (opencodeSessionId) {
+                await deleteOpenCodeSession(opencodeSessionId).catch(() => undefined);
+              }
+            }
             await plugins.runtime.destroy(concurrentSession.runtimeHandle).catch(() => undefined);
             deleteMetadata(sessionsDir, sessionId, false);
             reserved = reserveSessionId(sessionsDir, sessionId);
@@ -2462,7 +2486,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     }
 
     let didPurgeOpenCodeSession = false;
-    if (options?.purgeOpenCode === true &&
+    const isNonRestorable = NON_RESTORABLE_STATUSES.has(raw["status"] as SessionStatus);
+    if ((options?.purgeOpenCode === true || isNonRestorable) &&
         (cleanupAgent === "opencode" || cleanupAgent === "openw")) {
       const mappedOpenCodeSessionId =
         asValidOpenCodeSessionId(raw["opencodeSessionId"]) ??
