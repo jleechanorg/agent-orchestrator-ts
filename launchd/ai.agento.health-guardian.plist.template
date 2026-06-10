@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  ai.agento.health-guardian — Tier 2 watchdog (proposed 2026-06-10)
+  Watches Tier 1 (ai.agento.health) + cross-watchdog (ai.hermes-watchdog).
+  Auto-bootstraps Tier 1 from the frozen plist at
+    @REPO_ROOT@/launchd/ai.agento.health.plist.template
+  if deregistered. Cadence: 60 min.
+
+  INSTALLATION:
+    bash scripts/setup-launchd.sh health-guardian
+  or:
+    # Replace @REPO_ROOT@ with absolute path
+    ln -sf "@REPO_ROOT@/launchd/ai.agento.health-guardian.plist" \
+      ~/Library/LaunchAgents/ai.agento.health-guardian.plist
+    launchctl bootstrap gui/$(id -u) \
+      ~/Library/LaunchAgents/ai.agento.health-guardian.plist
+
+  Reference: wiki/concepts/WatchdogOfWatchdogsArchitecture.md
+-->
+<dict>
+  <key>Label</key>
+  <string>ai.agento.health-guardian</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>@REPO_ROOT@/scripts/ai.agento.health-guardian.sh</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StartInterval</key>
+  <integer>3600</integer>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <key>StandardOutPath</key>
+  <string>@HOME@/.openclaw/logs/ao-health-guardian.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>@HOME@/.openclaw/logs/ao-health-guardian.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>AO_REPO_ROOT</key>
+    <string>@REPO_ROOT@</string>
+    <key>HEALTH_GUARDIAN_ALERT_CHANNEL</key>
+    <string>C09GRLXF9GR</string>
+    <key>PATH</key>
+    <string>@PATH@</string>
+  </dict>
+</dict>
+</plist>
