@@ -186,22 +186,21 @@ describe("llm-eval-shared propagation test", () => {
     expect(options.env.ANTHROPIC_BASE_URL).toBe("https://pass.wafer.ai");
     expect(options.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-fake");
     expect(consoleDebugSpy).toHaveBeenCalled();
+    const debugCalls = consoleDebugSpy.mock.calls.map((c) => c[0] as string);
+    expect(debugCalls.some((c: string) => c.includes("active agent is provider plugin"))).toBe(true);
   });
 
-  it("resolves project-specific agent from CWD and config projects", async () => {
-    const originalCwd = process.cwd;
-    process.cwd = () => "/mock/project/path/sub";
+  it("propagates ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN when the active agent is resolved via project-path matching", async () => {
+    const projectPath = "/mock/projects/myapp";
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(projectPath);
 
     mockLoadConfig.mockReturnValue({
-      configPath: "/mock/config.yaml",
       defaults: { agent: "claude-code" },
       plugins: {},
       projects: {
-        "my-project": {
-          path: "./project/path",
-          agent: "wafer",
-        },
+        myapp: { agent: "wafer", path: projectPath },
       },
+      configPath: "/mock/config/.ao/config.json",
     });
 
     process.env["ANTHROPIC_BASE_URL"] = "https://pass.wafer.ai";
@@ -216,8 +215,11 @@ describe("llm-eval-shared propagation test", () => {
       const options = callArgs[2];
       expect(options.env.ANTHROPIC_BASE_URL).toBe("https://pass.wafer.ai");
       expect(options.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-fake");
+      expect(consoleDebugSpy).toHaveBeenCalled();
+      const debugCalls = consoleDebugSpy.mock.calls.map((c) => c[0] as string);
+      expect(debugCalls.some((c: string) => c.includes("active agent is provider plugin"))).toBe(true);
     } finally {
-      process.cwd = originalCwd;
+      cwdSpy.mockRestore();
     }
   });
 });
