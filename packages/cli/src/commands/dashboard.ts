@@ -5,6 +5,7 @@ import { loadConfig } from "@jleechanorg/ao-core";
 import { findWebDir, buildDashboardEnv, waitForPortAndOpen } from "../lib/web-dir.js";
 import { cleanNextCache, findRunningDashboardPid, findProcessWebDir, waitForPortFree } from "../lib/dashboard-rebuild.js";
 import { dashboardUrl } from "../lib/dashboard-url.js";
+import { shouldOpenBrowser } from "../lib/browser-utils.js";
 
 export function registerDashboard(program: Command): void {
   program
@@ -87,16 +88,7 @@ export function registerDashboard(program: Command): void {
 
       let openAbort: AbortController | undefined;
 
-      // bd-#667: Suppress browser auto-open when any of the following is set:
-      //   - opts.open === false || opts.openBrowser === false  (--no-open or --no-open-browser CLI flag)
-      //   - config.openBrowser === false  (YAML)
-      //   - process.env.AO_NO_OPEN_BROWSER is a truthy token ("1" or "true", case-insensitive)
-      const envVal = process.env["AO_NO_OPEN_BROWSER"]?.toLowerCase();
-      const shouldOpen =
-        opts.open !== false &&
-        opts.openBrowser !== false &&
-        config.openBrowser !== false &&
-        !(envVal === "1" || envVal === "true");
+      const shouldOpen = shouldOpenBrowser(opts, config);
 
       if (shouldOpen) {
         openAbort = new AbortController();

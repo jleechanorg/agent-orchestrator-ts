@@ -55,6 +55,7 @@ import {
 } from "../lib/web-dir.js";
 import { cleanNextCache } from "../lib/dashboard-rebuild.js";
 import { preflight } from "../lib/preflight.js";
+import { shouldOpenBrowser } from "../lib/browser-utils.js";
 import {
   register,
   isAlreadyRunning,
@@ -77,25 +78,6 @@ const DEFAULT_PORT = 3000;
 // =============================================================================
 // HELPERS
 // =============================================================================
-
-/**
- * bd-#667: Determine whether the dashboard browser auto-open should fire.
- * Returns `false` if ANY of the following are set:
- *   - opts.openBrowser === false (--no-open-browser CLI flag)
- *   - config.openBrowser === false (YAML config)
- *   - process.env.AO_NO_OPEN_BROWSER is set (env var)
- * Otherwise returns `true` (default — browser opens, preserves current behavior).
- */
-function shouldOpenBrowser(
-  opts: { openBrowser?: boolean } | undefined,
-  config: { openBrowser?: boolean },
-): boolean {
-  if (opts?.openBrowser === false) return false;
-  if (config.openBrowser === false) return false;
-  const envVal = process.env["AO_NO_OPEN_BROWSER"]?.toLowerCase();
-  if (envVal === "1" || envVal === "true") return false;
-  return true;
-}
 
 interface ConfigValidationProblem {
   field: string;

@@ -957,8 +957,6 @@ describe("start command — browser open waits for port", () => {
       "my-app",
     );
   });
-
-
 });
 
 describe("start command — orchestrator session strategy display", () => {
