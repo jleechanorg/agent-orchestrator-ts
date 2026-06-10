@@ -86,7 +86,7 @@ describe("evidence-bundle", () => {
       await generateEvidenceBundle(mockPr, mockScm, "/workspace");
       expect(mockExecFileSync).toHaveBeenCalledTimes(2);
       expect(mockExecFileSync).toHaveBeenCalledWith(
-        "git",
+        "/usr/bin/git",
         expect.arrayContaining(["diff"]),
         expect.objectContaining({ cwd: "/workspace", encoding: "utf8" }),
       );
@@ -96,12 +96,12 @@ describe("evidence-bundle", () => {
       const customPr = { ...mockPr, baseBranch: "develop" };
       await generateEvidenceBundle(customPr, mockScm, "/workspace");
       expect(mockExecFileSync).toHaveBeenCalledWith(
-        "git",
+        "/usr/bin/git",
         ["diff", "--name-only", "develop...HEAD"],
         expect.objectContaining({ cwd: "/workspace" }),
       );
       expect(mockExecFileSync).toHaveBeenCalledWith(
-        "git",
+        "/usr/bin/git",
         ["diff", "--stat", "develop...HEAD"],
         expect.objectContaining({ cwd: "/workspace" }),
       );
