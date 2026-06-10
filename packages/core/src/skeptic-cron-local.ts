@@ -280,7 +280,7 @@ export async function runLocalSkepticCron(
 
     // 3. If already successfully evaluated for this HEAD SHA, skip entirely
     // BUT bypass this SHA cache check if a valid trigger comment is present
-    if (!isTriggerPresent && headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
+    if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
       // Also cache this updatedAt so we skip next time immediately
       if (pr.updatedAt) {
         lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);

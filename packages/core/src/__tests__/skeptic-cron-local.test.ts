@@ -1420,7 +1420,7 @@ describe("runLocalSkepticCron", () => {
     expect(listPRComments).toHaveBeenCalledTimes(1);
   });
 
-  it("bypasses SHA cache check when a valid trigger comment is present", async () => {
+  it("does not bypass SHA cache check even when a valid trigger comment is present to avoid infinite re-evaluation loops", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
@@ -1443,14 +1443,14 @@ describe("runLocalSkepticCron", () => {
     mockRunSkepticReview.mockClear();
 
     // Run again with same SHA but we have a trigger comment.
-    // It should bypass SHA cache check and evaluate again!
+    // It should check SHA cache first, find it already evaluated, and skip!
     const result = await runLocalSkepticCron(
       { registry, sessionManager, observer },
       { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2" },
     );
 
-    expect(result).toBe(1);
-    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(0);
   });
 
   it("falls back to 24h PR age check if listPRComments is missing", async () => {
