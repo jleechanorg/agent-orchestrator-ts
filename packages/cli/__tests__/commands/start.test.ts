@@ -2221,5 +2221,3 @@ describe("start command — global registry mutations", () => {
     }
   });
 });
-
-
