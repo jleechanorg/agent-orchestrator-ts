@@ -2,15 +2,14 @@ import { resolve, parse, sep, relative, isAbsolute, basename, join } from "path"
 import { homedir } from "os";
 import { realpathSync } from "fs";
 import type { ProjectConfig } from "../types.js";
-import { getWorktreesDir } from "../paths.js";
+import { getWorktreesDir, expandHome } from "../paths.js";
 import { loadConfig } from "../config.js";
 
-/** Expand ~ to home directory (mirrors workspace-worktree expandPath). */
+/** Expand ~ to home directory — delegates to the canonical helper.
+ *  Adds bare-tilde support (`~` alone expands to $HOME) on top of `~/...`. */
 function expandPath(p: string): string {
-  if (p.startsWith("~/") || p === "~") {
-    return join(homedir(), p.slice(1));
-  }
-  return p;
+  if (p === "~") return homedir();
+  return expandHome(p);
 }
 
 /**
