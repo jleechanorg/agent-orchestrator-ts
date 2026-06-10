@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
 
 const mockExecFileSync = vi.hoisted(() => vi.fn());
 const mockAccessSync = vi.hoisted(() => vi.fn());
@@ -190,10 +191,14 @@ describe("llm-eval-shared propagation test", () => {
 
   it("resolves project-specific agent from CWD and config projects", async () => {
     const originalCwd = process.cwd;
-    process.cwd = () => "/mock/project/path/sub";
+    const configPath = path.resolve("/mock/config.yaml");
+    const configDir = path.dirname(configPath);
+    const resolvedSubPath = path.resolve(configDir, "./project/path/sub");
+
+    process.cwd = () => resolvedSubPath;
 
     mockLoadConfig.mockReturnValue({
-      configPath: "/mock/config.yaml",
+      configPath,
       defaults: { agent: "claude-code" },
       plugins: {},
       projects: {
@@ -223,10 +228,14 @@ describe("llm-eval-shared propagation test", () => {
 
   it("resolves project-specific agent from nested projects sorted by path specificity", async () => {
     const originalCwd = process.cwd;
-    process.cwd = () => "/mock/project/path/sub";
+    const configPath = path.resolve("/mock/config.yaml");
+    const configDir = path.dirname(configPath);
+    const resolvedSubPath = path.resolve(configDir, "./project/path/sub");
+
+    process.cwd = () => resolvedSubPath;
 
     mockLoadConfig.mockReturnValue({
-      configPath: "/mock/config.yaml",
+      configPath,
       defaults: { agent: "claude-code" },
       plugins: {},
       projects: {
