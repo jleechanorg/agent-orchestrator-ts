@@ -16,8 +16,10 @@
  *   - Green: test passes after the new `ao-doctor-v2` job is added.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync, statSync, existsSync } from "node:fs";
+import { readFileSync, statSync, existsSync, writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
 
 // REPO_ROOT is 4 levels up from this test file (packages/core/src/__tests__/).
 function computeRepoRoot(): string {
@@ -54,7 +56,7 @@ describe("ci-doctor-gate — bd-1sno: ao-doctor-v2 wired into ci.yml", () => {
 
     // The job must run on pull_request events (PRs are the merge gate).
     // We accept any runner selection (ubuntu-latest OR self-hosted labels).
-    const jobBlockMatch = ci.match(/^\s*ao-doctor-v2\s*:\s*\n([\s\S]*?)(?=^\s{0,2}\w[\w-]*\s*:\s*$|\Z)/m);
+    const jobBlockMatch = ci.match(/^\s*ao-doctor-v2\s*:\s*\n([\s\S]*?)(?=^\s{0,2}\w[\w-]*\s*:\s*$|(?![\s\S]))/m);
     expect(jobBlockMatch, "could not isolate the ao-doctor-v2 job block").not.toBeNull();
     const jobBlock = jobBlockMatch?.[1] ?? "";
 
@@ -77,7 +79,7 @@ describe("ci-doctor-gate — bd-1sno: ao-doctor-v2 wired into ci.yml", () => {
 
     // The job block must NOT use continue-on-error (otherwise a doctor
     // failure would not block merges).
-    const jobBlockMatch = ci.match(/^\s*ao-doctor-v2\s*:\s*\n([\s\S]*?)(?=^\s{0,2}\w[\w-]*\s*:\s*$|\Z)/m);
+    const jobBlockMatch = ci.match(/^\s*ao-doctor-v2\s*:\s*\n([\s\S]*?)(?=^\s{0,2}\w[\w-]*\s*:\s*$|(?![\s\S]))/m);
     expect(jobBlockMatch, "could not isolate the ao-doctor-v2 job block").not.toBeNull();
     const jobBlock = jobBlockMatch?.[1] ?? "";
 
@@ -91,7 +93,7 @@ describe("ci-doctor-gate — bd-1sno: ao-doctor-v2 wired into ci.yml", () => {
     // or `continue-on-error` is needed. We also verify the job uses the
     // default `fail-fast` by not declaring `continue-on-error` on the
     // invocation step either.
-    const stepMatches = jobBlock.match(/^\s{4,}-\s+run\s*:[\s\S]*?(?=\n\s{4,}-\s+|\Z)/gm) ?? [];
+    const stepMatches = jobBlock.match(/^\s{4,}-\s+run\s*:[\s\S]*?(?=\n\s{4,}-\s+|(?![\s\S]))/gm) ?? [];
     for (const step of stepMatches) {
       expect(
         step,
@@ -104,15 +106,11 @@ describe("ci-doctor-gate — bd-1sno: ao-doctor-v2 wired into ci.yml", () => {
     // Behavioral check: run the doctor script with a synthetic staging
     // config that has no `scm:` field, and confirm it exits non-zero.
     // This proves the CI gate would actually catch the regression class.
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-    const os = require("node:os") as typeof import("node:os");
-    const fs = require("node:fs") as typeof import("node:fs");
-
-    const tmpDir = fs.mkdtempSync(join(os.tmpdir(), "doctor-test-"));
+    const tmpDir = mkdtempSync(join(tmpdir(), "doctor-test-"));
     const fakeCfg = join(tmpDir, "agent-orchestrator.yaml");
     // Empty config — has `projects:` map with no `scm:` keys. This is
     // the exact shape of the 2026-06-10 regression.
-    fs.writeFileSync(
+    writeFileSync(
       fakeCfg,
       "projects:\n  alpha:\n    tracker: github\n  beta:\n    tracker: github\n",
     );
@@ -142,7 +140,7 @@ describe("ci-doctor-gate — bd-1sno: ao-doctor-v2 wired into ci.yml", () => {
       ).not.toBe(0);
       expect(stdout, "doctor stdout should mention scm regression").toMatch(/scm/);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 });
