@@ -197,7 +197,7 @@ jobs:
             set +e -o pipefail
             CR_APPROVE_PIPELINE=$(gh api repos/${{ github.repository }}/issues/"$PR_NUM"/comments \
               --paginate 2>/dev/null \
-              | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$|changes approved\\."; "i")))] | sort_by(.created_at) | last | if . then .created_at else "none" end' 2>&1)
+              | jq -rs --arg since "$HEAD_COMMITTED_AT" 'add | [.[] | select((.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai") and .created_at >= $since and (.body | test("(?m)^\\s*\\[approve\\]\\s*$|\\bchanges approved\\."; "i")))] | sort_by(.created_at) | last | if . then .created_at else "none" end' 2>&1)
             CR_APPROVE_EXIT=$?
             set -e +o pipefail
             if [ "$CR_APPROVE_EXIT" -eq 0 ]; then

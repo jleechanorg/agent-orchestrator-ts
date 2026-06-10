@@ -754,6 +754,38 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       expect(result.crState).toBe("approved (comment)");
     });
 
+    it("approves CodeRabbit even if the comment body is longer than 200 characters", async () => {
+      const longBody = "Some very long text...".repeat(20) + "\n\n[approve]\n";
+      setup({
+        ghJson: [
+          { head: { sha: headSha }, mergeable: true },
+          { state: "success" },
+          { commit: { committer: { date: "2026-06-04T12:00:00Z" } } },
+        ],
+        paginate: [
+          [],
+          [
+            [
+              { id: 5, body: longBody, created_at: "2026-06-04T13:00:00Z", user: { login: "coderabbitai" } }
+            ]
+          ],
+          [],
+        ],
+        fetchReviews: [
+          {
+            author: { login: "coderabbitai" },
+            state: "changes_requested",
+            body: "please fix this",
+            submittedAt: "2026-06-04T11:00:00Z",
+          }
+        ],
+      });
+
+      const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
+      expect(result.crApproved).toBe(true);
+      expect(result.crState).toBe("approved (comment)");
+    });
+
     it("does not approve CodeRabbit if [approve] comment was posted BEFORE the head commit date", async () => {
       setup({
         ghJson: [
@@ -814,6 +846,100 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       expect(result.crApproved).toBe(false);
       expect(result.crState).toBe("changes_requested");
     });
+
+    it("approves CodeRabbit if review is changes_requested and comments contain 'changes approved.' after head commit date", async () => {
+      setup({
+        ghJson: [
+          { head: { sha: headSha }, mergeable: true },
+          { state: "success" },
+          { commit: { committer: { date: "2026-06-04T12:00:00Z" } } },
+        ],
+        paginate: [
+          [],
+          [
+            [
+              { id: 6, body: "all changes approved.", created_at: "2026-06-04T13:00:00Z", user: { login: "coderabbitai" } }
+            ]
+          ],
+          [],
+        ],
+        fetchReviews: [
+          {
+            author: { login: "coderabbitai" },
+            state: "changes_requested",
+            body: "please fix this",
+            submittedAt: "2026-06-04T11:00:00Z",
+          }
+        ],
+      });
+
+      const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
+      expect(result.crApproved).toBe(true);
+      expect(result.crState).toBe("approved (comment)");
+    });
+
+    it("does not approve CodeRabbit if comment contains 'changes approved' but without the dot", async () => {
+      setup({
+        ghJson: [
+          { head: { sha: headSha }, mergeable: true },
+          { state: "success" },
+          { commit: { committer: { date: "2026-06-04T12:00:00Z" } } },
+        ],
+        paginate: [
+          [],
+          [
+            [
+              { id: 7, body: "all changes approved", created_at: "2026-06-04T13:00:00Z", user: { login: "coderabbitai" } }
+            ]
+          ],
+          [],
+        ],
+        fetchReviews: [
+          {
+            author: { login: "coderabbitai" },
+            state: "changes_requested",
+            body: "please fix this",
+            submittedAt: "2026-06-04T11:00:00Z",
+          }
+        ],
+      });
+
+      const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
+      expect(result.crApproved).toBe(false);
+      expect(result.crState).toBe("changes_requested");
+    });
+
+    it("does not approve CodeRabbit if comment contains 'changes approved.' as part of a longer word (e.g. 'somechanges approved.')", async () => {
+      setup({
+        ghJson: [
+          { head: { sha: headSha }, mergeable: true },
+          { state: "success" },
+          { commit: { committer: { date: "2026-06-04T12:00:00Z" } } },
+        ],
+        paginate: [
+          [],
+          [
+            [
+              { id: 8, body: "somechanges approved.", created_at: "2026-06-04T13:00:00Z", user: { login: "coderabbitai" } }
+            ]
+          ],
+          [],
+        ],
+        fetchReviews: [
+          {
+            author: { login: "coderabbitai" },
+            state: "changes_requested",
+            body: "please fix this",
+            submittedAt: "2026-06-04T11:00:00Z",
+          }
+        ],
+      });
+
+      const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
+      expect(result.crApproved).toBe(false);
+      expect(result.crState).toBe("changes_requested");
+    });
   });
 });
+
 
