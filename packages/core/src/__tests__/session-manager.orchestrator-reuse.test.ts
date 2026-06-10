@@ -1,45 +1,25 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
-  chmodSync,
   mkdirSync,
-  readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
-  existsSync,
-  utimesSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
-import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { createSessionManager, buildInitialPRTaskMessage } from "../session-manager.js";
-import { AOWorkerLogger } from "../ao-worker-logger.js";
-import { WORKER_BOOT_PROMPT } from "../prompt-artifact-builder.js";
-import { validateConfig } from "../config.js";
+import { createSessionManager } from "../session-manager.js";
 import {
   writeMetadata,
-  readMetadata,
   readMetadataRaw,
-  deleteMetadata,
-  reserveSessionId,
-  updateMetadata,
 } from "../metadata.js";
-import { getSessionsDir, getProjectBaseDir, getWorktreesDir } from "../paths.js";
+import { getSessionsDir } from "../paths.js";
 import {
-  SessionNotRestorableError,
-  WorkspaceMissingError,
-  isIssueNotFoundError,
   type OrchestratorConfig,
   type PluginRegistry,
   type Runtime,
   type Agent,
   type Workspace,
-  type Tracker,
-  type SCM,
-  type AreaLock,
-  PR_STATE,
   type RuntimeHandle,
-  type Session,
 } from "../types.js";
 
 let tmpDir: string;

@@ -1,19 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   mkdtempSync,
-  mkdirSync,
   writeFileSync,
-  readFileSync,
   rmSync,
   existsSync,
-  realpathSync,
-  lstatSync,
-  symlinkSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionManager } from "@jleechanorg/ao-core";
-import { stringify as yamlStringify, parse as parseYaml } from "yaml";
+import { stringify as yamlStringify } from "yaml";
 
 const {
   mockExec,
@@ -29,7 +24,6 @@ const {
   mockSweepDaemonChildren,
   mockScanAoOrphans,
   mockReapAoOrphans,
-  mockStartProjectSupervisor,
 } = vi.hoisted(() => ({
   mockExec: vi.fn(),
   mockExecSilent: vi.fn(),
@@ -54,15 +48,6 @@ const {
   mockSweepDaemonChildren: vi.fn(),
   mockScanAoOrphans: vi.fn(),
   mockReapAoOrphans: vi.fn(),
-  mockStartProjectSupervisor: vi.fn(),
-}));
-
-const { mockDetectOpenClawInstallation } = vi.hoisted(() => ({
-  mockDetectOpenClawInstallation: vi.fn(),
-}));
-
-const { mockProcessCwd } = vi.hoisted(() => ({
-  mockProcessCwd: vi.fn<() => string | undefined>(),
 }));
 
 const { mockPromptSelect, mockPromptConfirm: _mockPromptConfirm } = vi.hoisted(() => ({
@@ -245,7 +230,6 @@ import { registerStart, registerStop } from "../../src/commands/start.js";
 
 let tmpDir: string;
 let program: Command;
-let cwdSpy: ReturnType<typeof vi.spyOn>;
 let originalEnv: NodeJS.ProcessEnv;
 let originalAoGlobalConfig: string | undefined;
 
@@ -303,7 +287,6 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = originalEnv;
-  if (cwdSpy) cwdSpy.mockRestore();
   if (originalAoGlobalConfig === undefined) delete process.env["AO_GLOBAL_CONFIG"];
   else process.env["AO_GLOBAL_CONFIG"] = originalAoGlobalConfig;
   rmSync(tmpDir, { recursive: true, force: true });
