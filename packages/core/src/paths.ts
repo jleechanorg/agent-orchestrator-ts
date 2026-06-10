@@ -184,7 +184,7 @@ export function getAoBaseDir(): string {
  * Expand ~ to home directory.
  */
 export function expandHome(filepath: string): string {
-  if (filepath.startsWith("~/")) {
+  if (filepath.startsWith("~/") || filepath.startsWith("~\\")) {
     return join(homedir(), filepath.slice(2));
   }
   return filepath;

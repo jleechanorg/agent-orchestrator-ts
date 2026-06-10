@@ -1,0 +1,10 @@
+{"version": 2, "width": 80, "height": 24, "timestamp": 1781133785, "env": {"SHELL": "/bin/bash", "TERM": "tmux-256color"}}
+[0.213971, "o", "\r\n> @jleechanorg/ao-core@0.1.0 test /Users/jleechan/.worktrees/agent-orchestrator/bd-1xdg/packages/core\r\n> vitest run paths.test.ts\r\n\r\n"]
+[0.381739, "o", "\u001b[?25l"]
+[0.409726, "o", "\r\n"]
+[0.409844, "o", "\u001b[1m\u001b[46m RUN \u001b[49m\u001b[22m \u001b[36mv4.0.18 \u001b[39m\u001b[90m/Users/jleechan/.worktrees/agent-orchestrator/bd-1xdg/packages/core\u001b[39m\r\n"]
+[0.409899, "o", "\r\n"]
+[0.491051, "o", "\u001b[?2026h\r\n\u001b[1m\u001b[33m ❯ \u001b[39m\u001b[22msrc/__tests__/paths.test.ts\u001b[2m [queued]\u001b[22m\r\n\r\n\u001b[2m Test Files \u001b[22m\u001b[1m\u001b[32m0 passed\u001b[39m\u001b[22m\u001b[90m (2)\u001b[39m\r\n\u001b[2m      Tests \u001b[22m\u001b[1m\u001b[32m0 passed\u001b[39m\u001b[22m\u001b[90m (0)\u001b[39m\r\n\u001b[2m   Start at \u001b[22m16:23:05\r\n\u001b[2m   Duration \u001b[22m0ms\r\n"]
+[0.491074, "o", "\u001b[?2026l"]
+[0.561087, "o", "\u001b[K\u001b[1A\u001b[K\u001b[1A\u001b[K\u001b[1A\u001b[K\u001b[1A\u001b[K\u001b[1A\u001b[K\u001b[1A\u001b[K\u001b[1A\u001b[K \u001b[32m✓\u001b[39m __tests__/paths.test.ts \u001b[2m(\u001b[22m\u001b[2m11 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 30\u001b[2mms\u001b[22m\u001b[39m\r\n \u001b[32m✓\u001b[39m src/__tests__/paths.test.ts \u001b[2m(\u001b[22m\u001b[2m47 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 23\u001b[2mms\u001b[22m\u001b[39m\r\n\r\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m2 passed\u001b[39m\u001b[22m\u001b[90m (2)\u001b[39m\r\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m58 passed\u001b[39m\u001b[22m\u001b[90m (58)\u001b[39m\r\n\u001b[2m   Start at \u001b[22m 16:23:05\r\n\u001b[2m   Duration \u001b[22m 145ms\u001b[2m (transform 61ms, setup 0ms, import 75ms, tests 53ms, environment 0ms)\u001b[22m\r\n\r\n"]
+[0.561455, "o", "\u001b[?25h"]
