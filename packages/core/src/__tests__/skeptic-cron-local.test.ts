@@ -1498,5 +1498,43 @@ describe("runLocalSkepticCron", () => {
     expect(resultStale).toBe(0);
     expect(mockRunSkepticReview).not.toHaveBeenCalled();
   });
+
+  it("caches stale PR updatedAt in fallback path to skip subsequent checks", async () => {
+    const listOpenPRs = vi.fn<[ProjectConfig], Promise<PRInfo[]>>();
+    const getPRHeadSha = vi.fn<(pr: PRInfo) => Promise<string>>();
+    const mockSCMWithout: Partial<SCM> = { listOpenPRs, getPRHeadSha };
+    const registry = {
+      get: vi.fn().mockReturnValue(mockSCMWithout),
+    } as unknown as PluginRegistry;
+    const observer = { recordOperation: vi.fn() } as unknown as ProjectObserver;
+    const sessionManager = {} as SessionManager;
+
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+
+    // PR is stale (> 24h)
+    const staleDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const prStale = makePR({ number: 12, updatedAt: staleDate });
+    listOpenPRs.mockResolvedValue([prStale]);
+
+    // First run: evaluates, skips because stale, and caches the updatedAt
+    const result1 = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-stale-1" },
+    );
+    expect(result1).toBe(0);
+    expect(getPRHeadSha).toHaveBeenCalledTimes(1);
+
+    // Reset throttle and clear mock history
+    _resetSkepticCronTimer();
+    getPRHeadSha.mockClear();
+
+    // Second run: should hit lastCheckedUpdatedAtByPR cache and exit immediately without calling getPRHeadSha
+    const result2 = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-stale-2" },
+    );
+    expect(result2).toBe(0);
+    expect(getPRHeadSha).not.toHaveBeenCalled();
+  });
 });
 

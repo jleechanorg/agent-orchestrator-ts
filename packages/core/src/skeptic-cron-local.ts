@@ -268,6 +268,7 @@ export async function runLocalSkepticCron(
           const oneDayMs = 24 * 60 * 60 * 1000;
           if (ageMs > oneDayMs) {
             // Older than 24h, skip
+            lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
             return false;
           }
         }
@@ -275,7 +276,7 @@ export async function runLocalSkepticCron(
     }
 
     // 3. If already successfully evaluated for this HEAD SHA, skip entirely
-    // BUT bypass this SHA cache check if a valid trigger comment is present
+    // Enforce SHA cache even with trigger to prevent infinite re-evaluation loops (per design)
     if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
       // Also cache this updatedAt so we skip next time immediately
       if (pr.updatedAt) {
