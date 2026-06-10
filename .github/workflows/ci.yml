@@ -226,6 +226,35 @@ jobs:
       - name: Verify all BUILTIN_PLUGINS are in CLI runtime dependencies
         run: pnpm --filter @jleechanorg/ao-core test -- src/__tests__/test_builtin_plugin_deps.test.ts
 
+  ao-doctor-v2:
+    name: AO Doctor v2 (unmonitored-signal checks)
+    # bd-1sno: gate on the 8 unmonitored-signal checks added by PR #672
+    # (fragility audit 2026-06-10). Doctor exits non-zero on FAIL → job
+    # FAILS → 7-green blocker. Locks in the 2026-06-10 staging-config
+    # regression class (no scm: in staging config = silent skeptic return).
+    # The doctor only inspects the source tree (no lifecycle or launchd
+    # state required), so it is safe to run on any runner. We use the
+    # shared self-hosted runner to keep cost off GitHub-hosted minutes
+    # per the private-repo Actions policy.
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+                  && 'ubuntu-latest'
+                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run ao-doctor-v2 (fragility audit 2026-06-10)
+        # DOCTOR_CI_MODE=1 limits the gate to source-tree structural checks
+        # (the bd-rgk0 skeptic-cron ordering guard) and skips local-state
+        # checks (running.json, staging config, launchd watchdogs) that
+        # are not applicable to a clean CI runner. See PR #672 + bd-1sno.
+        env:
+          DOCTOR_CI_MODE: "1"
+        run: bash scripts/ao-doctor-v2.sh
+
   test-web:
     name: Test (Web)
     # SECURITY: Fork-aware runner selection — do not simplify. See PR #273.
