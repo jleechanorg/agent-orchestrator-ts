@@ -197,12 +197,19 @@ check_watchdog_chain() {
 # --- Main ---
 main() {
   echo "=== ao-doctor-v2 (2026-06-10 fragility audit) ==="
-  check_scm_config_in_staging
-  check_skeptic_age_filter_order
-  check_gh_token_not_redacted
-  check_dist_md5_match
-  check_running_json_present
-  check_watchdog_chain
+  if [ "${DOCTOR_CI_MODE:-0}" = "1" ]; then
+    echo "(CI mode: skipping local-state-only checks — staging-config, gh-token,"
+    echo " dist-md5, running.json, watchdog chain — to keep the gate focused on"
+    echo " source-tree structural regressions like the 2026-06-10 bd-rgk0 class.)"
+    check_skeptic_age_filter_order
+  else
+    check_scm_config_in_staging
+    check_skeptic_age_filter_order
+    check_gh_token_not_redacted
+    check_dist_md5_match
+    check_running_json_present
+    check_watchdog_chain
+  fi
   echo "=== summary: $PASS_COUNT pass, $WARN_COUNT warn, $FAIL_COUNT fail ==="
   # Exit 1 if any FAIL so this script is CI-gateable
   [ "$FAIL_COUNT" -eq 0 ] && exit 0 || exit 1
