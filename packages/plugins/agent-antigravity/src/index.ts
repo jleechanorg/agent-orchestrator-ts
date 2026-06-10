@@ -299,6 +299,9 @@ const antigravityOverrides: Partial<Agent> = {
           const pathsToTrust = [
             launchConfig.projectConfig.path,
             launchConfig.workspacePath,
+            "/tmp",
+            "/private/tmp",
+            os.tmpdir(),
           ].filter(Boolean) as string[];
 
           for (let p of pathsToTrust) {

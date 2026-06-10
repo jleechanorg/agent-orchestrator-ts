@@ -63,7 +63,7 @@ describe("tryAgyPrint", () => {
       expect(result.validVerdict).toBe(true);
       expect(mockExecFileSync).toHaveBeenCalledWith(
         "/usr/local/bin/agy",
-        ["--yolo", "-p", ""],
+        ["--dangerously-skip-permissions", "-p", ""],
         expect.objectContaining({
           input: "evaluate this",
           cwd: "/tmp",
