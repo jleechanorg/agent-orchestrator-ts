@@ -5,6 +5,7 @@ import { loadConfig } from "@jleechanorg/ao-core";
 import { findWebDir, buildDashboardEnv, waitForPortAndOpen } from "../lib/web-dir.js";
 import { cleanNextCache, findRunningDashboardPid, findProcessWebDir, waitForPortFree } from "../lib/dashboard-rebuild.js";
 import { dashboardUrl } from "../lib/dashboard-url.js";
+import { shouldOpenBrowser } from "../lib/browser-utils.js";
 
 export function registerDashboard(program: Command): void {
   program
@@ -12,8 +13,9 @@ export function registerDashboard(program: Command): void {
     .description("Start the web dashboard")
     .option("-p, --port <port>", "Port to listen on")
     .option("--no-open", "Don't open browser automatically")
+    .option("--no-open-browser", "Don't open browser automatically (alias for --no-open)")
     .option("--rebuild", "Clean stale build artifacts and rebuild before starting")
-    .action(async (opts: { port?: string; open?: boolean; rebuild?: boolean }) => {
+    .action(async (opts: { port?: string; open?: boolean; openBrowser?: boolean; rebuild?: boolean }) => {
       const config = loadConfig();
       const port = opts.port ? parseInt(opts.port, 10) : (config.port ?? 3000);
 
@@ -86,7 +88,9 @@ export function registerDashboard(program: Command): void {
 
       let openAbort: AbortController | undefined;
 
-      if (opts.open !== false) {
+      const shouldOpen = shouldOpenBrowser(opts, config);
+
+      if (shouldOpen) {
         openAbort = new AbortController();
         void waitForPortAndOpen(port, dashboardUrl(port), openAbort.signal);
       }
