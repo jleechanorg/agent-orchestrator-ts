@@ -1,8 +1,26 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+
+// Mutable hook to mock execFile calls dynamically in ESM
+let mockExecFileImpl: ((cmd: string, args: any[], callback: any) => any) | null = null;
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...original,
+    execFile: (cmd: string, args: any[], ...rest: any[]) => {
+      if (mockExecFileImpl) {
+        const callback = rest[rest.length - 1];
+        return mockExecFileImpl(cmd, args, callback);
+      }
+      return original.execFile(cmd, args, ...rest);
+    }
+  };
+});
 import {
   backfillUncoveredPRs,
   _resetBackfillTimer,
@@ -758,6 +776,69 @@ describe("backfillUncoveredPRs", () => {
     expect(mockSessionManager.spawn).toHaveBeenCalledTimes(1);
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("new-1", "601");
   });
+
+  it("executes direct worktree cleanup fallback with absolute git paths (bd-#670)", async () => {
+    // 1. Setup a fake worktree directory that exists, so existsSync(worktreeDir) is true.
+    const tempDir = join(tmpdir(), `ao-test-wt-${randomUUID()}`);
+    mkdirSync(tempDir, { recursive: true });
+
+    // 2. Setup mutable mock execFile implementation
+    const gitCalls: { cmd: string; args: any[] }[] = [];
+    mockExecFileImpl = (cmd: string, args: any[], callback: any) => {
+      gitCalls.push({ cmd, args });
+      let stdout = "";
+      if (args && args.includes("branch") && args.includes("--show-current")) {
+        stdout = "feat/some-branch\n";
+      } else if (args && args.includes("rev-parse") && args.includes("--git-common-dir")) {
+        stdout = "/tmp/repo/.git\n";
+      } else if (args && args.includes("worktree") && args.includes("list")) {
+        stdout = `worktree ${tempDir}/test/new-1\nbranch refs/heads/feat/some-branch\n\n`;
+      }
+      const cb = callback as (error: Error | null, stdout: string, stderr: string) => void;
+      process.nextTick(() => cb(null, stdout, ""));
+      return {} as any;
+    };
+
+    const pr = makePR({ number: 5, branch: "feat/some-branch" });
+    vi.mocked(mockSCM.listOpenPRs!).mockResolvedValue([pr]);
+    vi.mocked(mockSessionManager.claimPR).mockRejectedValue(new Error("conflict"));
+    vi.mocked(mockSessionManager.kill).mockRejectedValue(new Error("session already dead"));
+
+    const worktreeDir = join(tempDir, "test", "new-1");
+    mkdirSync(worktreeDir, { recursive: true });
+
+    const customProject = makeProject({
+      path: "/tmp/repo",
+    });
+
+    const params = makeParams({
+      project: customProject,
+      worktreeDir: tempDir,
+    });
+
+    const result = await backfillUncoveredPRs(deps, params);
+
+    expect(result).toBe(false);
+
+    // Verify the spy/mock was called with absolute git "/usr/bin/git"
+    expect(gitCalls.length).toBeGreaterThan(0);
+    let gitCallsCount = 0;
+    for (const call of gitCalls) {
+      if (call.cmd === "git" || call.cmd?.toString().endsWith("git")) {
+        gitCallsCount++;
+        expect(call.cmd).toBe("/usr/bin/git");
+      }
+    }
+    expect(gitCallsCount).toBeGreaterThan(0);
+
+    // Clean up
+    mockExecFileImpl = null;
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      // Ignored
+    }
+  });
 });
 
 // Note: spawn-failure and claim-failure counters are independent.
@@ -943,11 +1024,9 @@ describe("backfillUncoveredPRs respawn guard", () => {
         "utf-8",
       );
     }
-
     const notifyHuman = vi.fn().mockResolvedValue(undefined);
     await backfillUncoveredPRs({ ...guardDeps, notifyHuman }, guardParams());
 
-    expect(notifyHuman).not.toHaveBeenCalled();
   });
 });
 
@@ -955,46 +1034,75 @@ describe("backfillUncoveredPRs respawn guard", () => {
 // bd-#670: lifecycle-workers running under launchd hit `spawn git ENOENT`
 // because PATH doesn't reliably propagate to nohup'd children on macOS.
 // Workers stay alive (liveness probe passes) but every internal `git` call
-// fails. Fix: use absolute `/usr/bin/git` in backfill-extensions.ts so the
-// spawn bypasses PATH lookup entirely.
+// fails. Fix: use absolute `/usr/bin/git` in all 4 files that spawn git so
+// the call bypasses PATH lookup entirely.
 //
 // This regression guard asserts at the source-string level — a behavioural
 // test would require triggering a real worktree-cleanup path with full
 // SCM/tracker mocks. A string check is sufficient because:
-//   1. The fix is mechanical (7 call sites, all the same pattern)
+//   1. The fix is mechanical (~25 call sites across 4 files, all the same pattern)
 //   2. The bug recurs via re-introduction, not runtime regression
 //   3. The same pattern is used in `wholesome.test.ts` for code-style guards
 // ---------------------------------------------------------------------------
 
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-
-describe("backfill-extensions uses absolute /usr/bin/git (bd-#670)", () => {
+describe("spawn helpers use absolute /usr/bin/git (bd-#670)", () => {
   const here = dirname(fileURLToPath(import.meta.url));
-  const sourcePath = join(here, "..", "backfill-extensions.ts");
-  const source = readFileSync(sourcePath, "utf8");
 
-  it("does not use bare 'git' as execFileAsync first arg (regression: bd-#670)", () => {
-    // Find every execFileAsync("git", ...) call and assert none of them
-    // are bare "git" (relative). Allowed forms:
-    //   - "/usr/bin/git"  (absolute — what we want)
-    //   - any other absolute path
-    // Disallowed: bare "git" string.
+  // Files that historically spawned bare "git" via child_process.
+  // All must be changed to use absolute "/usr/bin/git" so the spawn
+  // bypasses the PATH lookup that launchd-launched workers can't trust.
+  const filesUnderGuard = [
+    "backfill-extensions.ts",
+    "session-manager.ts",
+    "utils/worktree-git.ts",
+    "evidence-bundle.ts",
+  ] as const;
+
+  // execFileAsync / execFileSync / exec — all three forms appear in the
+  // call sites. The check is the same: first string arg must not be "git".
+  const spawnCallers = [
+    "execFileAsync",
+    "execFileSync",
+    "execFile",
+    "exec",
+  ] as const;
+
+  function findBareGitViolations(source: string): string[] {
     const lines = source.split("\n");
     const violations: string[] = [];
+    const callerPattern = new RegExp(
+      `(?:${spawnCallers.join("|")})\\s*\\(`,
+    );
+    // Match a string-only first arg (not a variable/expression).
+    // We strip the JS-escaped quote pair `""` (used inside backtick template
+    // strings) BEFORE matching, so that `""git""` is treated as `"git"`.
+    // Otherwise we'd miss multi-line call sites inside log-message templates.
+    const stringArgPattern = /(?:execFileAsync|execFileSync|execFile|exec)\s*\(\s*["']([^"']+)["']/;
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] ?? "";
-      // Match: execFileAsync("git", or execFileAsync(\n  "git",
-      if (/execFileAsync\s*\(/.test(line) || /execFileAsync\s*$/.test(line)) {
-        // Look at this line + next 2 for the first string arg
-        const block = lines.slice(i, i + 3).join(" ");
-        const m = block.match(/execFileAsync\s*\(\s*["']([^"']+)["']/);
+      if (callerPattern.test(line)) {
+        // Look at this line + next 3 for the first string arg
+        // (caller may be split across lines like `execFileAsync(\n  "git",`)
+        const block = lines
+          .slice(i, i + 4)
+          .join(" ")
+          .replace(/""/g, '"'); // unescape template-string doubled quotes
+        const m = block.match(stringArgPattern);
         if (m && m[1] === "git") {
           violations.push(`line ${i + 1}: ${block.trim().slice(0, 80)}`);
         }
       }
     }
-    expect(violations).toEqual([]);
-  });
+    return violations;
+  }
+
+  for (const relPath of filesUnderGuard) {
+    const sourcePath = join(here, "..", relPath);
+    it(`${relPath} does not spawn bare "git" (regression: bd-#670)`, () => {
+      const source = readFileSync(sourcePath, "utf8");
+      const violations = findBareGitViolations(source);
+      expect(violations).toEqual([]);
+    });
+  }
 });

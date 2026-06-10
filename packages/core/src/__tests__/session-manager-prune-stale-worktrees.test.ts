@@ -153,10 +153,10 @@ describe("pruneStaleWorktrees", () => {
       if (cmd === "tmux" && args?.[0] === "has-session") {
         return Promise.reject(new Error("no server"));
       }
-      if (cmd === "git" && args?.[0] === "-C") {
+      if (cmd === "/usr/bin/git" && args?.[0] === "-C") {
         return Promise.resolve({ stdout: config.projects["my-app"]!.path, stderr: "" });
       }
-      if (cmd === "git" && args?.[0] === "worktree") {
+      if (cmd === "/usr/bin/git" && args?.[0] === "worktree") {
         return Promise.reject(new Error("path not found"));
       }
       return Promise.resolve({ stdout: "", stderr: "" });
@@ -205,10 +205,10 @@ describe("pruneStaleWorktrees", () => {
       if (cmd === "tmux" && args?.[0] === "has-session") {
         return Promise.reject(new Error("no server"));
       }
-      if (cmd === "git" && args?.[0] === "-C") {
+      if (cmd === "/usr/bin/git" && args?.[0] === "-C") {
         return Promise.resolve({ stdout: config.projects["my-app"]!.path, stderr: "" });
       }
-      if (cmd === "git" && args?.[0] === "worktree") {
+      if (cmd === "/usr/bin/git" && args?.[0] === "worktree") {
         return Promise.reject(new Error("path not found"));
       }
       return Promise.resolve({ stdout: "", stderr: "" });
@@ -255,10 +255,10 @@ describe("pruneStaleWorktrees", () => {
         capturedTmuxName = args?.[2];
         return Promise.reject(new Error("no server"));
       }
-      if (cmd === "git" && args?.[0] === "-C") {
+      if (cmd === "/usr/bin/git" && args?.[0] === "-C") {
         return Promise.resolve({ stdout: config.projects["my-app"]!.path, stderr: "" });
       }
-      if (cmd === "git" && args?.[0] === "worktree") {
+      if (cmd === "/usr/bin/git" && args?.[0] === "worktree") {
         return Promise.reject(new Error("path not found"));
       }
       return Promise.resolve({ stdout: "", stderr: "" });
@@ -332,13 +332,13 @@ describe("pruneStaleWorktrees", () => {
         return Promise.reject(new Error("no server"));
       }
       const argsStr = args?.join(" ") ?? "";
-      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("worktree list --porcelain")) {
         return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
       }
-      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
         return Promise.resolve({ stdout: "true\n", stderr: "" });
       }
-      if (cmd === "git" && argsStr.includes("worktree remove")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("worktree remove")) {
         capturedRemovePath = args?.[args.length - 1];
         // Simulate successful deletion of the folder
         rmSync(zombiePath, { recursive: true, force: true });
@@ -393,10 +393,10 @@ describe("pruneStaleWorktrees", () => {
         return Promise.resolve({ stdout: "", stderr: "" }); // session alive
       }
       const argsStr = args?.join(" ") ?? "";
-      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("worktree list --porcelain")) {
         return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
       }
-      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
         return Promise.resolve({ stdout: "true\n", stderr: "" });
       }
       return Promise.resolve({ stdout: "", stderr: "" });
@@ -443,10 +443,10 @@ describe("pruneStaleWorktrees", () => {
 
     mockExecFile = async (cmd: string, args?: readonly string[]) => {
       const argsStr = args?.join(" ") ?? "";
-      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("worktree list --porcelain")) {
         return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
       }
-      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
         return Promise.resolve({ stdout: "true\n", stderr: "" });
       }
       return Promise.resolve({ stdout: "", stderr: "" });
@@ -490,13 +490,13 @@ describe("pruneStaleWorktrees", () => {
     let gitWorktreeRemoveCalled = false;
     mockExecFile = async (cmd: string, args?: readonly string[], _opts?: object) => {
       const argsStr = args?.join(" ") ?? "";
-      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("worktree list --porcelain")) {
         return Promise.resolve({ stdout: porcelainOutputMain, stderr: "" });
       }
-      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
         return Promise.resolve({ stdout: "true\n", stderr: "" });
       }
-      if (cmd === "git" && argsStr.includes("worktree remove")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("worktree remove")) {
         gitWorktreeRemoveCalled = true;
         return Promise.resolve({ stdout: "", stderr: "" });
       }
@@ -545,13 +545,13 @@ describe("pruneStaleWorktrees", () => {
     let gitWorktreeRemoveCalled = false;
     mockExecFile = async (cmd: string, args?: readonly string[], _opts?: object) => {
       const argsStr = args?.join(" ") ?? "";
-      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("worktree list --porcelain")) {
         return Promise.resolve({ stdout: porcelainOutputMain, stderr: "" });
       }
-      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
         return Promise.resolve({ stdout: "true\n", stderr: "" });
       }
-      if (cmd === "git" && argsStr.includes("worktree remove")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("worktree remove")) {
         gitWorktreeRemoveCalled = true;
         return Promise.resolve({ stdout: "", stderr: "" });
       }
@@ -606,13 +606,13 @@ describe("pruneStaleWorktrees", () => {
     const removedPaths: string[] = [];
     mockExecFile = async (cmd: string, args?: readonly string[]) => {
       const argsStr = args?.join(" ") ?? "";
-      if (cmd === "git" && argsStr.includes("worktree list --porcelain")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("worktree list --porcelain")) {
         return Promise.resolve({ stdout: porcelainOutput, stderr: "" });
       }
-      if (cmd === "git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("rev-parse --is-inside-work-tree")) {
         return Promise.resolve({ stdout: "true\n", stderr: "" });
       }
-      if (cmd === "git" && argsStr.includes("worktree remove")) {
+      if (cmd === "/usr/bin/git" && argsStr.includes("worktree remove")) {
         const pathArg = args?.[args.length - 1];
         if (pathArg) {
           removedPaths.push(pathArg);

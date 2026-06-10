@@ -12,6 +12,8 @@ import {
 import { dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createSessionManager, buildInitialPRTaskMessage } from "../session-manager.js";
 import { AOWorkerLogger } from "../ao-worker-logger.js";
 import { WORKER_BOOT_PROMPT } from "../prompt-artifact-builder.js";
@@ -164,31 +166,6 @@ function installMockOpencodeWithNotFoundDelete(sessionListJson: string): string 
   return binDir;
 }
 
-function installMockGit(remoteBranches: string[]): string {
-  const binDir = join(tmpDir, "mock-git-bin");
-  mkdirSync(binDir, { recursive: true });
-  const scriptPath = join(binDir, "git");
-  const refs = remoteBranches
-    .map((branch) => `deadbeef\trefs/heads/${branch}`)
-    .join("\\n")
-    .replace(/'/g, "'\\''");
-  writeFileSync(
-    scriptPath,
-    [
-      "#!/usr/bin/env bash",
-      "set -euo pipefail",
-      'if [[ "$1" == "ls-remote" && "$2" == "--heads" && "$3" == "origin" ]]; then',
-      `  printf '%b\\n' '${refs}'`,
-      "  exit 0",
-      "fi",
-      "exit 1",
-      "",
-    ].join("\n"),
-    "utf-8",
-  );
-  chmodSync(scriptPath, 0o755);
-  return binDir;
-}
 
 beforeEach(() => {
   originalPath = process.env.PATH;
@@ -475,11 +452,26 @@ describe("spawn", () => {
   });
 
   it("skips remote session branches when allocating a fresh session id", async () => {
-    const mockGitBin = installMockGit(["session/app-22"]);
-    process.env.PATH = `${mockGitBin}:${originalPath ?? ""}`;
     mkdirSync(config.projects["my-app"]!.path, { recursive: true });
 
-    const sm = createSessionManager({ config, registry: mockRegistry });
+    const realExecFileAsync = promisify(execFile);
+    const customExecFileAsync = vi.fn().mockImplementation((file, args, opts) => {
+      if (
+        file === "/usr/bin/git" &&
+        args[0] === "ls-remote" &&
+        args[1] === "--heads" &&
+        args[2] === "origin"
+      ) {
+        return Promise.resolve({ stdout: "deadbeef\trefs/heads/session/app-22\n", stderr: "" });
+      }
+      return realExecFileAsync(file, args, opts);
+    });
+
+    const sm = createSessionManager({
+      config,
+      registry: mockRegistry,
+      execFileAsync: customExecFileAsync,
+    });
     const session = await sm.spawn({ projectId: "my-app" });
 
     expect(session.id).toBe("app-23");
