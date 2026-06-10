@@ -1804,15 +1804,32 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         ? metadataToSession(sessionId, concurrentRaw, orchestratorConfig.projectId)
         : null;
       if (concurrentSession?.runtimeHandle) {
+        const concurrentActiveHandle = concurrentSession.runtimeHandle;
         const concurrentAlive = await plugins.runtime
-          .isAlive(concurrentSession.runtimeHandle)
+          .isAlive(concurrentActiveHandle)
           .catch(() => false);
+
+        const shouldProceedWithConcurrentTeardown = (): boolean => {
+          const checkRaw = readMetadataRaw(sessionsDir, sessionId);
+          if (!checkRaw) return true;
+          const reReadHandleRaw = checkRaw["runtimeHandle"];
+          if (!reReadHandleRaw) return false;
+          const reReadHandle = safeJsonParse<RuntimeHandle>(reReadHandleRaw);
+          return !!(
+            reReadHandle &&
+            reReadHandle.id === concurrentActiveHandle.id &&
+            reReadHandle.runtimeName === concurrentActiveHandle.runtimeName
+          );
+        };
+
         if (concurrentAlive && orchestratorSessionStrategy === "reuse") {
           const rawStatus = concurrentRaw?.["status"] ?? "";
           if (NON_RESTORABLE_STATUSES.has(rawStatus as SessionStatus)) {
-            await plugins.runtime.destroy(concurrentSession.runtimeHandle).catch(() => undefined);
-            deleteMetadata(sessionsDir, sessionId, false);
-            reserved = reserveSessionId(sessionsDir, sessionId);
+            if (shouldProceedWithConcurrentTeardown()) {
+              await plugins.runtime.destroy(concurrentActiveHandle).catch(() => undefined);
+              deleteMetadata(sessionsDir, sessionId, false);
+              reserved = reserveSessionId(sessionsDir, sessionId);
+            }
           } else {
             concurrentSession.metadata["orchestratorSessionReused"] = "true";
             if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
@@ -1834,8 +1851,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           }
         }
         if (!concurrentAlive) {
-          deleteMetadata(sessionsDir, sessionId, orchestratorSessionStrategy === "reuse");
-          reserved = reserveSessionId(sessionsDir, sessionId);
+          if (shouldProceedWithConcurrentTeardown()) {
+            deleteMetadata(sessionsDir, sessionId, orchestratorSessionStrategy === "reuse");
+            reserved = reserveSessionId(sessionsDir, sessionId);
+          }
         }
       } else {
         reserved = reserveSessionId(sessionsDir, sessionId);
