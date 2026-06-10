@@ -98,15 +98,28 @@ fi
 if [ "$TIER1_REGISTERED" -eq 0 ]; then
   alert_count=$((alert_count + 1))
   alert_lines="${alert_lines}\n:rotating_light: $TIER1_LABEL plist not registered"
-  # Prefer the live (substituted) plist; fall back to template (which needs
-  # setup-launchd.sh to substitute @VAR@, not a direct bootstrap).
+  # Prefer the live (substituted) plist; fall back to substituting the
+  # frozen template and bootstrapping the result (true auto-rebootstrap).
   if [ -f "$TIER1_PLIST" ]; then
     log "bootstrapping $TIER1_LABEL from live plist"
     launchctl bootstrap "gui/$(id -u)" "$TIER1_PLIST" 2>/dev/null \
       && log "bootstrap attempted for $TIER1_LABEL" \
       || log "bootstrap FAILED for $TIER1_LABEL (live plist present but rejected)"
   elif [ -f "$TIER1_FROZEN_PLIST" ]; then
-    log "frozen plist is a template at $TIER1_FROZEN_PLIST — operator must run scripts/setup-launchd.sh health"
+    # Frozen template contains @REPO_ROOT@, @HOME@, @PATH@ placeholders.
+    # Substitute them in place to ~/Library/LaunchAgents and bootstrap.
+    log "frozen template found at $TIER1_FROZEN_PLIST — substituting placeholders"
+    if sed -e "s|@REPO_ROOT@|$REPO_ROOT|g" \
+           -e "s|@HOME@|$HOME|g" \
+           -e "s|@PATH@|${PATH:-/usr/local/bin:/usr/bin:/bin}|g" \
+           "$TIER1_FROZEN_PLIST" > "$TIER1_PLIST" 2>/dev/null; then
+      log "substituted plist written to $TIER1_PLIST"
+      launchctl bootstrap "gui/$(id -u)" "$TIER1_PLIST" 2>/dev/null \
+        && log "bootstrap from frozen template attempted for $TIER1_LABEL" \
+        || log "bootstrap FAILED for $TIER1_LABEL (frozen template substituted but rejected)"
+    else
+      log "sed substitution FAILED for $TIER1_FROZEN_PLIST"
+    fi
   else
     log "no plist found at $TIER1_PLIST or $TIER1_FROZEN_PLIST"
   fi

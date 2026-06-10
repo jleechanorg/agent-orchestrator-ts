@@ -16,7 +16,7 @@ set -u
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
-HERMES_STAGING_CONFIG="$HOME/.hermes/agent-orchestrator.yaml"
+HERMES_STAGING_CONFIG="${HERMES_STAGING_CONFIG:-$HOME/.hermes/agent-orchestrator.yaml}"
 HERMES_PROD_CONFIG="$HOME/.hermes_prod/config.yaml"
 
 PASS_COUNT=0
@@ -103,13 +103,14 @@ check_gh_token_not_redacted() {
 }
 
 # --- Check 4: dist loaded in memory vs dist on disk ---
-# Root cause: ao dist deploy workflow: /Users/jleechan/bin/ao is symlink to
-# repo dist; if process holds old dist in memory, PR-merged ≠ fix-deployed.
+# Root cause: ao dist deploy workflow keeps a symlink at ${AO_BIN_PATH:-/usr/local/bin/ao}
+# pointing to the repo dist; if process holds old dist in memory, PR-merged ≠ fix-deployed.
+# Use $AO_BIN_PATH or `which ao` to find the symlink, never a hardcoded user path.
 check_dist_md5_match() {
-  local cli_bin="/Users/jleechan/bin/ao"
+  local cli_bin="${AO_BIN_PATH:-$(command -v ao 2>/dev/null || true)}"
   local source_dist="$REPO_ROOT/packages/cli/dist/index.js"
-  if [ ! -L "$cli_bin" ] && [ ! -f "$cli_bin" ]; then
-    warn "no ao binary at $cli_bin — skipping dist match check"
+  if [ -z "$cli_bin" ] || { [ ! -L "$cli_bin" ] && [ ! -f "$cli_bin" ]; }; then
+    warn "no ao binary found (set \$AO_BIN_PATH or ensure 'ao' is on PATH) — skipping dist match check"
     return
   fi
   local resolved

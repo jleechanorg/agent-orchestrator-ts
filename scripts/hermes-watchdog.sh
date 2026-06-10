@@ -65,17 +65,45 @@ dedup_should_send() {
 fail_count=0
 alert_lines=""
 
+# For interval-based launchd jobs (StartInterval=N), the job is "not running"
+# between executions. Using `state = running` fires on most passes and spams
+# Slack. Use log mtime as the canonical "did the watchdog run recently?"
+# signal: a watchdog is healthy iff its log was updated within ~2x its
+# StartInterval (5 min => 600s for ai.agento.health; gateway is KeepAlive
+# so 300s is plenty).
+is_interval_job_fresh() {
+  local label="$1" log_path="$2" max_age="$3"
+  # 1. Must be registered as a LaunchAgent
+  if ! launchctl print "gui/$(id -u)/$label" 2>/dev/null | grep -q "type = LaunchAgent"; then
+    return 1
+  fi
+  # 2. Log mtime must be within max_age seconds
+  if [ ! -f "$log_path" ]; then
+    return 1
+  fi
+  local log_mtime now age
+  log_mtime=$(stat -f %m "$log_path" 2>/dev/null || echo 0)
+  now=$(date +%s)
+  age=$((now - log_mtime))
+  if [ "$age" -lt "$max_age" ]; then
+    return 0
+  fi
+  return 1
+}
+
 check_gateway() {
-  if ! launchctl print "gui/$(id -u)/ai.hermes.gateway" 2>/dev/null | grep -q "state = running"; then
+  # ai.hermes.gateway is KeepAlive; treat as unhealthy if log stale.
+  if ! is_interval_job_fresh "ai.hermes.gateway" "$HOME/.hermes_prod/logs/gateway.log" 300; then
     fail_count=$((fail_count + 1))
-    alert_lines="${alert_lines}\n:rotating_light: ai.hermes.gateway plist not running"
+    alert_lines="${alert_lines}\n:rotating_light: ai.hermes.gateway plist not running or log stale"
   fi
 }
 
 check_ao_health() {
-  if ! launchctl print "gui/$(id -u)/ai.agento.health" 2>/dev/null | grep -q "state = running"; then
+  # ai.agento.health is StartInterval=300 (5 min); 2x = 600s window.
+  if ! is_interval_job_fresh "ai.agento.health" "$HOME/.openclaw/logs/ao-health.log" 600; then
     fail_count=$((fail_count + 1))
-    alert_lines="${alert_lines}\n:warning: ai.agento.health watchdog plist not running"
+    alert_lines="${alert_lines}\n:warning: ai.agento.health watchdog plist stale (no recent run)"
   fi
 }
 
