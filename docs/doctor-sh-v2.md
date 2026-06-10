@@ -43,10 +43,10 @@ This PR delivers the first three of five implementation phases:
 
 | File | Status | Lines | Purpose |
 |------|--------|-------|---------|
-| `scripts/hermes-watchdog.sh` | NEW | ~110 | Restored 30-line shim (per plist) — checks Tier 1 + cross-watchdog + disk + tmux; posts dedup'd Slack alerts to `C09GRLXF9GR`. |
-| `scripts/ai.agento.health-guardian.sh` | NEW | ~145 | Tier 2 watchdog — checks Tier 1 log freshness, hermes-watchdog log freshness, and worker count. Auto-rebootstraps deregistered plists from `~/Library/LaunchAgents/` (live) or `launchd/*.template` (frozen). Posts to `C09GRLXF9GR`. |
-| `launchd/ai.agento.health-guardian.plist.template` | NEW | ~60 | plist template (60-min cadence) with `@REPO_ROOT@`, `@HOME@`, `@PATH@` placeholders. Substituted by `setup-launchd.sh` (or manually via `sed`). |
-| `scripts/ao-doctor-v2.sh` | NEW | ~155 | 6 new unmonitored-signal checks. Runs standalone (`bash scripts/ao-doctor-v2.sh`) or sourced. CI-gateable: exits 1 on any FAIL. |
+| `scripts/hermes-watchdog.sh` | NEW | ~145 | Restored 30-line shim (per plist) — checks Tier 1 + cross-watchdog + disk + tmux; posts dedup'd Slack alerts to `C09GRLXF9GR`. Uses log mtime (not `state = running`) for interval-based launchd jobs. |
+| `scripts/ai.agento.health-guardian.sh` | NEW | ~165 | Tier 2 watchdog — checks Tier 1 log freshness, hermes-watchdog log freshness, and worker count. Auto-rebootstraps deregistered plists from `~/Library/LaunchAgents/` (live) or `launchd/*.template` (frozen) with in-place `sed` substitution. Posts to `C09GRLXF9GR`. |
+| `launchd/ai.agento.health-guardian.plist.template` | NEW | ~60 | plist template (60-min cadence) with `@REPO_ROOT@`, `@HOME@`, `@PATH@` placeholders. Substituted by `setup-launchd.sh` (or directly by the Tier 2 guardian). |
+| `scripts/ao-doctor-v2.sh` | NEW | ~155 | 6 new unmonitored-signal checks. Runs standalone (`bash scripts/ao-doctor-v2.sh`) or sourced. CI-gateable: exits 1 on any FAIL. Uses `$AO_BIN_PATH` / `which ao` (no hardcoded user paths). |
 
 ## Testing
 
