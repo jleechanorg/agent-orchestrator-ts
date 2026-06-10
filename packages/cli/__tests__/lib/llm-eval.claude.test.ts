@@ -8,14 +8,22 @@ vi.hoisted(() => {
   process.env["CLAUDE_BINARY"] = "/mock/claude";
 });
 
-vi.mock("node:child_process", () => ({
-  execFileSync: mockExecFileSync,
-}));
+vi.mock("node:child_process", async () => {
+  const original = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  return {
+    ...original,
+    execFileSync: mockExecFileSync,
+  };
+});
 
-vi.mock("node:fs", () => ({
-  accessSync: mockAccessSync,
-  constants: { X_OK: 1 },
-}));
+vi.mock("node:fs", async () => {
+  const original = await vi.importActual<typeof import("node:fs")>("node:fs");
+  return {
+    ...original,
+    accessSync: mockAccessSync,
+    constants: { ...original.constants, X_OK: 1 },
+  };
+});
 
 vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
   resolveCodexBinary: mockResolveCodexBinary,
