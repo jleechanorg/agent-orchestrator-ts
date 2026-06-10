@@ -14,10 +14,8 @@
 set -u
 
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
 HERMES_STAGING_CONFIG="${HERMES_STAGING_CONFIG:-$HOME/.hermes/agent-orchestrator.yaml}"
-HERMES_PROD_CONFIG="$HOME/.hermes_prod/config.yaml"
 
 PASS_COUNT=0
 WARN_COUNT=0
