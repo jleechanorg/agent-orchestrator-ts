@@ -31,7 +31,6 @@ import { emitActivityTransition } from "./lifecycle-activity-events.js";
 import {
   isIssueNotFoundError,
   isRestorable,
-  NON_RESTORABLE_STATUSES,
   SessionNotFoundError,
   SessionNotRestorableError,
   WorkspaceMissingError,
@@ -57,11 +56,11 @@ import {
   type LockEntry,
   type SessionStatus,
   isOrchestratorSession,
+  NON_RESTORABLE_STATUSES,
   PR_STATE,
   TERMINAL_STATUSES,
 } from "./types.js";
 import {
-  readMetadataRaw,
   readMetadataRaw as _readMetadataRaw,
   readArchivedMetadataRaw,
   updateArchivedMetadata,
@@ -372,7 +371,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   // Shadow module-level execFileAsync with the injected test mock when provided
   const execFileAsync = injectedExecFileAsync ?? _execFileAsync;
   // Shadow module-level readMetadataRaw when injected (for test isolation)
-  const readMeta = injectedReadMeta ?? _readMetadataRaw;
+  const readMetadataRaw = injectedReadMeta ?? _readMetadataRaw;
   // Shadow listMetadata when injected (for test isolation)
   const sessionListMetadata = injectedListMetadata ?? listMetadata;
   const allSessionPrefixes = getAllSessionPrefixes(config.projects);
@@ -1711,49 +1710,85 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       ? metadataToSession(sessionId, existingRaw, orchestratorConfig.projectId)
       : null;
     if (existingOrchestrator?.runtimeHandle) {
+      const activeHandle = existingOrchestrator.runtimeHandle;
       const existingAlive = await plugins.runtime
-        .isAlive(existingOrchestrator.runtimeHandle)
+        .isAlive(activeHandle)
         .catch(() => false);
+
+      const shouldProceedWithTeardown = (): boolean => {
+        const checkRaw = readMetadataRaw(sessionsDir, sessionId);
+        if (!checkRaw) {
+          // If metadata is completely missing, it was deleted (e.g. simulating orphaned status in tests).
+          // Treat it as safe to clean up.
+          return true;
+        }
+        const reReadHandleRaw = checkRaw["runtimeHandle"];
+        if (!reReadHandleRaw) {
+          // If the file exists but has no handle, it might be in-progress reservation.
+          return false;
+        }
+        const reReadHandle = safeJsonParse<RuntimeHandle>(reReadHandleRaw);
+        return !!(
+          reReadHandle &&
+          reReadHandle.id === activeHandle.id &&
+          reReadHandle.runtimeName === activeHandle.runtimeName
+        );
+      };
+
       if (existingAlive && orchestratorSessionStrategy === "reuse") {
         const persistedRaw = readMetadataRaw(sessionsDir, sessionId);
-        if (persistedRaw?.["runtimeHandle"]) {
-          const persisted = metadataToSession(
-            sessionId,
-            persistedRaw,
-            orchestratorConfig.projectId,
-          );
-          persisted.metadata["orchestratorSessionReused"] = "true";
-          const rawStatus = persistedRaw["status"] ?? "";
-          if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
-            updateMetadata(sessionsDir, sessionId, {
-              status: "working",
-              activity: "",
-              exitCode: "",
-              finishedAt: "",
-            });
-            persisted.status = "working";
-            persisted.activity = null;
-            if (persisted.metadata) {
-              delete persisted.metadata.activity;
-              delete persisted.metadata.exitCode;
-              delete persisted.metadata.finishedAt;
-            }
+        const rawStatus = persistedRaw?.["status"] ?? "";
+        if (NON_RESTORABLE_STATUSES.has(rawStatus as SessionStatus)) {
+          if (shouldProceedWithTeardown()) {
+            await plugins.runtime.destroy(activeHandle).catch(() => undefined);
+            deleteMetadata(sessionsDir, sessionId, false);
           }
-          return persisted;
+        } else if (persistedRaw?.["runtimeHandle"]) {
+          if (shouldProceedWithTeardown()) {
+            const persisted = metadataToSession(
+              sessionId,
+              persistedRaw,
+              orchestratorConfig.projectId,
+            );
+            persisted.metadata["orchestratorSessionReused"] = "true";
+            if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
+              updateMetadata(sessionsDir, sessionId, {
+                status: "working",
+                activity: "",
+                exitCode: "",
+                finishedAt: "",
+              });
+              persisted.status = "working";
+              persisted.activity = null;
+              if (persisted.metadata) {
+                delete persisted.metadata.activity;
+                delete persisted.metadata.exitCode;
+                delete persisted.metadata.finishedAt;
+              }
+            }
+            return persisted;
+          }
+        } else {
+          if (shouldProceedWithTeardown()) {
+            await plugins.runtime.destroy(activeHandle).catch(() => undefined);
+            deleteMetadata(sessionsDir, sessionId, false);
+          }
         }
-        await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
-        deleteMetadata(sessionsDir, sessionId, false);
       }
       if (existingAlive && orchestratorSessionStrategy !== "reuse") {
-        await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
-        // Destroy runtime and delete metadata without archive for ignore strategy
-        deleteMetadata(sessionsDir, sessionId, false);
+        if (shouldProceedWithTeardown()) {
+          await plugins.runtime.destroy(activeHandle).catch(() => undefined);
+          // Destroy runtime and delete metadata without archive for ignore strategy
+          deleteMetadata(sessionsDir, sessionId, false);
+        }
       }
       // For dead runtime, delete metadata so reserveSessionId can succeed:
       // - With reuse strategy + opencode: archive to preserve opencodeSessionId for reuse lookup
       // - With non-reuse strategy: delete without archive to respawn fresh
       if (!existingAlive) {
-        deleteMetadata(sessionsDir, sessionId, orchestratorSessionStrategy === "reuse");
+        if (shouldProceedWithTeardown()) {
+          deleteMetadata(sessionsDir, sessionId, orchestratorSessionStrategy === "reuse");
+        }
       }
     }
 
@@ -1769,32 +1804,57 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         ? metadataToSession(sessionId, concurrentRaw, orchestratorConfig.projectId)
         : null;
       if (concurrentSession?.runtimeHandle) {
+        const concurrentActiveHandle = concurrentSession.runtimeHandle;
         const concurrentAlive = await plugins.runtime
-          .isAlive(concurrentSession.runtimeHandle)
+          .isAlive(concurrentActiveHandle)
           .catch(() => false);
+
+        const shouldProceedWithConcurrentTeardown = (): boolean => {
+          const checkRaw = readMetadataRaw(sessionsDir, sessionId);
+          if (!checkRaw) return true;
+          const reReadHandleRaw = checkRaw["runtimeHandle"];
+          if (!reReadHandleRaw) return false;
+          const reReadHandle = safeJsonParse<RuntimeHandle>(reReadHandleRaw);
+          return !!(
+            reReadHandle &&
+            reReadHandle.id === concurrentActiveHandle.id &&
+            reReadHandle.runtimeName === concurrentActiveHandle.runtimeName
+          );
+        };
+
         if (concurrentAlive && orchestratorSessionStrategy === "reuse") {
-          concurrentSession.metadata["orchestratorSessionReused"] = "true";
           const rawStatus = concurrentRaw?.["status"] ?? "";
-          if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
-            updateMetadata(sessionsDir, sessionId, {
-              status: "working",
-              activity: "",
-              exitCode: "",
-              finishedAt: "",
-            });
-            concurrentSession.status = "working";
-            concurrentSession.activity = null;
-            if (concurrentSession.metadata) {
-              delete concurrentSession.metadata.activity;
-              delete concurrentSession.metadata.exitCode;
-              delete concurrentSession.metadata.finishedAt;
+          if (NON_RESTORABLE_STATUSES.has(rawStatus as SessionStatus)) {
+            if (shouldProceedWithConcurrentTeardown()) {
+              await plugins.runtime.destroy(concurrentActiveHandle).catch(() => undefined);
+              deleteMetadata(sessionsDir, sessionId, false);
+              reserved = reserveSessionId(sessionsDir, sessionId);
             }
+          } else {
+            concurrentSession.metadata["orchestratorSessionReused"] = "true";
+            if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
+              updateMetadata(sessionsDir, sessionId, {
+                status: "working",
+                activity: "",
+                exitCode: "",
+                finishedAt: "",
+              });
+              concurrentSession.status = "working";
+              concurrentSession.activity = null;
+              if (concurrentSession.metadata) {
+                delete concurrentSession.metadata.activity;
+                delete concurrentSession.metadata.exitCode;
+                delete concurrentSession.metadata.finishedAt;
+              }
+            }
+            return concurrentSession;
           }
-          return concurrentSession;
         }
         if (!concurrentAlive) {
-          deleteMetadata(sessionsDir, sessionId, orchestratorSessionStrategy === "reuse");
-          reserved = reserveSessionId(sessionsDir, sessionId);
+          if (shouldProceedWithConcurrentTeardown()) {
+            deleteMetadata(sessionsDir, sessionId, orchestratorSessionStrategy === "reuse");
+            reserved = reserveSessionId(sessionsDir, sessionId);
+          }
         }
       } else {
         reserved = reserveSessionId(sessionsDir, sessionId);
@@ -2327,7 +2387,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         let matchingRaw: Record<string, string> | null = null;
 
         for (const sessionId of sessionIds) {
-          const raw = readMeta(sessionsDir, sessionId);
+          const raw = readMetadataRaw(sessionsDir, sessionId);
           if (!raw) continue;
           const storedWorktree = raw["worktree"];
           if (storedWorktree && normalizePath(storedWorktree) === normalizedWorktree) {

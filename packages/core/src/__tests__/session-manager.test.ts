@@ -4485,6 +4485,61 @@ describe("spawnOrchestrator", () => {
     expect(mockRuntime.create).not.toHaveBeenCalled();
     expect(readMetadataRaw(sessionsDir, "app-orchestrator")).toEqual({});
   });
+
+  it("does not destroy runtime or delete metadata if concurrent reservation changed the runtimeHandle during probe", async () => {
+    const originalHandle = makeHandle("rt-original");
+    const concurrentHandle = makeHandle("rt-concurrent");
+
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "working",
+      role: "orchestrator",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(originalHandle),
+      createdAt: new Date().toISOString(),
+    });
+
+    vi.mocked(mockRuntime.isAlive).mockImplementation(async (handle) => {
+      if (!handle) return false;
+      if (handle.id === originalHandle.id) {
+        writeMetadata(sessionsDir, "app-orchestrator", {
+          worktree: join(tmpDir, "my-app"),
+          branch: "main",
+          status: "working",
+          role: "orchestrator",
+          project: "my-app",
+          runtimeHandle: JSON.stringify(concurrentHandle),
+          createdAt: new Date().toISOString(),
+        });
+        return true;
+      }
+      if (handle.id === concurrentHandle.id) {
+        return true;
+      }
+      return false;
+    });
+
+    const configWithIgnore: OrchestratorConfig = {
+      ...config,
+      projects: {
+        ...config.projects,
+        "my-app": {
+          ...config.projects["my-app"],
+          orchestratorSessionStrategy: "ignore-new",
+        },
+      },
+    };
+    const sm = createSessionManager({ config: configWithIgnore, registry: mockRegistry });
+
+    await expect(sm.spawnOrchestrator({ projectId: "my-app" })).rejects.toThrow(
+      "already exists but is not in a reusable state",
+    );
+
+    expect(mockRuntime.destroy).not.toHaveBeenCalled();
+    const checkRaw = readMetadataRaw(sessionsDir, "app-orchestrator");
+    expect(checkRaw?.["runtimeHandle"]).toContain("rt-concurrent");
+  });
 });
 
 describe("restore", () => {
@@ -6423,4 +6478,150 @@ describe("SessionManager Domain Lock Integration", () => {
     // Should reserve for new owner
     expect(mockLock.reserve).toHaveBeenCalledWith(789, ["src/new.ts"], "mock-agent", "feat/new", join(tmpDir, "claimer-ws"));
   });
+
+  it("does not reuse session if status is in NON_RESTORABLE_STATUSES during reuse, spawns a new one instead", async () => {
+    const configWithReuse: OrchestratorConfig = {
+      ...config,
+      projects: {
+        ...config.projects,
+        "my-app": {
+          ...config.projects["my-app"],
+          orchestratorSessionStrategy: "reuse",
+        },
+      },
+    };
+
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "merged",
+      role: "orchestrator",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-existing")),
+      createdAt: new Date().toISOString(),
+    });
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
+
+    const sm = createSessionManager({ config: configWithReuse, registry: mockRegistry });
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    expect(session.id).toBe("app-orchestrator");
+    expect(session.metadata["orchestratorSessionReused"]).toBeUndefined();
+    expect(session.status).toBe("working");
+    expect(mockRuntime.destroy).toHaveBeenCalled();
+    expect(mockRuntime.create).toHaveBeenCalled();
+  });
+
+  it("does not reuse session on reservation conflict if status is in NON_RESTORABLE_STATUSES during reuse, spawns new one", async () => {
+    const configWithReuse: OrchestratorConfig = {
+      ...config,
+      projects: {
+        ...config.projects,
+        "my-app": {
+          ...config.projects["my-app"],
+          orchestratorSessionStrategy: "reuse",
+        },
+      },
+    };
+
+    // Write spawning session to skip Path 1
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "spawning",
+      role: "orchestrator",
+      project: "my-app",
+      createdAt: new Date().toISOString(),
+    });
+
+    // Mock readMetadataRaw to return spawning for the first two calls, and the concurrent "merged" session for subsequent calls.
+    let callCount = 0;
+    const customReadMetadataRaw = vi.fn().mockImplementation((dir: string, id: string) => {
+      callCount++;
+      if (callCount <= 2) {
+        return readMetadataRaw(dir, id);
+      }
+      return {
+        worktree: join(tmpDir, "my-app"),
+        branch: "main",
+        status: "merged",
+        role: "orchestrator",
+        project: "my-app",
+        runtimeHandle: JSON.stringify(makeHandle("rt-concurrent")),
+        createdAt: new Date().toISOString(),
+      };
+    });
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
+
+    const sm = createSessionManager({
+      config: configWithReuse,
+      registry: mockRegistry,
+      readMetadataRaw: customReadMetadataRaw,
+    });
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    expect(session.metadata["orchestratorSessionReused"]).toBeUndefined();
+    expect(session.status).toBe("working");
+    expect(mockRuntime.destroy).toHaveBeenCalled();
+    expect(mockRuntime.create).toHaveBeenCalled();
+  });
+
+  it("reanimates session on reservation conflict if status is a restorable terminal status (e.g. killed) during reuse", async () => {
+    const configWithReuse: OrchestratorConfig = {
+      ...config,
+      projects: {
+        ...config.projects,
+        "my-app": {
+          ...config.projects["my-app"],
+          orchestratorSessionStrategy: "reuse",
+        },
+      },
+    };
+
+    // Write spawning session to skip Path 1
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "spawning",
+      role: "orchestrator",
+      project: "my-app",
+      createdAt: new Date().toISOString(),
+    });
+
+    // Mock readMetadataRaw to return spawning for the first two calls, and the concurrent "killed" session for subsequent calls.
+    let callCount = 0;
+    const customReadMetadataRaw = vi.fn().mockImplementation((dir: string, id: string) => {
+      callCount++;
+      if (callCount <= 2) {
+        return readMetadataRaw(dir, id);
+      }
+      return {
+        worktree: join(tmpDir, "my-app"),
+        branch: "main",
+        status: "killed",
+        role: "orchestrator",
+        project: "my-app",
+        runtimeHandle: JSON.stringify(makeHandle("rt-concurrent")),
+        createdAt: new Date().toISOString(),
+      };
+    });
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(true);
+
+    const sm = createSessionManager({
+      config: configWithReuse,
+      registry: mockRegistry,
+      readMetadataRaw: customReadMetadataRaw,
+    });
+    const session = await sm.spawnOrchestrator({ projectId: "my-app" });
+
+    expect(session.metadata["orchestratorSessionReused"]).toBe("true");
+    expect(session.status).toBe("working");
+
+    const meta = readMetadataRaw(sessionsDir, "app-orchestrator");
+    expect(meta?.["status"]).toBe("working");
+  });
 });
+
