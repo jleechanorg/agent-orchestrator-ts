@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { getProjectBaseDir, type OrchestratorConfig } from "@jleechanorg/ao-core";
+import { getProjectBaseDir, type OrchestratorConfig, registerChildReaper } from "@jleechanorg/ao-core";
 
 const LIFECYCLE_PID_FILE = "lifecycle-worker.pid";
 const LIFECYCLE_LOCK_FILE = "lifecycle-worker.lock";
@@ -490,6 +490,7 @@ export async function ensureLifecycleWorker(
     // could pass the "not running" check before the child writes its own PID.
     if (child.pid) {
       writeLifecycleWorkerPid(config, projectId, child.pid);
+      registerChildReaper(child, `lifecycle-worker:${projectId}`, [launch.command, ...launch.args].join(" "));
     }
   } finally {
     closeSync(stdoutFd);
