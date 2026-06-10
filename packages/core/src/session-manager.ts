@@ -59,7 +59,6 @@ import {
   isOrchestratorSession,
   PR_STATE,
   TERMINAL_STATUSES,
-  NON_RESTORABLE_STATUSES,
 } from "./types.js";
 import {
   readMetadataRaw as _readMetadataRaw,
