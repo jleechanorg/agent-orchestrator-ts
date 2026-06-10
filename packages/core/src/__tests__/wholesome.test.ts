@@ -679,6 +679,8 @@ describe("wholesome — structural source-code assertions", () => {
       "3f9c12c22b83be1b7d6ebda2c9634301e2d3b2f5", // fix(headless): keep default-keychain mutation scoped, fix races, wire workspacePath and resolve path comparison edge cases
       "21ffc029b9857146a7e7d84931a3a152d949ca81", // fix(agent-antigravity): use temporary passwordless session keychain for headless macOS processes to prevent GUI popups
       "18806ccfaf80c52e200b44d3a29fa1fdc8bb087e", // fix(agent-antigravity): set needsSymlink to false if unlinking dangling symlink fails
+      "169923bac2ab4dcf5a3f46e47c3a69e6eb2ec947", // fix(skeptic-cron): remove isTriggerPresent bypass from SHA cache check to avoid infinite loops (no [agento] prefix)
+      "fcd7fddf6fde099066a4160dcccaa77273336595", // test: rename test from HEAD SHA cache to updatedAt cache for accuracy (no [agento] prefix)
     ]);
 
     it("all non-merge commits made on this branch have [agento] prefix", () => {
