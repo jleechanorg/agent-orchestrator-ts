@@ -62,7 +62,8 @@ The `agent-orchestrator` skeptic cron is responsible for running periodic local 
 +  });
 ```
 
-### Chapter 3: Re-decoupling via Trigger Check Priority (PR #661)
+### Chapter 3: Re-decoupling via Trigger Check Priority (PR #661 - Proposed)
+* **Status**: **OPEN / Proposed** (as of 2026-06-09). The decoupling mechanism described below is currently under review in [PR #661](https://github.com/jleechanorg/agent-orchestrator/pull/661) and will become active once merged.
 * **Goal**: Re-decouple the skeptic cron from PR recency by prioritizing comment triggers over age limits.
 * **Mechanism**: The 24-hour age check was moved inside `evaluateOnePR` in `packages/core/src/skeptic-cron-local.ts` and gated behind the SCM comments retrieval. By checking comments first, any PR (regardless of age) containing a valid `/skeptic` trigger comment is evaluated. The 24-hour age check is preserved only as a fallback when the SCM comment API is unavailable.
 * **Citation Proof**: PR [PR #661](https://github.com/jleechanorg/agent-orchestrator/pull/661) (Head commit `1a9767f55c07d3c848cbdcdff421b50faff7c68b`), modified lines 237-279 and 314 in `packages/core/src/skeptic-cron-local.ts`:
@@ -124,6 +125,9 @@ Inside `evaluateOnePR`, retrieval of trigger comments via the SCM plugin must ha
 ---
 
 ## 3. Regression test contract
+
+> [!NOTE]
+> The regression tests listed below are implemented as part of [PR #661](https://github.com/jleechanorg/agent-orchestrator/pull/661) and are not yet merged into the `main` branch.
 
 The decoupling invariants are enforced via three specific test cases in [skeptic-cron-local.test.ts](../packages/core/src/__tests__/skeptic-cron-local.test.ts):
 
