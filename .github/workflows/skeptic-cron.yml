@@ -645,7 +645,7 @@ jobs:
               echo "::error::Failed to fetch verdict comments for PR #${PR_NUM}" >&2
               exit 1
             fi
-            SKEPTIC_VERDICT=$(jq -sr "[.[][] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-${PR_SHA}\"; \"i\"))) | .body] | last // empty" "$_VERDICT_COMMENTS_TMP" || echo "")
+            SKEPTIC_VERDICT=$(jq -sr "[.[][] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\" or .user.login == \"jleechanao\" or .user.login == \"jleechan-af\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-${PR_SHA}\"; \"i\"))) | .body] | last // empty" "$_VERDICT_COMMENTS_TMP" || echo "")
             rm -f "$_VERDICT_COMMENTS_TMP"
             if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
               SKEPTIC_STATUS="PASS"
