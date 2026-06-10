@@ -4485,6 +4485,60 @@ describe("spawnOrchestrator", () => {
     expect(mockRuntime.create).not.toHaveBeenCalled();
     expect(readMetadataRaw(sessionsDir, "app-orchestrator")).toEqual({});
   });
+
+  it("does not destroy runtime or delete metadata if concurrent reservation changed the runtimeHandle during probe", async () => {
+    const originalHandle = makeHandle("rt-original");
+    const concurrentHandle = makeHandle("rt-concurrent");
+
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: join(tmpDir, "my-app"),
+      branch: "main",
+      status: "working",
+      role: "orchestrator",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(originalHandle),
+      createdAt: new Date().toISOString(),
+    });
+
+    vi.mocked(mockRuntime.isAlive).mockImplementation(async (handle) => {
+      if (handle.id === originalHandle.id) {
+        writeMetadata(sessionsDir, "app-orchestrator", {
+          worktree: join(tmpDir, "my-app"),
+          branch: "main",
+          status: "working",
+          role: "orchestrator",
+          project: "my-app",
+          runtimeHandle: JSON.stringify(concurrentHandle),
+          createdAt: new Date().toISOString(),
+        });
+        return true;
+      }
+      if (handle.id === concurrentHandle.id) {
+        return true;
+      }
+      return false;
+    });
+
+    const configWithIgnore: OrchestratorConfig = {
+      ...config,
+      projects: {
+        ...config.projects,
+        "my-app": {
+          ...config.projects["my-app"],
+          orchestratorSessionStrategy: "ignore-new",
+        },
+      },
+    };
+    const sm = createSessionManager({ config: configWithIgnore, registry: mockRegistry });
+
+    await expect(sm.spawnOrchestrator({ projectId: "my-app" })).rejects.toThrow(
+      "already exists but is not in a reusable state",
+    );
+
+    expect(mockRuntime.destroy).not.toHaveBeenCalled();
+    const checkRaw = readMetadataRaw(sessionsDir, "app-orchestrator");
+    expect(checkRaw?.["runtimeHandle"]).toContain("rt-concurrent");
+  });
 });
 
 describe("restore", () => {

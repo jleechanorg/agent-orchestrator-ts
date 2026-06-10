@@ -1713,50 +1713,81 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const existingAlive = await plugins.runtime
         .isAlive(existingOrchestrator.runtimeHandle)
         .catch(() => false);
+
+      const shouldProceedWithTeardown = (): boolean => {
+        const checkRaw = readMetadataRaw(sessionsDir, sessionId);
+        if (!checkRaw) {
+          // If metadata is completely missing, it was deleted (e.g. simulating orphaned status in tests).
+          // Treat it as safe to clean up.
+          return true;
+        }
+        const reReadHandleRaw = checkRaw["runtimeHandle"];
+        if (!reReadHandleRaw) {
+          // If the file exists but has no handle, it might be in-progress reservation.
+          return false;
+        }
+        const reReadHandle = safeJsonParse<RuntimeHandle>(reReadHandleRaw);
+        return !!(
+          reReadHandle &&
+          reReadHandle.id === existingOrchestrator.runtimeHandle.id &&
+          reReadHandle.runtimeName === existingOrchestrator.runtimeHandle.runtimeName
+        );
+      };
+
       if (existingAlive && orchestratorSessionStrategy === "reuse") {
         const persistedRaw = readMetadataRaw(sessionsDir, sessionId);
         const rawStatus = persistedRaw?.["status"] ?? "";
         if (NON_RESTORABLE_STATUSES.has(rawStatus as SessionStatus)) {
-          await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
-          deleteMetadata(sessionsDir, sessionId, false);
-        } else if (persistedRaw?.["runtimeHandle"]) {
-          const persisted = metadataToSession(
-            sessionId,
-            persistedRaw,
-            orchestratorConfig.projectId,
-          );
-          persisted.metadata["orchestratorSessionReused"] = "true";
-          if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
-            updateMetadata(sessionsDir, sessionId, {
-              status: "working",
-              activity: "",
-              exitCode: "",
-              finishedAt: "",
-            });
-            persisted.status = "working";
-            persisted.activity = null;
-            if (persisted.metadata) {
-              delete persisted.metadata.activity;
-              delete persisted.metadata.exitCode;
-              delete persisted.metadata.finishedAt;
-            }
+          if (shouldProceedWithTeardown()) {
+            await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
+            deleteMetadata(sessionsDir, sessionId, false);
           }
-          return persisted;
+        } else if (persistedRaw?.["runtimeHandle"]) {
+          if (shouldProceedWithTeardown()) {
+            const persisted = metadataToSession(
+              sessionId,
+              persistedRaw,
+              orchestratorConfig.projectId,
+            );
+            persisted.metadata["orchestratorSessionReused"] = "true";
+            if (TERMINAL_STATUSES.has(rawStatus as SessionStatus)) {
+              updateMetadata(sessionsDir, sessionId, {
+                status: "working",
+                activity: "",
+                exitCode: "",
+                finishedAt: "",
+              });
+              persisted.status = "working";
+              persisted.activity = null;
+              if (persisted.metadata) {
+                delete persisted.metadata.activity;
+                delete persisted.metadata.exitCode;
+                delete persisted.metadata.finishedAt;
+              }
+            }
+            return persisted;
+          }
         } else {
-          await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
-          deleteMetadata(sessionsDir, sessionId, false);
+          if (shouldProceedWithTeardown()) {
+            await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
+            deleteMetadata(sessionsDir, sessionId, false);
+          }
         }
       }
       if (existingAlive && orchestratorSessionStrategy !== "reuse") {
-        await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
-        // Destroy runtime and delete metadata without archive for ignore strategy
-        deleteMetadata(sessionsDir, sessionId, false);
+        if (shouldProceedWithTeardown()) {
+          await plugins.runtime.destroy(existingOrchestrator.runtimeHandle).catch(() => undefined);
+          // Destroy runtime and delete metadata without archive for ignore strategy
+          deleteMetadata(sessionsDir, sessionId, false);
+        }
       }
       // For dead runtime, delete metadata so reserveSessionId can succeed:
       // - With reuse strategy + opencode: archive to preserve opencodeSessionId for reuse lookup
       // - With non-reuse strategy: delete without archive to respawn fresh
       if (!existingAlive) {
-        deleteMetadata(sessionsDir, sessionId, orchestratorSessionStrategy === "reuse");
+        if (shouldProceedWithTeardown()) {
+          deleteMetadata(sessionsDir, sessionId, orchestratorSessionStrategy === "reuse");
+        }
       }
     }
 
