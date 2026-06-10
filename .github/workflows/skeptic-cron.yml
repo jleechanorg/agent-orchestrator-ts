@@ -618,8 +618,24 @@ jobs:
             fi
             echo "  [6] Evidence review:    $EVIDENCE_STATUS"
 
-            # 7. Skeptic verdict — look for VERDICT comment from AO worker.
-            # Filter by either author (SKEPTIC_BOT_AUTHOR or github-actions[bot]) + VERDICT: + SHA marker.
+            # 7. Skeptic verdict — look for VERDICT comment from the AO worker.
+            #
+            # Trust boundary: only the configured SKEPTIC_BOT_AUTHOR, the two
+            # additional maintainer accounts ("jleechanao" and "jleechan-af"),
+            # or "github-actions[bot]" may post a verdict. GitHub treats logins
+            # case-sensitively in `.user.login`, so we downcase both sides
+            # (ascii_downcase) to prevent casing variants from bypassing the
+            # allowlist. We also exclude "github-actions[bot]" verdicts when
+            # the bot is the PR author (defense against self-approval) by
+            # requiring the comment author's downcased login to differ from
+            # the PR author's downcased login. The allowlist itself is
+            # provisioned from the project's default trusted authors plus the
+            # trustedSkepticAuthors config override. To prevent spoofing, the
+            # body must contain all of: the verdict marker
+            # "<!-- skeptic-agent-verdict -->", the SHA-scoped trigger marker
+            # "skeptic-cron-trigger-${PR_SHA}", and the SHA-scoped head-sha
+            # marker "skeptic-head-sha-${PR_SHA}". All other gates are
+            # fail-closed, so an unsigned comment is not enough to pass.
             _VERDICT_COMMENTS_TMP=$(mktemp)
             _VERDICT_COMMENTS_PAGE=1
             _VERDICT_COMMENTS_FETCH_FAILED=false
@@ -645,7 +661,18 @@ jobs:
               echo "::error::Failed to fetch verdict comments for PR #${PR_NUM}" >&2
               exit 1
             fi
-            SKEPTIC_VERDICT=$(jq -sr "[.[][] | select((.user.login == \"${SKEPTIC_BOT_AUTHOR}\" or .user.login == \"github-actions[bot]\") and (.body | test(\"VERDICT:\"; \"i\")) and (.body | test(\"skeptic-cron-trigger-${PR_SHA}\"; \"i\"))) | .body] | last // empty" "$_VERDICT_COMMENTS_TMP" || echo "")
+            SKEPTIC_VERDICT=$(jq -sr --arg sha "$PR_SHA" --arg author "$SKEPTIC_BOT_AUTHOR" --arg pr_author "$PR_AUTHOR" \
+              '[.[][] | select(
+                (((.user.login | ascii_downcase) == ($author | ascii_downcase))
+                  or ((.user.login | ascii_downcase) == "jleechanao")
+                  or ((.user.login | ascii_downcase) == "jleechan-af")
+                  or (((.user.login | ascii_downcase) == "github-actions[bot]") and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase)))
+                )
+                and (.body | test("VERDICT:"; "i"))
+                and (.body | test("skeptic-cron-trigger-" + $sha; "i"))
+                and (.body | test("skeptic-head-sha-" + $sha; "i"))
+                and (.body | test("skeptic-agent-verdict"; "i"))
+              ) | .body] | last // empty' "$_VERDICT_COMMENTS_TMP" || echo "")
             rm -f "$_VERDICT_COMMENTS_TMP"
             if echo "$SKEPTIC_VERDICT" | grep -qi "VERDICT: PASS"; then
               SKEPTIC_STATUS="PASS"
