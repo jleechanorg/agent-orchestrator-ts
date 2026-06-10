@@ -18,7 +18,7 @@ import {
   symlinkSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import type { SessionManager } from "@jleechanorg/ao-core";
 import { stringify as yamlStringify, parse as parseYaml } from "yaml";
 
@@ -2219,5 +2219,23 @@ describe("start command — global registry mutations", () => {
       if (origGlobalEnv === undefined) delete process.env["AO_GLOBAL_CONFIG"];
       else process.env["AO_GLOBAL_CONFIG"] = origGlobalEnv;
     }
+  });
+});
+
+// TDD test for the bd-1xdg PR #674 followup: bare "~" must resolve to homedir(),
+// not to <cwd>/~. See CodeRabbit Minor on packages/cli/src/commands/start.ts:526.
+describe("start command — bare '~' expands to homedir (not <cwd>/~)", () => {
+  it("expandUserPath wrapper handles bare '~', '~/foo', and absolute paths", async () => {
+    const { expandUserPath } = await import("../../src/commands/start.js");
+    // Sanity: the wrapper is the documented superset of the canonical
+    // expandHome helper. The canonical helper intentionally only handles
+    // ~/...; bare "~" is the bug class this wrapper guards against.
+    expect(expandUserPath("~")).toBe(homedir());
+    expect(expandUserPath("~/foo")).toBe(join(homedir(), "foo"));
+    expect(expandUserPath("~/a/b/c")).toBe(join(homedir(), "a/b/c"));
+    expect(expandUserPath("/abs/foo")).toBe("/abs/foo");
+    expect(expandUserPath("foo/bar")).toBe("foo/bar");
+    // ~user is unsupported by the canonical helper and is unchanged.
+    expect(expandUserPath("~user/foo")).toBe("~user/foo");
   });
 });
