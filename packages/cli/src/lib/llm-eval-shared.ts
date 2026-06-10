@@ -108,13 +108,18 @@ export function makeClaudeExecOptions(
     const cwd = process.cwd();
     if (config.projects && config.configPath) {
       const configDir = path.dirname(config.configPath);
-      for (const proj of Object.values(config.projects)) {
-        if (proj.agent && proj.path) {
-          const resolvedProjPath = path.resolve(configDir, proj.path);
-          if (cwd === resolvedProjPath || cwd.startsWith(resolvedProjPath + path.sep)) {
-            activeAgent = proj.agent;
-            break;
-          }
+      const sortedProjects = Object.values(config.projects)
+        .filter((proj) => proj.agent && proj.path)
+        .map((proj) => ({
+          ...proj,
+          resolvedPath: path.resolve(configDir, proj.path!),
+        }))
+        .sort((a, b) => b.resolvedPath.length - a.resolvedPath.length);
+
+      for (const proj of sortedProjects) {
+        if (proj.resolvedPath === cwd || cwd.startsWith(proj.resolvedPath + path.sep)) {
+          activeAgent = proj.agent;
+          break;
         }
       }
     }

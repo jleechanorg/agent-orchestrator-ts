@@ -33,7 +33,7 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
   };
 });
 
-import { tryClaudePrint } from "../../src/lib/llm-eval-claude.js";
+import { tryClaudePrint } from "../../src/lib/llm-eval.js";
 
 describe("llm-eval-shared propagation test", () => {
   let originalBaseUrl: string | undefined;
@@ -199,6 +199,43 @@ describe("llm-eval-shared propagation test", () => {
       projects: {
         "my-project": {
           path: "./project/path",
+          agent: "wafer",
+        },
+      },
+    });
+
+    process.env["ANTHROPIC_BASE_URL"] = "https://pass.wafer.ai";
+    process.env["ANTHROPIC_AUTH_TOKEN"] = "sk-fake";
+
+    try {
+      await tryClaudePrint("evaluate this");
+
+      expect(mockLoadConfig).toHaveBeenCalled();
+      expect(mockExecFileSync).toHaveBeenCalled();
+      const callArgs = mockExecFileSync.mock.calls[0];
+      const options = callArgs[2];
+      expect(options.env.ANTHROPIC_BASE_URL).toBe("https://pass.wafer.ai");
+      expect(options.env.ANTHROPIC_AUTH_TOKEN).toBe("sk-fake");
+    } finally {
+      process.cwd = originalCwd;
+    }
+  });
+
+  it("resolves project-specific agent from nested projects sorted by path specificity", async () => {
+    const originalCwd = process.cwd;
+    process.cwd = () => "/mock/project/path/sub";
+
+    mockLoadConfig.mockReturnValue({
+      configPath: "/mock/config.yaml",
+      defaults: { agent: "claude-code" },
+      plugins: {},
+      projects: {
+        "parent-project": {
+          path: "./project/path",
+          agent: "claude-code",
+        },
+        "child-project": {
+          path: "./project/path/sub",
           agent: "wafer",
         },
       },
