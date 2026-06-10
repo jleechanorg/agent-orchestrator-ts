@@ -53,7 +53,7 @@ describe("getWorkspaceChangedFiles", () => {
 
     expect(result).toEqual(["file1.ts", "file2.ts"]);
     expect(gitMock).toHaveBeenCalledWith(
-      "git",
+      "/usr/bin/git",
       ["diff", "--name-only", "main...HEAD"],
       expect.objectContaining({ cwd: "/tmp/ws" }),
     );
@@ -70,7 +70,7 @@ describe("getWorkspaceChangedFiles", () => {
     expect(gitMock).toHaveBeenCalledTimes(2);
     expect(gitMock).toHaveBeenNthCalledWith(
       2,
-      "git",
+      "/usr/bin/git",
       ["diff", "--name-only", "origin/develop...HEAD"],
       expect.objectContaining({ cwd: "/tmp/ws" }),
     );
@@ -88,7 +88,7 @@ describe("getWorkspaceChangedFiles", () => {
     expect(gitMock).toHaveBeenCalledTimes(3);
     expect(gitMock).toHaveBeenNthCalledWith(
       3,
-      "git",
+      "/usr/bin/git",
       ["diff", "--name-only", "HEAD~1"],
       expect.objectContaining({ cwd: "/tmp/ws" }),
     );
@@ -153,14 +153,14 @@ describe("findRepoPathForWorktree", () => {
       // Verify -C flag is used so git receives the working directory correctly
       expect(gitMock).toHaveBeenNthCalledWith(
         1,
-        "git",
+        "/usr/bin/git",
         ["-C", "/tmp/worktrees/proj", "rev-parse",
           "--path-format=absolute", "--git-common-dir"],
         expect.any(Object),
       );
       expect(gitMock).toHaveBeenNthCalledWith(
         2,
-        "git",
+        "/usr/bin/git",
         ["-C", "/tmp/worktrees/proj/session-1", "symbolic-ref", "--short", "HEAD"],
         expect.any(Object),
       );
@@ -243,7 +243,7 @@ describe("findRepoPathForWorktree", () => {
       expect(result!.branch).toBe("feat/session");
       // Verify -C <some dir> for the worktree list scan
       expect(gitMock).toHaveBeenCalledWith(
-        "git",
+        "/usr/bin/git",
         expect.arrayContaining(["-C"]),
         expect.any(Object),
       );
@@ -264,7 +264,7 @@ describe("findRepoPathForWorktree", () => {
       expect(result).not.toBeNull();
       expect(result!.branch).toBe("feat/daemon");
       expect(gitMock).toHaveBeenCalledWith(
-        "git",
+        "/usr/bin/git",
         ["-C", workspace, "worktree", "list", "--porcelain"],
         expect.any(Object),
       );
