@@ -392,6 +392,8 @@ describe("runLocalSkepticCron", () => {
 
   it("stores SHA in dedup map after successful evaluation", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -411,6 +413,8 @@ describe("runLocalSkepticCron", () => {
 
   it("second call with same SHA is skipped (sha_dedup_skip logged)", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -443,6 +447,8 @@ describe("runLocalSkepticCron", () => {
 
   it("re-evaluates same SHA from different projectId after first run stores SHA", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -477,6 +483,8 @@ describe("runLocalSkepticCron", () => {
 
   it("same projectId, new SHA triggers re-evaluation (throttle reset)", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -512,6 +520,8 @@ describe("runLocalSkepticCron", () => {
 
   it("fail-open: evaluates when getPRHeadSha throws", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockRejectedValue(new Error("network failure"));
@@ -535,6 +545,8 @@ describe("runLocalSkepticCron", () => {
 
   it("throw: runSkepticReview rejection does not store SHA — allows retry", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -555,6 +567,8 @@ describe("runLocalSkepticCron", () => {
 
   it("throw then success: rejection skips SHA cache, subsequent run stores SHA", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     const pr = makePR({ number: 10 });
     listOpenPRs.mockResolvedValue([pr]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
@@ -587,7 +601,10 @@ describe("runLocalSkepticCron", () => {
 
   it("fail-open: evaluates when SCM has no getPRHeadSha", async () => {
     const listOpenPRs = vi.fn<[ProjectConfig], Promise<PRInfo[]>>();
-    const mockSCMWithout: Partial<SCM> = { listOpenPRs };
+    const listPRComments = vi.fn().mockResolvedValue([
+      { id: 100, body: "/skeptic", user: { login: "jleechan2015" }, isSkepticTrigger: true }
+    ]);
+    const mockSCMWithout: Partial<SCM> = { listOpenPRs, listPRComments };
     const registry = {
       get: vi.fn().mockReturnValue(mockSCMWithout),
     } as unknown as PluginRegistry;
@@ -610,6 +627,8 @@ describe("runLocalSkepticCron", () => {
 
   it("different projectId has independent SHA dedup state", async () => {
     const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const scm = registry.get("scm", "github");
+    delete scm.listPRComments;
     listOpenPRs.mockResolvedValue([makePR({ number: 10 })]);
     getPRHeadSha.mockResolvedValue("sha-abc123");
     mockRunSkepticReview.mockResolvedValue({
@@ -967,7 +986,9 @@ describe("runLocalSkepticCron", () => {
 
   it("skips PRs without any trigger comments", async () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
-    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
+
     listPRComments.mockResolvedValue([
       { id: 101, body: "just a normal comment", user: { login: "alice" }, isSkepticTrigger: false }
     ]);
@@ -1042,7 +1063,8 @@ describe("runLocalSkepticCron", () => {
 
   it("skips PRs if the trigger comment is posted by a bot but is just /skeptic", async () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
-    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
     listPRComments.mockResolvedValue([
       // SCM plugin would NOT set isSkepticTrigger: true for a bot /skeptic
       { id: 101, body: "/skeptic", user: { login: "some-bot[bot]" }, isSkepticTrigger: false }
@@ -1072,7 +1094,8 @@ describe("runLocalSkepticCron", () => {
   // `isSkepticTrigger` flag.
   it("ignores trigger-looking body text when isSkepticTrigger is not set", async () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
-    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
     listPRComments.mockResolvedValue([
       // Body matches the legacy heuristic, but the structured flag is false.
       // The cron must skip this PR — the SCM plugin decided it is not a trigger.
@@ -1124,7 +1147,8 @@ describe("runLocalSkepticCron", () => {
   });
 
   it("skips PRs modified more than 24 hours ago", async () => {
-    const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listPRComments.mockResolvedValue([]);
     const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
     listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
     mockRunSkepticReview.mockResolvedValue({
@@ -1145,6 +1169,33 @@ describe("runLocalSkepticCron", () => {
     expect(result).toBe(0);
     expect(mockRunSkepticReview).not.toHaveBeenCalled();
   });
+
+  it("evaluates PRs modified more than 24 hours ago if they have a trigger comment", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
+    listPRComments.mockResolvedValue([
+      { id: 100, body: "/skeptic", user: { login: "jleechan2015" }, isSkepticTrigger: true }
+    ]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-old-pr-with-trigger",
+      },
+    );
+
+    expect(result).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+  });
+
 
   it("evaluates PRs modified within the last 24 hours", async () => {
     const { registry, sessionManager, observer, listOpenPRs } = makeDeps();
@@ -1171,7 +1222,8 @@ describe("runLocalSkepticCron", () => {
 
   it("skips runSkepticReview if listPRComments rejects", async () => {
     const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
-    listOpenPRs.mockResolvedValue([makePR({ number: 1 })]);
+    const oldDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: oldDate })]);
     listPRComments.mockRejectedValue(new Error("boom"));
 
     const result = await runLocalSkepticCron(
@@ -1200,4 +1252,289 @@ describe("runLocalSkepticCron", () => {
       }),
     );
   });
+
+  it("skips PRs modified within the last 24 hours if they have no trigger comment", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    listPRComments.mockResolvedValue([]);
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    listOpenPRs.mockResolvedValue([makePR({ number: 1, updatedAt: recentDate })]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-recent-pr-no-trigger",
+      },
+    );
+
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+  });
+
+  it("does not call listPRComments for PRs if updatedAt has not changed since successful evaluation (performance optimization)", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments, getPRHeadSha } = makeDeps();
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    const pr = makePR({ number: 1, updatedAt: recentDate });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    // Run once to evaluate and cache the SHA
+    await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-first",
+      },
+    );
+
+    // Reset throttle and mock counts
+    _resetSkepticCronTimer();
+    listPRComments.mockClear();
+    mockRunSkepticReview.mockClear();
+
+    // Run again with same SHA
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-second",
+      },
+    );
+
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+    expect(listPRComments).not.toHaveBeenCalled();
+  });
+
+  it("does not call listPRComments if PR updatedAt has not changed since last check (performance optimization)", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments } = makeDeps();
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    const pr = makePR({ number: 1, updatedAt: recentDate });
+    listOpenPRs.mockResolvedValue([pr]);
+    // Mock comments return empty (no trigger)
+    listPRComments.mockResolvedValue([]);
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    // Run once — should fetch comments, find no trigger, and skip
+    const firstResult = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-first",
+      },
+    );
+    expect(firstResult).toBe(0);
+    expect(listPRComments).toHaveBeenCalledTimes(1);
+
+    // Reset throttle and mock counts
+    _resetSkepticCronTimer();
+    listPRComments.mockClear();
+    mockRunSkepticReview.mockClear();
+
+    // Run again with same updatedAt
+    const secondResult = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-second",
+      },
+    );
+
+    // Should skip immediately without fetching comments again
+    expect(secondResult).toBe(0);
+    expect(listPRComments).not.toHaveBeenCalled();
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+  });
+
+  it("retries evaluations on next run if runSkepticReview fails (transient failure resilience)", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, listPRComments, getPRHeadSha } = makeDeps();
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    const pr = makePR({ number: 1, updatedAt: recentDate });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    // Mock comments return a trigger
+    listPRComments.mockResolvedValue([
+      { id: 100, body: "/skeptic", user: { login: "jleechan2015" }, isSkepticTrigger: true }
+    ]);
+
+    // First run fails transiently
+    mockRunSkepticReview.mockRejectedValueOnce(new Error("Transient LLM error"));
+
+    const firstResult = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-first",
+      },
+    );
+    expect(firstResult).toBe(0); // failed
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+
+    // Reset throttle and mock counts
+    _resetSkepticCronTimer();
+    mockRunSkepticReview.mockClear();
+    listPRComments.mockClear();
+
+    // Second run succeeds
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    const secondResult = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      {
+        projectId: "proj",
+        project: makeProject(),
+        activeSessions: [],
+        correlationId: "c-second",
+      },
+    );
+
+    // Should retry and succeed
+    expect(secondResult).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    expect(listPRComments).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not bypass SHA cache check even when a valid trigger comment is present to avoid infinite re-evaluation loops", async () => {
+    const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeDeps();
+    const pr = makePR({ number: 10 });
+    listOpenPRs.mockResolvedValue([pr]);
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    // Run once to evaluate and cache the SHA
+    await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1" },
+    );
+
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+
+    // Reset throttle and clear mock history
+    _resetSkepticCronTimer();
+    mockRunSkepticReview.mockClear();
+
+    // Run again with same SHA but we have a trigger comment.
+    // It should check SHA cache first, find it already evaluated, and skip!
+    const result = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2" },
+    );
+
+    expect(result).toBe(0);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(0);
+  });
+
+  it("falls back to 24h PR age check if listPRComments is missing", async () => {
+    const listOpenPRs = vi.fn<[ProjectConfig], Promise<PRInfo[]>>();
+    const getPRHeadSha = vi.fn<(pr: PRInfo) => Promise<string>>();
+    // SCM has NO listPRComments
+    const mockSCMWithout: Partial<SCM> = { listOpenPRs, getPRHeadSha };
+    const registry = {
+      get: vi.fn().mockReturnValue(mockSCMWithout),
+    } as unknown as PluginRegistry;
+    const observer = { recordOperation: vi.fn() } as unknown as ProjectObserver;
+    const sessionManager = {} as SessionManager;
+
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+    mockRunSkepticReview.mockResolvedValue({
+      verdict: "PASS",
+      modelUsed: "claude",
+    } as SkepticReviewResult);
+
+    // 1. PR is recent (< 24h)
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    const prRecent = makePR({ number: 10, updatedAt: recentDate });
+    listOpenPRs.mockResolvedValue([prRecent]);
+
+    const resultRecent = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-recent" },
+    );
+    expect(resultRecent).toBe(1);
+    expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+
+    // Reset throttle and clear mock history
+    _resetSkepticCronTimer();
+    mockRunSkepticReview.mockClear();
+
+    // 2. PR is stale (> 24h)
+    const staleDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const prStale = makePR({ number: 11, updatedAt: staleDate });
+    listOpenPRs.mockResolvedValue([prStale]);
+
+    const resultStale = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-stale" },
+    );
+    expect(resultStale).toBe(0);
+    expect(mockRunSkepticReview).not.toHaveBeenCalled();
+  });
+
+  it("caches stale PR updatedAt in fallback path to skip subsequent checks", async () => {
+    const listOpenPRs = vi.fn<[ProjectConfig], Promise<PRInfo[]>>();
+    const getPRHeadSha = vi.fn<(pr: PRInfo) => Promise<string>>();
+    const mockSCMWithout: Partial<SCM> = { listOpenPRs, getPRHeadSha };
+    const registry = {
+      get: vi.fn().mockReturnValue(mockSCMWithout),
+    } as unknown as PluginRegistry;
+    const observer = { recordOperation: vi.fn() } as unknown as ProjectObserver;
+    const sessionManager = {} as SessionManager;
+
+    getPRHeadSha.mockResolvedValue("sha-abc123");
+
+    // PR is stale (> 24h)
+    const staleDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const prStale = makePR({ number: 12, updatedAt: staleDate });
+    listOpenPRs.mockResolvedValue([prStale]);
+
+    // First run: evaluates, skips because stale, and caches the updatedAt
+    const result1 = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-stale-1" },
+    );
+    expect(result1).toBe(0);
+    expect(getPRHeadSha).toHaveBeenCalledTimes(1);
+
+    // Reset throttle and clear mock history
+    _resetSkepticCronTimer();
+    getPRHeadSha.mockClear();
+
+    // Second run: should hit lastCheckedUpdatedAtByPR cache and exit immediately without calling getPRHeadSha
+    const result2 = await runLocalSkepticCron(
+      { registry, sessionManager, observer },
+      { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c-stale-2" },
+    );
+    expect(result2).toBe(0);
+    expect(getPRHeadSha).not.toHaveBeenCalled();
+  });
 });
+

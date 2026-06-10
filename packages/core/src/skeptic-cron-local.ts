@@ -72,6 +72,9 @@ class BoundedMap<K, V> extends Map<K, V> {
 // Bounded to avoid unbounded growth in long-running lifecycle workers.
 const MAX_SKEPTIC_DEDUP_ENTRIES = 10_000;
 const lastEvaluatedShaByPR = new BoundedMap<string, string>(MAX_SKEPTIC_DEDUP_ENTRIES);
+// Per-PR checked comments updatedAt dedup — keyed by `${projectId}:${prNumber}`.
+// Bounded to avoid unbounded growth in long-running lifecycle workers.
+const lastCheckedUpdatedAtByPR = new BoundedMap<string, string>(MAX_SKEPTIC_DEDUP_ENTRIES);
 const SKEPTIC_CRON_INTERVAL_MS = 10 * 60_000; // 10 minutes
 const DEFAULT_MAX_CONCURRENT_SKEPTIC_REVIEWS = 3;
 
@@ -111,6 +114,7 @@ export function _resetSkepticCronTimer(): void {
 /** Reset SHA dedup map — exposed for testing only. */
 export function _resetSkepticDedupMap(): void {
   lastEvaluatedShaByPR.clear();
+  lastCheckedUpdatedAtByPR.clear();
 }
 
 /** Returns the stored SHA for a PR cache key — exposed for testing only. */
@@ -216,10 +220,29 @@ export async function runLocalSkepticCron(
    * caching are contained here so the batched Promise.all below stays clean.
    */
   const evaluateOnePR = async (pr: PRInfo): Promise<boolean> => {
+    const cacheKey = `${projectId}:${pr.number}`;
+
+    // 1. If PR's updatedAt matches our last checked updatedAt, we know nothing changed (no comments, commits, etc.)
+    if (pr.updatedAt && lastCheckedUpdatedAtByPR.get(cacheKey) === pr.updatedAt) {
+      return false;
+    }
+
+    let headSha: string | undefined;
+    try {
+      headSha = await scm?.getPRHeadSha?.(pr);
+    } catch {
+      // getPRHeadSha unavailable or threw — fail open, evaluate normally
+    }
+
+    // 2. Fetch comments and check for a trigger comment (required for both recent and stale PRs)
     if (scm?.listPRComments) {
       try {
         const comments = await scm.listPRComments(pr);
         if (!hasValidTriggerComment(comments)) {
+          // No trigger comment, so it's safe to cache the updatedAt so we don't check comments again
+          if (pr.updatedAt) {
+            lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
+          }
           return false;
         }
       } catch (err) {
@@ -236,24 +259,37 @@ export async function runLocalSkepticCron(
         } catch { /* observer failure must not block cron flow */ }
         return false;
       }
+    } else {
+      // Fallback: if scm.listPRComments is missing, fall back to the 24-hour PR age check
+      if (pr.updatedAt) {
+        const updatedAtMs = Date.parse(pr.updatedAt);
+        if (Number.isFinite(updatedAtMs)) {
+          const ageMs = Date.now() - updatedAtMs;
+          const oneDayMs = 24 * 60 * 60 * 1000;
+          if (ageMs > oneDayMs) {
+            // Older than 24h, skip
+            lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
+            return false;
+          }
+        }
+      }
+    }
+
+    // 3. If already successfully evaluated for this HEAD SHA, skip entirely
+    // Enforce SHA cache even with trigger to prevent infinite re-evaluation loops (per design)
+    if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
+      // Also cache this updatedAt so we skip next time immediately
+      if (pr.updatedAt) {
+        lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
+      }
+      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_dedup_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
+      return false;
     }
 
     // Use existing session if available, otherwise synthetic
     const session =
       sessionByPR.get(`${projectId}:${pr.number}`) ??
       createSyntheticSession(pr, projectId, project.path ?? null);
-
-    const cacheKey = `${projectId}:${pr.number}`;
-    let headSha: string | undefined;
-    try {
-      headSha = await scm?.getPRHeadSha?.(pr);
-    } catch {
-      // getPRHeadSha unavailable or threw — fail open, evaluate normally
-    }
-    if (headSha && lastEvaluatedShaByPR.get(cacheKey) === headSha) {
-      try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_dedup_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
-      return false;
-    }
 
     try {
       try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluating", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, hasSession: sessionByPR.has(`${projectId}:${pr.number}`) }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
@@ -263,6 +299,7 @@ export async function runLocalSkepticCron(
       try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.evaluated", outcome: result.verdict === "PASS" ? "success" : "failure", correlationId, projectId, data: { prNumber: pr.number, verdict: result.verdict, modelUsed: result.modelUsed }, level: result.verdict === "FAIL" ? "warn" : "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
 
       if (headSha) lastEvaluatedShaByPR.set(cacheKey, headSha);
+      if (pr.updatedAt) lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
       return true;
     } catch (err) {
       try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.pr_failed", outcome: "failure", correlationId, projectId, data: { prNumber: pr.number, error: err instanceof Error ? err.message : String(err) }, level: "warn" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
@@ -270,21 +307,8 @@ export async function runLocalSkepticCron(
     }
   };
 
-  // Collect eligible PRs (non-draft, modified within last 24 hours) in a single pass before running
-  const eligiblePRs = openPRs.filter((pr) => {
-    if (pr.isDraft) return false;
-    if (pr.updatedAt) {
-      const updatedAtMs = Date.parse(pr.updatedAt);
-      if (Number.isFinite(updatedAtMs)) {
-        const ageMs = Date.now() - updatedAtMs;
-        const oneDayMs = 24 * 60 * 60 * 1000;
-        if (ageMs > oneDayMs) {
-          return false;
-        }
-      }
-    }
-    return true;
-  });
+  // Collect eligible PRs (non-draft) in a single pass before running
+  const eligiblePRs = openPRs.filter((pr) => !pr.isDraft);
 
   // Run in bounded batches; Promise.allSettled so one observer throw
   // or rejection does not cancel the rest of the batch.
