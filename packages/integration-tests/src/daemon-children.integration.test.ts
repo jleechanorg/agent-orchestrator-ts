@@ -84,6 +84,7 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
       globalConfigPath,
       [
         `port: ${port}`,
+        "openBrowser: false",
         "defaults:",
         "  runtime: process",
         "  agent: claude-code",
@@ -116,7 +117,7 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
       AO_GLOBAL_CONFIG: configPath,
       PORT: String(port),
     };
-    const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator", "--reap-orphans"], {
+    const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator", "--no-open-browser"], {
       cwd: repoPath,
       env,
       stdio: "ignore",
