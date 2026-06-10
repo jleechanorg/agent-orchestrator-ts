@@ -143,4 +143,27 @@ describe("ci-doctor-gate — bd-1sno: ao-doctor-v2 wired into ci.yml", () => {
       rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("the doctor script exits 0 in DOCTOR_CI_MODE=1 when running against the real repo", () => {
+    // Behavioral check: run the doctor script with DOCTOR_CI_MODE=1.
+    // In CI mode, it should skip local checks and only run structural checks
+    // (like skeptic-cron ordering), which should pass on the current codebase.
+    let exitCode: number;
+    let stdout: string;
+    try {
+      stdout = execFileSync("bash", [DOCTOR_SCRIPT_PATH], {
+        cwd: REPO_ROOT,
+        env: { ...process.env, DOCTOR_CI_MODE: "1" },
+        encoding: "utf-8",
+      });
+      exitCode = 0;
+    } catch (err: unknown) {
+      const e = err as { status?: number | null; stdout?: string };
+      exitCode = e.status ?? -1;
+      stdout = e.stdout ?? "";
+    }
+    expect(exitCode, `doctor in CI mode should exit 0; got ${exitCode}\nstdout:\n${stdout}`).toBe(0);
+    expect(stdout, "doctor stdout in CI mode should mention skipping local-state checks").toMatch(/skipping/i);
+    expect(stdout, "doctor stdout in CI mode should mention checking skeptic-cron").toMatch(/skeptic/i);
+  });
 });
