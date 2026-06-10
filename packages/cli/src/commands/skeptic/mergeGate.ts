@@ -216,10 +216,10 @@ export async function fetchMergeGateState(
             const author = c.user?.login?.toLowerCase() ?? "";
             const isCR = author === "coderabbitai" || author === "coderabbitai[bot]";
             if (!isCR) return false;
-            if (!c.body || c.body.length > 200) return false;
+            if (!c.body) return false;
             const commentTime = new Date(c.created_at).getTime();
             if (commentTime < headTime) return false;
-            return /^\s*\[approve\]\s*$/im.test(c.body);
+            return /^\s*\[approve\]\s*$|changes approved\./im.test(c.body);
           });
 
           if (hasApproveComment) {
