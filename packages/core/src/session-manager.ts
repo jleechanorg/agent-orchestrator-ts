@@ -794,7 +794,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
   async function listRemoteSessionNumbers(project: ProjectConfig): Promise<number[]> {
     try {
       const { stdout } = await execFileAsync(
-        "git",
+        "/usr/bin/git",
         ["ls-remote", "--heads", "origin", `session/${project.sessionPrefix}-*`],
         {
           cwd: project.path,
@@ -2230,7 +2230,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           let branch: string | null = null;
           try {
             branch = (
-              await execFileAsync("git", ["-C", worktreePath, "branch", "--show-current"], {
+              await execFileAsync("/usr/bin/git", ["-C", worktreePath, "branch", "--show-current"], {
                 timeout: 5_000,
               })
             ).stdout.trim();
@@ -2240,7 +2240,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
           // Remove the worktree
           try {
-            await execFileAsync("git", ["worktree", "remove", "--force", "--force", worktreePath], {
+            await execFileAsync("/usr/bin/git", ["worktree", "remove", "--force", "--force", worktreePath], {
               cwd: repoPath,
               timeout: 30_000,
             });
@@ -2258,7 +2258,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           // deleting pre-existing user branches (main, master, develop, etc.).
           if (branch && /^(feat|fix|chore|docs|refactor|session)\//.test(branch)) {
             try {
-              await execFileAsync("git", ["-C", repoPath, "branch", "-D", branch], {
+              await execFileAsync("/usr/bin/git", ["-C", repoPath, "branch", "-D", branch], {
                 timeout: 10_000,
               });
             } catch {
@@ -2279,7 +2279,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
       // Verify this path is inside a git work tree
       try {
-        await execFileAsync("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+        await execFileAsync("/usr/bin/git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
           timeout: 5_000,
         });
       } catch {
@@ -2290,7 +2290,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       let porcelainOutput: string;
       try {
         const result = await execFileAsync(
-          "git",
+          "/usr/bin/git",
           ["-C", repoPath, "worktree", "list", "--porcelain"],
           { timeout: 10_000 },
         );
@@ -2351,7 +2351,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         const branch = matchingRaw["branch"] ?? null;
 
         try {
-          await execFileAsync("git", ["worktree", "remove", "--force", "--force", worktreePath], {
+          await execFileAsync("/usr/bin/git", ["worktree", "remove", "--force", "--force", worktreePath], {
             cwd: repoPath,
             timeout: 30_000,
           });
@@ -2369,7 +2369,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         // deleting pre-existing user branches (main, master, develop, etc.).
         if (branch && /^(feat|fix|chore|docs|refactor|session)\//.test(branch)) {
           try {
-            await execFileAsync("git", ["-C", repoPath, "branch", "-D", branch], {
+            await execFileAsync("/usr/bin/git", ["-C", repoPath, "branch", "-D", branch], {
               timeout: 10_000,
             });
           } catch {

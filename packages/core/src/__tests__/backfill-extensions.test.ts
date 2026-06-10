@@ -950,3 +950,51 @@ describe("backfillUncoveredPRs respawn guard", () => {
     expect(notifyHuman).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// bd-#670: lifecycle-workers running under launchd hit `spawn git ENOENT`
+// because PATH doesn't reliably propagate to nohup'd children on macOS.
+// Workers stay alive (liveness probe passes) but every internal `git` call
+// fails. Fix: use absolute `/usr/bin/git` in backfill-extensions.ts so the
+// spawn bypasses PATH lookup entirely.
+//
+// This regression guard asserts at the source-string level — a behavioural
+// test would require triggering a real worktree-cleanup path with full
+// SCM/tracker mocks. A string check is sufficient because:
+//   1. The fix is mechanical (7 call sites, all the same pattern)
+//   2. The bug recurs via re-introduction, not runtime regression
+//   3. The same pattern is used in `wholesome.test.ts` for code-style guards
+// ---------------------------------------------------------------------------
+
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+describe("backfill-extensions uses absolute /usr/bin/git (bd-#670)", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sourcePath = join(here, "..", "backfill-extensions.ts");
+  const source = readFileSync(sourcePath, "utf8");
+
+  it("does not use bare 'git' as execFileAsync first arg (regression: bd-#670)", () => {
+    // Find every execFileAsync("git", ...) call and assert none of them
+    // are bare "git" (relative). Allowed forms:
+    //   - "/usr/bin/git"  (absolute — what we want)
+    //   - any other absolute path
+    // Disallowed: bare "git" string.
+    const lines = source.split("\n");
+    const violations: string[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? "";
+      // Match: execFileAsync("git", or execFileAsync(\n  "git",
+      if (/execFileAsync\s*\(/.test(line) || /execFileAsync\s*$/.test(line)) {
+        // Look at this line + next 2 for the first string arg
+        const block = lines.slice(i, i + 3).join(" ");
+        const m = block.match(/execFileAsync\s*\(\s*["']([^"']+)["']/);
+        if (m && m[1] === "git") {
+          violations.push(`line ${i + 1}: ${block.trim().slice(0, 80)}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+});

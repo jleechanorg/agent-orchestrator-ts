@@ -448,7 +448,7 @@ Implement only the repository changes listed above, commit with [agento], and pu
                   // Directory still on disk — get branch and repo from it.
                   try {
                     branch = (
-                      await execFileAsync("git", ["-C", worktreeDir, "branch", "--show-current"], {
+                      await execFileAsync("/usr/bin/git", ["-C", worktreeDir, "branch", "--show-current"], {
                         timeout: GIT_TIMEOUT,
                         encoding: "utf8",
                       })
@@ -457,7 +457,7 @@ Implement only the repository changes listed above, commit with [agento], and pu
                   try {
                     const gitCommon = (
                       await execFileAsync(
-                        "git",
+                        "/usr/bin/git",
                         ["-C", worktreeDir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
                         { timeout: GIT_TIMEOUT, encoding: "utf8" },
                       )
@@ -475,7 +475,7 @@ Implement only the repository changes listed above, commit with [agento], and pu
                   try {
                     const listOutput = (
                       await execFileAsync(
-                        "git",
+                        "/usr/bin/git",
                         ["-C", candidateRepo, "worktree", "list", "--porcelain"],
                         { timeout: GIT_TIMEOUT, encoding: "utf8" },
                       )
@@ -514,7 +514,7 @@ Implement only the repository changes listed above, commit with [agento], and pu
                           try {
                             const listOutput = (
                               await execFileAsync(
-                                "git",
+                                "/usr/bin/git",
                                 ["-C", candidatePath, "worktree", "list", "--porcelain"],
                                 { timeout: GIT_TIMEOUT, encoding: "utf8" },
                               )
@@ -563,20 +563,20 @@ Implement only the repository changes listed above, commit with [agento], and pu
                 // Unlock + remove worktree (--force --force mirrors destroy()).
                 if (repoDir) {
                   try {
-                    await execFileAsync("git", ["-C", repoDir, "worktree", "unlock", worktreeDir], {
+                    await execFileAsync("/usr/bin/git", ["-C", repoDir, "worktree", "unlock", worktreeDir], {
                       timeout: GIT_TIMEOUT,
                       encoding: "utf8",
                     });
                   } catch { /* best-effort */ }
                   try {
                     await execFileAsync(
-                      "git",
+                      "/usr/bin/git",
                       ["-C", repoDir, "worktree", "remove", "--force", "--force", worktreeDir],
                       { timeout: GIT_TIMEOUT, encoding: "utf8" },
                     );
                   } catch { /* best-effort */ }
                   try {
-                    await execFileAsync("git", ["-C", repoDir, "worktree", "prune"], {
+                    await execFileAsync("/usr/bin/git", ["-C", repoDir, "worktree", "prune"], {
                       timeout: GIT_TIMEOUT,
                       encoding: "utf8",
                     });
@@ -585,7 +585,7 @@ Implement only the repository changes listed above, commit with [agento], and pu
                   // Only delete branches that look AO-managed (feat/*, session/*, fix/*).
                   if (branch && /^(feat|fix|chore|docs|refactor|session)\//.test(branch)) {
                     try {
-                      await execFileAsync("git", ["-C", repoDir, "branch", "-D", branch], {
+                      await execFileAsync("/usr/bin/git", ["-C", repoDir, "branch", "-D", branch], {
                         timeout: GIT_TIMEOUT,
                         encoding: "utf8",
                       });
@@ -609,7 +609,7 @@ Implement only the repository changes listed above, commit with [agento], and pu
                   try {
                     const listOut = (
                       await execFileAsync(
-                        "git",
+                        "/usr/bin/git",
                         ["-C", repoDir, "worktree", "list", "--porcelain"],
                         { timeout: GIT_TIMEOUT, encoding: "utf8" },
                       )

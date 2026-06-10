@@ -41,7 +41,7 @@ export async function findRepoPathForWorktree(
     if (existsSync(dotGit)) {
       try {
         const gitCommonDir = (
-          await execFileAsync("git", ["-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+          await execFileAsync("/usr/bin/git", ["-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
             timeout: GIT_TIMEOUT,
             encoding: "utf8",
           })
@@ -51,7 +51,7 @@ export async function findRepoPathForWorktree(
         try {
           branch = (
             await execFileAsync(
-              "git",
+              "/usr/bin/git",
               ["-C", workspacePath, "symbolic-ref", "--short", "HEAD"],
               { timeout: GIT_TIMEOUT, encoding: "utf8" },
             )
@@ -78,7 +78,7 @@ export async function findRepoPathForWorktree(
   while (scanDir !== "/") {
     try {
       const output = (
-        await execFileAsync("git", ["-C", scanDir, "worktree", "list", "--porcelain"], {
+        await execFileAsync("/usr/bin/git", ["-C", scanDir, "worktree", "list", "--porcelain"], {
           timeout: GIT_TIMEOUT,
           encoding: "utf8",
         })
@@ -131,19 +131,19 @@ export async function getWorkspaceChangedFiles(
 
   // 1. Diff against base branch
   try {
-    const { stdout } = await exec("git", ["diff", "--name-only", `${baseBranch}...HEAD`], { cwd: workspacePath, timeout: 10_000 });
+    const { stdout } = await exec("/usr/bin/git", ["diff", "--name-only", `${baseBranch}...HEAD`], { cwd: workspacePath, timeout: 10_000 });
     return parseLines(stdout);
   } catch { /* base branch not available locally */ }
 
   // 2. Diff against origin/base branch
   try {
-    const { stdout } = await exec("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], { cwd: workspacePath, timeout: 10_000 });
+    const { stdout } = await exec("/usr/bin/git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], { cwd: workspacePath, timeout: 10_000 });
     return parseLines(stdout);
   } catch { /* origin/base not fetched */ }
 
   // 3. Diff HEAD against its first parent — works in worktrees even without base ref
   try {
-    const { stdout } = await exec("git", ["diff", "--name-only", "HEAD~1"], { cwd: workspacePath, timeout: 10_000 });
+    const { stdout } = await exec("/usr/bin/git", ["diff", "--name-only", "HEAD~1"], { cwd: workspacePath, timeout: 10_000 });
     const files = parseLines(stdout);
     if (files.length > 0) {
       console.warn(`[worktree-git] Falling back to HEAD~1 diff for ${workspacePath}; base branch "${baseBranch}" not resolvable`);

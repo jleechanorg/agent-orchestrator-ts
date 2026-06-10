@@ -88,7 +88,7 @@ export async function generateEvidenceBundle(
   const diffRef = `${pr.baseBranch}...HEAD`;
 
   const nameOnlyOutput = execFileSync(
-    "git",
+    "/usr/bin/git",
     ["diff", "--name-only", diffRef],
     { cwd: workspacePath, encoding: "utf8" },
   );
@@ -97,7 +97,7 @@ export async function generateEvidenceBundle(
     .filter((f) => f.trim().length > 0);
 
   const statOutput = execFileSync(
-    "git",
+    "/usr/bin/git",
     ["diff", "--stat", diffRef],
     { cwd: workspacePath, encoding: "utf8" },
   );
