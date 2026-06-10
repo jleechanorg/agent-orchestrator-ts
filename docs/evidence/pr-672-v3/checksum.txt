@@ -1,5 +1,0 @@
-7508aaf5a4b2ac22aba1e5b1c1480c28374d2d961d3b8c4cff954559a122c419  /Users/jleechan/.worktrees/agent-orchestrator/ao-6321/docs/evidence/pr-672-v3/cast.cast
-44af745231c9f39c8b479d71f5adb71c584a334ccc8d0d7a11d19b4e0af10fca  /Users/jleechan/.worktrees/agent-orchestrator/ao-6321/docs/evidence/pr-672-v3/cast.gif
-7c1be5b205b1e4092104aeda66fdc0d33db8e5382279266bfd6c6bf0039673e8  /Users/jleechan/.worktrees/agent-orchestrator/ao-6321/docs/evidence/pr-672-v3/cast.mp4
-d9b6632f1d7b16fd1a41269d2c8848c4a70d94cab81959965505b0b5b3269398  /Users/jleechan/.worktrees/agent-orchestrator/ao-6321/docs/evidence/pr-672-v3/cast.vtt
-14e0255e7d10b63b6ed852950061ffd495458f9b5ec2aa7d18dba6975c3bec09  /Users/jleechan/.worktrees/agent-orchestrator/ao-6321/docs/evidence/pr-672-v3/README.md
