@@ -134,7 +134,6 @@ if [ "$TIER1_REGISTERED" -eq 0 ]; then
     # Frozen template contains @REPO_ROOT@, @HOME@, @PATH@ placeholders.
     # Substitute them in place to ~/Library/LaunchAgents and bootstrap.
     log "frozen template found at $TIER1_FROZEN_PLIST — substituting placeholders"
-    local tmp_plist
     tmp_plist=$(mktemp "/tmp/health-guardian-XXXXXX.plist")
     if sed -e "s|@REPO_ROOT@|$REPO_ROOT|g" \
            -e "s|@HOME@|$HOME|g" \

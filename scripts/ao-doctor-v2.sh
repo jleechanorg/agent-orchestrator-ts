@@ -38,8 +38,21 @@ check_scm_config_in_staging() {
     fail "staging config $cfg has NO 'scm:' field — skeptic will silently return 0 for all PRs (see fragility 2026-06-10)"
     return
   fi
+  # Count projects defined under the top-level `projects:` map only. The
+  # project entries sit at exactly 2 spaces of indent (`  <name>:`). Nested
+  # sub-keys like `tracker:`, `agentConfig:`, `scm-github:`, etc. also
+  # match a 2-or-4-space YAML key pattern, so we anchor on the
+  # `projects:` section header and count keys until the next
+  # non-indented or shallower-indented key. This avoids false positives
+  # from `reactions:`, `notifier-routing:`, plugin configs, etc.
   local project_count
-  project_count=$(grep -cE "^\s+[a-zA-Z][a-zA-Z0-9_-]*:$" "$cfg" 2>/dev/null || echo 0)
+  project_count=$(awk '
+    BEGIN { in_projects=0; count=0 }
+    /^projects:[[:space:]]*$/ { in_projects=1; next }
+    in_projects && /^[^[:space:]]/ { in_projects=0 }
+    in_projects && /^  [a-zA-Z][a-zA-Z0-9_-]*:[[:space:]]*(#.*)?$/ { count++ }
+    END { print count+0 }
+  ' "$cfg")
   local scm_count
   scm_count=$(grep -cE "^\s+scm:" "$cfg" 2>/dev/null || echo 0)
   if [ "$project_count" -gt 0 ] && [ "$scm_count" -lt "$project_count" ]; then
