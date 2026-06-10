@@ -12,8 +12,9 @@ export function registerDashboard(program: Command): void {
     .description("Start the web dashboard")
     .option("-p, --port <port>", "Port to listen on")
     .option("--no-open", "Don't open browser automatically")
+    .option("--no-open-browser", "Don't open browser automatically (alias for --no-open)")
     .option("--rebuild", "Clean stale build artifacts and rebuild before starting")
-    .action(async (opts: { port?: string; open?: boolean; rebuild?: boolean }) => {
+    .action(async (opts: { port?: string; open?: boolean; openBrowser?: boolean; rebuild?: boolean }) => {
       const config = loadConfig();
       const port = opts.port ? parseInt(opts.port, 10) : (config.port ?? 3000);
 
@@ -87,12 +88,13 @@ export function registerDashboard(program: Command): void {
       let openAbort: AbortController | undefined;
 
       // bd-#667: Suppress browser auto-open when any of the following is set:
-      //   - opts.open === false  (--no-open CLI flag)
+      //   - opts.open === false || opts.openBrowser === false  (--no-open or --no-open-browser CLI flag)
       //   - config.openBrowser === false  (YAML)
       //   - process.env.AO_NO_OPEN_BROWSER is a truthy token ("1" or "true", case-insensitive)
       const envVal = process.env["AO_NO_OPEN_BROWSER"]?.toLowerCase();
       const shouldOpen =
         opts.open !== false &&
+        opts.openBrowser !== false &&
         config.openBrowser !== false &&
         !(envVal === "1" || envVal === "true");
 
