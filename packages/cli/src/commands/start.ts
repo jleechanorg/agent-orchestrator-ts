@@ -735,7 +735,7 @@ async function runStartup(
   config: OrchestratorConfig,
   projectId: string,
   project: ProjectConfig,
-  opts?: { dashboard?: boolean; orchestrator?: boolean; rebuild?: boolean; openBrowser?: boolean },
+  opts?: { dashboard?: boolean; orchestrator?: boolean; rebuild?: boolean; openBrowser?: boolean; open?: boolean },
 ): Promise<number> {
   const mainRepoPath = getMainRepoPath();
 
@@ -960,8 +960,10 @@ export function registerStart(program: Command): void {
     )
     .option("--no-dashboard", "Skip starting the dashboard server")
     .option("--no-orchestrator", "Skip starting the orchestrator agent")
-    .option("--open-browser", "Auto-open the dashboard URL in a browser")
-    .option("--no-open-browser", "Skip auto-opening the dashboard URL in a browser (bd-#667)")
+    .option("--open", "Auto-open the dashboard URL in a browser")
+    .option("--no-open", "Skip auto-opening the dashboard URL in a browser")
+    .option("--open-browser", "Auto-open the dashboard URL in a browser (alias for --open)")
+    .option("--no-open-browser", "Skip auto-opening the dashboard URL in a browser (alias for --no-open) (bd-#667)")
     .option("--rebuild", "Clean and rebuild dashboard before starting")
     .option("--interactive", "Interactive mode for agent selection")
     .action(
@@ -973,6 +975,7 @@ export function registerStart(program: Command): void {
           rebuild?: boolean;
           interactive?: boolean;
           openBrowser?: boolean;
+          open?: boolean;
         },
       ) => {
         try {

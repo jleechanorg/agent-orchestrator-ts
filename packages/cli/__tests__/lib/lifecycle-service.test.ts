@@ -556,13 +556,19 @@ describe("writeLifecycleWorkerPid / clearLifecycleWorkerPid", () => {
 
 describe("resolveLifecycleWorkerLaunch", () => {
   let originalArgv: string[];
+  let originalPlatform: string;
 
   beforeEach(() => {
     originalArgv = process.argv;
+    originalPlatform = process.platform;
   });
 
   afterEach(() => {
     process.argv = originalArgv;
+    Object.defineProperty(process, "platform", {
+      value: originalPlatform,
+      configurable: true,
+    });
     MOCK_FS.reset();
   });
 
@@ -615,5 +621,26 @@ describe("resolveLifecycleWorkerLaunch", () => {
     const launch = resolveLifecycleWorkerLaunch("test-proj");
     expect(launch.command).toBe("ao");
     expect(launch.args).toEqual(["lifecycle-worker", "test-proj"]);
+  });
+
+  it("uses where instead of which on Windows, and checks Windows extensions for local tsx", () => {
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+    process.argv = [process.execPath, "/path/to/cli/src/index.ts"];
+
+    // 1. Verify global tsx uses 'where' on Windows
+    mockExecFileSync.mockImplementationOnce((cmd) => {
+      expect(cmd).toBe("where");
+      return Buffer.from("C:\\path\\to\\tsx.cmd\n");
+    });
+    let launch = resolveLifecycleWorkerLaunch("test-proj");
+    expect(launch.command).toBe("tsx");
+
+    // 2. Verify local tsx checks .cmd on Windows
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error("not found");
+    });
+    MOCK_FS.store["existsSync:/path/to/cli/node_modules/.bin/tsx.cmd"] = true;
+    launch = resolveLifecycleWorkerLaunch("test-proj");
+    expect(launch.command).toBe("/path/to/cli/node_modules/.bin/tsx.cmd");
   });
 });

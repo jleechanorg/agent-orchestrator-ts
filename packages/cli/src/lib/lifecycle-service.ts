@@ -405,7 +405,8 @@ export function resolveLifecycleWorkerLaunch(projectId: string): { command: stri
 
   if (entry && /\.ts$/i.test(entry)) {
     try {
-      execFileSync("which", ["tsx"], { stdio: "ignore" });
+      const whichCmd = process.platform === "win32" ? "where" : "which";
+      execFileSync(whichCmd, ["tsx"], { stdio: "ignore" });
       return {
         command: "tsx",
         args: [entry, ...workerArgs],
@@ -416,10 +417,14 @@ export function resolveLifecycleWorkerLaunch(projectId: string): { command: stri
 
     try {
       const entryDir = dirname(entry);
-      const possibleTsxPaths = [
-        join(entryDir, "../node_modules/.bin/tsx"),
-        join(entryDir, "../../node_modules/.bin/tsx"),
-      ];
+      const suffixes = process.platform === "win32" ? [".cmd", ".ps1", ""] : [""];
+      const possibleTsxPaths: string[] = [];
+      for (const suffix of suffixes) {
+        possibleTsxPaths.push(
+          join(entryDir, `../node_modules/.bin/tsx${suffix}`),
+          join(entryDir, `../../node_modules/.bin/tsx${suffix}`),
+        );
+      }
       for (const p of possibleTsxPaths) {
         if (existsSync(p)) {
           return {
