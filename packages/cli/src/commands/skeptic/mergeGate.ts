@@ -215,9 +215,6 @@ export async function fetchMergeGateState(
     // current head is clean).
     crState = "none-on-head";
   }
-    crState = latestCR.state;
-    crApproved = (latestCR.state ?? "").toLowerCase() === "approved" && !crDismissedWithoutApproval;
-  }
 
   // Fallback: check comments for CodeRabbit's [approve] comment if review state is not approved
   if (!crApproved) {

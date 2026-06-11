@@ -714,6 +714,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -745,6 +746,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -777,6 +779,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -808,6 +811,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -838,6 +842,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -869,6 +874,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -900,6 +906,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -931,6 +938,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -938,6 +946,38 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
       expect(result.crApproved).toBe(false);
       expect(result.crState).toBe("changes_requested");
+    });
+
+    it("does not approve CodeRabbit and sets crState to none-on-head if review is changes_requested but on an old commit SHA", async () => {
+      setup({
+        ghJson: [
+          { head: { sha: headSha }, mergeable: true },
+          { state: "success" },
+          { commit: { committer: { date: "2026-06-04T12:00:00Z" } } },
+        ],
+        paginate: [
+          [],
+          [
+            [
+              { id: 9, body: "regular comment", created_at: "2026-06-04T13:00:00Z", user: { login: "someone" } }
+            ]
+          ],
+          [],
+        ],
+        fetchReviews: [
+          {
+            author: { login: "coderabbitai" },
+            state: "changes_requested",
+            body: "please fix this",
+            submittedAt: "2026-06-04T11:00:00Z",
+            commitId: "old-sha-1234567890",
+          }
+        ],
+      });
+
+      const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
+      expect(result.crApproved).toBe(false);
+      expect(result.crState).toBe("none-on-head");
     });
   });
 });
