@@ -206,8 +206,8 @@ export async function fetchMergeGateState(
   const latestCR = getLatestDecisiveReview(reviews, headSha);
   const crDismissedWithoutApproval = hasUnresolvedDismissedReview(reviews);
 
-  let crApproved = false;
-  let crState = "none";
+  let crApproved: boolean;
+  let crState: string;
   if (latestCR) {
     crState = latestCR.state;
     crApproved = (latestCR.state ?? "").toLowerCase() === "approved" && !crDismissedWithoutApproval;
@@ -217,6 +217,7 @@ export async function fetchMergeGateState(
     // reviews on old SHAs and would say CHANGES_REQUESTED even when the
     // current head is clean).
     crState = "none-on-head";
+    crApproved = false;
   }
 
   // Fallback: check comments for CodeRabbit's [approve] comment if review state is not approved
