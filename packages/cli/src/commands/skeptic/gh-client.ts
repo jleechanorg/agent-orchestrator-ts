@@ -96,6 +96,13 @@ export interface ReviewInfo {
   state: "approved" | "changes_requested" | "commented" | "dismissed" | "pending";
   body: string | null;
   submittedAt: string;
+  /**
+   * The commit OID this review is attached to. Populated from the
+   * GraphQL `commit { oid }` field on the review node. Used to filter
+   * stale CR reviews that were submitted on an older head SHA and that
+   * GitHub's UI-level `reviewDecision` still reflects.
+   */
+  commitId?: string | null;
 }
 
 export interface IssueComment {
@@ -138,7 +145,11 @@ export async function fetchReviews(
     `    pullRequest(number:${prNumber}) {`,
     "      reviewDecision",
     "      reviews(last:20) {",
-    "        nodes { author { login } state body submittedAt }",
+    // `commit { oid }` is required so callers can filter stale reviews
+    // against the current head SHA. GitHub's UI-level `reviewDecision`
+    // returns the worst state across ALL reviews (including ones on
+    // superseded head SHAs) which causes false-FAIL verdicts.
+    "        nodes { author { login } state body submittedAt commit { oid } }",
     "      }",
     "    }",
     "  }",
