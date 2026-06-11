@@ -237,7 +237,14 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full reference. The short
    chore: update vitest to v2
    ```
 
-5. **Push and open a PR**. Ensure your PR title starts with the `[agento]` or `[antig]` prefix (e.g. `[agento] feat: add...` or `[antig] fix: ...`). In the PR description:
+5. **Push and open a PR**. Ensure your PR title starts with the `[agento]` or `[antig]` prefix:
+   - Use `[agento]` for standard agent orchestrator changes
+   - Use `[antig]` for antigravity runtime changes
+   - Both prefixes can be combined when changes span both areas (e.g., `[antig] [agento] feat: ...`)
+
+   Examples: `[agento] feat: add...`, `[antig] fix: ...`, `[antig] [agento] feat: ...`
+
+   In the PR description:
    - What changed and why
    - How to test it
    - Link to the issue it closes (e.g., `Closes #123`)

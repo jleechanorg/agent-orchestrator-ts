@@ -269,9 +269,12 @@ describe("wholesome — structural source-code assertions", () => {
     it("PR title has correct format: [agento] <type>: <description>", () => {
       const title = getPRTitle();
       if (!shouldEnforcePRTitlePrefix(title)) return;
-      // "[agento] " or "[antig] " (or both) followed by conventional-commit type + optional scope + colon
-      // Scope format: (scope-name) — supports issue refs like (skeptic-cron)
-      expect(title).toMatch(/^(?:(?:\[antig\]\s+)?\[agento\]\s+|(?:\[agento\]\s+)?\[antig\]\s+)[a-z]+(?:\([^)]+\))?: /);
+      // Expected prefix patterns:
+      // 1. [agento] <type>: <description> (standard orchestrator change)
+      // 2. [antig] <type>: <description> (standard antigravity change)
+      // 3. [antig] [agento] <type>: <description> (canonical combination order when both apply)
+      // Reference getPRTitle() and shouldEnforcePRTitlePrefix() above.
+      expect(title).toMatch(/^(?:\[antig\]\s+)?(?:\[agento\]\s+|\[antig\]\s+)[a-z]+(?:\([^)]+\))?: /);
     }, 60_000);
   });
 
