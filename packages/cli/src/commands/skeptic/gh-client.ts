@@ -134,6 +134,14 @@ export async function fetchPRMeta(
   return pr;
 }
 
+interface GraphQLReviewNode {
+  author: { login: string };
+  state: string;
+  body: string | null;
+  submittedAt: string;
+  commit?: { oid?: string | null } | null;
+}
+
 export async function fetchReviews(
   owner: string,
   repo: string,
@@ -161,17 +169,18 @@ export async function fetchReviews(
       repository?: {
         pullRequest?: {
           reviewDecision?: string;
-          reviews?: { nodes?: ReviewInfo[] };
+          reviews?: { nodes?: GraphQLReviewNode[] };
         };
       };
     };
   };
   return (r?.data?.repository?.pullRequest?.reviews?.nodes ?? []).map((n) => ({
-    ...n,
-    // Normalize GitHub GraphQL uppercase enum to lowercase to match the Review type
-    state: (n.state as string).toLowerCase() as ReviewInfo["state"],
-    commitId: (n as { commit?: { oid?: string } }).commit?.oid,
-  })) as ReviewInfo[];
+    author: n.author,
+    state: n.state.toLowerCase() as ReviewInfo["state"],
+    body: n.body,
+    submittedAt: n.submittedAt,
+    commitId: n.commit?.oid,
+  }));
 }
 
 export async function fetchDiff(owner: string, repo: string, prNumber: number): Promise<string> {

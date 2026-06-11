@@ -101,7 +101,9 @@ export function buildSkepticPrompt(
 ): string {
   // If CodeRabbit approved via comment fallback, prepend a virtual APPROVED review
   // to reviews list so that LLM does not get blocked by dismissed reviews (Rule 4).
-  const crReviews = reviews.filter((r) => r.author?.login === "coderabbitai" || r.author?.login === "coderabbitai[bot]");
+  const isCodeRabbitReview = (r: ReviewInfo): boolean =>
+    r.author?.login === "coderabbitai" || r.author?.login === "coderabbitai[bot]";
+  const crReviews = reviews.filter(isCodeRabbitReview);
   const hasApprovedReview = crReviews.some((r) => (r.state ?? "").toLowerCase() === "approved");
   const modifiedReviews = [...reviews];
   if (state.crApproved && !hasApprovedReview) {
@@ -124,7 +126,7 @@ export function buildSkepticPrompt(
   const latestCRDecisive = modifiedReviews
     .filter(
       (r) =>
-        r.author?.login === "coderabbitai" &&
+        isCodeRabbitReview(r) &&
         ((r.state ?? "").toLowerCase() === "approved" ||
           (r.state ?? "").toLowerCase() === "changes_requested") &&
         (!pr.headRefOid || r.commitId === pr.headRefOid),
