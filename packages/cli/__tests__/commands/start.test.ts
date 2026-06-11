@@ -921,7 +921,7 @@ describe("start command — browser open waits for port", () => {
     mockSessionManager.get.mockResolvedValue(null);
     mockSessionManager.spawnOrchestrator.mockResolvedValue({ id: "app-orchestrator" });
 
-    await program.parseAsync(["node", "test", "start", "--no-orchestrator"]);
+    await program.parseAsync(["node", "test", "start", "--no-orchestrator", "--open-browser"]);
 
     // waitForPortAndOpen should have been called with orchestrator URL and AbortSignal
     expect(mockWaitForPortAndOpen).toHaveBeenCalledTimes(1);
