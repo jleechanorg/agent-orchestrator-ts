@@ -315,7 +315,7 @@ curl -fsSL https://raw.githubusercontent.com/jleechanorg/llm_inspector/main/inst
 
 `--tool-mode lean` removes 17 heavy built-in tools (~20K tokens/turn). On-demand tool profiles via MCP toggle reduce per-turn overhead further for long sessions.
 
-Evidence bundle: [`docs/evidence/on-demand-stub-schema-2026-04-11/`](docs/evidence/on-demand-stub-schema-2026-04-11/) (N=10, mean 84.9% Agent stub reduction, PASS).
+Verified metrics: see results in [`docs/evidence/on-demand-stub-schema-2026-04-11/`](docs/evidence/on-demand-stub-schema-2026-04-11/) (N=10, mean 84.9% Agent stub reduction, PASS).
 
 ## Zero-Touch Policy (Fork-Only)
 
