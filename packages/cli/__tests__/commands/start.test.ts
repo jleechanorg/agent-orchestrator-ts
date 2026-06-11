@@ -110,10 +110,17 @@ const {
 const { mockIsHumanCaller } = vi.hoisted(() => ({
   mockIsHumanCaller: vi.fn().mockReturnValue(true),
 }));
-
 const { mockGit } = vi.hoisted(() => ({
   mockGit: vi.fn(),
 }));
+
+vi.mock("node:process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:process")>();
+  return {
+    ...actual,
+    cwd: () => mockProcessCwd() || actual.cwd(),
+  };
+});
 
 vi.mock("../../src/lib/shell.js", () => ({
   tmux: vi.fn(),
@@ -150,6 +157,9 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
     ...actual,
     normalizeOrchestratorSessionStrategy,
     findConfigFile: (startDir?: string) => {
+      if (mockConfigRef.current?.simulateMissingConfig) {
+        return undefined;
+      }
       const envConfigPath = process.env["AO_CONFIG_PATH"];
       if (envConfigPath && existsSync(envConfigPath)) {
         return envConfigPath;
@@ -161,6 +171,9 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
       return actual.findConfigFile(startDir);
     },
     loadConfig: (path?: string) => {
+      if (mockConfigRef.current?.simulateMissingConfig) {
+        throw new actual.ConfigNotFoundError();
+      }
       if (path && path === mockConfigRef.current?.["configPath"]) {
         return mockConfigRef.current;
       }
@@ -1133,7 +1146,7 @@ describe("start command — main repo guard (bd-8gld)", () => {
   let mainRepoDir: string;
   let originalHome: string | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Save original realpathSync.native so we can spy on it per-test
     originalRealpath = realpathSync.native;
     // Save original HOME so we can restore it after the test
@@ -1147,6 +1160,23 @@ describe("start command — main repo guard (bd-8gld)", () => {
     // Without this, the default is derived from os.homedir().
     process.env["AO_MAIN_REPO"] = mainRepoDir;
     process.env["HOME"] = tmpdir();
+
+    const { detectEnvironment } = await import("../../src/lib/detect-env.js");
+    vi.mocked(detectEnvironment).mockResolvedValue({
+      isGitRepo: true,
+      gitRemote: null,
+      ownerRepo: null,
+      currentBranch: "main",
+      defaultBranch: "main",
+      hasTmux: true,
+      hasGh: false,
+      ghAuthed: false,
+      hasLinearKey: false,
+      hasSlackWebhook: false,
+    });
+
+    const { detectProjectType } = await import("../../src/lib/project-detection.js");
+    vi.mocked(detectProjectType).mockReturnValue({ languages: [], frameworks: [], tools: [] });
   });
 
   afterEach(() => {
@@ -1194,8 +1224,8 @@ describe("start command — main repo guard (bd-8gld)", () => {
     }
   });
 
-  // bd-cj5s: --allow-main-repo flag overrides the guard (replaces AO_MAIN_REPO env var)
-  it("allows the main repo when --allow-main-repo flag is set (bd-cj5s)", async () => {
+  // bd-cj5s: --allow-main-repo flag overrides the guard (alternative to AO_MAIN_REPO env var)
+  it("allows the main repo when --allow-main-repo flag is set (Site 3) (bd-cj5s)", async () => {
     // Set up config where the project IS the main repo.
     mockConfigRef.current = makeConfig({
       "my-app": makeProject({ path: mainRepoDir }),
@@ -1218,6 +1248,131 @@ describe("start command — main repo guard (bd-8gld)", () => {
     const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
     expect(errors).not.toContain("Refusing to operate on the main repo");
   });
+
+  it("throws when local path argument resolves to the main repo (Site 2) (bd-cj5s)", async () => {
+    mockConfigRef.current = makeConfig({});
+    vi.spyOn(realpathSync, "native").mockImplementation((p: string) => {
+      return originalRealpath(p) === mainRepoDir ? mainRepoDir : originalRealpath(p);
+    });
+
+    await expect(
+      program.parseAsync(["node", "test", "start", mainRepoDir, "--no-dashboard", "--no-orchestrator"]),
+    ).rejects.toThrow("process.exit(1)");
+
+    const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(errors).toContain("Refusing to operate on the main repo");
+  });
+
+  it("allows local path argument when --allow-main-repo flag is set (Site 2) (bd-cj5s)", async () => {
+    mockConfigRef.current = makeConfig({});
+    vi.spyOn(realpathSync, "native").mockImplementation((p: string) => {
+      return originalRealpath(p) === mainRepoDir ? mainRepoDir : originalRealpath(p);
+    });
+
+    try {
+      await program.parseAsync([
+        "node",
+        "test",
+        "start",
+        mainRepoDir,
+        "--no-dashboard",
+        "--no-orchestrator",
+        "--allow-main-repo",
+      ]);
+    } catch (err) {
+      // ignore
+    }
+
+    const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(errors).not.toContain("Refusing to operate on the main repo");
+  });
+
+  it("throws when no-argument start cwd resolves to the main repo (Site 4) (bd-cj5s)", async () => {
+    mockConfigRef.current = { simulateMissingConfig: true } as any;
+    mockCwd(mainRepoDir);
+    mockProcessCwd.mockReturnValue(mainRepoDir);
+    vi.spyOn(realpathSync, "native").mockImplementation((p: string) => {
+      return originalRealpath(p) === mainRepoDir ? mainRepoDir : originalRealpath(p);
+    });
+
+    await expect(
+      program.parseAsync(["node", "test", "start", "--no-dashboard", "--no-orchestrator"]),
+    ).rejects.toThrow("process.exit(1)");
+
+    const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(errors).toContain("Refusing to operate on the main repo");
+  });
+
+  it("allows no-argument start cwd when --allow-main-repo flag is set (Site 4) (bd-cj5s)", async () => {
+    mockConfigRef.current = { simulateMissingConfig: true } as any;
+    mockCwd(mainRepoDir);
+    mockProcessCwd.mockReturnValue(mainRepoDir);
+    vi.spyOn(realpathSync, "native").mockImplementation((p: string) => {
+      return originalRealpath(p) === mainRepoDir ? mainRepoDir : originalRealpath(p);
+    });
+
+    try {
+      await program.parseAsync([
+        "node",
+        "test",
+        "start",
+        "--no-dashboard",
+        "--no-orchestrator",
+        "--allow-main-repo",
+      ]);
+    } catch (err) {
+      // ignore
+    }
+
+    const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(errors).not.toContain("Refusing to operate on the main repo");
+  });
+
+  it("throws when URL start target path resolves to the main repo (Site 1) (bd-cj5s)", async () => {
+    mockConfigRef.current = makeConfig({});
+    vi.spyOn(realpathSync, "native").mockImplementation(() => {
+      return mainRepoDir;
+    });
+
+    await expect(
+      program.parseAsync([
+        "node",
+        "test",
+        "start",
+        "https://github.com/owner/my-app.git",
+        "--no-dashboard",
+        "--no-orchestrator",
+      ]),
+    ).rejects.toThrow("process.exit(1)");
+
+    const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(errors).toContain("Refusing to operate on the main repo");
+  });
+
+  it("allows URL start when --allow-main-repo flag is set (Site 1) (bd-cj5s)", async () => {
+    mockConfigRef.current = makeConfig({});
+    vi.spyOn(realpathSync, "native").mockImplementation(() => {
+      return mainRepoDir;
+    });
+
+    try {
+      await program.parseAsync([
+        "node",
+        "test",
+        "start",
+        "https://github.com/owner/my-app.git",
+        "--no-dashboard",
+        "--no-orchestrator",
+        "--allow-main-repo",
+      ]);
+    } catch (err) {
+      // ignore
+    }
+
+    const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(errors).not.toContain("Refusing to operate on the main repo");
+  });
+
 
   it("targeted stop does NOT unregister running.json", async () => {
     mockConfigRef.current = makeConfig({

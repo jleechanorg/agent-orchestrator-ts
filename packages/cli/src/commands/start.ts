@@ -1126,8 +1126,8 @@ export function registerStart(program: Command): void {
                 throw new ConfigNotFoundError();
               }
               loadedConfig = loadConfig(configPath);
-            } catch (err) {
-              if (err instanceof ConfigNotFoundError) {
+            } catch (err: any) {
+              if (err instanceof ConfigNotFoundError || err?.name === "ConfigNotFoundError") {
                 // First run — guard against operating on the main repo
                 const mainRepoPath = getMainRepoPath();
                 let resolvedCwd: string;
