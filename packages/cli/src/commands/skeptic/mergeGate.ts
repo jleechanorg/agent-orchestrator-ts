@@ -22,6 +22,9 @@ const NIT_PATTERN = /^(nit:|nitpick)/i;
 const CR_BOT = "coderabbitai";
 const EVIDENCE_BOT = "evidence-review-bot";
 
+const isCodeRabbitReview = (r: ReviewInfo): boolean =>
+  r.author?.login === "coderabbitai" || r.author?.login === "coderabbitai[bot]";
+
 export interface CheckRunSummary {
   name: string;
   status: string;
@@ -58,7 +61,7 @@ function sortReviewsNewestFirst(a: ReviewInfo, b: ReviewInfo): number {
  * Mirrors hasUnresolvedDismissedReview in merge-gate-coderabbit.ts.
  */
 function hasUnresolvedDismissedReview(reviews: ReviewInfo[]): boolean {
-  const crReviews = reviews.filter((r) => r.author?.login === CR_BOT);
+  const crReviews = reviews.filter(isCodeRabbitReview);
   if (crReviews.length === 0) return false;
   const sorted = [...crReviews].sort(sortReviewsNewestFirst);
   for (const review of sorted) {
@@ -84,7 +87,7 @@ function getLatestDecisiveReview(
 ): ReviewInfo | null {
   const filtered = reviews.filter(
     (r) =>
-      r.author?.login === CR_BOT &&
+      isCodeRabbitReview(r) &&
       ((r.state ?? "").toLowerCase() === "approved" ||
         (r.state ?? "").toLowerCase() === "changes_requested") &&
       // If we know the head SHA, the review must be attached to it.
