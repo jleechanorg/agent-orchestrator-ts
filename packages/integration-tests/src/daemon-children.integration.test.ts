@@ -1,5 +1,5 @@
 import { spawn, execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, readdirSync, statSync } from "node:fs";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -31,6 +31,22 @@ async function getFreePort(): Promise<number> {
       });
     });
   });
+}
+
+function findLifecycleLog(dir: string): string | null {
+  try {
+    const files = readdirSync(dir);
+    for (const file of files) {
+      const fullPath = join(dir, file);
+      if (statSync(fullPath).isDirectory()) {
+        const found = findLifecycleLog(fullPath);
+        if (found) return found;
+      } else if (file === "lifecycle-worker.log") {
+        return fullPath;
+      }
+    }
+  } catch {}
+  return null;
 }
 
 async function readChildPids(pid: number): Promise<number[]> {
@@ -127,16 +143,18 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
       AO_CONFIG_PATH: configPath,
       AO_GLOBAL_CONFIG: configPath,
       PORT: String(port),
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
     };
 
     // Verify config has openBrowser: false
     const configContent = readFileSync(configPath, "utf-8");
     expect(configContent).toContain("openBrowser: false");
 
+    const logFd = openSync(join(tmpHome, "cli-start-1.log"), "w");
     const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator", "--no-open-browser"], {
       cwd: repoPath,
       env,
-      stdio: "ignore",
+      stdio: ["ignore", logFd, logFd],
     });
     startPid = start.pid;
     expect(startPid).toBeTypeOf("number");
@@ -178,7 +196,7 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
     writeFileSync(mockOpenPath, mockOpenScript, { mode: 0o755 });
     writeFileSync(mockXdgOpenPath, mockOpenScript, { mode: 0o755 });
 
-    const env = {
+    const env: Record<string, string | undefined> = {
       ...process.env,
       HOME: tmpHome,
       PATH: `${binDir}:${process.env.PATH}`,
@@ -186,13 +204,16 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
       AO_CONFIG_PATH: configPath,
       AO_GLOBAL_CONFIG: configPath,
       PORT: String(port),
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
     };
+    delete env.AO_NO_OPEN_BROWSER;
 
+    const logFd = openSync(join(tmpHome, "cli-start-2.log"), "w");
     // Spawn without --no-open-browser flag
     const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator"], {
       cwd: repoPath,
       env,
-      stdio: "ignore",
+      stdio: ["ignore", logFd, logFd],
     });
     startPid = start.pid;
 
@@ -205,6 +226,19 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
         break;
       }
       await sleep(100);
+    }
+    if (runningPid === undefined) {
+      try {
+        console.error("LOG 2 CONTENT:\n", readFileSync(join(tmpHome, "cli-start-2.log"), "utf-8"));
+        const lifecycleLog = findLifecycleLog(tmpHome);
+        if (lifecycleLog) {
+          console.error("LIFECYCLE WORKER LOG 2 CONTENT:\n", readFileSync(lifecycleLog, "utf-8"));
+        } else {
+          console.error("LIFECYCLE WORKER LOG 2 NOT FOUND");
+        }
+      } catch (e) {
+        console.error("Failed to read log 2:", e);
+      }
     }
     expect(runningPid).toBeTypeOf("number");
 
@@ -233,12 +267,14 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
       AO_CONFIG_PATH: configPath,
       AO_GLOBAL_CONFIG: configPath,
       PORT: String(port),
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
     };
 
+    const logFd = openSync(join(tmpHome, "cli-start-3.log"), "w");
     const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator", "--no-open-browser"], {
       cwd: repoPath,
       env,
-      stdio: "ignore",
+      stdio: ["ignore", logFd, logFd],
     });
     startPid = start.pid;
     expect(startPid).toBeTypeOf("number");
@@ -252,6 +288,19 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
         break;
       }
       await sleep(100);
+    }
+    if (runningPid === undefined) {
+      try {
+        console.error("LOG 3 CONTENT:\n", readFileSync(join(tmpHome, "cli-start-3.log"), "utf-8"));
+        const lifecycleLog = findLifecycleLog(tmpHome);
+        if (lifecycleLog) {
+          console.error("LIFECYCLE WORKER LOG 3 CONTENT:\n", readFileSync(lifecycleLog, "utf-8"));
+        } else {
+          console.error("LIFECYCLE WORKER LOG 3 NOT FOUND");
+        }
+      } catch (e) {
+        console.error("Failed to read log 3:", e);
+      }
     }
     expect(runningPid).toBeTypeOf("number");
 
