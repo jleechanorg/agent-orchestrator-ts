@@ -59,6 +59,7 @@ describe("head SHA filtering and fallback", () => {
   }
 
   const headSha = "abc1230000000000000000000000000000000000";
+  const oldSha = "def4560000000000000000000000000000000000";
 
   it("does not approve CodeRabbit and sets crState to none-on-head if review is changes_requested but on an old commit SHA", async () => {
     setup({
@@ -82,7 +83,7 @@ describe("head SHA filtering and fallback", () => {
           state: "changes_requested",
           body: "please fix this",
           submittedAt: "2026-06-04T11:00:00Z",
-          commitId: "old-sha-1234567890",
+          commitId: oldSha,
         }
       ],
     });
@@ -114,7 +115,7 @@ describe("head SHA filtering and fallback", () => {
           state: "dismissed",
           body: "dismissed review",
           submittedAt: "2026-06-04T11:00:00Z",
-          commitId: "old-sha-1234567890",
+          commitId: oldSha,
         }
       ],
     });
