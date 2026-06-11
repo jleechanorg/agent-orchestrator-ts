@@ -392,7 +392,7 @@ export function getLifecycleWorkerStatus(
   return { running: false, pid: null, verified: false, pidFile, logFile };
 }
 
-function resolveLifecycleWorkerLaunch(projectId: string): { command: string; args: string[] } {
+export function resolveLifecycleWorkerLaunch(projectId: string): { command: string; args: string[] } {
   const entry = process.argv[1];
   const workerArgs = ["lifecycle-worker", projectId];
 
