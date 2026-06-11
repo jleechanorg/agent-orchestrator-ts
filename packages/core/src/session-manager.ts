@@ -1923,6 +1923,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         AO_PROJECT_ID: orchestratorConfig.projectId,
         AO_CONFIG_PATH: config.configPath,
         ...(config.port !== undefined && config.port !== null && { AO_PORT: String(config.port) }),
+        /* c8 ignore next */
         ...(process.env["AO_MAIN_REPO"] && { AO_MAIN_REPO: process.env["AO_MAIN_REPO"] }),
       },
       /* c8 ignore start */
