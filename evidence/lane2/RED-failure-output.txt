@@ -1,0 +1,64 @@
+
+ RUN  v3.2.4 /Users/jleechan/.worktrees/agent-orchestrator/allow-main-repo/packages/cli
+
+ ❯ __tests__/commands/start.test.ts (53 tests | 1 failed | 52 skipped) 9ms
+   ↓ start command — project resolution > includes workflow examples in start help
+   ↓ start command — project resolution > uses single project when no arg given
+   ↓ start command — project resolution > uses explicit project arg when given
+   ↓ start command — project resolution > errors when explicit project not found
+   ↓ start command — project resolution > errors when multiple projects and no arg
+   ↓ start command — project resolution > errors when no projects configured
+   ↓ start command — project resolution > falls back to managed staging config when AO_CONFIG_PATH points to a missing file
+   ↓ start command — URL argument > reuses existing clone and generates config
+   ↓ start command — URL argument > clones repo via gh when gh auth is available
+   ↓ start command — URL argument > falls back to git clone when gh is unavailable
+   ↓ start command — URL argument > uses existing config when repo already has agent-orchestrator.yaml
+   ↓ start command — URL argument > resolves correct project when existing config has multiple projects
+   ↓ start command — URL argument > fails on clone error with descriptive message
+   ↓ start command — local path argument > adds new local-path projects to staging instead of production
+   ↓ start command — local path argument > repairs an invalid staging symlink before onboarding a local path
+   ↓ start command — browser open waits for port > calls waitForPortAndOpen with orchestrator URL and AbortSignal
+   ↓ start command — browser open waits for port > skips browser open and lifecycle with --no-dashboard --no-orchestrator
+   ↓ start command — browser open waits for port > skips browser open but still starts lifecycle with --no-dashboard alone
+   ↓ start command — orchestrator session strategy display > shows reused messaging when strategy is reuse and metadata marks the session reused
+   ↓ start command — orchestrator session strategy display > falls back to attach messaging when strategy is reuse but metadata is missing
+   ↓ start command — orchestrator session strategy display > uses attach messaging when strategy is delete
+   ↓ start command — orchestrator session strategy display > uses attach messaging when strategy is ignore
+   ↓ start command — orchestrator session strategy display > uses attach messaging when strategy is delete-new
+   ↓ start command — orchestrator session strategy display > uses attach messaging when strategy is ignore-new
+   ↓ start command — orchestrator session strategy display > uses attach messaging when strategy is kill-previous
+   ↓ stop command > stops orchestrator session and dashboard
+   ↓ stop command > handles missing orchestrator session gracefully
+   ↓ stop command > defaults to NOT purge OpenCode session when stopping orchestrator
+   ↓ stop command > passes purge flag when stopping orchestrator with --purge-session
+   ↓ start command — main repo guard (bd-8gld) > throws when project path resolves to the main repo
+   ↓ start command — main repo guard (bd-8gld) > starts normally when project path is NOT the main repo
+   × start command — main repo guard (bd-8gld) > allows the main repo when --allow-main-repo flag is set (bd-cj5s) 8ms
+     → error: unknown option '--allow-main-repo'
+   ↓ start command — main repo guard (bd-8gld) > targeted stop does NOT unregister running.json
+   ↓ start command — main repo guard (bd-8gld) > targeted stop leaves the project in running.json (parent is still polling)
+   ↓ start command — main repo guard (bd-8gld) > targeted stop only kills sessions for the named project
+   ↓ start command — main repo guard (bd-8gld) > full stop (no arg) still kills parent and dashboard
+   ↓ start command — main repo guard (bd-8gld) > targeted stop records last-stop with correct project scope
+   ↓ start command — main repo guard (bd-8gld) > ao start <project> while daemon alive: non-TTY caller exits without spawning second dashboard
+   ↓ start command — autoCreateConfig > generates config with empty notifiers array (no desktop notifier added by default)
+   ↓ start command — already-running detection > exits immediately for non-TTY caller when AO is already running
+   ↓ start command — already-running detection > exits when human caller selects 'quit'
+   ↓ start command — already-running detection > path arg already registered + running: opens dashboard without prompting and does not mutate YAML
+   ↓ start command — already-running detection > path arg unregistered + AO running: registers in global config and spawns orchestrator without showing the menu
+   ↓ start command — already-running detection > offers to add cwd when AO is running and cwd is an unregistered git repo
+   ↓ start command — already-running detection > exits when human caller selects 'open'
+   ↓ start command — already-running detection > kills existing process and continues when human caller selects 'restart'
+   ↓ no-dashboard keepalive > starts lifecycle and completes without error when --no-dashboard is used
+   ↓ no-dashboard keepalive > creates new orchestrator entry when human caller selects 'new'
+   ↓ no-dashboard keepalive > does not mutate YAML when non-TTY caller detects already running (path arg)
+   ↓ start command — path-based deduplication in addProjectToConfig > skips addProjectToConfig when path arg matches an existing project
+   ↓ start command — path-based deduplication in addProjectToConfig > deduplicates via addProjectToConfig when path exists under a different name
+   ↓ start command — global registry mutations > adds a project to the global registry and writes behavior to the repo-local config
+   ↓ start command — global registry mutations > writes interactive agent overrides to the repo-local config when using the global registry
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 52 skipped (53)
+   Start at  18:05:49
+   Duration  6.60s (transform 3.94s, setup 0ms, collect 5.89s, tests 9ms, environment 0ms, prepare 163ms)
+

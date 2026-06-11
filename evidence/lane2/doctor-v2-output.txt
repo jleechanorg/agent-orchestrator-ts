@@ -1,0 +1,10 @@
+=== ao-doctor-v2 (2026-06-10 fragility audit) ===
+PASS staging config /Users/jleechan/.hermes/agent-orchestrator.yaml has scm: for all 16 project(s)
+PASS skeptic-cron age filter is AFTER trigger check at code level (bd-rgk0 guard): trigger@L97, filter@L226 (/Users/jleechan/project_agento/agent-orchestrator/packages/core/src/skeptic-cron-local.ts)
+PASS AO_BOT_GH_TOKEN is a real token (length=40, prefix=ghp_...)
+PASS dist md5 matches between source and binary (aa9b94d7956b8d4b66dd7e3182bfbb1b)
+PASS running.json present at /Users/jleechan/.agent-orchestrator/running.json
+PASS watchdog plist ai.agento.health is registered
+PASS watchdog plist ai.agento.health-guardian is registered
+PASS watchdog plist ai.hermes-watchdog is registered
+=== summary: 8 pass, 0 warn, 0 fail ===
