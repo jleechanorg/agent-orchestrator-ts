@@ -1,19 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   mkdtempSync,
-  mkdirSync,
   writeFileSync,
-  readFileSync,
   rmSync,
   existsSync,
   realpathSync,
-  lstatSync,
-  symlinkSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionManager } from "@jleechanorg/ao-core";
-import { stringify as yamlStringify, parse as parseYaml } from "yaml";
+import { stringify as yamlStringify } from "yaml";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks

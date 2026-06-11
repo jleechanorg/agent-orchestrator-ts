@@ -13,7 +13,6 @@ import {
   readFileSync,
   rmSync,
   existsSync,
-  realpathSync,
   lstatSync,
   symlinkSync,
 } from "node:fs";
