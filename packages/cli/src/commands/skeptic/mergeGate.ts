@@ -156,10 +156,10 @@ export async function fetchMergeGateState(
   try {
     const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
-    ) as { head?: { ref?: string; sha?: string }; mergeable?: boolean; merged?: boolean; user?: { login?: string } };
+    ) as { head?: { ref?: string; sha?: string }; headRefOid?: string; mergeable?: boolean; merged?: boolean; user?: { login?: string } };
     mergeableRaw = prData?.mergeable ?? null;
     noConflicts = prData?.mergeable === true || prData?.merged === true;
-    headSha = prData?.head?.sha;
+    headSha = prData?.head?.sha || prData?.headRefOid;
     prAuthor = prData?.user?.login;
     // Use headSha (immutable commit SHA) to avoid TOCTOU races
     // where the branch moves between status check and merge.

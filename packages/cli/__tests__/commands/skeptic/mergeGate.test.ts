@@ -1010,6 +1010,25 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
       expect(result.crDismissedWithoutApproval).toBe(false);
     });
+
+    it("falls back to headRefOid if head.sha is missing in prData", async () => {
+      setup({
+        ghJson: [
+          { headRefOid: headSha, mergeable: true },
+          { state: "success" },
+          [],
+        ],
+        paginate: [
+          [],
+          [],
+        ],
+      });
+
+      const result = await fetchMergeGateState(
+        "test", "test-repo", 1, "jleechan-agent[bot]"
+      );
+      expect(result.noConflicts).toBe(true);
+    });
   });
 });
 
