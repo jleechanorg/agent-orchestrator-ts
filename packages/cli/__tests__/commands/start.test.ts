@@ -1279,7 +1279,7 @@ describe("start command — main repo guard (bd-8gld)", () => {
         "--no-orchestrator",
         "--allow-main-repo",
       ]);
-    } catch (err) {
+    } catch {
       // ignore
     }
 
@@ -1320,7 +1320,7 @@ describe("start command — main repo guard (bd-8gld)", () => {
         "--no-orchestrator",
         "--allow-main-repo",
       ]);
-    } catch (err) {
+    } catch {
       // ignore
     }
 
@@ -1365,7 +1365,7 @@ describe("start command — main repo guard (bd-8gld)", () => {
         "--no-orchestrator",
         "--allow-main-repo",
       ]);
-    } catch (err) {
+    } catch {
       // ignore
     }
 
