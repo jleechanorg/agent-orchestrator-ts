@@ -58,11 +58,8 @@ function sortReviewsNewestFirst(a: ReviewInfo, b: ReviewInfo): number {
  */
 function hasUnresolvedDismissedReview(
   reviews: ReviewInfo[],
-  headSha?: string | null,
 ): boolean {
-  const crReviews = reviews.filter(
-    (r) => isCodeRabbitReview(r) && (!!headSha && r.commitId === headSha),
-  );
+  const crReviews = reviews.filter(isCodeRabbitReview);
   if (crReviews.length === 0) return false;
   const sorted = [...crReviews].sort(sortReviewsNewestFirst);
   for (const review of sorted) {
@@ -76,25 +73,22 @@ function hasUnresolvedDismissedReview(
 /**
  * Get the latest decisive CR review (approved or changes_requested, newest first).
  *
- * When `headSha` is provided, the result is restricted to reviews attached to
- * that head SHA. This prevents stale `CHANGES_REQUESTED` reviews on a
- * superseded head from causing false-FAIL verdicts. GitHub's UI-level
- * `reviewDecision` reflects the worst state across ALL reviews (including
- * ones on old heads), so we explicitly filter here.
+ * The result is restricted to reviews attached to the current `headSha`.
+ * This prevents stale `CHANGES_REQUESTED` reviews on a superseded head from
+ * causing false-FAIL verdicts. GitHub's UI-level `reviewDecision` reflects the
+ * worst state across ALL reviews (including ones on old heads), so we explicitly
+ * filter here.
  */
 function getLatestDecisiveReview(
   reviews: ReviewInfo[],
-  headSha?: string | null,
+  headSha: string,
 ): ReviewInfo | null {
   const filtered = reviews.filter(
     (r) =>
       isCodeRabbitReview(r) &&
       ((r.state ?? "").toLowerCase() === "approved" ||
         (r.state ?? "").toLowerCase() === "changes_requested") &&
-      // If we know the head SHA, the review must be attached to it.
-      // Reviews without commitId (very old) are dropped when headSha is
-      // known so we never trust unanchored reviews.
-      (!!headSha && r.commitId === headSha),
+      r.commitId === headSha,
   );
   return filtered.sort(sortReviewsNewestFirst)[0] ?? null;
 }
@@ -153,10 +147,10 @@ export async function fetchMergeGateState(
   try {
     const prData = await ghJson(
       "repos/" + owner + "/" + repo + "/pulls/" + prNumber,
-    ) as { head?: { ref?: string; sha?: string }; headRefOid?: string; mergeable?: boolean; merged?: boolean; user?: { login?: string } };
+    ) as { head?: { ref?: string; sha?: string }; mergeable?: boolean; merged?: boolean; user?: { login?: string } };
     mergeableRaw = prData?.mergeable ?? null;
     noConflicts = prData?.mergeable === true || prData?.merged === true;
-    headSha = prData?.head?.sha || prData?.headRefOid;
+    headSha = prData?.head?.sha;
     prAuthor = prData?.user?.login;
     // Use headSha (immutable commit SHA) to avoid TOCTOU races
     // where the branch moves between status check and merge.
@@ -198,6 +192,11 @@ export async function fetchMergeGateState(
     // ciPassing stays false; noConflicts stays false (already initialized)
   }
 
+  // Fail-closed: headSha is mandatory for checking reviews and CI
+  if (!headSha) {
+    throw new Error("Could not determine head SHA for PR #" + prNumber);
+  }
+
   // 2. CR review state — mirrors checkMergeGate + merge-gate-coderabbit.ts
   const reviews = await fetchReviews(owner, repo, prNumber);
   // CRITICAL: filter by head SHA. GitHub's UI-level reviewDecision returns
@@ -205,14 +204,14 @@ export async function fetchMergeGateState(
   // reviews on superseded head SHAs. Passing headSha here makes the gate
   // trust only reviews actually attached to the current head.
   const latestCR = getLatestDecisiveReview(reviews, headSha);
-  const crDismissedWithoutApproval = hasUnresolvedDismissedReview(reviews, headSha);
+  const crDismissedWithoutApproval = hasUnresolvedDismissedReview(reviews);
 
   let crApproved = false;
   let crState = "none";
   if (latestCR) {
     crState = latestCR.state;
     crApproved = (latestCR.state ?? "").toLowerCase() === "approved" && !crDismissedWithoutApproval;
-  } else if (headSha) {
+  } else {
     // No on-head decisive review. Surface this explicitly so the LLM doesn't
     // fall back to GitHub's UI-level reviewDecision (which reflects stale
     // reviews on old SHAs and would say CHANGES_REQUESTED even when the

@@ -987,7 +987,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       expect(result.crState).toBe("none-on-head");
     });
 
-    it("does not set crDismissedWithoutApproval to true if review is dismissed but on an old commit SHA", async () => {
+    it("sets crDismissedWithoutApproval to true if review is dismissed on an old commit SHA and has no subsequent approval", async () => {
       setup({
         ghJson: [
           { head: { sha: headSha }, mergeable: true },
@@ -1015,7 +1015,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       });
 
       const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
-      expect(result.crDismissedWithoutApproval).toBe(false);
+      expect(result.crDismissedWithoutApproval).toBe(true);
     });
 
     it("uses head.sha from prData to fetch commit status and check runs", async () => {
@@ -1035,6 +1035,22 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
         "test", "test-repo", 1, "jleechan-agent[bot]"
       );
       expect(result.noConflicts).toBe(true);
+    });
+
+    it("throws an error if head.sha is missing", async () => {
+      setup({
+        ghJson: [
+          { head: {}, mergeable: true },
+        ],
+        paginate: [
+          [],
+          [],
+        ],
+      });
+
+      await expect(
+        fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]")
+      ).rejects.toThrow("Could not determine head SHA for PR #1");
     });
   });
 });
