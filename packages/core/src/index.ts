@@ -246,6 +246,7 @@ export {
   parseTmuxName,
   expandHome,
   validateAndStoreOrigin,
+  getGhBinaryPath,
 } from "./paths.js";
 
 // Config generator — auto-generate config from repo URL

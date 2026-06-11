@@ -34,6 +34,7 @@ describe("runSkepticReview — LLM fallback chain", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.AO_CLI_PATH;
+    process.env.AO_GH_PATH = "gh";
     execFileMock.mockResolvedValue({
       stdout: "VERDICT: PASS\nAll exit criteria met.",
       stderr: "",

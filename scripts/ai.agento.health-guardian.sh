@@ -30,6 +30,9 @@ TIER1_PLIST="$HOME/Library/LaunchAgents/$TIER1_LABEL.plist"
 # If live plist exists, use it; if missing, fall back to template + setup-launchd.sh.
 TIER1_LOG="$HOME/.openclaw/logs/ao-health.log"
 HERMES_OPS_SLACK_CHANNEL="${HERMES_OPS_SLACK_CHANNEL:-C0AJ3SD5C79}"
+if [ "${HEALTH_GUARDIAN_ALERT_CHANNEL:-}" = "C09GRLXF9GR" ]; then
+  HEALTH_GUARDIAN_ALERT_CHANNEL=""
+fi
 CHANNEL="${HEALTH_GUARDIAN_ALERT_CHANNEL:-$HERMES_OPS_SLACK_CHANNEL}"
 STATE_DIR="$HOME/.openclaw/logs"
 DEDUPE_FILE="$STATE_DIR/health-guardian-alerts.sha"

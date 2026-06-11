@@ -20,6 +20,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Session, ReactionConfig, ReactionResult } from "./types.js";
+import { getGhBinaryPath } from "./paths.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -118,7 +119,7 @@ export async function verifySkepticClaimForPR(
   // ---------------------------------------------------------------------------
   try {
     const { stdout } = await execFileAsync(
-      "gh",
+      getGhBinaryPath(),
       [
         "api",
         `repos/${owner}/${repo}/issues/${prNumber}/comments`,
@@ -159,7 +160,7 @@ export async function verifySkepticClaimForPR(
   // ---------------------------------------------------------------------------
   try {
     const { stdout } = await execFileAsync(
-      "gh",
+      getGhBinaryPath(),
       [
         "api",
         `repos/${owner}/${repo}/issues/${prNumber}/comments`,
@@ -195,7 +196,7 @@ export async function verifySkepticClaimForPR(
   // ---------------------------------------------------------------------------
   try {
     const { stdout } = await execFileAsync(
-      "gh",
+      getGhBinaryPath(),
       [
         "api",
         `repos/${owner}/${repo}/actions/runs`,

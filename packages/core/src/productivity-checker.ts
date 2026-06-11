@@ -12,6 +12,7 @@
 import { execFile as _execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { isTerminalSession, type OrchestratorConfig, type Session } from "./types.js";
+import { getGhBinaryPath } from "./paths.js";
 
 const execAsync = promisify(_execFile);
 
@@ -105,7 +106,7 @@ function setNudgeSent(sessionId: string, nudgeType: NudgeType): void {
 /** Default ghRest — calls `gh api repos/{owner}/{repo}/{path}`. Injectable for testing. */
 async function defaultGhRest(owner: string, repo: string, path: string): Promise<unknown> {
   const { stdout } = await execAsync(
-    "gh",
+    getGhBinaryPath(),
     ["api", `repos/${owner}/${repo}/${path}`],
     { encoding: "utf8", timeout: 30_000 },
   );

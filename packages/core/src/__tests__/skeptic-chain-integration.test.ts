@@ -252,6 +252,7 @@ beforeEach(() => {
   // AO_CLI_PATH in the host env overrides the "ao" binary name;
   // clear it so execFile calls use "ao" (matching test assertions).
   delete process.env.AO_CLI_PATH;
+  process.env.AO_GH_PATH = "gh";
   execFileCall = 0;
   ghCall = 0;
   currentVerdictOutput = "VERDICT: PASS\nAll exit criteria met.";

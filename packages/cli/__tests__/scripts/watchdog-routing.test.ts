@@ -59,6 +59,14 @@ describe("watchdog alert channel routing", () => {
       });
       expect(channel).toBe("C0WDONLY123");
     });
+
+    it("treats legacy channel C09GRLXF9GR as unset and falls back to HERMES_OPS_SLACK_CHANNEL", () => {
+      const channel = getChannel("hermes-watchdog.sh", {
+        HERMES_WATCHDOG_ALERT_CHANNEL: "C09GRLXF9GR",
+        HERMES_OPS_SLACK_CHANNEL: "C0TESTOPS12",
+      });
+      expect(channel).toBe("C0TESTOPS12");
+    });
   });
 
   describe("ai.agento.health-guardian.sh", () => {
@@ -80,6 +88,14 @@ describe("watchdog alert channel routing", () => {
         HERMES_OPS_SLACK_CHANNEL: "C0TESTOPS12",
       });
       expect(channel).toBe("C0HGONLY123");
+    });
+
+    it("treats legacy channel C09GRLXF9GR as unset and falls back to HERMES_OPS_SLACK_CHANNEL", () => {
+      const channel = getChannel("ai.agento.health-guardian.sh", {
+        HEALTH_GUARDIAN_ALERT_CHANNEL: "C09GRLXF9GR",
+        HERMES_OPS_SLACK_CHANNEL: "C0TESTOPS12",
+      });
+      expect(channel).toBe("C0TESTOPS12");
     });
   });
 });

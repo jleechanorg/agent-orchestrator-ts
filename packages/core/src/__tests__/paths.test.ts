@@ -31,6 +31,7 @@ import {
   parseTmuxName,
   expandHome,
   validateAndStoreOrigin,
+  getGhBinaryPath,
 } from "../paths.js";
 
 describe("Hash Generation", () => {
@@ -531,5 +532,33 @@ describe("Hash Collision Probability", () => {
     const probability = (instances * (instances - 1)) / (2 * uniqueValues);
 
     expect(probability).toBeLessThan(0.00001); // Less than 0.001%
+  });
+});
+
+describe("GitHub Binary Path Resolution", () => {
+  let originalEnv: string | undefined;
+
+  beforeEach(() => {
+    originalEnv = process.env.AO_GH_PATH;
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.AO_GH_PATH;
+    } else {
+      process.env.AO_GH_PATH = originalEnv;
+    }
+  });
+
+  it("resolves to AO_GH_PATH if set", () => {
+    process.env.AO_GH_PATH = "/custom/path/to/gh";
+    expect(getGhBinaryPath()).toBe("/custom/path/to/gh");
+  });
+
+  it("returns a string path by default", () => {
+    delete process.env.AO_GH_PATH;
+    const path = getGhBinaryPath();
+    expect(typeof path).toBe("string");
+    expect(path.length).toBeGreaterThan(0);
   });
 });
