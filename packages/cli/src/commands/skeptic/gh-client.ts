@@ -179,7 +179,7 @@ export async function fetchReviews(
     state: n.state.toLowerCase() as ReviewInfo["state"],
     body: n.body,
     submittedAt: n.submittedAt,
-    commitId: n.commit?.oid,
+    commitId: n.commit?.oid ?? null,
   }));
 }
 
