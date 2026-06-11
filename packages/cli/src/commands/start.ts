@@ -349,6 +349,9 @@ async function handleUrlStart(
     resolvedTargetDir = targetDir;
   }
   guardMainRepo(resolvedTargetDir, mainRepoPath, allowMainRepo);
+  if (allowMainRepo) {
+    process.env["AO_MAIN_REPO"] = mainRepoPath;
+  }
 
   const alreadyCloned = isRepoAlreadyCloned(targetDir, parsed.cloneUrl);
 
@@ -782,6 +785,9 @@ async function runStartup(
   }
 
   guardMainRepo(resolvedProjectPath, mainRepoPath, opts?.allowMainRepo);
+  if (opts?.allowMainRepo) {
+    process.env["AO_MAIN_REPO"] = mainRepoPath;
+  }
 
   const sessionId = `${project.sessionPrefix}-orchestrator`;
   const shouldStartLifecycle = opts?.dashboard !== false || opts?.orchestrator !== false;
@@ -1037,6 +1043,9 @@ export function registerStart(program: Command): void {
               resolvedPathForGuard = resolvedPath;
             }
             guardMainRepo(resolvedPathForGuard, mainRepoPath, opts?.allowMainRepo);
+            if (opts?.allowMainRepo) {
+              process.env["AO_MAIN_REPO"] = mainRepoPath;
+            }
 
             // Local-path onboarding always targets staging unless the user has
             // explicitly pointed AO_CONFIG_PATH at a different real file.
@@ -1141,6 +1150,9 @@ export function registerStart(program: Command): void {
                   resolvedCwd = resolve(cwd());
                 }
                 guardMainRepo(resolvedCwd, mainRepoPath, opts?.allowMainRepo);
+                if (opts?.allowMainRepo) {
+                  process.env["AO_MAIN_REPO"] = mainRepoPath;
+                }
                 loadedConfig = await autoCreateConfig(cwd());
               } else {
                 throw err;

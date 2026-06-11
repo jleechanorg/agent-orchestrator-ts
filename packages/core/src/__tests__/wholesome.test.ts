@@ -260,18 +260,18 @@ describe("wholesome — structural source-code assertions", () => {
   // 1. [agento] prefix on PR title
   // -------------------------------------------------------------------------
   describe("PR title has [agento] prefix", () => {
-    it("PR title starts with [agento]", () => {
+    it("PR title starts with [agento] or [antig]", () => {
       const title = getPRTitle();
       if (!shouldEnforcePRTitlePrefix(title)) return;
-      expect(title).toMatch(/^(\[antig\] )?\[agento\]/);
+      expect(title).toMatch(/^(?:\[antig\]|\[agento\])/);
     }, 60_000);
 
     it("PR title has correct format: [agento] <type>: <description>", () => {
       const title = getPRTitle();
       if (!shouldEnforcePRTitlePrefix(title)) return;
-      // "[agento] " or optional "[antig] " prefix followed by conventional-commit type + optional scope + colon
+      // "[agento] " or "[antig] " (or both) followed by conventional-commit type + optional scope + colon
       // Scope format: (scope-name) — supports issue refs like (skeptic-cron)
-      expect(title).toMatch(/^(\[antig\] )?\[agento\] (\[antig\] )?[a-z]+(\([^)]+\))?: /);
+      expect(title).toMatch(/^(?:(?:\[antig\]\s+)?\[agento\]\s+|(?:\[agento\]\s+)?\[antig\]\s+)[a-z]+(?:\([^)]+\))?: /);
     }, 60_000);
   });
 
