@@ -58,8 +58,9 @@ function sortReviewsNewestFirst(a: ReviewInfo, b: ReviewInfo): number {
  */
 function hasUnresolvedDismissedReview(
   reviews: ReviewInfo[],
+  headSha: string,
 ): boolean {
-  const crReviews = reviews.filter(isCodeRabbitReview);
+  const crReviews = reviews.filter((r) => isCodeRabbitReview(r) && r.commitId === headSha);
   if (crReviews.length === 0) return false;
   const sorted = [...crReviews].sort(sortReviewsNewestFirst);
   for (const review of sorted) {
@@ -206,7 +207,7 @@ export async function fetchMergeGateState(
   // reviews on superseded head SHAs. Passing headSha here makes the gate
   // trust only reviews actually attached to the current head.
   const latestCR = getLatestDecisiveReview(reviews, headSha);
-  const crDismissedWithoutApproval = hasUnresolvedDismissedReview(reviews);
+  const crDismissedWithoutApproval = hasUnresolvedDismissedReview(reviews, headSha);
 
   let crApproved: boolean;
   let crState: string;
