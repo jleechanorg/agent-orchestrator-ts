@@ -390,21 +390,6 @@ the **Fork Isolation** section of [AGENTS.md](AGENTS.md) — the fork
 strongly prefers companion modules and additive-only changes to minimize
 upstream merge friction.
 
-## Evidence
-
-This is a documentation-only PR. The changes have been validated structurally and functionally.
-
-* **Author**: Antigravity (Autonomous Agent)
-* **Timestamp**: 2026-06-11T15:25:00-07:00
-* **Description**: Structural validation of README portability improvements and Discord notifier capability alignment.
-* **Verdict: PASS**
-
-### Verification Runs
-- **Wholesome checks**: All wholesome structural validation checks pass successfully.
-  - Test run log: `packages/core/src/__tests__/wholesome.test.ts` passed 20/20 tests.
-  - CI Workflow Run: [CI Run #27380961767](https://github.com/jleechanorg/agent-orchestrator/actions/runs/27380961767)
-  - Commit: [Commit e0901ca](https://github.com/jleechanorg/agent-orchestrator/commit/e0901cad94eaea96e9458f4972f5010874debc37)
-
 ## License
 
 MIT
