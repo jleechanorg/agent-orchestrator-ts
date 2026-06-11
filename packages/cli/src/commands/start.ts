@@ -33,6 +33,7 @@ import {
   validateManagedConfigTopology,
   normalizeOrchestratorSessionStrategy,
   ConfigNotFoundError,
+  isConfigNotFoundError,
   isWindows,
   spawnManagedDaemonChild,
   sweepDaemonChildren,
@@ -1136,11 +1137,7 @@ export function registerStart(program: Command): void {
               }
               loadedConfig = loadConfig(configPath);
             } catch (err: unknown) {
-              const isConfigNotFoundError =
-                err instanceof ConfigNotFoundError ||
-                (err instanceof Error && err.name === "ConfigNotFoundError") ||
-                (typeof err === "object" && err !== null && "name" in err && (err as Record<string, unknown>).name === "ConfigNotFoundError");
-              if (isConfigNotFoundError) {
+              if (isConfigNotFoundError(err)) {
                 // First run — guard against operating on the main repo
                 const mainRepoPath = getMainRepoPath();
                 let resolvedCwd: string;

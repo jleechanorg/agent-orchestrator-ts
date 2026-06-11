@@ -2248,3 +2248,11 @@ export class ConfigNotFoundError extends Error {
     this.name = "ConfigNotFoundError";
   }
 }
+
+export function isConfigNotFoundError(err: unknown): err is ConfigNotFoundError {
+  return (
+    err instanceof ConfigNotFoundError ||
+    (err instanceof Error && err.name === "ConfigNotFoundError") ||
+    (typeof err === "object" && err !== null && "name" in err && (err as Record<string, unknown>).name === "ConfigNotFoundError")
+  );
+}
