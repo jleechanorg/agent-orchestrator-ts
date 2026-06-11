@@ -1194,6 +1194,31 @@ describe("start command — main repo guard (bd-8gld)", () => {
     }
   });
 
+  // bd-cj5s: --allow-main-repo flag overrides the guard (replaces AO_MAIN_REPO env var)
+  it("allows the main repo when --allow-main-repo flag is set (bd-cj5s)", async () => {
+    // Set up config where the project IS the main repo.
+    mockConfigRef.current = makeConfig({
+      "my-app": makeProject({ path: mainRepoDir }),
+    });
+
+    vi.spyOn(realpathSync, "native").mockImplementation((p: string) => {
+      return originalRealpath(p) === mainRepoDir ? mainRepoDir : originalRealpath(p);
+    });
+
+    // With --allow-main-repo, the guard should NOT fire.
+    await program.parseAsync([
+      "node",
+      "test",
+      "start",
+      "--no-dashboard",
+      "--no-orchestrator",
+      "--allow-main-repo",
+    ]);
+
+    const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(errors).not.toContain("Refusing to operate on the main repo");
+  });
+
   it("targeted stop does NOT unregister running.json", async () => {
     mockConfigRef.current = makeConfig({
       "project-1": makeProject({ name: "Project 1", sessionPrefix: "p1" }),
