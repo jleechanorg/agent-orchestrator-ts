@@ -170,6 +170,7 @@ export async function fetchReviews(
     ...n,
     // Normalize GitHub GraphQL uppercase enum to lowercase to match the Review type
     state: (n.state as string).toLowerCase() as ReviewInfo["state"],
+    commitId: (n as any).commit?.oid,
   })) as ReviewInfo[];
 }
 

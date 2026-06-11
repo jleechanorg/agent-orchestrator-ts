@@ -126,7 +126,8 @@ export function buildSkepticPrompt(
       (r) =>
         r.author?.login === "coderabbitai" &&
         ((r.state ?? "").toLowerCase() === "approved" ||
-          (r.state ?? "").toLowerCase() === "changes_requested"),
+          (r.state ?? "").toLowerCase() === "changes_requested") &&
+        (!pr.headRefOid || r.commitId === pr.headRefOid),
     )
     .sort(sortReviewsNewestFirst)[0] ?? null;
   const crEmptyBodyApproved =
@@ -192,7 +193,13 @@ export function buildSkepticPrompt(
       )
       .map(
         (r) =>
-          `[${r.submittedAt.slice(0, 16)}] ${r.author?.login} (${r.state}): ${(r.body ?? "(no body)").slice(0, MAX_REVIEW_BODY_CHARS)}`,
+          `[${r.submittedAt.slice(0, 16)}] ${r.author?.login} (${r.state}${
+            r.commitId === pr.headRefOid
+              ? ", on-head"
+              : r.commitId
+                ? `, stale:${r.commitId.slice(0, 7)}`
+                : ", unanchored"
+          }): ${(r.body ?? "(no body)").slice(0, MAX_REVIEW_BODY_CHARS)}`,
       ),
     "",
     `--- ALL CHANGED FILES IN PR (${getChangedFiles(diff).length} files) ---`,
