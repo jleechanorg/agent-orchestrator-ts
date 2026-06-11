@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ReviewInfo } from "../../../src/commands/skeptic/gh-client.js";
 
 // Mutable state shared between mock factory (once) and test setup (per-test).
 const mockState = {
@@ -32,7 +33,7 @@ vi.mock("../../../src/commands/skeptic/gh-client.js", () => ({
   ghJson: mockGhJson,
   ghJsonPaginate: mockGhJsonPaginate,
   fetchReviews: mockFetchReviews,
-  isCodeRabbitReview: (r: any) =>
+  isCodeRabbitReview: (r: ReviewInfo) =>
     r.author?.login === "coderabbitai" || r.author?.login === "coderabbitai[bot]",
 }));
 
