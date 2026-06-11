@@ -274,7 +274,7 @@ describe("wholesome — structural source-code assertions", () => {
       // 2. [antig] <type>: <description> (standard antigravity change)
       // 3. [antig] [agento] <type>: <description> (canonical combination order when both apply)
       // Reference getPRTitle() and shouldEnforcePRTitlePrefix() above.
-      expect(title).toMatch(/^(?:\[antig\]\s+)?(?:\[agento\]\s+|\[antig\]\s+)[a-z]+(?:\([^)]+\))?: /);
+      expect(title).toMatch(/^(?:\[agento\]\s+|\[antig\]\s+|\[antig\]\s+\[agento\]\s+)[a-z]+(?:\([^)]+\))?: /);
     }, 60_000);
   });
 
