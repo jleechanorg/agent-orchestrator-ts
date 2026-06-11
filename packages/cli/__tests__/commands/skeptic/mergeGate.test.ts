@@ -947,6 +947,10 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       expect(result.crApproved).toBe(false);
       expect(result.crState).toBe("changes_requested");
     });
+  });
+
+  describe("head SHA filtering and fallback", () => {
+    const headSha = "abc1230000000000000000000000000000000000";
 
     it("does not approve CodeRabbit and sets crState to none-on-head if review is changes_requested but on an old commit SHA", async () => {
       setup({
@@ -1011,10 +1015,10 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       expect(result.crDismissedWithoutApproval).toBe(false);
     });
 
-    it("falls back to headRefOid if head.sha is missing in prData", async () => {
+    it("uses head.sha from prData to fetch commit status and check runs", async () => {
       setup({
         ghJson: [
-          { headRefOid: headSha, mergeable: true },
+          { head: { sha: headSha }, mergeable: true },
           { state: "success" },
           [],
         ],

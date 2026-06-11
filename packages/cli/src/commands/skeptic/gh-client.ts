@@ -92,7 +92,7 @@ export interface PRInfo {
 }
 
 export interface ReviewInfo {
-  author: { login: string };
+  author: { login: string } | null;
   state: "approved" | "changes_requested" | "commented" | "dismissed" | "pending";
   body: string | null;
   submittedAt: string;
@@ -117,7 +117,7 @@ export async function fetchPRMeta(
   owner: string,
   repo: string,
   prNumber: number,
-): Promise<PRInfo> {
+ ): Promise<PRInfo> {
   const query = [
     "{",
     `  repository(owner:"${owner}", name:"${repo}") {`,
@@ -135,7 +135,7 @@ export async function fetchPRMeta(
 }
 
 interface GraphQLReviewNode {
-  author: { login: string };
+  author: { login: string } | null;
   state: string;
   body: string | null;
   submittedAt: string;

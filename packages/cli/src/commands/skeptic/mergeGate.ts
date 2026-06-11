@@ -64,7 +64,7 @@ function hasUnresolvedDismissedReview(
   headSha?: string | null,
 ): boolean {
   const crReviews = reviews.filter(
-    (r) => isCodeRabbitReview(r) && (!headSha || r.commitId === headSha),
+    (r) => isCodeRabbitReview(r) && (!!headSha && r.commitId === headSha),
   );
   if (crReviews.length === 0) return false;
   const sorted = [...crReviews].sort(sortReviewsNewestFirst);
@@ -97,7 +97,7 @@ function getLatestDecisiveReview(
       // If we know the head SHA, the review must be attached to it.
       // Reviews without commitId (very old) are dropped when headSha is
       // known so we never trust unanchored reviews.
-      (!headSha || r.commitId === headSha),
+      (!!headSha && r.commitId === headSha),
   );
   return filtered.sort(sortReviewsNewestFirst)[0] ?? null;
 }
