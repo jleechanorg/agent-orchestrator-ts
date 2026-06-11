@@ -5,20 +5,13 @@
 > (formerly hosted at `ComposioHQ/agent-orchestrator` before the project
 > moved to its dedicated org). This fork runs independently and has
 > diverged. PRs from upstream are regularly cherry-picked; fork changes
-> can be proposed upstream via PR.
->
-> **⚠️ Portability Notice — Read Before Cloning**
->
-> **This fork is not necessarily portable.** It is built and tested for
+> can be proposed upstream via PR.<br><br>**⚠️ Portability Notice — Read Before Cloning**<br><br>**This fork is not necessarily portable.** It is built and tested for
 > `jleechanorg`'s own development workflow, with defaults that point at
 > the fork's own repos, the `jleechanorg/jleechanclaw` OpenClaw harness,
 > and several fork-only plugins (`antigravity` runtime, `minimax` / `wafer`
 > agents, `beads` tracker, `openclaw` notifier, `mcp-mail` notifier,
-> `prose-polish` plugin, MCP-AO bridge).
->
-> **Expect to fix configuration before you can use this on your own repo.**
+> `prose-polish` plugin, MCP-AO bridge).<br><br>**Expect to fix configuration before you can use this on your own repo.**
 > Specifically:
->
 > 1. **Clone URL & npm scope** — The default install instructions clone
 >    `github.com/jleechanorg/agent-orchestrator` and install the global
 >    `@jleechanorg/ao-cli` npm package. Substitute your own fork, or use
@@ -44,9 +37,7 @@
 >    **not** in `@aoagents/ao`. Do not assume they exist upstream.
 > 7. **LLM provider keys** — Skeptic Gate, llm_inspector, and
 >    `agent-wafer` / `agent-minimax` adapters require third-party LLM
->    API keys; see `docs/evidence/README.md` and the per-plugin README.
->
-> **If you just want to run Agent Orchestrator on your own repo without
+>    API keys; see `docs/evidence/README.md` and the per-plugin README.<br><br>**If you just want to run Agent Orchestrator on your own repo without
 > any fork-specific machinery:** start from `examples/simple-github.yaml`,
 > ignore the OpenClaw section, set `defaults.notifiers: [desktop]`, and
 > verify with `ao doctor`.
