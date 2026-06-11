@@ -9,7 +9,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { getProjectBaseDir, type OrchestratorConfig, registerChildReaper } from "@jleechanorg/ao-core";
 
 const LIFECYCLE_PID_FILE = "lifecycle-worker.pid";
@@ -404,6 +404,34 @@ function resolveLifecycleWorkerLaunch(projectId: string): { command: string; arg
   }
 
   if (entry && /\.ts$/i.test(entry)) {
+    try {
+      execFileSync("which", ["tsx"], { stdio: "ignore" });
+      return {
+        command: "tsx",
+        args: [entry, ...workerArgs],
+      };
+    } catch {
+      // ignore
+    }
+
+    try {
+      const entryDir = dirname(entry);
+      const possibleTsxPaths = [
+        join(entryDir, "../node_modules/.bin/tsx"),
+        join(entryDir, "../../node_modules/.bin/tsx"),
+      ];
+      for (const p of possibleTsxPaths) {
+        if (existsSync(p)) {
+          return {
+            command: p,
+            args: [entry, ...workerArgs],
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     return {
       command: "npx",
       args: ["tsx", entry, ...workerArgs],

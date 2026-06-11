@@ -45,7 +45,27 @@ function findLifecycleLog(dir: string): string | null {
         return fullPath;
       }
     }
-  } catch {}
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function findLifecyclePidFile(dir: string): string | null {
+  try {
+    const files = readdirSync(dir);
+    for (const file of files) {
+      const fullPath = join(dir, file);
+      if (statSync(fullPath).isDirectory()) {
+        const found = findLifecyclePidFile(fullPath);
+        if (found) return found;
+      } else if (file === "lifecycle-worker.pid") {
+        return fullPath;
+      }
+    }
+  } catch {
+    // ignore
+  }
   return null;
 }
 
@@ -118,6 +138,18 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
   }, 30_000);
 
   afterEach(async () => {
+    try {
+      const stopEnv = {
+        ...process.env,
+        HOME: tmpHome,
+        AO_CALLER_TYPE: "agent",
+        AO_CONFIG_PATH: configPath,
+        AO_GLOBAL_CONFIG: configPath,
+      };
+      await execFileAsync(tsxBin, [cliEntry, "stop", "--all"], { cwd: repoPath, env: stopEnv, timeout: 10_000 });
+    } catch {
+      // ignore
+    }
     if (startPid && isAlive(startPid)) {
       await killProcessTree(startPid, "SIGKILL");
     }
@@ -168,6 +200,17 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
         break;
       }
       await sleep(100);
+    }
+    if (!runningPid) {
+      try {
+        console.error("LOG 1 CONTENT (runningPid=undefined):\n", readFileSync(join(tmpHome, "cli-start-1.log"), "utf-8"));
+        const lifecycleLog = findLifecycleLog(tmpHome);
+        if (lifecycleLog) {
+          console.error("LIFECYCLE WORKER LOG 1 CONTENT:\n", readFileSync(lifecycleLog, "utf-8"));
+        }
+      } catch (e) {
+        console.error("Failed to read log 1:", e);
+      }
     }
     expect(runningPid).toBeTypeOf("number");
 
@@ -244,12 +287,23 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
 
     // Wait for the browser open attempt
     let opened = false;
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 250; i++) {
       if (existsSync(mockOpenLog)) {
         opened = true;
         break;
       }
       await sleep(100);
+    }
+    if (!opened) {
+      try {
+        console.error("LOG 2 CONTENT (opened=false):\n", readFileSync(join(tmpHome, "cli-start-2.log"), "utf-8"));
+        const lifecycleLog = findLifecycleLog(tmpHome);
+        if (lifecycleLog) {
+          console.error("LIFECYCLE WORKER LOG 2 CONTENT:\n", readFileSync(lifecycleLog, "utf-8"));
+        }
+      } catch (e) {
+        console.error("Failed to read log 2:", e);
+      }
     }
     expect(opened).toBe(true);
 
@@ -307,11 +361,18 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
     const childPids = await readChildPids(runningPid!);
     expect(childPids.length).toBeGreaterThan(0);
 
+    const lifecyclePidFile = findLifecyclePidFile(tmpHome);
+    expect(lifecyclePidFile).not.toBeNull();
+    const lifecyclePid = Number(readFileSync(lifecyclePidFile!, "utf-8").trim());
+    expect(Number.isFinite(lifecyclePid)).toBe(true);
+    expect(isAlive(lifecyclePid)).toBe(true);
+
     await execFileAsync(tsxBin, [cliEntry, "stop", "--all"], { cwd: repoPath, env, timeout: 20_000 });
     await sleep(5_000);
 
     const stillAlive = childPids.filter(isAlive);
     expect(stillAlive).toEqual([]);
     expect(isAlive(runningPid!)).toBe(false);
+    expect(isAlive(lifecyclePid)).toBe(false);
   }, 60_000);
 });
