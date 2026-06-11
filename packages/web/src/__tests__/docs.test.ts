@@ -23,3 +23,6 @@ describe("Documentation JSDoc examples", () => {
     expect(content).toContain("- http://localhost:3020/test-direct?session=ao-20&fullscreen=true");
   });
 });
+
+// NOTE: This file documents the JSDoc URL port alignment between dev/terminal-test
+// and test-direct pages. See PR #680 for the rationale.
