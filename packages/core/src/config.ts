@@ -376,10 +376,9 @@ const OrchestratorConfigSchema = z.object({
   /**
    * bd-#667: Suppress browser auto-open on `ao start` / `ao dashboard`.
    * Default `true` (browser opens) to preserve current behavior. Set
-   * `false` in YAML, set `AO_NO_OPEN_BROWSER=1` env var, or pass
-   * `--no-open-browser` to the CLI to suppress.
+   * `true` in YAML, or pass `--open-browser` to the CLI.
    */
-  openBrowser: z.boolean().default(true),
+  openBrowser: z.boolean().default(false),
   terminalPort: z.number().optional(),
   directTerminalPort: z.number().optional(),
   readyThresholdMs: z.number().nonnegative().default(300_000),

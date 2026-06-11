@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { OrchestratorConfig } from "@jleechanorg/ao-core";
 
 // Stable mock references used inside vi.mock factories.
@@ -88,6 +88,7 @@ const {
   forceLifecycleLock,
   tryAcquireLifecycleLock,
   scanForRunningLifecycleWorker,
+  resolveLifecycleWorkerLaunch,
 } = await import("../../src/lib/lifecycle-service.js");
 
 function mockConfig(projects: Record<string, string>): OrchestratorConfig {
@@ -550,5 +551,96 @@ describe("writeLifecycleWorkerPid / clearLifecycleWorkerPid", () => {
     // PID in file is 99999, passed PID is 88888 — should NOT call unlinkSync
     clearLifecycleWorkerPid(cfg, "test-proj", 88888);
     expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBeUndefined();
+  });
+});
+
+describe("resolveLifecycleWorkerLaunch", () => {
+  let originalArgv: string[];
+  let originalPlatform: string;
+
+  beforeEach(() => {
+    originalArgv = process.argv;
+    originalPlatform = process.platform;
+  });
+
+  afterEach(() => {
+    process.argv = originalArgv;
+    Object.defineProperty(process, "platform", {
+      value: originalPlatform,
+      configurable: true,
+    });
+    MOCK_FS.reset();
+  });
+
+  it("returns process.execPath for js entry files", () => {
+    process.argv = [process.execPath, "/path/to/cli/index.js"];
+    const launch = resolveLifecycleWorkerLaunch("test-proj");
+    expect(launch.command).toBe(process.execPath);
+    expect(launch.args).toEqual(["/path/to/cli/index.js", "lifecycle-worker", "test-proj"]);
+  });
+
+  it("returns tsx when global tsx is found in PATH for ts entry files", () => {
+    process.argv = [process.execPath, "/path/to/cli/index.ts"];
+    // Mock which tsx to succeed
+    mockExecFileSync.mockReturnValueOnce(Buffer.from("/usr/local/bin/tsx\n"));
+
+    const launch = resolveLifecycleWorkerLaunch("test-proj");
+    expect(launch.command).toBe("tsx");
+    expect(launch.args).toEqual(["/path/to/cli/index.ts", "lifecycle-worker", "test-proj"]);
+  });
+
+  it("returns local tsx when global tsx is missing but local node_modules/.bin/tsx exists", () => {
+    process.argv = [process.execPath, "/path/to/cli/src/index.ts"];
+    // Mock which tsx to throw/fail
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error("not found");
+    });
+    // Mock existence of local tsx relative to entry
+    MOCK_FS.store["existsSync:/path/to/cli/node_modules/.bin/tsx"] = true;
+
+    const launch = resolveLifecycleWorkerLaunch("test-proj");
+    expect(launch.command).toBe("/path/to/cli/node_modules/.bin/tsx");
+    expect(launch.args).toEqual(["/path/to/cli/src/index.ts", "lifecycle-worker", "test-proj"]);
+  });
+
+  it("falls back to npx when both global and local tsx are missing", () => {
+    process.argv = [process.execPath, "/path/to/cli/src/index.ts"];
+    // Mock which tsx to throw/fail
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error("not found");
+    });
+    // No local tsx mocked in MOCK_FS
+
+    const launch = resolveLifecycleWorkerLaunch("test-proj");
+    expect(launch.command).toBe("npx");
+    expect(launch.args).toEqual(["tsx", "/path/to/cli/src/index.ts", "lifecycle-worker", "test-proj"]);
+  });
+
+  it("returns ao command as default fallback when entry is not js or ts", () => {
+    process.argv = [process.execPath, "/path/to/cli/ao"];
+    const launch = resolveLifecycleWorkerLaunch("test-proj");
+    expect(launch.command).toBe("ao");
+    expect(launch.args).toEqual(["lifecycle-worker", "test-proj"]);
+  });
+
+  it("uses where instead of which on Windows, and checks Windows extensions for local tsx", () => {
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+    process.argv = [process.execPath, "/path/to/cli/src/index.ts"];
+
+    // 1. Verify global tsx uses 'where' on Windows
+    mockExecFileSync.mockImplementationOnce((cmd) => {
+      expect(cmd).toBe("where");
+      return Buffer.from("C:\\path\\to\\tsx.cmd\n");
+    });
+    let launch = resolveLifecycleWorkerLaunch("test-proj");
+    expect(launch.command).toBe("tsx");
+
+    // 2. Verify local tsx checks .cmd on Windows
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error("not found");
+    });
+    MOCK_FS.store["existsSync:/path/to/cli/node_modules/.bin/tsx.cmd"] = true;
+    launch = resolveLifecycleWorkerLaunch("test-proj");
+    expect(launch.command).toBe("/path/to/cli/node_modules/.bin/tsx.cmd");
   });
 });

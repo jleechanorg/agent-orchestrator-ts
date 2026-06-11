@@ -9,8 +9,8 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
-import { getProjectBaseDir, type OrchestratorConfig } from "@jleechanorg/ao-core";
+import { join, dirname } from "node:path";
+import { getProjectBaseDir, type OrchestratorConfig, registerChildReaper } from "@jleechanorg/ao-core";
 
 const LIFECYCLE_PID_FILE = "lifecycle-worker.pid";
 const LIFECYCLE_LOCK_FILE = "lifecycle-worker.lock";
@@ -392,7 +392,7 @@ export function getLifecycleWorkerStatus(
   return { running: false, pid: null, verified: false, pidFile, logFile };
 }
 
-function resolveLifecycleWorkerLaunch(projectId: string): { command: string; args: string[] } {
+export function resolveLifecycleWorkerLaunch(projectId: string): { command: string; args: string[] } {
   const entry = process.argv[1];
   const workerArgs = ["lifecycle-worker", projectId];
 
@@ -404,6 +404,39 @@ function resolveLifecycleWorkerLaunch(projectId: string): { command: string; arg
   }
 
   if (entry && /\.ts$/i.test(entry)) {
+    try {
+      const whichCmd = process.platform === "win32" ? "where" : "which";
+      execFileSync(whichCmd, ["tsx"], { stdio: "ignore" });
+      return {
+        command: "tsx",
+        args: [entry, ...workerArgs],
+      };
+    } catch {
+      // ignore
+    }
+
+    try {
+      const entryDir = dirname(entry);
+      const suffixes = process.platform === "win32" ? [".cmd", ".ps1", ""] : [""];
+      const possibleTsxPaths: string[] = [];
+      for (const suffix of suffixes) {
+        possibleTsxPaths.push(
+          join(entryDir, `../node_modules/.bin/tsx${suffix}`),
+          join(entryDir, `../../node_modules/.bin/tsx${suffix}`),
+        );
+      }
+      for (const p of possibleTsxPaths) {
+        if (existsSync(p)) {
+          return {
+            command: p,
+            args: [entry, ...workerArgs],
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     return {
       command: "npx",
       args: ["tsx", entry, ...workerArgs],
@@ -471,6 +504,7 @@ export async function ensureLifecycleWorker(
   const stderrFd = openSync(logFile, "a");
 
   try {
+    // Resolve launch configuration for the lifecycle worker process
     const launch = resolveLifecycleWorkerLaunch(projectId);
     const child = spawn(launch.command, launch.args, {
       cwd: process.cwd(),
@@ -490,6 +524,7 @@ export async function ensureLifecycleWorker(
     // could pass the "not running" check before the child writes its own PID.
     if (child.pid) {
       writeLifecycleWorkerPid(config, projectId, child.pid);
+      registerChildReaper(child, `lifecycle-worker:${projectId}`, [launch.command, ...launch.args].join(" "));
     }
   } finally {
     closeSync(stdoutFd);

@@ -12,7 +12,9 @@ export function registerDashboard(program: Command): void {
     .command("dashboard")
     .description("Start the web dashboard")
     .option("-p, --port <port>", "Port to listen on")
+    .option("--open", "Open browser automatically")
     .option("--no-open", "Don't open browser automatically")
+    .option("--open-browser", "Open browser automatically (alias for --open)")
     .option("--no-open-browser", "Don't open browser automatically (alias for --no-open)")
     .option("--rebuild", "Clean stale build artifacts and rebuild before starting")
     .action(async (opts: { port?: string; open?: boolean; openBrowser?: boolean; rebuild?: boolean }) => {

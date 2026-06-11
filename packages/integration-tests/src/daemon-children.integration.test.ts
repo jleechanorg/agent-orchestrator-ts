@@ -1,5 +1,5 @@
 import { spawn, execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, readdirSync, statSync } from "node:fs";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -31,6 +31,42 @@ async function getFreePort(): Promise<number> {
       });
     });
   });
+}
+
+function findLifecycleLog(dir: string): string | null {
+  try {
+    const files = readdirSync(dir);
+    for (const file of files) {
+      const fullPath = join(dir, file);
+      if (statSync(fullPath).isDirectory()) {
+        const found = findLifecycleLog(fullPath);
+        if (found) return found;
+      } else if (file === "lifecycle-worker.log") {
+        return fullPath;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function findLifecyclePidFile(dir: string): string | null {
+  try {
+    const files = readdirSync(dir);
+    for (const file of files) {
+      const fullPath = join(dir, file);
+      if (statSync(fullPath).isDirectory()) {
+        const found = findLifecyclePidFile(fullPath);
+        if (found) return found;
+      } else if (file === "lifecycle-worker.pid") {
+        return fullPath;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 async function readChildPids(pid: number): Promise<number[]> {
@@ -84,6 +120,7 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
       globalConfigPath,
       [
         `port: ${port}`,
+        "openBrowser: false",
         "defaults:",
         "  runtime: process",
         "  agent: claude-code",
@@ -101,25 +138,55 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
   }, 30_000);
 
   afterEach(async () => {
+    try {
+      const stopEnv = {
+        ...process.env,
+        HOME: tmpHome,
+        AO_CALLER_TYPE: "agent",
+        AO_CONFIG_PATH: configPath,
+        AO_GLOBAL_CONFIG: configPath,
+      };
+      await execFileAsync(tsxBin, [cliEntry, "stop", "--all"], { cwd: repoPath, env: stopEnv, timeout: 10_000 });
+    } catch {
+      // ignore
+    }
     if (startPid && isAlive(startPid)) {
       await killProcessTree(startPid, "SIGKILL");
     }
     await rm(tmpHome, { recursive: true, force: true }).catch(() => {});
   }, 30_000);
 
-  it("ao stop terminates children spawned by ao start", async () => {
+  it("does not attempt to open the browser when suppressed", async () => {
+    const binDir = join(tmpHome, "bin");
+    mkdirSync(binDir, { recursive: true });
+    const mockOpenPath = join(binDir, "open");
+    const mockXdgOpenPath = join(binDir, "xdg-open");
+    const mockOpenLog = join(tmpHome, "mock-open.log");
+
+    const mockOpenScript = `#!/bin/sh\necho "$@" >> "${mockOpenLog}"\n`;
+    writeFileSync(mockOpenPath, mockOpenScript, { mode: 0o755 });
+    writeFileSync(mockXdgOpenPath, mockOpenScript, { mode: 0o755 });
+
     const env = {
       ...process.env,
       HOME: tmpHome,
+      PATH: `${binDir}:${process.env.PATH}`,
       AO_CALLER_TYPE: "agent",
       AO_CONFIG_PATH: configPath,
       AO_GLOBAL_CONFIG: configPath,
       PORT: String(port),
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
     };
-    const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator", "--reap-orphans"], {
+
+    // Verify config has openBrowser: false
+    const configContent = readFileSync(configPath, "utf-8");
+    expect(configContent).toContain("openBrowser: false");
+
+    const logFd = openSync(join(tmpHome, "cli-start-1.log"), "w");
+    const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator", "--no-open-browser"], {
       cwd: repoPath,
       env,
-      stdio: "ignore",
+      stdio: ["ignore", logFd, logFd],
     });
     startPid = start.pid;
     expect(startPid).toBeTypeOf("number");
@@ -134,10 +201,171 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
       }
       await sleep(100);
     }
+    if (!runningPid) {
+      try {
+        console.error("LOG 1 CONTENT (runningPid=undefined):\n", readFileSync(join(tmpHome, "cli-start-1.log"), "utf-8"));
+        const lifecycleLog = findLifecycleLog(tmpHome);
+        if (lifecycleLog) {
+          console.error("LIFECYCLE WORKER LOG 1 CONTENT:\n", readFileSync(lifecycleLog, "utf-8"));
+        }
+      } catch (e) {
+        console.error("Failed to read log 1:", e);
+      }
+    }
+    expect(runningPid).toBeTypeOf("number");
+
+    // Wait extra time for potential browser open attempts
+    await sleep(2000);
+
+    // Verify that our mock open was NEVER called
+    expect(existsSync(mockOpenLog)).toBe(false);
+
+    await execFileAsync(tsxBin, [cliEntry, "stop", "--all"], { cwd: repoPath, env, timeout: 20_000 });
+  }, 60_000);
+
+  it("attempts to open the browser when not suppressed", async () => {
+    // Write config with openBrowser: true
+    const configContent = readFileSync(configPath, "utf-8");
+    const modifiedConfig = configContent.replace("openBrowser: false", "openBrowser: true");
+    writeFileSync(configPath, modifiedConfig);
+
+    const binDir = join(tmpHome, "bin");
+    mkdirSync(binDir, { recursive: true });
+    const mockOpenPath = join(binDir, "open");
+    const mockXdgOpenPath = join(binDir, "xdg-open");
+    const mockOpenLog = join(tmpHome, "mock-open.log");
+
+    const mockOpenScript = `#!/bin/sh\necho "$@" >> "${mockOpenLog}"\n`;
+    writeFileSync(mockOpenPath, mockOpenScript, { mode: 0o755 });
+    writeFileSync(mockXdgOpenPath, mockOpenScript, { mode: 0o755 });
+
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      HOME: tmpHome,
+      PATH: `${binDir}:${process.env.PATH}`,
+      AO_CALLER_TYPE: "agent",
+      AO_CONFIG_PATH: configPath,
+      AO_GLOBAL_CONFIG: configPath,
+      PORT: String(port),
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
+    };
+    delete env.AO_NO_OPEN_BROWSER;
+
+    const logFd = openSync(join(tmpHome, "cli-start-2.log"), "w");
+    // Spawn without --no-open-browser flag
+    const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator"], {
+      cwd: repoPath,
+      env,
+      stdio: ["ignore", logFd, logFd],
+    });
+    startPid = start.pid;
+
+    const runningPath = join(tmpHome, ".agent-orchestrator/running.json");
+    let runningPid: number | undefined;
+    for (let i = 0; i < 100; i++) {
+      if (existsSync(runningPath)) {
+        const running = JSON.parse(readFileSync(runningPath, "utf-8")) as { pid?: number };
+        runningPid = running.pid;
+        break;
+      }
+      await sleep(100);
+    }
+    if (runningPid === undefined) {
+      try {
+        console.error("LOG 2 CONTENT:\n", readFileSync(join(tmpHome, "cli-start-2.log"), "utf-8"));
+        const lifecycleLog = findLifecycleLog(tmpHome);
+        if (lifecycleLog) {
+          console.error("LIFECYCLE WORKER LOG 2 CONTENT:\n", readFileSync(lifecycleLog, "utf-8"));
+        } else {
+          console.error("LIFECYCLE WORKER LOG 2 NOT FOUND");
+        }
+      } catch (e) {
+        console.error("Failed to read log 2:", e);
+      }
+    }
+    expect(runningPid).toBeTypeOf("number");
+
+    // Wait for the browser open attempt
+    let opened = false;
+    for (let i = 0; i < 250; i++) {
+      if (existsSync(mockOpenLog)) {
+        opened = true;
+        break;
+      }
+      await sleep(100);
+    }
+    if (!opened) {
+      try {
+        console.error("LOG 2 CONTENT (opened=false):\n", readFileSync(join(tmpHome, "cli-start-2.log"), "utf-8"));
+        const lifecycleLog = findLifecycleLog(tmpHome);
+        if (lifecycleLog) {
+          console.error("LIFECYCLE WORKER LOG 2 CONTENT:\n", readFileSync(lifecycleLog, "utf-8"));
+        }
+      } catch (e) {
+        console.error("Failed to read log 2:", e);
+      }
+    }
+    expect(opened).toBe(true);
+
+    const logContent = readFileSync(mockOpenLog, "utf-8");
+    expect(logContent).toContain(`http://localhost:${port}/sessions/daemon-int-orchestrator`);
+
+    await execFileAsync(tsxBin, [cliEntry, "stop", "--all"], { cwd: repoPath, env, timeout: 20_000 });
+  }, 60_000);
+
+  it("ao stop terminates children spawned by ao start", async () => {
+    const env = {
+      ...process.env,
+      HOME: tmpHome,
+      AO_CALLER_TYPE: "agent",
+      AO_CONFIG_PATH: configPath,
+      AO_GLOBAL_CONFIG: configPath,
+      PORT: String(port),
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
+    };
+
+    const logFd = openSync(join(tmpHome, "cli-start-3.log"), "w");
+    const start = spawn(tsxBin, [cliEntry, "start", "--no-orchestrator", "--no-open-browser"], {
+      cwd: repoPath,
+      env,
+      stdio: ["ignore", logFd, logFd],
+    });
+    startPid = start.pid;
+    expect(startPid).toBeTypeOf("number");
+
+    const runningPath = join(tmpHome, ".agent-orchestrator/running.json");
+    let runningPid: number | undefined;
+    for (let i = 0; i < 100; i++) {
+      if (existsSync(runningPath)) {
+        const running = JSON.parse(readFileSync(runningPath, "utf-8")) as { pid?: number };
+        runningPid = running.pid;
+        break;
+      }
+      await sleep(100);
+    }
+    if (runningPid === undefined) {
+      try {
+        console.error("LOG 3 CONTENT:\n", readFileSync(join(tmpHome, "cli-start-3.log"), "utf-8"));
+        const lifecycleLog = findLifecycleLog(tmpHome);
+        if (lifecycleLog) {
+          console.error("LIFECYCLE WORKER LOG 3 CONTENT:\n", readFileSync(lifecycleLog, "utf-8"));
+        } else {
+          console.error("LIFECYCLE WORKER LOG 3 NOT FOUND");
+        }
+      } catch (e) {
+        console.error("Failed to read log 3:", e);
+      }
+    }
     expect(runningPid).toBeTypeOf("number");
 
     const childPids = await readChildPids(runningPid!);
     expect(childPids.length).toBeGreaterThan(0);
+
+    const lifecyclePidFile = findLifecyclePidFile(tmpHome);
+    expect(lifecyclePidFile).not.toBeNull();
+    const lifecyclePid = Number(readFileSync(lifecyclePidFile!, "utf-8").trim());
+    expect(Number.isFinite(lifecyclePid)).toBe(true);
+    expect(isAlive(lifecyclePid)).toBe(true);
 
     await execFileAsync(tsxBin, [cliEntry, "stop", "--all"], { cwd: repoPath, env, timeout: 20_000 });
     await sleep(5_000);
@@ -145,5 +373,6 @@ describe.skipIf(!canRun)("daemon child reaping (integration)", () => {
     const stillAlive = childPids.filter(isAlive);
     expect(stillAlive).toEqual([]);
     expect(isAlive(runningPid!)).toBe(false);
+    expect(isAlive(lifecyclePid)).toBe(false);
   }, 60_000);
 });
