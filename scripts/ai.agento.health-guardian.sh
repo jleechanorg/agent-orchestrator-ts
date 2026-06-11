@@ -29,7 +29,8 @@ TIER1_PLIST="$HOME/Library/LaunchAgents/$TIER1_LABEL.plist"
 # Source-of-truth order: live (substituted) > frozen (template w/ @VAR@)
 # If live plist exists, use it; if missing, fall back to template + setup-launchd.sh.
 TIER1_LOG="$HOME/.openclaw/logs/ao-health.log"
-CHANNEL="${HEALTH_GUARDIAN_ALERT_CHANNEL:-C09GRLXF9GR}"
+HERMES_OPS_SLACK_CHANNEL="${HERMES_OPS_SLACK_CHANNEL:-C0AJ3SD5C79}"
+CHANNEL="${HEALTH_GUARDIAN_ALERT_CHANNEL:-$HERMES_OPS_SLACK_CHANNEL}"
 STATE_DIR="$HOME/.openclaw/logs"
 DEDUPE_FILE="$STATE_DIR/health-guardian-alerts.sha"
 LOG_PREFIX="[ai.agento.health-guardian]"
