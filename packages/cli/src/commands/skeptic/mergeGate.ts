@@ -9,7 +9,7 @@
  * - Evidence review state is included
  */
 
-import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-client.js";
+import { ghJson, ghJsonPaginate, fetchReviews, isCodeRabbitReview, type ReviewInfo } from "./gh-client.js";
 import {
   escapeRegexLiteral,
   isFreshPassVerdictContractSatisfied,
@@ -20,9 +20,6 @@ const NIT_PATTERN = /^(nit:|nitpick)/i;
 // GraphQL author.login returns "coderabbitai" (without [bot] suffix) for the CodeRabbit bot.
 // REST API user.login returns "coderabbitai[bot]" — but fetchReviews uses GraphQL, so this is correct.
 const EVIDENCE_BOT = "evidence-review-bot";
-
-const isCodeRabbitReview = (r: ReviewInfo): boolean =>
-  r.author?.login === "coderabbitai" || r.author?.login === "coderabbitai[bot]";
 
 export interface CheckRunSummary {
   name: string;

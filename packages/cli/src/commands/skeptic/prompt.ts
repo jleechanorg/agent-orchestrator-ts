@@ -3,7 +3,7 @@
  * Single responsibility: given PR state + diff, produce evaluation prompt.
  */
 
-import type { PRInfo, ReviewInfo } from "./gh-client.js";
+import { type PRInfo, type ReviewInfo, isCodeRabbitReview } from "./gh-client.js";
 import type { MergeGateState } from "./mergeGate.js";
 
 // Patterns that indicate fabricated/placeholder evidence in PR descriptions
@@ -101,8 +101,6 @@ export function buildSkepticPrompt(
 ): string {
   // If CodeRabbit approved via comment fallback, prepend a virtual APPROVED review
   // to reviews list so that LLM does not get blocked by dismissed reviews (Rule 4).
-  const isCodeRabbitReview = (r: ReviewInfo): boolean =>
-    r.author?.login === "coderabbitai" || r.author?.login === "coderabbitai[bot]";
   const crReviews = reviews.filter(isCodeRabbitReview);
   const hasApprovedReview = crReviews.some((r) => (r.state ?? "").toLowerCase() === "approved");
   const modifiedReviews = [...reviews];
@@ -129,7 +127,7 @@ export function buildSkepticPrompt(
         isCodeRabbitReview(r) &&
         ((r.state ?? "").toLowerCase() === "approved" ||
           (r.state ?? "").toLowerCase() === "changes_requested") &&
-        (!pr.headRefOid || r.commitId === pr.headRefOid),
+        (!!pr.headRefOid && r.commitId === pr.headRefOid),
     )
     .sort(sortReviewsNewestFirst)[0] ?? null;
   const crEmptyBodyApproved =

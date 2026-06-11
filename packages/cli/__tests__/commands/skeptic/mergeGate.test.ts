@@ -32,6 +32,8 @@ vi.mock("../../../src/commands/skeptic/gh-client.js", () => ({
   ghJson: mockGhJson,
   ghJsonPaginate: mockGhJsonPaginate,
   fetchReviews: mockFetchReviews,
+  isCodeRabbitReview: (r: any) =>
+    r.author?.login === "coderabbitai" || r.author?.login === "coderabbitai[bot]",
 }));
 
 const { fetchMergeGateState } = await import(

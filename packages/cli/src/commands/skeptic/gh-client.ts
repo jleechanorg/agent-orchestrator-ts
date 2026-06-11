@@ -105,6 +105,9 @@ export interface ReviewInfo {
   commitId?: string | null;
 }
 
+export const isCodeRabbitReview = (r: ReviewInfo): boolean =>
+  r.author?.login === "coderabbitai" || r.author?.login === "coderabbitai[bot]";
+
 export interface IssueComment {
   id: number;
   body: string;
