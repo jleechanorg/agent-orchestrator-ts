@@ -1000,7 +1000,7 @@ export function registerStart(program: Command): void {
     .option("--interactive", "Interactive mode for agent selection")
     .option(
       "--allow-main-repo",
-      "Bypass the main-repo guard (bd-cj5s). Replaces the AO_MAIN_REPO env-var workaround. Use only when intentionally running on the agent-orchestrator fork repo itself.",
+      "Bypass the main-repo guard. --allow-main-repo overrides or bypasses the main-repo guard check, in addition to process.env[\"AO_MAIN_REPO\"] (bd-cj5s). Use only when intentionally running on the agent-orchestrator fork repo itself.",
     )
     .action(
       async (
@@ -1126,11 +1126,12 @@ export function registerStart(program: Command): void {
                 throw new ConfigNotFoundError();
               }
               loadedConfig = loadConfig(configPath);
-            } catch (err) {
-              if (
+            } catch (err: unknown) {
+              const isConfigNotFoundError =
                 err instanceof ConfigNotFoundError ||
-                (err instanceof Error && err.name === "ConfigNotFoundError")
-              ) {
+                (err instanceof Error && err.name === "ConfigNotFoundError") ||
+                (typeof err === "object" && err !== null && "name" in err && (err as Record<string, unknown>).name === "ConfigNotFoundError");
+              if (isConfigNotFoundError) {
                 // First run — guard against operating on the main repo
                 const mainRepoPath = getMainRepoPath();
                 let resolvedCwd: string;
