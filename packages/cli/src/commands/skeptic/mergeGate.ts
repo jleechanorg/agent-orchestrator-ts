@@ -86,8 +86,10 @@ function getLatestDecisiveReview(
   const filtered = reviews.filter(
     (r) =>
       isCodeRabbitReview(r) &&
-      ((r.state ?? "").toLowerCase() === "approved" ||
-        (r.state ?? "").toLowerCase() === "changes_requested") &&
+      (
+        (r.state ?? "").toLowerCase() === "approved" ||
+        (r.state ?? "").toLowerCase() === "changes_requested"
+      ) &&
       r.commitId === headSha,
   );
   return filtered.sort(sortReviewsNewestFirst)[0] ?? null;
