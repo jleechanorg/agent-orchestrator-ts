@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isOrchestratorSession, isTerminalSession, type SessionStatus, type ActivityState } from "../types.js";
+import { isOrchestratorSession, isTerminalSession, type SessionStatus, type ActivityState, ConfigNotFoundError, isConfigNotFoundError } from "../types.js";
 
 describe("isOrchestratorSession", () => {
   it("detects orchestrators by explicit role metadata", () => {
@@ -55,5 +55,31 @@ describe("isTerminalSession", () => {
 
   it("prioritizes terminal status over non-terminal activity", () => {
     expect(isTerminalSession({ status: "killed", activity: "active" as ActivityState })).toBe(true);
+  });
+});
+
+describe("isConfigNotFoundError", () => {
+  it("returns true for instances of ConfigNotFoundError", () => {
+    expect(isConfigNotFoundError(new ConfigNotFoundError())).toBe(true);
+  });
+
+  it("returns true for Error objects with name ConfigNotFoundError", () => {
+    const err = new Error("Config not found");
+    err.name = "ConfigNotFoundError";
+    expect(isConfigNotFoundError(err)).toBe(true);
+  });
+
+  it("returns true for plain objects with name ConfigNotFoundError", () => {
+    expect(isConfigNotFoundError({ name: "ConfigNotFoundError" })).toBe(true);
+  });
+
+  it("returns false for regular Error objects", () => {
+    expect(isConfigNotFoundError(new Error())).toBe(false);
+  });
+
+  it("returns false for null or undefined or other primitives", () => {
+    expect(isConfigNotFoundError(null)).toBe(false);
+    expect(isConfigNotFoundError(undefined)).toBe(false);
+    expect(isConfigNotFoundError("string")).toBe(false);
   });
 });

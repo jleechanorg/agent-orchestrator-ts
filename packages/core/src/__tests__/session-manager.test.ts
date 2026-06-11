@@ -3329,6 +3329,28 @@ describe("spawnOrchestrator", () => {
     expect(session.workspacePath).toBe(join(tmpDir, "my-app"));
   });
 
+  it("propagates AO_MAIN_REPO env var to runtime when spawning orchestrator", async () => {
+    const originalMainRepo = process.env["AO_MAIN_REPO"];
+    process.env["AO_MAIN_REPO"] = "/fake/main/repo";
+    try {
+      const sm = createSessionManager({ config, registry: mockRegistry });
+      await sm.spawnOrchestrator({ projectId: "my-app" });
+      expect(mockRuntime.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          environment: expect.objectContaining({
+            AO_MAIN_REPO: "/fake/main/repo",
+          }),
+        }),
+      );
+    } finally {
+      if (originalMainRepo !== undefined) {
+        process.env["AO_MAIN_REPO"] = originalMainRepo;
+      } else {
+        delete process.env["AO_MAIN_REPO"];
+      }
+    }
+  });
+
   it("writes metadata with proper fields", async () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
 
