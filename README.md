@@ -180,7 +180,7 @@ but is no longer the canonical home).
 | MiniMax / Wafer agent adapters | ❌ None | ✅ Provider adapter plugins (third-party LLM) |
 | Node.js requirement | 20.18.3+ | 22+ |
 | CI workflows | 8 | 19 (+coderabbit-ping, cr-loop-health, evidence-gate, skeptic-cron, skeptic-gate, wholesome-checks, …) |
-| Core TS files | ~150 | ~261 |
+| Core TS files | ~150 | ~342 |
 | Plugin slots | 7 (Lifecycle moved into core) | 7 (matching upstream) |
 | Discord notifier | ✅ | ✅ |
 | Windows support | ✅ First-class (ConPTY) | ❌ Not supported |
