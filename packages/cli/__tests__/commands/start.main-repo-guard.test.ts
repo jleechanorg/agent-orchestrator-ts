@@ -545,6 +545,8 @@ describe("start command — main repo guard (bd-8gld)", () => {
   });
 
   it("allows no-argument start cwd when --allow-main-repo flag is set (Site 4) (bd-cj5s)", async () => {
+    // Rejection is expected here because simulateMissingConfig: true triggers autoCreateConfig,
+    // which fails/exits with process.exit(1) in non-interactive tests, but the main-repo guard is bypassed.
     mockConfigRef.current = { simulateMissingConfig: true };
     mockCwd(mainRepoDir);
     mockProcessCwd.mockReturnValue(mainRepoDir);
