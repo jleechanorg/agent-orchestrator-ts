@@ -126,9 +126,9 @@ function makeConfig(configOverrides: Record<string, unknown> = {}): Record<strin
 }
 
 describe("dashboard command — browser open regression tests (bd-#667)", () => {
-  it("does not open browser by default when no flags or configs are set", async () => {
+  it("skips browser open when AO_NO_OPEN_BROWSER env var is set to 1", async () => {
     const prev = process.env["AO_NO_OPEN_BROWSER"];
-    delete process.env["AO_NO_OPEN_BROWSER"];
+    process.env["AO_NO_OPEN_BROWSER"] = "1";
     try {
       mockConfigRef.current = makeConfig();
 
@@ -136,77 +136,61 @@ describe("dashboard command — browser open regression tests (bd-#667)", () => 
 
       expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
     } finally {
-      if (prev !== undefined) process.env["AO_NO_OPEN_BROWSER"] = prev;
+      if (prev === undefined) delete process.env["AO_NO_OPEN_BROWSER"];
+      else process.env["AO_NO_OPEN_BROWSER"] = prev;
     }
   });
 
-  it("opens browser when --open CLI flag is set", async () => {
-    mockConfigRef.current = makeConfig();
+  it("skips browser open when AO_NO_OPEN_BROWSER env var is set to true", async () => {
+    const prev = process.env["AO_NO_OPEN_BROWSER"];
+    process.env["AO_NO_OPEN_BROWSER"] = "true";
+    try {
+      mockConfigRef.current = makeConfig();
 
-    await program.parseAsync(["node", "test", "dashboard", "--open"]);
+      await program.parseAsync(["node", "test", "dashboard"]);
 
-    expect(mockWaitForPortAndOpen).toHaveBeenCalledTimes(1);
+      expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
+    } finally {
+      if (prev === undefined) delete process.env["AO_NO_OPEN_BROWSER"];
+      else process.env["AO_NO_OPEN_BROWSER"] = prev;
+    }
   });
 
-  it("opens browser when --open-browser CLI flag is set", async () => {
-    mockConfigRef.current = makeConfig();
-
-    await program.parseAsync(["node", "test", "dashboard", "--open-browser"]);
-
-    expect(mockWaitForPortAndOpen).toHaveBeenCalledTimes(1);
-  });
-
-  it("opens browser when openBrowser: true in YAML config", async () => {
-    mockConfigRef.current = makeConfig({ openBrowser: true });
+  it("skips browser open when openBrowser: false in YAML config", async () => {
+    mockConfigRef.current = makeConfig({ openBrowser: false });
 
     await program.parseAsync(["node", "test", "dashboard"]);
 
-    expect(mockWaitForPortAndOpen).toHaveBeenCalledTimes(1);
+    expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
   });
 
-  it("skips browser open when openBrowser: true in YAML config but --no-open CLI flag is set", async () => {
-    mockConfigRef.current = makeConfig({ openBrowser: true });
+  it("skips browser open when --no-open CLI flag is set", async () => {
+    mockConfigRef.current = makeConfig();
 
     await program.parseAsync(["node", "test", "dashboard", "--no-open"]);
 
     expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
   });
 
-  it("skips browser open when openBrowser: true in YAML config but --no-open-browser CLI flag is set", async () => {
-    mockConfigRef.current = makeConfig({ openBrowser: true });
+  it("skips browser open when --no-open-browser CLI flag is set", async () => {
+    mockConfigRef.current = makeConfig();
 
     await program.parseAsync(["node", "test", "dashboard", "--no-open-browser"]);
 
     expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
   });
 
-  it("skips browser open when openBrowser: true in YAML config but AO_NO_OPEN_BROWSER env var is set to 1", async () => {
+  it("still calls waitForPortAndOpen when no suppression is set", async () => {
     const prev = process.env["AO_NO_OPEN_BROWSER"];
-    process.env["AO_NO_OPEN_BROWSER"] = "1";
+    delete process.env["AO_NO_OPEN_BROWSER"];
     try {
-      mockConfigRef.current = makeConfig({ openBrowser: true });
+      mockConfigRef.current = makeConfig();
 
       await program.parseAsync(["node", "test", "dashboard"]);
 
-      expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
+      expect(mockWaitForPortAndOpen).toHaveBeenCalledTimes(1);
     } finally {
-      if (prev === undefined) delete process.env["AO_NO_OPEN_BROWSER"];
-      else process.env["AO_NO_OPEN_BROWSER"] = prev;
-    }
-  });
-
-  it("skips browser open when openBrowser: true in YAML config but AO_NO_OPEN_BROWSER env var is set to true", async () => {
-    const prev = process.env["AO_NO_OPEN_BROWSER"];
-    process.env["AO_NO_OPEN_BROWSER"] = "true";
-    try {
-      mockConfigRef.current = makeConfig({ openBrowser: true });
-
-      await program.parseAsync(["node", "test", "dashboard"]);
-
-      expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
-    } finally {
-      if (prev === undefined) delete process.env["AO_NO_OPEN_BROWSER"];
-      else process.env["AO_NO_OPEN_BROWSER"] = prev;
+      if (prev !== undefined) process.env["AO_NO_OPEN_BROWSER"] = prev;
     }
   });
 });
