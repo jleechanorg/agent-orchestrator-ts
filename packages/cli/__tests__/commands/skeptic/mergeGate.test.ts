@@ -979,6 +979,37 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       expect(result.crApproved).toBe(false);
       expect(result.crState).toBe("none-on-head");
     });
+
+    it("does not set crDismissedWithoutApproval to true if review is dismissed but on an old commit SHA", async () => {
+      setup({
+        ghJson: [
+          { head: { sha: headSha }, mergeable: true },
+          { state: "success" },
+          { commit: { committer: { date: "2026-06-04T12:00:00Z" } } },
+        ],
+        paginate: [
+          [],
+          [
+            [
+              { id: 9, body: "regular comment", created_at: "2026-06-04T13:00:00Z", user: { login: "someone" } }
+            ]
+          ],
+          [],
+        ],
+        fetchReviews: [
+          {
+            author: { login: "coderabbitai" },
+            state: "dismissed",
+            body: "dismissed review",
+            submittedAt: "2026-06-04T11:00:00Z",
+            commitId: "old-sha-1234567890",
+          }
+        ],
+      });
+
+      const result = await fetchMergeGateState("test", "test-repo", 1, "jleechan-agent[bot]");
+      expect(result.crDismissedWithoutApproval).toBe(false);
+    });
   });
 });
 
