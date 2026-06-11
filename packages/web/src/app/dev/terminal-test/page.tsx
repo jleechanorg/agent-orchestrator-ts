@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
  * By default, automatically picks two different sessions to avoid port conflicts.
  *
  * Examples (using port 3020 for launchd environment, default is 3000):
- * - http://localhost:3020/dev/terminal-test
+ * - http://localhost:3020/dev/terminal-test (auto-picks two different sessions)
  * - http://localhost:3020/dev/terminal-test?old_session=ao-orchestrator&new_session=ao-20
  * - http://localhost:3020/dev/terminal-test?session=ao-20 (uses same session for both)
  *
