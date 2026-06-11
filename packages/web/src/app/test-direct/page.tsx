@@ -10,10 +10,10 @@ export const dynamic = "force-dynamic";
 /**
  * Test page for DirectTerminal with XDA clipboard support.
  *
- * Examples:
- * - http://localhost:3000/test-direct
- * - http://localhost:3000/test-direct?session=ao-20
- * - http://localhost:3000/test-direct?session=ao-20&fullscreen=true
+ * Examples (using port 3020 for launchd environment, default is 3000):
+ * - http://localhost:3020/test-direct
+ * - http://localhost:3020/test-direct?session=ao-20
+ * - http://localhost:3020/test-direct?session=ao-20&fullscreen=true
  *
  * This uses native xterm.js with registered XDA handler,
  * which should enable clipboard (OSC 52) in tmux without
