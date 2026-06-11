@@ -62,8 +62,8 @@ jobs:
           # Sanitize PR_TITLE: strip newlines and GitHub annotation commands to prevent log injection
           SAFE_PR_TITLE="$(printf '%s' "$PR_TITLE" | tr -d '\n\r' | sed 's/::/??/g')"
           case "$SAFE_PR_TITLE" in
-            \[agento\]*) echo "PASS: PR title has [agento] prefix" ;;
-            *) echo "FAIL: PR title must start with '[agento]'"
+            \[agento\]*|\[antig\]*) echo "PASS: PR title has [agento] or [antig] prefix" ;;
+            *) echo "FAIL: PR title must start with '[agento]' or '[antig]'"
                echo "Current title: $SAFE_PR_TITLE"
                exit 1 ;;
           esac
