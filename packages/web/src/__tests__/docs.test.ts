@@ -17,5 +17,7 @@ describe("Documentation JSDoc examples", () => {
     const filePath = path.resolve(__dirname, "../app/test-direct/page.tsx");
     const content = fs.readFileSync(filePath, "utf-8");
     expect(content).toContain("- http://localhost:3020/test-direct");
+    expect(content).toContain("- http://localhost:3020/test-direct?session=ao-20");
+    expect(content).toContain("- http://localhost:3020/test-direct?session=ao-20&fullscreen=true");
   });
 });
