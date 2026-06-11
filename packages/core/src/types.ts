@@ -1345,9 +1345,9 @@ export interface OrchestratorConfig {
   port?: number;
 
   /**
-   * When `false`, suppress auto-opening the browser to the dashboard URL on
-   * `ao start` and `ao dashboard`. Default is `true` (browser opens).
-   * Override with `AO_NO_OPEN_BROWSER=1` env var or `--no-open-browser` CLI flag.
+   * When `true`, enable auto-opening the browser to the dashboard URL on
+   * `ao start` and `ao dashboard`. Default is `false` (browser does not open).
+   * Override with `openBrowser: true` in config, or `--open-browser` CLI flag.
    * (bd-#667) - trigger CI
    */
   openBrowser?: boolean;
