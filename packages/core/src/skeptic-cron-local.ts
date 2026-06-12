@@ -434,7 +434,7 @@ export async function runLocalSkepticCron(
           // First time we observe this specific SHA — record and skip this cycle
           // so the next cycle can decide if the author is still pushing.
           firstSeenNewShaAtByPR.set(cacheKey, { sha: headSha, firstSeenAt: now });
-          try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_first_seen", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha, shaStabilityWindowMs }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
+          try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_first_seen", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha, shaStabilityWindowMs, previousSha: existing?.sha }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
           return false;
         }
         if (now - existing.firstSeenAt < shaStabilityWindowMs) {
