@@ -101,7 +101,7 @@ const lastEvaluatedAtByPR = new BoundedMap<string, number>(MAX_SKEPTIC_DEDUP_ENT
 // Layer B — SHA-stability window. When a new HEAD SHA is observed, record the
 // time. If we evaluate before the window elapses, the author is still pushing
 // and the verdict will likely be stale within minutes.
-const firstSeenNewShaAtByPR = new BoundedMap<string, number>(MAX_SKEPTIC_DEDUP_ENTRIES);
+const firstSeenNewShaAtByPR = new BoundedMap<string, { sha: string; firstSeenAt: number }>(MAX_SKEPTIC_DEDUP_ENTRIES);
 
 // Layer C — Verdict cooldown. Track last verdict + the non-bot comment count
 // observed at evaluation time. If the prior verdict was FAIL and the
@@ -215,8 +215,9 @@ export function _setFirstSeenNewShaAt(
   projectId: string,
   prNumber: number,
   ts: number,
+  sha: string = "default-sha",
 ): void {
-  firstSeenNewShaAtByPR.set(`${projectId}:${prNumber}`, ts);
+  firstSeenNewShaAtByPR.set(`${projectId}:${prNumber}`, { sha, firstSeenAt: ts });
 }
 
 /** Returns the stored SHA for a PR cache key — exposed for testing only. */
@@ -428,17 +429,17 @@ export async function runLocalSkepticCron(
     if (headSha) {
       const cachedSha = lastEvaluatedShaByPR.get(cacheKey);
       if (cachedSha !== headSha) {
-        const existingFirstSeen = firstSeenNewShaAtByPR.get(cacheKey);
-        if (existingFirstSeen === undefined) {
-          // First time we observe this SHA — record and skip this cycle
+        const existing = firstSeenNewShaAtByPR.get(cacheKey);
+        if (existing === undefined || existing.sha !== headSha) {
+          // First time we observe this specific SHA — record and skip this cycle
           // so the next cycle can decide if the author is still pushing.
-          firstSeenNewShaAtByPR.set(cacheKey, now);
+          firstSeenNewShaAtByPR.set(cacheKey, { sha: headSha, firstSeenAt: now });
           try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_first_seen", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha, shaStabilityWindowMs }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
           return false;
         }
-        if (now - existingFirstSeen < shaStabilityWindowMs) {
+        if (now - existing.firstSeenAt < shaStabilityWindowMs) {
           // Still inside the stability window — author may be still pushing.
-          try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_stability_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha, msSinceFirstSeen: now - existingFirstSeen, shaStabilityWindowMs }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
+          try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_stability_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha, msSinceFirstSeen: now - existing.firstSeenAt, shaStabilityWindowMs }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
           return false;
         }
         // Stability window elapsed — fall through to Layer C / evaluation.
