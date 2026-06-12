@@ -127,20 +127,31 @@ function normalizeShaStabilityWindowMs(value: number | undefined): number {
   return value;
 }
 
+/** Marker regex for our own verdict and trigger comments — these count as
+ * "skeptic noise", not "developer review activity", and must be excluded
+ * from the Layer C verdict-cooldown baseline. Without this, a posted verdict
+ * is itself non-bot and would be misread as new activity, defeating the
+ * cooldown. */
+const SKEPTIC_NOISE_MARKER_RE = /<!--\s*skeptic-(?:agent-verdict|cron-trigger|gate-)\s*-->/i;
+
 /** A best-effort filter that excludes our own verdict comments from the count
  * used by the Layer C verdict-cooldown check. Returns the count of comments
  * whose author is not a known bot (heuristic: login ends with `[bot]` or
- * user.type === "Bot"). Defensive — falls back to total count when type is
- * missing. */
+ * user.type === "Bot") AND whose body does not contain a skeptic-noise
+ * marker (verdict/trigger/gate comment posted by us). Defensive — falls
+ * back to total count when type is missing. */
 function countNonBotComments(
-  comments: ReadonlyArray<{ user?: { login: string; type?: string | null } | null }>,
+  comments: ReadonlyArray<{ body?: string; user?: { login: string; type?: string | null } | null }>,
 ): number {
   let n = 0;
   for (const c of comments) {
     const login = c.user?.login ?? "";
     const isBot =
       login.endsWith("[bot]") || c.user?.type === "Bot";
-    if (!isBot) n += 1;
+    if (isBot) continue;
+    const body = c.body ?? "";
+    if (SKEPTIC_NOISE_MARKER_RE.test(body)) continue;
+    n += 1;
   }
   return n;
 }
@@ -396,6 +407,10 @@ export async function runLocalSkepticCron(
     //    The 10-min project throttle alone is too coarse when a single PR
     //    is in rapid iteration — it eats the slot for all other PRs in
     //    the project and produces a verdict every cron cycle on a new SHA.
+    //    IMPORTANT: do NOT stamp `lastCheckedUpdatedAtByPR` here — doing so
+    //    would arm Step 1's "nothing changed" check on the next poll and
+    //    short-circuit the cron before the throttle layers can re-evaluate.
+    //    The throttle's own state (lastEvaluatedAtByPR) is sufficient.
     const lastEvalAt = lastEvaluatedAtByPR.get(cacheKey);
     if (lastEvalAt !== undefined && now - lastEvalAt < perPrCooldownMs) {
       try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.per_pr_cooldown_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha: headSha ?? null, msSinceLastEval: now - lastEvalAt, perPrCooldownMs }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
@@ -406,6 +421,10 @@ export async function runLocalSkepticCron(
     //    SHA, stamp the time. If the author is still actively pushing, the
     //    SHA will keep changing and we should wait for them to settle
     //    before spending LLM budget on what is likely a transient state.
+    //    IMPORTANT: do NOT stamp `lastCheckedUpdatedAtByPR` on skip — see
+    //    the Layer A note. The first-seen entry is left in place across
+    //    cycles; if the window has elapsed the next pass falls through
+    //    to Layer C / evaluation without re-stamping.
     if (headSha) {
       const cachedSha = lastEvaluatedShaByPR.get(cacheKey);
       if (cachedSha !== headSha) {
@@ -422,8 +441,10 @@ export async function runLocalSkepticCron(
           try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_stability_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha, msSinceFirstSeen: now - existingFirstSeen, shaStabilityWindowMs }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
           return false;
         }
-        // Stability window elapsed — clear so a future new SHA restarts the cycle.
-        firstSeenNewShaAtByPR.delete(cacheKey);
+        // Stability window elapsed — fall through to Layer C / evaluation.
+        // Do NOT clear firstSeenNewShaAtByPR here: if Layer C then skips,
+        // clearing would make the next poll re-stamp first-seen for the
+        // same HEAD SHA, adding a needless stability wait.
       }
     }
 
@@ -432,6 +453,10 @@ export async function runLocalSkepticCron(
     //    next evaluation is very likely to FAIL the same way. Skip until
     //    they respond. (A PASS verdict is reset; we re-evaluate to
     //    detect regressions caused by a new push.)
+    //    IMPORTANT: do NOT stamp `lastCheckedUpdatedAtByPR` here — see
+    //    the Layer A note. countNonBotComments() now excludes our own
+    //    verdict and trigger comments (SKEPTIC_NOISE_MARKER_RE) so the
+    //    verdict does not look like new developer activity.
     if (verdictCooldownEnabled && fetchedComments !== null) {
       const lastVerdict = lastVerdictByPR.get(cacheKey);
       if (lastVerdict === "FAIL") {

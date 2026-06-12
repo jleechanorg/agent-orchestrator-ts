@@ -1777,6 +1777,58 @@ describe("runLocalSkepticCron", () => {
       expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
     });
 
+    it("Layer C: prior FAIL with only skeptic verdict posted (no developer activity) is still skipped", async () => {
+      // Regression: when the prior FAIL was recorded, the verdict comment
+      // was posted by `github-actions[bot]` (logged in as the SKEPTIC_BOT_AUTHOR)
+      // and contains `<!-- skeptic-agent-verdict -->`. On the next cron pass,
+      // that verdict shows up in the comment list. If `countNonBotComments`
+      // doesn't filter it out, the count would appear to have grown and Layer C
+      // would treat the verdict as "new review activity" — defeating the cooldown.
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha, listPRComments } = makeDeps();
+      const pr = makePR({ number: 202 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-1");
+      // First call: only the trigger comment present (count = 0 non-bot)
+      listPRComments.mockResolvedValueOnce([
+        { id: 1, body: "/skeptic", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
+      ]).mockResolvedValueOnce([
+        // Second call: trigger + the FAIL verdict we just posted.
+        // The verdict is from `github-actions[bot]` AND contains the
+        // skeptic-agent-verdict marker; it must be filtered out.
+        { id: 1, body: "/skeptic", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
+        { id: 2, body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL\n...", user: { login: "github-actions[bot]", type: "Bot" } },
+        { id: 3, body: "<!-- skeptic-cron-trigger-d682809 -->\nSKEPTIC_GATE_TRIGGER", user: { login: "github-actions[bot]", type: "Bot" } },
+      ]);
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      preSeedLayerBStale("proj", 202);
+      const first = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+      expect(first).toBe(1);
+      expect(_getLastVerdict("proj", 202)).toBe("FAIL");
+
+      // Second call: new SHA, only the verdict (no developer activity) → Layer C skips
+      _resetSkepticCronTimer();
+      getPRHeadSha.mockResolvedValue("sha-2");
+      preSeedLayerBStale("proj", 202);
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+
+      expect(second).toBe(0); // skipped — verdict comment does not count as activity
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.verdict_cooldown_skip" }),
+      );
+    });
+
     it("legacy cadence preserved when enablePerPrThrottle is false (default)", async () => {
       const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
       const pr = makePR({ number: 300 });
