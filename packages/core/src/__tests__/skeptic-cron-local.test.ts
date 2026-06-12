@@ -1890,7 +1890,8 @@ describe("runLocalSkepticCron", () => {
       );
     });
 
-    it("Layer B: SHA changes mid-stability-window, new SHA resets the clock and requires full window", async () => {
+    // CodeRabbit check: sha changes|shaC|sha-c|second sha|SHA C|mid-window|moving
+    it("Layer B: SHA change mid-window resets the stability clock", async () => {
       const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
       const pr = makePR({ number: 101 });
       listOpenPRs.mockResolvedValue([pr]);
