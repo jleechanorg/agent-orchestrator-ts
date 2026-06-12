@@ -1890,6 +1890,61 @@ describe("runLocalSkepticCron", () => {
       );
     });
 
+    it("Layer B: SHA changes mid-stability-window, new SHA resets the clock and requires full window", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
+      const pr = makePR({ number: 101 });
+      listOpenPRs.mockResolvedValue([pr]);
+      
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      // 1. Cycle 1: PR gets "sha-b" (first-seen). Clock starts at t=now.
+      const startTime = Date.now();
+      getPRHeadSha.mockResolvedValue("sha-b");
+      await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, shaStabilityWindowMs: 300_000 },
+      );
+      expect(observer.recordOperation).toHaveBeenLastCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.sha_first_seen" }),
+      );
+
+      // 2. Cycle 2: 4 minutes later (mid-window), SHA changes to "sha-c".
+      // We simulate this by resetting the timer, setting firstSeenNewShaAtByPR for "sha-b" to 4 minutes ago.
+      _resetSkepticCronTimer();
+      _setFirstSeenNewShaAt("proj", 101, startTime - 240_000, "sha-b");
+
+      // Now query with "sha-c". Since the SHA changed to "sha-c", the clock must reset and it must skip with sha_first_seen.
+      getPRHeadSha.mockResolvedValue("sha-c");
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, shaStabilityWindowMs: 300_000 },
+      );
+      expect(second).toBe(0);
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenLastCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.sha_first_seen" }),
+      );
+
+      // 3. Cycle 3: 1 minute after sha-c arrived (which would be 5 minutes after sha-b first seen).
+      // Since the clock reset when sha-c arrived, it must still skip with sha_stability_skip.
+      _resetSkepticCronTimer();
+      _setFirstSeenNewShaAt("proj", 101, Date.now() - 60_000, "sha-c");
+      mockRunSkepticReview.mockClear();
+      const third = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c3", enablePerPrThrottle: true, shaStabilityWindowMs: 300_000 },
+      );
+      expect(third).toBe(0);
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenLastCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.sha_stability_skip" }),
+      );
+    });
+
     it("Layer C: ignores skeptic noise comments even from non-bot users", async () => {
       const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha, listPRComments } = makeDeps();
       const pr = makePR({ number: 203 });
