@@ -1915,7 +1915,7 @@ describe("runLocalSkepticCron", () => {
       // 2. Cycle 2: 4 minutes later (mid-window), SHA changes to "sha-c".
       // We simulate this by resetting the timer, setting firstSeenNewShaAtByPR for "sha-b" to 4 minutes ago.
       _resetSkepticCronTimer();
-      _setFirstSeenNewShaAt("proj", 101, startTime - 240_000, "sha-b");
+      _setFirstSeenNewShaAt("proj", 101, Date.now() - 240_000, "sha-b");
 
       // Now query with "sha-c". Since the SHA changed to "sha-c", the clock must reset and it must skip with sha_first_seen.
       getPRHeadSha.mockResolvedValue("sha-c");
