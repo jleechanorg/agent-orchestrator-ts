@@ -487,6 +487,10 @@ export async function runLocalSkepticCron(
       // Layers A/B/C: record timestamp + verdict + non-bot comment count
       // for the next dedup check. Gated on enablePerPrThrottle so the
       // legacy cadence is preserved when throttling is not opted in.
+      // The `countNonBotComments()` helper excludes the verdict and trigger
+      // comments via SKEPTIC_NOISE_MARKER_RE, so the next pass's
+      // `currentNonBotCount <= lastNonBotCount` check correctly handles the
+      // posted verdict without needing a separate bump.
       if (params.enablePerPrThrottle) {
         lastEvaluatedAtByPR.set(cacheKey, now);
         lastVerdictByPR.set(cacheKey, result.verdict);
