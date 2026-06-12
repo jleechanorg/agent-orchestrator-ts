@@ -22,7 +22,7 @@
 
 set -u
 
-REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]:-}")/.." && pwd)}"
 TIER1_LABEL="ai.agento.health"
 TIER1_FROZEN_PLIST="$REPO_ROOT/launchd/$TIER1_LABEL.plist.template"
 TIER1_PLIST="$HOME/Library/LaunchAgents/$TIER1_LABEL.plist"
