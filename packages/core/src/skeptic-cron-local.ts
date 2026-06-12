@@ -132,7 +132,7 @@ function normalizeShaStabilityWindowMs(value: number | undefined): number {
  * from the Layer C verdict-cooldown baseline. Without this, a posted verdict
  * is itself non-bot and would be misread as new activity, defeating the
  * cooldown. */
-const SKEPTIC_NOISE_MARKER_RE = /<!--\s*skeptic-(?:agent-verdict|cron-trigger|gate-)\s*-->/i;
+const SKEPTIC_NOISE_MARKER_RE = /<!--\s*skeptic-(?:agent-verdict|cron-trigger|gate)[\w-]*\s*-->/i;
 
 /** A best-effort filter that excludes our own verdict comments from the count
  * used by the Layer C verdict-cooldown check. Returns the count of comments

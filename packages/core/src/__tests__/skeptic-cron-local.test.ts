@@ -1829,6 +1829,76 @@ describe("runLocalSkepticCron", () => {
       );
     });
 
+    it("Layer B: stability window not elapsed, skips with sha_stability_skip", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
+      const pr = makePR({ number: 101 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-1");
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      // First cycle: sha-1 first-seen, skip
+      await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, shaStabilityWindowMs: 60_000 },
+      );
+
+      // Second cycle: same sha-1, window (60s) has NOT elapsed, skip with sha_stability_skip
+      _resetSkepticCronTimer();
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, shaStabilityWindowMs: 60_000 },
+      );
+      expect(second).toBe(0);
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.sha_stability_skip" }),
+      );
+    });
+
+    it("Layer C: ignores skeptic noise comments even from non-bot users", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha, listPRComments } = makeDeps();
+      const pr = makePR({ number: 203 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-1");
+      
+      listPRComments.mockResolvedValueOnce([
+        { id: 1, body: "/skeptic", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
+      ]).mockResolvedValueOnce([
+        { id: 1, body: "/skeptic", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
+        // These comments are posted by a non-bot user (type: "User") but contain skeptic noise markers:
+        { id: 2, body: "<!-- skeptic-gate-result-123 -->\nPASS", user: { login: "some-service", type: "User" } },
+        { id: 3, body: "<!-- skeptic-cron-trigger-abc -->\nTRIGGER", user: { login: "some-service", type: "User" } },
+      ]);
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      preSeedLayerBStale("proj", 203);
+      const first = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+      expect(first).toBe(1);
+
+      // Second call: new SHA, comments with skeptic noise from non-bot user should still be ignored
+      _resetSkepticCronTimer();
+      getPRHeadSha.mockResolvedValue("sha-2");
+      preSeedLayerBStale("proj", 203);
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+
+      expect(second).toBe(0); // skipped because no real new activity
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+    });
+
     it("legacy cadence preserved when enablePerPrThrottle is false (default)", async () => {
       const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
       const pr = makePR({ number: 300 });
