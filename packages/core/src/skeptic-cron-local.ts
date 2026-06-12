@@ -398,7 +398,6 @@ export async function runLocalSkepticCron(
     //    the project and produces a verdict every cron cycle on a new SHA.
     const lastEvalAt = lastEvaluatedAtByPR.get(cacheKey);
     if (lastEvalAt !== undefined && now - lastEvalAt < perPrCooldownMs) {
-      if (pr.updatedAt) lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
       try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.per_pr_cooldown_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha: headSha ?? null, msSinceLastEval: now - lastEvalAt, perPrCooldownMs }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
       return false;
     }
@@ -415,13 +414,11 @@ export async function runLocalSkepticCron(
           // First time we observe this SHA — record and skip this cycle
           // so the next cycle can decide if the author is still pushing.
           firstSeenNewShaAtByPR.set(cacheKey, now);
-          if (pr.updatedAt) lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
           try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_first_seen", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha, shaStabilityWindowMs }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
           return false;
         }
         if (now - existingFirstSeen < shaStabilityWindowMs) {
           // Still inside the stability window — author may be still pushing.
-          if (pr.updatedAt) lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
           try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.sha_stability_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha, msSinceFirstSeen: now - existingFirstSeen, shaStabilityWindowMs }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
           return false;
         }
@@ -441,7 +438,6 @@ export async function runLocalSkepticCron(
         const currentNonBotCount = countNonBotComments(fetchedComments);
         const lastNonBotCount = lastEvalNonBotCommentCountByPR.get(cacheKey) ?? 0;
         if (currentNonBotCount <= lastNonBotCount) {
-          if (pr.updatedAt) lastCheckedUpdatedAtByPR.set(cacheKey, pr.updatedAt);
           try { observer.recordOperation({ metric: "lifecycle_poll", operation: "skeptic.cron.verdict_cooldown_skip", outcome: "success", correlationId, projectId, data: { prNumber: pr.number, headSha: headSha ?? null, currentNonBotCount, lastNonBotCount }, level: "info" }); } catch { /* observer throw must not poison Promise.allSettled batch */ }
           return false;
         }
