@@ -1797,7 +1797,7 @@ describe("runLocalSkepticCron", () => {
         // skeptic-agent-verdict marker; it must be filtered out.
         { id: 1, body: "/skeptic", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
         { id: 2, body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL\n...", user: { login: "github-actions[bot]", type: "Bot" } },
-        { id: 3, body: "<!-- skeptic-cron-trigger-d682809 -->\nSKEPTIC_GATE_TRIGGER", user: { login: "github-actions[bot]", type: "Bot" } },
+        { id: 3, body: "<!-- skeptic-cron-trigger-mocksha -->\nSKEPTIC_GATE_TRIGGER", user: { login: "github-actions[bot]", type: "Bot" } },
       ]);
       mockRunSkepticReview.mockResolvedValue({
         verdict: "FAIL",
