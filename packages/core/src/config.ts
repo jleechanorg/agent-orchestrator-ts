@@ -332,6 +332,16 @@ const ProjectConfigSchema = z.object({
 
   // Technique selection for AO workers (autor research: all techniques converge, SR-prtype default)
   technique: TechniqueConfigSchema.optional(),
+
+  // Skeptic cron per-PR throttle layers (see SkepticCronConfig in types.ts)
+  skepticCron: z
+    .object({
+      enablePerPrThrottle: z.boolean().default(false),
+      perPrCooldownMs: z.number().int().min(0).optional(),
+      shaStabilityWindowMs: z.number().int().min(0).optional(),
+      enableVerdictCooldown: z.boolean().default(true),
+    })
+    .optional(),
 });
 
 const DefaultPluginsSchema = z.object({
