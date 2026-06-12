@@ -1902,7 +1902,6 @@ describe("runLocalSkepticCron", () => {
       } as SkepticReviewResult);
 
       // 1. Cycle 1: PR gets "sha-b" (first-seen). Clock starts at t=now.
-      const startTime = Date.now();
       getPRHeadSha.mockResolvedValue("sha-b");
       await runLocalSkepticCron(
         { registry, sessionManager, observer },
