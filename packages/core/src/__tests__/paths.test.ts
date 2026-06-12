@@ -2,7 +2,7 @@
  * Unit tests for hash-based path utilities.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   mkdtempSync,
   writeFileSync,
@@ -13,6 +13,20 @@ import {
   existsSync,
   readFileSync,
 } from "node:fs";
+
+// Mock node:fs existsSync to allow dynamic testing of path resolution in ESM
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    existsSync: (path: string) => {
+      if (typeof (globalThis as any).__mockExistsSync === "function") {
+        return (globalThis as any).__mockExistsSync(path);
+      }
+      return actual.existsSync(path);
+    },
+  };
+});
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -548,6 +562,7 @@ describe("GitHub Binary Path Resolution", () => {
     } else {
       process.env.AO_GH_PATH = originalEnv;
     }
+    delete (globalThis as any).__mockExistsSync;
   });
 
   it("resolves to AO_GH_PATH if set", () => {
@@ -560,5 +575,22 @@ describe("GitHub Binary Path Resolution", () => {
     const path = getGhBinaryPath();
     expect(typeof path).toBe("string");
     expect(path.length).toBeGreaterThan(0);
+  });
+
+  it("prioritizes commonPaths in order", () => {
+    delete process.env.AO_GH_PATH;
+
+    // Scenario 1: Only /usr/bin/gh exists
+    (globalThis as any).__mockExistsSync = (p: string) => p === "/usr/bin/gh";
+    expect(getGhBinaryPath()).toBe("/usr/bin/gh");
+
+    // Scenario 2: Both ~/.local/bin/gh and /usr/bin/gh exist -> should prefer ~/.local/bin/gh
+    const localLocalPath = join(expandHome("~/.local/bin"), "gh");
+    (globalThis as any).__mockExistsSync = (p: string) => p === localLocalPath || p === "/usr/bin/gh";
+    expect(getGhBinaryPath()).toBe(localLocalPath);
+
+    // Scenario 3: None exist -> should fall back to "gh"
+    (globalThis as any).__mockExistsSync = () => false;
+    expect(getGhBinaryPath()).toBe("gh");
   });
 });
