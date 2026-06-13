@@ -4,6 +4,9 @@ import {
   _resetSkepticCronTimer,
   _resetSkepticDedupMap,
   _getLastEvaluatedSha,
+  _getLastEvaluatedAt,
+  _getLastVerdict,
+  _setFirstSeenNewShaAt,
 } from "../skeptic-cron-local.js";
 import type {
   Session,
@@ -79,7 +82,7 @@ function makeDeps() {
       Array<{
         id: number;
         body: string;
-        user: { login: string };
+        user: { login: string; type?: string | null };
         isSkepticTrigger?: boolean;
       }>
     >
@@ -1535,6 +1538,482 @@ describe("runLocalSkepticCron", () => {
     );
     expect(result2).toBe(0);
     expect(getPRHeadSha).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Per-PR throttle layers (A: time cooldown, B: SHA stability, C: verdict
+  // cooldown). All three are gated behind `enablePerPrThrottle: true` so
+  // the legacy cadence is preserved by default.
+  // -------------------------------------------------------------------------
+
+  describe("enablePerPrThrottle layers", () => {
+    /**
+     * Each test disables `listPRComments` (the only fallback to the SHA
+     * dedup at the end of the chain is the 24h age check) by deleting it
+     * from the mock SCM. We do this so the tests focus purely on the
+     * per-PR throttle layers and not the trigger-comment flow.
+     */
+    function makeThrottleDeps() {
+      const d = makeDeps();
+      const scm = d.registry.get("scm", "github");
+      delete scm.listPRComments;
+      return d;
+    }
+
+    /**
+     * Pre-seed the SHA-stability first-seen timestamp to a stale time so
+     * Layer B does not skip the very first call (which is the natural
+     * behaviour for a brand-new SHA). Tests that want the first call to
+     * actually evaluate call this once at the start.
+     */
+    function preSeedLayerBStale(projectId: string, prNumber: number, sha: string = "default-sha") {
+      _setFirstSeenNewShaAt(projectId, prNumber, Date.now() - 120_000, sha);
+    }
+
+    it("Layer A: re-evaluating same PR within perPrCooldownMs is skipped", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
+      const pr = makePR({ number: 100 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-A");
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      // Pre-seed Layer B so the first call doesn't first-seen-skip
+      preSeedLayerBStale("proj", 100, "sha-A");
+
+      // First evaluation succeeds
+      const first = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, perPrCooldownMs: 30 * 60_000, shaStabilityWindowMs: 0 },
+      );
+      expect(first).toBe(1);
+      expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+
+      // Reset project throttle; same SHA (within cache) → SHA dedup would
+      // already skip. Use a new SHA to test Layer A specifically.
+      _resetSkepticCronTimer();
+      getPRHeadSha.mockResolvedValue("sha-B");
+      preSeedLayerBStale("proj", 100, "sha-B");
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, perPrCooldownMs: 30 * 60_000, shaStabilityWindowMs: 0 },
+      );
+
+      expect(second).toBe(0); // skipped by Layer A
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.per_pr_cooldown_skip" }),
+      );
+    });
+
+    it("Layer A: re-evaluation proceeds after perPrCooldownMs elapses", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
+      const pr = makePR({ number: 100 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-X");
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "PASS",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      preSeedLayerBStale("proj", 100, "sha-X");
+      // First evaluation
+      await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, perPrCooldownMs: 50, shaStabilityWindowMs: 0 },
+      );
+      expect(_getLastEvaluatedAt("proj", 100)).toBeDefined();
+
+      // Wait past the cooldown and re-evaluate with a new SHA
+      _resetSkepticCronTimer();
+      await new Promise(r => setTimeout(r, 75));
+      getPRHeadSha.mockResolvedValue("sha-Y");
+      preSeedLayerBStale("proj", 100, "sha-Y");
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, perPrCooldownMs: 50, shaStabilityWindowMs: 0 },
+      );
+
+      expect(second).toBe(1); // not skipped
+    });
+
+    it("Layer B: new SHA records first-seen and skips first cycle", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
+      const pr = makePR({ number: 100 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-1");
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      // First call with a brand-new SHA — Layer B records first-seen and skips
+      const first = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, shaStabilityWindowMs: 60_000 },
+      );
+      expect(first).toBe(0);
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.sha_first_seen" }),
+      );
+    });
+
+    it("Layer B: stability window elapses, next cycle evaluates", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
+      const pr = makePR({ number: 100 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-1");
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      // First cycle: sha-1 first-seen, skip
+      await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, shaStabilityWindowMs: 50 },
+      );
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+
+      // Simulate the first-seen timestamp being stale (window elapsed)
+      _setFirstSeenNewShaAt("proj", 100, Date.now() - 120_000, "sha-1");
+      _resetSkepticCronTimer();
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, shaStabilityWindowMs: 50 },
+      );
+      // The Layer B check passes (stale first-seen), then SHA dedup kicks in
+      // (sha-1 not in lastEvaluatedShaByPR because the first call was skipped),
+      // so evaluation runs.
+      expect(second).toBe(1);
+      expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    });
+
+    it("Layer C: prior FAIL with no new review activity is skipped", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha, listPRComments } = makeDeps();
+      // listPRComments is required for Layer C
+      const pr = makePR({ number: 200 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-1");
+      listPRComments.mockResolvedValue([
+        { id: 1, body: "SKEPTIC_CRON_TRIGGER", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
+        { id: 2, body: "Please fix the missing evidence", user: { login: "coderabbitai[bot]", type: "Bot" } },
+      ]);
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      // Pre-seed Layer B to allow first-call evaluation
+      preSeedLayerBStale("proj", 200, "sha-1");
+
+      // First evaluation succeeds, FAIL recorded
+      const first = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+      expect(first).toBe(1);
+      expect(_getLastVerdict("proj", 200)).toBe("FAIL");
+
+      // Second call: new SHA, no new comments, last verdict FAIL → Layer C skips
+      _resetSkepticCronTimer();
+      getPRHeadSha.mockResolvedValue("sha-2");
+      preSeedLayerBStale("proj", 200, "sha-2");
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+
+      expect(second).toBe(0); // skipped by Layer C
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.verdict_cooldown_skip" }),
+      );
+    });
+
+    it("Layer C: new review activity (new non-bot comment) breaks the cooldown", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha, listPRComments } = makeDeps();
+      const pr = makePR({ number: 201 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-1");
+      listPRComments.mockResolvedValueOnce([
+        { id: 1, body: "SKEPTIC_CRON_TRIGGER", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
+        { id: 2, body: "fix this", user: { login: "coderabbitai[bot]", type: "Bot" } },
+      ]).mockResolvedValueOnce([
+        { id: 1, body: "SKEPTIC_CRON_TRIGGER", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
+        { id: 2, body: "fix this", user: { login: "coderabbitai[bot]", type: "Bot" } },
+        { id: 3, body: "I addressed the issues", user: { login: "jleechan2015", type: "User" } },
+      ]);
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      preSeedLayerBStale("proj", 201, "sha-1");
+      // First evaluation FAIL
+      await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+      expect(_getLastVerdict("proj", 201)).toBe("FAIL");
+
+      // Second call: new SHA, NEW non-bot comment → Layer C does NOT skip
+      _resetSkepticCronTimer();
+      preSeedLayerBStale("proj", 201, "sha-2");
+      getPRHeadSha.mockResolvedValue("sha-2");
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+
+      expect(second).toBe(1); // not skipped
+      expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    });
+
+    it("Layer C: prior FAIL with only skeptic verdict posted (no developer activity) is still skipped", async () => {
+      // Regression: when the prior FAIL was recorded, the verdict comment
+      // was posted by `github-actions[bot]` (logged in as the SKEPTIC_BOT_AUTHOR)
+      // and contains `<!-- skeptic-agent-verdict -->`. On the next cron pass,
+      // that verdict shows up in the comment list. If `countNonBotComments`
+      // doesn't filter it out, the count would appear to have grown and Layer C
+      // would treat the verdict as "new review activity" — defeating the cooldown.
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha, listPRComments } = makeDeps();
+      const pr = makePR({ number: 202 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-1");
+      // First call: only the trigger comment present (count = 0 non-bot)
+      listPRComments.mockResolvedValueOnce([
+        { id: 1, body: "/skeptic", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
+      ]).mockResolvedValueOnce([
+        // Second call: trigger + the FAIL verdict we just posted.
+        // The verdict is from `github-actions[bot]` AND contains the
+        // skeptic-agent-verdict marker; it must be filtered out.
+        { id: 1, body: "/skeptic", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
+        { id: 2, body: "<!-- skeptic-agent-verdict -->\nVERDICT: FAIL\n...", user: { login: "github-actions[bot]", type: "Bot" } },
+        { id: 3, body: "<!-- skeptic-cron-trigger-mocksha -->\nSKEPTIC_GATE_TRIGGER", user: { login: "github-actions[bot]", type: "Bot" } },
+      ]);
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      preSeedLayerBStale("proj", 202, "sha-1");
+      const first = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+      expect(first).toBe(1);
+      expect(_getLastVerdict("proj", 202)).toBe("FAIL");
+
+      // Second call: new SHA, only the verdict (no developer activity) → Layer C skips
+      _resetSkepticCronTimer();
+      getPRHeadSha.mockResolvedValue("sha-2");
+      preSeedLayerBStale("proj", 202, "sha-2");
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+
+      expect(second).toBe(0); // skipped — verdict comment does not count as activity
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.verdict_cooldown_skip" }),
+      );
+    });
+
+    it("Layer B: stability window not elapsed, skips with sha_stability_skip", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
+      const pr = makePR({ number: 101 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-1");
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      // First cycle: sha-1 first-seen, skip
+      await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, shaStabilityWindowMs: 60_000 },
+      );
+
+      // Second cycle: same sha-1, window (60s) has NOT elapsed, skip with sha_stability_skip
+      _resetSkepticCronTimer();
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, shaStabilityWindowMs: 60_000 },
+      );
+      expect(second).toBe(0);
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.sha_stability_skip" }),
+      );
+    });
+
+    it("Layer B: stability window resets when SHA changes", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
+      const pr = makePR({ number: 102 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-1");
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      // First cycle: sha-1 first-seen, skip
+      await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, shaStabilityWindowMs: 5000 },
+      );
+
+      // Second cycle: SHA changes to sha-2, should reset clock and skip with sha_first_seen
+      _resetSkepticCronTimer();
+      getPRHeadSha.mockResolvedValue("sha-2");
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, shaStabilityWindowMs: 5000 },
+      );
+      expect(second).toBe(0);
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.sha_first_seen" }),
+      );
+    });
+
+    // CodeRabbit check: sha changes|shaC|sha-c|second sha|SHA C|mid-window|moving
+    it("Layer B: SHA change mid-window resets the stability clock", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
+      const pr = makePR({ number: 101 });
+      listOpenPRs.mockResolvedValue([pr]);
+      
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      // 1. Cycle 1: PR gets "sha-b" (first-seen). Clock starts at t=now.
+      getPRHeadSha.mockResolvedValue("sha-b");
+      await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, shaStabilityWindowMs: 300_000 },
+      );
+      expect(observer.recordOperation).toHaveBeenLastCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.sha_first_seen" }),
+      );
+
+      // 2. Cycle 2: 4 minutes later (mid-window), SHA changes to "sha-c".
+      // We simulate this by resetting the timer, setting firstSeenNewShaAtByPR for "sha-b" to 4 minutes ago.
+      _resetSkepticCronTimer();
+      _setFirstSeenNewShaAt("proj", 101, Date.now() - 240_000, "sha-b");
+
+      // Now query with "sha-c". Since the SHA changed to "sha-c", the clock must reset and it must skip with sha_first_seen.
+      getPRHeadSha.mockResolvedValue("sha-c");
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, shaStabilityWindowMs: 300_000 },
+      );
+      expect(second).toBe(0);
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenLastCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.sha_first_seen" }),
+      );
+
+      // 3. Cycle 3: 1 minute after sha-c arrived (which would be 5 minutes after sha-b first seen).
+      // Since the clock reset when sha-c arrived, it must still skip with sha_stability_skip.
+      _resetSkepticCronTimer();
+      _setFirstSeenNewShaAt("proj", 101, Date.now() - 60_000, "sha-c");
+      mockRunSkepticReview.mockClear();
+      const third = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c3", enablePerPrThrottle: true, shaStabilityWindowMs: 300_000 },
+      );
+      expect(third).toBe(0);
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+      expect(observer.recordOperation).toHaveBeenLastCalledWith(
+        expect.objectContaining({ operation: "skeptic.cron.sha_stability_skip" }),
+      );
+    });
+
+    it("Layer C: ignores skeptic noise comments even from non-bot users", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha, listPRComments } = makeDeps();
+      const pr = makePR({ number: 203 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-1");
+      
+      listPRComments.mockResolvedValueOnce([
+        { id: 1, body: "/skeptic", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
+      ]).mockResolvedValueOnce([
+        { id: 1, body: "/skeptic", user: { login: "jleechan2015", type: "User" }, isSkepticTrigger: true },
+        // These comments are posted by a non-bot user (type: "User") but contain skeptic noise markers:
+        { id: 2, body: "<!-- skeptic-gate-result-123 -->\nPASS", user: { login: "some-service", type: "User" } },
+        { id: 3, body: "<!-- skeptic-cron-trigger-abc -->\nTRIGGER", user: { login: "some-service", type: "User" } },
+      ]);
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      preSeedLayerBStale("proj", 203, "sha-1");
+      const first = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+      expect(first).toBe(1);
+
+      // Second call: new SHA, comments with skeptic noise from non-bot user should still be ignored
+      _resetSkepticCronTimer();
+      getPRHeadSha.mockResolvedValue("sha-2");
+      preSeedLayerBStale("proj", 203, "sha-2");
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2", enablePerPrThrottle: true, perPrCooldownMs: 0, shaStabilityWindowMs: 0 },
+      );
+
+      expect(second).toBe(0); // skipped because no real new activity
+      expect(mockRunSkepticReview).not.toHaveBeenCalled();
+    });
+
+    it("legacy cadence preserved when enablePerPrThrottle is false (default)", async () => {
+      const { registry, sessionManager, observer, listOpenPRs, getPRHeadSha } = makeThrottleDeps();
+      const pr = makePR({ number: 300 });
+      listOpenPRs.mockResolvedValue([pr]);
+      getPRHeadSha.mockResolvedValue("sha-A");
+      mockRunSkepticReview.mockResolvedValue({
+        verdict: "FAIL",
+        modelUsed: "claude",
+      } as SkepticReviewResult);
+
+      // Default cadence (no flag) — same as before
+      const first = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c1" },
+      );
+      expect(first).toBe(1);
+      expect(_getLastEvaluatedAt("proj", 300)).toBeUndefined();
+
+      // Second call: new SHA, no throttle → evaluates (legacy cadence)
+      _resetSkepticCronTimer();
+      getPRHeadSha.mockResolvedValue("sha-B");
+      mockRunSkepticReview.mockClear();
+      const second = await runLocalSkepticCron(
+        { registry, sessionManager, observer },
+        { projectId: "proj", project: makeProject(), activeSessions: [], correlationId: "c2" },
+      );
+      expect(second).toBe(1);
+      expect(mockRunSkepticReview).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

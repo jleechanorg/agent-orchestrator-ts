@@ -2796,9 +2796,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // LLM tools (Codex/Claude). Replaces the broken GHA-based execution where no
           // API keys exist. Throttled internally to run every 10 minutes.
           // Fire-and-forget so a long-running LLM evaluation does not block the poll loop.
+          //
+          // Per-PR throttle layers (3-layer dedup) — plumbed from
+          // `project.skepticCron` so projects can opt in to throttling
+          // over-firing on rapidly-iterating PRs (see SkepticCronConfig in
+          // types.ts for the layer-by-layer semantics).
+          const sc = project.skepticCron;
           void runLocalSkepticCron(
             { registry, sessionManager, observer },
-            { projectId: scopedProjectId, project, activeSessions, correlationId },
+            {
+              projectId: scopedProjectId,
+              project,
+              activeSessions,
+              correlationId,
+              enablePerPrThrottle: sc?.enablePerPrThrottle,
+              perPrCooldownMs: sc?.perPrCooldownMs,
+              shaStabilityWindowMs: sc?.shaStabilityWindowMs,
+              enableVerdictCooldown: sc?.enableVerdictCooldown,
+            },
           ).catch(skepticCronErr => {
             const msg = skepticCronErr instanceof Error ? skepticCronErr.message : String(skepticCronErr);
             console.error(

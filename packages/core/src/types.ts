@@ -1727,6 +1727,42 @@ export interface ProjectConfig {
    * Per-type routing requires statistically significant matched-PR evidence.
    */
   technique?: TechniqueConfig;
+
+  // =============================================================================
+  // SKEPTIC CRON — per-PR throttle layers
+  // =============================================================================
+
+  /**
+   * Per-project overrides for the local skeptic cron. The cron runs every
+   * project poll cycle (default ~75s) and currently throttles per-project
+   * (10 min) plus by SHA. For PRs in heavy iteration this is still
+   * over-firing because the SHA changes on every push.
+   *
+   * Enabling `enablePerPrThrottle: true` adds three layers:
+   *   A. Per-PR time cooldown (default 30 min) — re-eval the same PR at
+   *      most once per window regardless of SHA churn.
+   *   B. SHA-stability window (default 5 min) — on a brand-new SHA, skip
+   *      one cycle. The author is still pushing; the verdict will likely
+   *      be stale within minutes.
+   *   C. Verdict cooldown (default on) — if the last verdict was FAIL and
+   *      the non-bot comment count is unchanged, skip the PR.
+   */
+  skepticCron?: SkepticCronConfig;
+}
+
+/**
+ * Per-project skeptic cron overrides. Set `enablePerPrThrottle: true` to
+ * activate the 3-layer dedup described on `ProjectConfig.skepticCron`.
+ */
+export interface SkepticCronConfig {
+  /** Master switch. Default false (legacy cadence preserved). */
+  enablePerPrThrottle?: boolean;
+  /** Layer A — min ms between consecutive evals of the same PR. Default 30 min. */
+  perPrCooldownMs?: number;
+  /** Layer B — wait at least this long after first seeing a new SHA. Default 5 min. */
+  shaStabilityWindowMs?: number;
+  /** Layer C — skip if last verdict was FAIL and no new review activity. Default true. */
+  enableVerdictCooldown?: boolean;
 }
 
 /** Merge gate configuration (bd-uxs.8) */
