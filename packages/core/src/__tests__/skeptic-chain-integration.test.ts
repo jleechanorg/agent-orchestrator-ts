@@ -19,7 +19,7 @@
  * - No real gh binary, no real GitHub API, no real file system.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
@@ -245,13 +245,19 @@ function setVerdictOutput(output: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Shared beforeEach — resets all mock state
+// Shared beforeEach — resets all mock state and saves env
 // ---------------------------------------------------------------------------
+let originalAO_CLI_PATH: string | undefined;
+let originalAO_GH_PATH: string | undefined;
+
 beforeEach(() => {
+  originalAO_CLI_PATH = process.env.AO_CLI_PATH;
+  originalAO_GH_PATH = process.env.AO_GH_PATH;
   vi.clearAllMocks();
   // AO_CLI_PATH in the host env overrides the "ao" binary name;
   // clear it so execFile calls use "ao" (matching test assertions).
   delete process.env.AO_CLI_PATH;
+  process.env.AO_GH_PATH = "gh";
   execFileCall = 0;
   ghCall = 0;
   currentVerdictOutput = "VERDICT: PASS\nAll exit criteria met.";
@@ -259,6 +265,19 @@ beforeEach(() => {
   mocks.mkdirMock.mockResolvedValue(undefined);
   installDefaultExecFile();
   mocks.execMock.mockImplementation(defaultExecImpl);
+});
+
+afterEach(() => {
+  if (originalAO_CLI_PATH === undefined) {
+    delete process.env.AO_CLI_PATH;
+  } else {
+    process.env.AO_CLI_PATH = originalAO_CLI_PATH;
+  }
+  if (originalAO_GH_PATH === undefined) {
+    delete process.env.AO_GH_PATH;
+  } else {
+    process.env.AO_GH_PATH = originalAO_GH_PATH;
+  }
 });
 
 // ===========================================================================

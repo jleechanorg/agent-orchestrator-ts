@@ -7,7 +7,7 @@
  * the mock directly (avoids the callback-based default promisify path).
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Hoisted mock functions — vi.hoisted runs before module imports,
@@ -46,14 +46,33 @@ vi.mock("node:child_process", () => {
 import { runSkepticReview } from "../skeptic-reviewer.js";
 import { makeSession } from "./skeptic-reviewer-helper.js";
 describe("runSkepticReview", () => {
+  let originalAO_CLI_PATH: string | undefined;
+  let originalAO_GH_PATH: string | undefined;
+
   beforeEach(() => {
+    originalAO_CLI_PATH = process.env.AO_CLI_PATH;
+    originalAO_GH_PATH = process.env.AO_GH_PATH;
     vi.clearAllMocks();
     delete process.env.AO_CLI_PATH;
+    process.env.AO_GH_PATH = "gh";
     execFileMock.mockResolvedValue({
       stdout: "VERDICT: PASS\nAll exit criteria met.",
       stderr: "",
     });
     execMock.mockResolvedValue({ stdout: "abc123def456789", stderr: "" });
+  });
+
+  afterEach(() => {
+    if (originalAO_CLI_PATH === undefined) {
+      delete process.env.AO_CLI_PATH;
+    } else {
+      process.env.AO_CLI_PATH = originalAO_CLI_PATH;
+    }
+    if (originalAO_GH_PATH === undefined) {
+      delete process.env.AO_GH_PATH;
+    } else {
+      process.env.AO_GH_PATH = originalAO_GH_PATH;
+    }
   });
 
   it("calls gh api to fetch PR head SHA", async () => {

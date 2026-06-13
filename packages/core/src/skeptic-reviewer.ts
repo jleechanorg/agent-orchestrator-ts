@@ -24,6 +24,7 @@ import { promisify } from "node:util";
 import type { Session } from "./types.js";
 import { type SkepticModel } from "./skeptic-model-schema.js";
 import { resolveSkepticModel } from "./skeptic-models.js";
+import { getGhBinaryPath } from "./paths.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -66,7 +67,7 @@ async function findRequestIdFromComments(
 ): Promise<string | undefined> {
   try {
     const result = await execFileAsync(
-      "gh",
+      getGhBinaryPath(),
       [
         "api",
         `repos/${owner}/${repo}/issues/${prNumber}/comments`,
@@ -307,7 +308,7 @@ export async function runSkepticReview(
   let triggerSha: string | undefined;
   try {
     const ghResult = await execFileAsync(
-      "gh",
+      getGhBinaryPath(),
       ["api", `repos/${repo}/pulls/${prNumber}`, "--jq", ".head.sha"],
       { timeout: 10_000 },
     );

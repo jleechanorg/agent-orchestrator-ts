@@ -25,6 +25,7 @@ import {
 } from "./gh-headroom-cache.js";
 import { execFile as _execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { getGhBinaryPath } from "./paths.js";
 
 /** Type for the promisified exec used internally. */
 type ExecAsync = (
@@ -120,7 +121,7 @@ export function parseGhRateLimitOutput(stdout: string): GHRateLimitResources | n
  */
 export async function fetchGhRateLimit(): Promise<GHRateLimitResources | null> {
   try {
-    const { stdout } = await _execAsync("gh", ["api", "rate_limit", "--jq", ".resources"], {
+    const { stdout } = await _execAsync(getGhBinaryPath(), ["api", "rate_limit", "--jq", ".resources"], {
       encoding: "utf-8",
       timeout: 10_000,
     });

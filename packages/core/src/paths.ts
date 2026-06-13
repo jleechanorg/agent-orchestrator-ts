@@ -220,3 +220,5 @@ export function validateAndStoreOrigin(configPath: string, projectPath: string):
     writeFileSync(originPath, resolvedConfigPath, "utf-8");
   }
 }
+
+export { getGhBinaryPath } from "./gh-binary-path.js";
