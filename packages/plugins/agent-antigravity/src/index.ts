@@ -330,6 +330,26 @@ const antigravityOverrides: Partial<Agent> = {
     return {
       ...baseEnv,
       HOME: sessionHome,
+      // Pin COLIMA_HOME to the user's real home so any subprocess in the worker
+      // that calls `colima start` or `docker compose up` reuses the host's main
+      // colima VM (or its socket) instead of deriving COLIMA_HOME from the
+      // overridden session HOME and bootstrapping a fresh per-worker VM at
+      // ~/.ao-sessions/<id>/.colima/ (~2GB each, accumulating to dozens of
+      // stale VMs across runs). See PR for the wa-2327 incident.
+      //
+      // DOCKER_HOST is only pinned on darwin (where colima is the default
+      // docker provider). On Linux, the user typically has native Docker with
+      // /var/run/docker.sock; pointing DOCKER_HOST at the colima socket would
+      // break every docker call.
+      //
+      // Both env vars use `??` so a value already in baseEnv (caller override
+      // or a future field) wins over our default.
+      COLIMA_HOME: baseEnv.COLIMA_HOME ?? path.join(userHome, ".colima"),
+      DOCKER_HOST:
+        baseEnv.DOCKER_HOST
+        ?? (os.platform() === "darwin"
+          ? `unix://${path.join(userHome, ".colima", "default", "docker.sock")}`
+          : undefined),
       // Clear these to prevent the spawned CLI from inheriting parent agent context
       ANTIGRAVITY_PROJECT_ID: "",
       ANTIGRAVITY_TRAJECTORY_ID: "",
