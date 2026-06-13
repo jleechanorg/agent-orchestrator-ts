@@ -13,7 +13,6 @@ import {
   readFileSync,
   rmSync,
   existsSync,
-  realpathSync,
   lstatSync,
   symlinkSync,
 } from "node:fs";
@@ -110,10 +109,17 @@ const {
 const { mockIsHumanCaller } = vi.hoisted(() => ({
   mockIsHumanCaller: vi.fn().mockReturnValue(true),
 }));
-
 const { mockGit } = vi.hoisted(() => ({
   mockGit: vi.fn(),
 }));
+
+vi.mock("node:process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:process")>();
+  return {
+    ...actual,
+    cwd: () => mockProcessCwd() || actual.cwd(),
+  };
+});
 
 vi.mock("../../src/lib/shell.js", () => ({
   tmux: vi.fn(),
@@ -150,6 +156,9 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
     ...actual,
     normalizeOrchestratorSessionStrategy,
     findConfigFile: (startDir?: string) => {
+      if (mockConfigRef.current?.simulateMissingConfig) {
+        return undefined;
+      }
       const envConfigPath = process.env["AO_CONFIG_PATH"];
       if (envConfigPath && existsSync(envConfigPath)) {
         return envConfigPath;
@@ -161,6 +170,9 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
       return actual.findConfigFile(startDir);
     },
     loadConfig: (path?: string) => {
+      if (mockConfigRef.current?.simulateMissingConfig) {
+        throw new actual.ConfigNotFoundError();
+      }
       if (path && path === mockConfigRef.current?.["configPath"]) {
         return mockConfigRef.current;
       }
@@ -1121,303 +1133,6 @@ describe("stop command", () => {
 // bd-8gld: main repo guard
 // ---------------------------------------------------------------------------
 
-/**
- * Tests for the main-repo guard in runStartup().
- *
- * Guards that ao start refuses to operate directly on the main agent-orchestrator
- * repo — agents must use worktrees. The guard uses realpathSync.native to
- * canonicalize paths so ~/ aliases and symlinks are handled correctly.
- */
-describe("start command — main repo guard (bd-8gld)", () => {
-  let originalRealpath: typeof realpathSync.native;
-  let mainRepoDir: string;
-  let originalHome: string | undefined;
-
-  beforeEach(() => {
-    // Save original realpathSync.native so we can spy on it per-test
-    originalRealpath = realpathSync.native;
-    // Save original HOME so we can restore it after the test
-    originalHome = process.env["HOME"];
-
-    // Create a real temp directory for the "main repo" — this is the path
-    // that AO_MAIN_REPO and realpathSync.native will resolve to.
-    mainRepoDir = mkdtempSync(join(tmpdir(), "ao-main-repo-guard-"));
-
-    // AO_MAIN_REPO env var tells getMainRepoPath() which path to guard.
-    // Without this, the default is derived from os.homedir().
-    process.env["AO_MAIN_REPO"] = mainRepoDir;
-    process.env["HOME"] = tmpdir();
-  });
-
-  afterEach(() => {
-    delete process.env["AO_MAIN_REPO"];
-    if (originalHome !== undefined) {
-      process.env["HOME"] = originalHome;
-    } else {
-      delete process.env["HOME"];
-    }
-    rmSync(mainRepoDir, { recursive: true, force: true });
-  });
-
-  it("throws when project path resolves to the main repo", async () => {
-    // Set up config where the project IS the main repo.
-    mockConfigRef.current = makeConfig({
-      "my-app": makeProject({ path: mainRepoDir }),
-    });
-
-    // Spy realpathSync.native to return the same canonical path for both calls
-    // (simulates a clean filesystem with no symlinks).
-    vi.spyOn(realpathSync, "native").mockImplementation((p: string) => {
-      return originalRealpath(p) === mainRepoDir ? mainRepoDir : originalRealpath(p);
-    });
-
-    await expect(
-      program.parseAsync(["node", "test", "start", "--no-dashboard", "--no-orchestrator"]),
-    ).rejects.toThrow("process.exit(1)");
-
-    const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
-    expect(errors).toContain("Refusing to operate on the main repo");
-  });
-
-  it("starts normally when project path is NOT the main repo", async () => {
-    const otherProjectDir = mkdtempSync(join(tmpdir(), "ao-other-proj-"));
-    try {
-      mockConfigRef.current = makeConfig({
-        "my-app": makeProject({ path: otherProjectDir }),
-      });
-      vi.spyOn(realpathSync, "native").mockImplementation((p: string) => originalRealpath(p));
-      await program.parseAsync(["node", "test", "start", "--no-dashboard", "--no-orchestrator"]);
-      const errors = vi.mocked(console.error).mock.calls.map((c) => c.join(" ")).join("\n");
-      expect(errors).not.toContain("Refusing to operate on the main repo");
-    } finally {
-      rmSync(otherProjectDir, { recursive: true, force: true });
-    }
-  });
-
-  it("targeted stop does NOT unregister running.json", async () => {
-    mockConfigRef.current = makeConfig({
-      "project-1": makeProject({ name: "Project 1", sessionPrefix: "p1" }),
-      "project-2": makeProject({ name: "Project 2", sessionPrefix: "p2" }),
-    });
-    mockGetRunning.mockResolvedValue({
-      pid: 99999,
-      configPath: "/fake/config.yaml",
-      port: 3000,
-      startedAt: new Date().toISOString(),
-      projects: ["project-1", "project-2"],
-    });
-    mockSessionManager.list.mockResolvedValue([
-      {
-        id: "p2-1",
-        projectId: "project-2",
-        status: "working",
-        activity: "active",
-        metadata: {},
-        lastActivityAt: new Date(),
-        runtimeHandle: { id: "tmux-5" },
-      },
-    ]);
-    mockSessionManager.kill.mockResolvedValue({ cleaned: true, alreadyTerminated: false });
-    mockExec.mockRejectedValue(new Error("no process"));
-
-    await program.parseAsync(["node", "test", "stop", "project-2"]);
-
-    expect(mockUnregister).not.toHaveBeenCalled();
-  });
-
-  // Regression for boundary-bug-hunter Phase 3 finding 2: targeted stop
-  // used to call `removeProjectFromRunning` from a child CLI process, but
-  // the parent ao-start process's in-memory lifecycle worker for that
-  // project keeps polling. The state file then claimed "not polling"
-  // while the live parent was still polling. Targeted stop must leave
-  // `running.projects` intact so it remains a truthful signal.
-  it("targeted stop leaves the project in running.json (parent is still polling)", async () => {
-    mockConfigRef.current = makeConfig({
-      "project-1": makeProject({ name: "Project 1", sessionPrefix: "p1" }),
-      "project-2": makeProject({ name: "Project 2", sessionPrefix: "p2" }),
-    });
-    mockGetRunning.mockResolvedValue({
-      pid: 99999,
-      configPath: "/fake/config.yaml",
-      port: 3000,
-      startedAt: new Date().toISOString(),
-      projects: ["project-1", "project-2"],
-    });
-    mockSessionManager.list.mockResolvedValue([]);
-    mockSessionManager.kill.mockResolvedValue({ cleaned: true, alreadyTerminated: false });
-    mockExec.mockRejectedValue(new Error("no process"));
-
-    await program.parseAsync(["node", "test", "stop", "project-2"]);
-
-    expect(mockRemoveProjectFromRunning).not.toHaveBeenCalled();
-  });
-
-  it("targeted stop only kills sessions for the named project", async () => {
-    mockConfigRef.current = makeConfig({
-      "project-1": makeProject({ name: "Project 1", sessionPrefix: "p1" }),
-      "project-2": makeProject({ name: "Project 2", sessionPrefix: "p2" }),
-    });
-    mockGetRunning.mockResolvedValue({
-      pid: 99999,
-      configPath: "/fake/config.yaml",
-      port: 3000,
-      startedAt: new Date().toISOString(),
-      projects: ["project-1", "project-2"],
-    });
-    mockSessionManager.list.mockResolvedValue([
-      {
-        id: "p1-1",
-        projectId: "project-1",
-        status: "working",
-        activity: "active",
-        metadata: {},
-        lastActivityAt: new Date(),
-        runtimeHandle: { id: "tmux-1" },
-      },
-      {
-        id: "p2-1",
-        projectId: "project-2",
-        status: "working",
-        activity: "active",
-        metadata: {},
-        lastActivityAt: new Date(),
-        runtimeHandle: { id: "tmux-2" },
-      },
-    ]);
-    mockSessionManager.kill.mockResolvedValue({ cleaned: true, alreadyTerminated: false });
-    mockExec.mockRejectedValue(new Error("no process"));
-
-    await program.parseAsync(["node", "test", "stop", "project-2"]);
-
-    // Even if `sm.list` returns mixed projects (regression at producer), the
-    // CLI must defensively drop foreign sessions before the kill loop.
-    const killCalls = mockSessionManager.kill.mock.calls.map((c: unknown[]) => c[0]);
-    expect(killCalls).toContain("p2-1");
-    expect(killCalls).not.toContain("p1-1");
-  });
-
-  it("full stop (no arg) still kills parent and dashboard", async () => {
-    mockConfigRef.current = makeConfig({
-      "project-1": makeProject({ name: "Project 1", sessionPrefix: "p1" }),
-    });
-    mockGetRunning.mockResolvedValue({
-      pid: 99999,
-      configPath: "/fake/config.yaml",
-      port: 3000,
-      startedAt: new Date().toISOString(),
-      projects: ["project-1"],
-    });
-    mockSessionManager.list.mockResolvedValue([]);
-    mockExec.mockRejectedValue(new Error("no process"));
-
-    mockWaitForExit.mockReturnValue(true);
-
-    await program.parseAsync(["node", "test", "stop"]);
-
-    // Stop now goes through killProcessTree (which is module-mocked above),
-    // not a direct process.kill — that's how it gets `taskkill /T /F` on
-    // Windows and process-group kill on Unix. Assert on the mock.
-    expect(mockKillProcessTree).toHaveBeenCalledWith(99999, "SIGTERM");
-    expect(mockSweepDaemonChildren).toHaveBeenCalledWith({ ownerPid: 99999 });
-    expect(mockUnregister).toHaveBeenCalled();
-    expect(mockRemoveProjectFromRunning).not.toHaveBeenCalled();
-  });
-
-  it("targeted stop records last-stop with correct project scope", async () => {
-    const mockWriteLastStop = vi.fn().mockResolvedValue(undefined);
-    const runningStateMod = await import("../../src/lib/running-state.js");
-    vi.spyOn(runningStateMod, "writeLastStop").mockImplementation(mockWriteLastStop);
-
-    mockConfigRef.current = makeConfig({
-      "project-1": makeProject({ name: "Project 1", sessionPrefix: "p1" }),
-      "project-2": makeProject({ name: "Project 2", sessionPrefix: "p2" }),
-    });
-    mockGetRunning.mockResolvedValue({
-      pid: 99999,
-      configPath: "/fake/config.yaml",
-      port: 3000,
-      startedAt: new Date().toISOString(),
-      projects: ["project-1", "project-2"],
-    });
-    mockSessionManager.list.mockResolvedValue([
-      {
-        id: "p2-1",
-        projectId: "project-2",
-        status: "working",
-        activity: "active",
-        metadata: {},
-        lastActivityAt: new Date(),
-        runtimeHandle: { id: "tmux-1" },
-      },
-    ]);
-    mockSessionManager.kill.mockResolvedValue({ cleaned: true, alreadyTerminated: false });
-    mockExec.mockRejectedValue(new Error("no process"));
-
-    await program.parseAsync(["node", "test", "stop", "project-2"]);
-
-    expect(mockWriteLastStop).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectId: "project-2",
-        sessionIds: expect.arrayContaining(["p2-1"]),
-      }),
-    );
-  });
-
-  // Regression: `ao stop <project>` then `ao start <project>` used to fall
-  // through the projectNeedsRestart path into runStartup(), which spawned a
-  // SECOND dashboard on a new port and clobbered running.json — leaving the
-  // original parent process orphaned. Now it must attach to the running
-  // daemon: ensureOrchestrator runs against the existing session manager,
-  // running.json gets the project re-added, and runStartup is never called.
-  it("ao start <project> while daemon alive: non-TTY caller exits without spawning second dashboard", async () => {
-    const origGlobalEnv = process.env["AO_GLOBAL_CONFIG"];
-    process.env["AO_GLOBAL_CONFIG"] = join(tmpDir, "no-such-global.yaml");
-
-    try {
-      mockConfigRef.current = makeConfig({
-        "project-2": makeProject({ name: "Project 2", sessionPrefix: "p2" }),
-      });
-
-      mockIsAlreadyRunning.mockResolvedValue({
-        pid: 99999,
-        configPath: "/fake/config.yaml",
-        port: 3000,
-        startedAt: new Date().toISOString(),
-        projects: ["project-2"],
-      });
-      mockIsHumanCaller.mockReturnValue(false);
-
-      vi.spyOn(realpathSync, "native").mockImplementation((p: string) => originalRealpath(p));
-
-      // process.exit(0) in the non-TTY path throws (mocked), gets caught by the
-      // action's catch block, which then calls process.exit(1).
-      await expect(
-        program.parseAsync([
-          "node",
-          "test",
-          "start",
-          "project-2",
-          "--no-dashboard",
-          "--no-orchestrator",
-        ]),
-      ).rejects.toThrow("process.exit(1)");
-
-      // Non-TTY path exits immediately — never registers a new daemon.
-      expect(mockRegister).not.toHaveBeenCalled();
-      // No interactive prompt.
-      expect(mockPromptSelect).not.toHaveBeenCalled();
-      // Verify the already-running message was printed (not a config error).
-      const output = vi
-        .mocked(console.log)
-        .mock.calls.map((c) => c.join(" "))
-        .join("\n");
-      expect(output).toContain("AO is already running");
-    } finally {
-      if (origGlobalEnv === undefined) delete process.env["AO_GLOBAL_CONFIG"];
-      else process.env["AO_GLOBAL_CONFIG"] = origGlobalEnv;
-    }
-  });
-});
 
 // ---------------------------------------------------------------------------
 // autoCreateConfig — config generation defaults

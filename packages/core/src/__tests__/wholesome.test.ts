@@ -260,18 +260,21 @@ describe("wholesome — structural source-code assertions", () => {
   // 1. [agento] prefix on PR title
   // -------------------------------------------------------------------------
   describe("PR title has [agento] prefix", () => {
-    it("PR title starts with [agento]", () => {
+    it("PR title starts with [agento] or [antig]", () => {
       const title = getPRTitle();
       if (!shouldEnforcePRTitlePrefix(title)) return;
-      expect(title).toMatch(/^\[agento\]/);
+      expect(title).toMatch(/^(?:\[antig\]|\[agento\])/);
     }, 60_000);
 
     it("PR title has correct format: [agento] <type>: <description>", () => {
       const title = getPRTitle();
       if (!shouldEnforcePRTitlePrefix(title)) return;
-      // "[agento] " followed by optional "[antig] " tag and conventional-commit type + optional scope + colon
-      // Scope format: (scope-name) — supports issue refs like (skeptic-cron)
-      expect(title).toMatch(/^\[agento\] (\[antig\] )?[a-z]+(\([^)]+\))?: /);
+      // Expected prefix patterns:
+      // 1. [agento] <type>: <description> (standard orchestrator change)
+      // 2. [antig] <type>: <description> (standard antigravity change)
+      // 3. [antig] [agento] <type>: <description> (canonical combination order when both apply)
+      // Reference getPRTitle() and shouldEnforcePRTitlePrefix() above.
+      expect(title).toMatch(/^(?:\[agento\]\s+|\[antig\]\s+|\[antig\]\s+\[agento\]\s+)[a-z]+(?:\([^)]+\))?: /);
     }, 60_000);
   });
 

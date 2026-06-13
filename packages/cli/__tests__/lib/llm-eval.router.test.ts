@@ -33,6 +33,10 @@ vi.mock("@jleechanorg/ao-plugin-agent-codex", () => ({
   resolveCodexBinary: mockResolveCodexBinary,
 }));
 
+vi.mock("../../src/lib/llm-eval-gemini.js", () => ({
+  tryGeminiPrint: vi.fn().mockResolvedValue({ validVerdict: false, output: "", error: undefined }),
+}));
+
 import { llmEval } from "../../src/lib/llm-eval.js";
 
 const PASS_VERDICT = "VERDICT: PASS";
