@@ -690,5 +690,38 @@ describe("antigravity getEnvironment", () => {
     expect(sessionContent["~"]).toBeUndefined();
     expect(globalContent["~"]).toBeUndefined();
   });
+
+  it("sets COLIMA_HOME and DOCKER_HOST to the user's real home so subprocess colima/docker calls reuse the main colima", () => {
+    // Without this, any subprocess in the worker that calls `colima start` or
+    // `docker compose up` would derive COLIMA_HOME from the overridden session
+    // HOME (= ~/.ao-sessions/<id>) and bootstrap a fresh per-worker VM there
+    // (~2GB each, accumulating to dozens of stale VMs over time).
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+
+    expect(env.COLIMA_HOME).toBe(path.join("/Users/mockuser", ".colima"));
+    expect(env.DOCKER_HOST).toBe(
+      `unix://${path.join("/Users/mockuser", ".colima", "default", "docker.sock")}`
+    );
+  });
+
+  it("does NOT set DOCKER_HOST on Linux to avoid breaking native Docker", () => {
+    // Colima is darwin-only. On Linux, the user has native Docker with a
+    // different default socket (/var/run/docker.sock); unconditionally
+    // pointing DOCKER_HOST at the colima socket would break every docker
+    // call. COLIMA_HOME is harmless on Linux (colima doesn't read it) so we
+    // still set it as a stable, predictable default.
+    const agent = create();
+    mockHomedir.mockReturnValue("/home/linuxuser");
+    mockPlatform.mockReturnValue("linux");
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+
+    expect(env.COLIMA_HOME).toBe(path.join("/home/linuxuser", ".colima"));
+    expect(env.DOCKER_HOST).toBeUndefined();
+  });
 });
 
