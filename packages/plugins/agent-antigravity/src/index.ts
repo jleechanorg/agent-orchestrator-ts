@@ -401,6 +401,86 @@ const antigravityOverrides: Partial<Agent> = {
     } else if (os.platform() === "darwin") {
       env.DOCKER_HOST = `unix://${path.join(colimaHome, "default", "docker.sock")}`;
     }
+
+    // ALSO pre-seed the inner antigravity-cli/settings.json `trustedWorkspaces`
+    // array. The outer `trustedFolders.json` (written above) is NOT the file agy
+    // checks at session start — agy reads `trustedWorkspaces` from
+    // `antigravity-cli/settings.json`. Without this, fresh worktree paths
+    // (which agy treats as "hidden" because they live under `.worktrees/`)
+    // trigger the "Do you trust this project?" TUI prompt and AO's
+    // stuck-worker-detector kills the session within 60-90s of spawn.
+    // (Repro: ao-6353 killed at 98s with killConfirmed=stuck-probe; the inner
+    // trustedWorkspaces did not contain /Users/jleechan/.worktrees/.../ao-6353.)
+    try {
+      const agyCliSettingsPath = path.join(
+        destGemini,
+        "antigravity-cli",
+        "settings.json",
+      );
+      const innerPathsToTrust = [
+        launchConfig.projectConfig.path,
+        launchConfig.workspacePath,
+      ].filter(Boolean) as string[];
+
+      let shouldWriteInner = true;
+      let innerSettings: Record<string, unknown> = {};
+      if (fs.existsSync(agyCliSettingsPath)) {
+        try {
+          const raw = fs.readFileSync(agyCliSettingsPath, "utf-8").trim();
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              innerSettings = parsed as Record<string, unknown>;
+            }
+          }
+        } catch (e) {
+          // Fail-closed: if the existing settings file cannot be parsed (JSONC,
+          // trailing-comma content, partial write from a prior crashed session,
+          // etc.), do NOT overwrite it. The existing trustedFolders pre-seed
+          // already fails closed on parse errors for the same reason — clobbering
+          // the inner settings with just `trustedWorkspaces` would drop other
+          // settings the spawned `agy` session depends on.
+          console.debug(
+            `[antigravity] Failed to parse antigravity-cli/settings.json at ${agyCliSettingsPath}, skipping write to avoid clobbering: ${(e as Error).message}`,
+          );
+          shouldWriteInner = false;
+        }
+      }
+
+      if (shouldWriteInner) {
+        const existingTrusted = Array.isArray(innerSettings.trustedWorkspaces)
+          ? (innerSettings.trustedWorkspaces as unknown[]).filter(
+              (p): p is string => typeof p === "string",
+            )
+          : [];
+        const trustedSet = new Set<string>(existingTrusted);
+
+        for (const p of innerPathsToTrust) {
+          // Canonical helper expands ~/...; bare ~ is the homedir itself.
+          const canonicalPath = p === "~" ? userHome : expandHome(p);
+          trustedSet.add(canonicalPath);
+          try {
+            const resolved = fs.realpathSync(canonicalPath);
+            trustedSet.add(resolved);
+          } catch {
+            // ignore if realpath fails (path may not exist yet at spawn time)
+          }
+        }
+
+        innerSettings.trustedWorkspaces = Array.from(trustedSet);
+        fs.mkdirSync(path.dirname(agyCliSettingsPath), { recursive: true });
+        fs.writeFileSync(
+          agyCliSettingsPath,
+          JSON.stringify(innerSettings, null, 2),
+          "utf-8",
+        );
+      }
+    } catch (err) {
+      console.debug(
+        `[antigravity] Failed to pre-seed antigravity-cli/settings.json trustedWorkspaces: ${(err as Error).message}`,
+      );
+    }
+
     return env;
   },
 

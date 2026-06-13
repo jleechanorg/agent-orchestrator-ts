@@ -392,38 +392,41 @@ describe("antigravity getEnvironment", () => {
     mockSymlinkSync.mockReset();
 
     mockExistsSync.mockImplementation((filepath) => {
-      if (typeof filepath === "string") {
-        if (filepath.endsWith("settings.json")) return true;
-        if (filepath.endsWith("trustedFolders.json")) return true;
-      }
+      if (typeof filepath !== "string") return false;
+      // The OUTER settings.json (the one the agent plugin reads at line 181) is malformed
+      // and exists; the inner antigravity-cli/settings.json is intentionally absent in
+      // this test so the pre-seed path is skipped.
+      if (filepath === path.join("/Users/mockuser", ".gemini", "settings.json")) return true;
+      if (filepath.endsWith("trustedFolders.json")) return true;
       return false;
     });
 
     // Mock settings.json as null and trustedFolders.json as array to check robustness
     mockReadFileSync.mockImplementation((filepath) => {
       if (typeof filepath === "string") {
-        if (filepath.endsWith("settings.json")) return "null";
+        if (filepath === path.join("/Users/mockuser", ".gemini", "settings.json")) {
+          return "null";
+        }
         if (filepath.endsWith("trustedFolders.json")) return "[]";
       }
       return "{}";
     });
 
     let writtenTrustedFolders = "";
-    let writtenSettings = "";
+    let writtenOuterSettings = "";
     mockWriteFileSync.mockImplementation((filepath, content) => {
-      if (typeof filepath === "string") {
-        if (filepath.endsWith("trustedFolders.json")) {
-          writtenTrustedFolders = content as string;
-        } else if (filepath.endsWith("settings.json")) {
-          writtenSettings = content as string;
-        }
+      if (typeof filepath !== "string") return;
+      if (filepath.endsWith("trustedFolders.json")) {
+        writtenTrustedFolders = content as string;
+      } else if (filepath === path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini", "settings.json")) {
+        writtenOuterSettings = content as string;
       }
     });
 
     expect(() => agent.getEnvironment(makeLaunchConfig())).not.toThrow();
 
-    // Verify that settings.json was not written because it was malformed (null)
-    expect(writtenSettings).toBe("");
+    // Verify that the OUTER settings.json was not written because it was malformed (null)
+    expect(writtenOuterSettings).toBe("");
 
     // Verify that trustedFolders.json was written as a correct plain object and NOT an array
     expect(writtenTrustedFolders).toContain("/workspace/repo");
@@ -469,6 +472,133 @@ describe("antigravity getEnvironment", () => {
 
     // Verify that trustedFolders.json was NOT written due to parse failure
     expect(writtenTrustedFolders).toBe("");
+  });
+
+  it("pre-seeds antigravity-cli/settings.json trustedWorkspaces with the launch workspace and project path", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+    mockWriteFileSync.mockReset();
+
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath !== "string") return false;
+      // antigravity-cli/settings.json exists; the outer trustedFolders.json does not
+      // (so we test the inner pre-seed in isolation, without writing the outer file).
+      if (filepath.endsWith(path.join("antigravity-cli", "settings.json"))) return true;
+      return false;
+    });
+
+    const writtenFiles = new Map<string, string>();
+    mockWriteFileSync.mockImplementation((filepath, content) => {
+      if (typeof filepath === "string") {
+        writtenFiles.set(filepath, content as string);
+      }
+    });
+
+    const env = agent.getEnvironment({
+      ...makeLaunchConfig(),
+      workspacePath: "/workspace/distinct-workspace-path",
+    });
+    expect(env).toBeDefined();
+
+    const innerSettingsPath = path.join(
+      "/Users/mockuser",
+      ".ao-sessions",
+      "sess-1",
+      ".gemini",
+      "antigravity-cli",
+      "settings.json",
+    );
+
+    expect(writtenFiles.has(innerSettingsPath)).toBe(true);
+    const innerSettings = JSON.parse(writtenFiles.get(innerSettingsPath) || "{}");
+    expect(Array.isArray(innerSettings.trustedWorkspaces)).toBe(true);
+    expect(innerSettings.trustedWorkspaces).toContain("/workspace/repo");
+    expect(innerSettings.trustedWorkspaces).toContain(
+      "/workspace/distinct-workspace-path",
+    );
+  });
+
+  it("merges with existing trustedWorkspaces instead of overwriting them", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+    mockWriteFileSync.mockReset();
+
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath !== "string") return false;
+      if (filepath.endsWith(path.join("antigravity-cli", "settings.json"))) return true;
+      return false;
+    });
+
+    const existingEntries = ["/already/trusted/path", "/workspace/repo"];
+    mockReadFileSync.mockImplementation((filepath) => {
+      if (
+        typeof filepath === "string" &&
+        filepath.endsWith(path.join("antigravity-cli", "settings.json"))
+      ) {
+        return JSON.stringify({ trustedWorkspaces: existingEntries });
+      }
+      return "{}";
+    });
+
+    const writtenFiles = new Map<string, string>();
+    mockWriteFileSync.mockImplementation((filepath, content) => {
+      if (typeof filepath === "string") {
+        writtenFiles.set(filepath, content as string);
+      }
+    });
+
+    const env = agent.getEnvironment({
+      ...makeLaunchConfig(),
+      workspacePath: "/workspace/distinct-workspace-path",
+    });
+    expect(env).toBeDefined();
+
+    const innerSettingsPath = path.join(
+      "/Users/mockuser",
+      ".ao-sessions",
+      "sess-1",
+      ".gemini",
+      "antigravity-cli",
+      "settings.json",
+    );
+
+    const innerSettings = JSON.parse(writtenFiles.get(innerSettingsPath) || "{}");
+    expect(innerSettings.trustedWorkspaces).toContain("/already/trusted/path");
+    expect(innerSettings.trustedWorkspaces).toContain("/workspace/repo");
+    expect(innerSettings.trustedWorkspaces).toContain(
+      "/workspace/distinct-workspace-path",
+    );
+  });
+
+  it("does not throw when antigravity-cli/settings.json is missing", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+    mockWriteFileSync.mockReset();
+
+    mockExistsSync.mockReturnValue(false);
+
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+
+    expect(() =>
+      agent.getEnvironment({
+        ...makeLaunchConfig(),
+        workspacePath: "/workspace/any",
+      }),
+    ).not.toThrow();
+
+    debugSpy.mockRestore();
   });
 
   it("always symlinks Library/Keychains to the real user keychains on Darwin, even in headless mode", () => {
