@@ -21,11 +21,13 @@
 
 set -u
 
-HERMES_OPS_SLACK_CHANNEL="${HERMES_OPS_SLACK_CHANNEL:-C0AJ3SD5C79}"
-if [ "${HERMES_WATCHDOG_ALERT_CHANNEL:-}" = "C09GRLXF9GR" ]; then
-  HERMES_WATCHDOG_ALERT_CHANNEL=""
-fi
-CHANNEL="${HERMES_WATCHDOG_ALERT_CHANNEL:-$HERMES_OPS_SLACK_CHANNEL}"
+# Channel resolution matches the umbrella pattern from PR #615
+# (jleechanorg/jleechanclaw, lib/slack_thread_lib.sh): empty default > wrong
+# default. The plist's HERMES_WATCHDOG_ALERT_CHANNEL is the source of truth;
+# HERMES_OPS_SLACK_CHANNEL is the cross-job fallback. If both are empty,
+# the post fails soft (no channel bleed).
+HERMES_OPS_SLACK_CHANNEL="${HERMES_OPS_SLACK_CHANNEL:-}"
+CHANNEL="${HERMES_WATCHDOG_ALERT_CHANNEL:-${HERMES_OPS_SLACK_CHANNEL:-}}"
 STATE_DIR="${HERMES_HOME:-$HOME/.hermes_prod}/.watchdog-state"
 mkdir -p "$STATE_DIR"
 DEDUPE_FILE="$STATE_DIR/last_alert.sha"
@@ -38,6 +40,12 @@ post_slack() {
   local token="${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_USER_TOKEN:-}}"
   if [ -z "$token" ]; then
     log "no SLACK token; cannot post: $text"
+    return 1
+  fi
+  if [ -z "$CHANNEL" ]; then
+    # No channel resolved — matches PR #615 umbrella pattern: a missing env
+    # no longer silently bleeds into a wrong channel; it fails soft.
+    log "no CHANNEL resolved; cannot post: $text"
     return 1
   fi
   local payload
