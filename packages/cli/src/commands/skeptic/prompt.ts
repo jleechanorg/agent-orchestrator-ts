@@ -3,7 +3,7 @@
  * Single responsibility: given PR state + diff, produce evaluation prompt.
  */
 
-import type { PRInfo, ReviewInfo } from "./gh-client.js";
+import { type PRInfo, type ReviewInfo, isCodeRabbitReview } from "./gh-client.js";
 import type { MergeGateState } from "./mergeGate.js";
 
 // Patterns that indicate fabricated/placeholder evidence in PR descriptions
@@ -101,7 +101,7 @@ export function buildSkepticPrompt(
 ): string {
   // If CodeRabbit approved via comment fallback, prepend a virtual APPROVED review
   // to reviews list so that LLM does not get blocked by dismissed reviews (Rule 4).
-  const crReviews = reviews.filter((r) => r.author?.login === "coderabbitai" || r.author?.login === "coderabbitai[bot]");
+  const crReviews = reviews.filter(isCodeRabbitReview);
   const hasApprovedReview = crReviews.some((r) => (r.state ?? "").toLowerCase() === "approved");
   const modifiedReviews = [...reviews];
   if (state.crApproved && !hasApprovedReview) {
@@ -124,9 +124,10 @@ export function buildSkepticPrompt(
   const latestCRDecisive = modifiedReviews
     .filter(
       (r) =>
-        r.author?.login === "coderabbitai" &&
+        isCodeRabbitReview(r) &&
         ((r.state ?? "").toLowerCase() === "approved" ||
-          (r.state ?? "").toLowerCase() === "changes_requested"),
+          (r.state ?? "").toLowerCase() === "changes_requested") &&
+        (!!pr.headRefOid && r.commitId === pr.headRefOid),
     )
     .sort(sortReviewsNewestFirst)[0] ?? null;
   const crEmptyBodyApproved =
@@ -171,6 +172,7 @@ export function buildSkepticPrompt(
     `PR #${pr.number}: ${pr.title}`,
     `State: ${pr.state} | Draft: ${pr.isDraft}`,
     `Base: ${pr.baseRefName}`,
+    `Head SHA: ${pr.headRefOid ?? "(unknown)"}`,
     "",
     "--- 8-GATE INPUT STATUS ---",
     `  1. CI green:            ${state.ciPassing ? "PASS" : "FAIL"}`,
@@ -191,7 +193,13 @@ export function buildSkepticPrompt(
       )
       .map(
         (r) =>
-          `[${r.submittedAt.slice(0, 16)}] ${r.author?.login} (${r.state}): ${(r.body ?? "(no body)").slice(0, MAX_REVIEW_BODY_CHARS)}`,
+          `[${r.submittedAt.slice(0, 16)}] ${r.author?.login} (${r.state}${
+            r.commitId === pr.headRefOid
+              ? ", on-head"
+              : r.commitId
+                ? `, stale:${r.commitId.slice(0, 7)}`
+                : ", unanchored"
+          }): ${(r.body ?? "(no body)").slice(0, MAX_REVIEW_BODY_CHARS)}`,
       ),
     "",
     `--- ALL CHANGED FILES IN PR (${getChangedFiles(diff).length} files) ---`,
@@ -227,8 +235,8 @@ export function buildSkepticPrompt(
     "",
     "RULES:",
     "1. Verify each mechanical gate independently, then perform Gate 7 technical review and Gate 8 alignment review — do not trust the status summary alone. IMPORTANT: The 'Skeptic Gate' GHA check is a self-referential poller that waits for THIS verdict — ignore its pass/fail state when evaluating Gate 1 (CI). A failing Skeptic Gate only means this verdict hasn't been posted yet, not that CI is broken.",
-    "2. CR APPROVED means review state=APPROVED with body_len>0, OR body_len=0 with CR posting 'all good'/'✅'/'No actionable comments' AFTER the APPROVED. IMPORTANT: An APPROVED review with an empty body (body_len=0) is still a valid APPROVED — the empty body does NOT invalidate the approval state.",
-    "3. CR COMMENTED is NOT approval. CR CHANGES_REQUESTED is NOT approval.",
+    "2. CR APPROVED means review state=APPROVED with body_len>0, OR body_len=0 with CR posting 'all good'/'✅'/'No actionable comments' AFTER the APPROVED. IMPORTANT: An APPROVED review with an empty body (body_len=0) is still a valid APPROVED — the empty body does NOT invalidate the approval state. CR state is already filtered by HEAD SHA above — if the summary says `state: none-on-head`, the current head has no decisive CR review and the gate should be evaluated on the absence of an on-head blocker, NOT on GitHub's UI-level reviewDecision (which can include stale reviews on superseded SHAs).",
+    "3. CR COMMENTED is NOT approval. CR CHANGES_REQUESTED is NOT approval. CR CHANGES_REQUESTED on a NON-current head SHA is stale and must be ignored — only on-head reviews are decisive.",
     "4. A dismissed CR review without a subsequent real APPROVED review is a blocker.",
     "5. Bugbot errors always block merge.",
     "6. Unresolved Major/Critical inline comments always block merge (nitpicks excluded).",

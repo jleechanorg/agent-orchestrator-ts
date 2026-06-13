@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ReviewInfo } from "../../../src/commands/skeptic/gh-client.js";
 
 // Mutable state shared between mock factory (once) and test setup (per-test).
 const mockState = {
@@ -32,6 +33,8 @@ vi.mock("../../../src/commands/skeptic/gh-client.js", () => ({
   ghJson: mockGhJson,
   ghJsonPaginate: mockGhJsonPaginate,
   fetchReviews: mockFetchReviews,
+  isCodeRabbitReview: (r: ReviewInfo) =>
+    r.author?.login === "coderabbitai" || r.author?.login === "coderabbitai[bot]",
 }));
 
 const { fetchMergeGateState } = await import(
@@ -714,6 +717,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -745,6 +749,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -777,6 +782,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -808,6 +814,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -838,6 +845,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -869,6 +877,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -900,6 +909,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -931,6 +941,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
             state: "changes_requested",
             body: "please fix this",
             submittedAt: "2026-06-04T11:00:00Z",
+            commitId: headSha,
           }
         ],
       });
@@ -940,6 +951,7 @@ describe("fetchMergeGateState — skeptic verdict parsing", () => {
       expect(result.crState).toBe("changes_requested");
     });
   });
+
 });
 
 

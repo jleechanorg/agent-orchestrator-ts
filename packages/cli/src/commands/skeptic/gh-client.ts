@@ -92,11 +92,21 @@ export interface PRInfo {
 }
 
 export interface ReviewInfo {
-  author: { login: string };
+  author: { login: string } | null;
   state: "approved" | "changes_requested" | "commented" | "dismissed" | "pending";
   body: string | null;
   submittedAt: string;
+  /**
+   * The commit OID this review is attached to. Populated from the
+   * GraphQL `commit { oid }` field on the review node. Used to filter
+   * stale CR reviews that were submitted on an older head SHA and that
+   * GitHub's UI-level `reviewDecision` still reflects.
+   */
+  commitId?: string | null;
 }
+
+export const isCodeRabbitReview = (r: ReviewInfo): boolean =>
+  r.author?.login === "coderabbitai" || r.author?.login === "coderabbitai[bot]";
 
 export interface IssueComment {
   id: number;
@@ -110,7 +120,7 @@ export async function fetchPRMeta(
   owner: string,
   repo: string,
   prNumber: number,
-): Promise<PRInfo> {
+ ): Promise<PRInfo> {
   const query = [
     "{",
     `  repository(owner:"${owner}", name:"${repo}") {`,
@@ -127,6 +137,14 @@ export async function fetchPRMeta(
   return pr;
 }
 
+interface GraphQLReviewNode {
+  author: { login: string } | null;
+  state: string;
+  body: string | null;
+  submittedAt: string;
+  commit?: { oid?: string | null } | null;
+}
+
 export async function fetchReviews(
   owner: string,
   repo: string,
@@ -138,7 +156,11 @@ export async function fetchReviews(
     `    pullRequest(number:${prNumber}) {`,
     "      reviewDecision",
     "      reviews(last:20) {",
-    "        nodes { author { login } state body submittedAt }",
+    // `commit { oid }` is required so callers can filter stale reviews
+    // against the current head SHA. GitHub's UI-level `reviewDecision`
+    // returns the worst state across ALL reviews (including ones on
+    // superseded head SHAs) which causes false-FAIL verdicts.
+    "        nodes { author { login } state body submittedAt commit { oid } }",
     "      }",
     "    }",
     "  }",
@@ -150,16 +172,18 @@ export async function fetchReviews(
       repository?: {
         pullRequest?: {
           reviewDecision?: string;
-          reviews?: { nodes?: ReviewInfo[] };
+          reviews?: { nodes?: GraphQLReviewNode[] };
         };
       };
     };
   };
   return (r?.data?.repository?.pullRequest?.reviews?.nodes ?? []).map((n) => ({
-    ...n,
-    // Normalize GitHub GraphQL uppercase enum to lowercase to match the Review type
-    state: (n.state as string).toLowerCase() as ReviewInfo["state"],
-  })) as ReviewInfo[];
+    author: n.author,
+    state: n.state.toLowerCase() as ReviewInfo["state"],
+    body: n.body,
+    submittedAt: n.submittedAt,
+    commitId: n.commit?.oid ?? null,
+  }));
 }
 
 export async function fetchDiff(owner: string, repo: string, prNumber: number): Promise<string> {

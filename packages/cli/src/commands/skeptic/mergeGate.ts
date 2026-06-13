@@ -9,7 +9,7 @@
  * - Evidence review state is included
  */
 
-import { ghJson, ghJsonPaginate, fetchReviews, type ReviewInfo } from "./gh-client.js";
+import { ghJson, ghJsonPaginate, fetchReviews, isCodeRabbitReview, type ReviewInfo } from "./gh-client.js";
 import {
   escapeRegexLiteral,
   isFreshPassVerdictContractSatisfied,
@@ -19,7 +19,6 @@ import {
 const NIT_PATTERN = /^(nit:|nitpick)/i;
 // GraphQL author.login returns "coderabbitai" (without [bot] suffix) for the CodeRabbit bot.
 // REST API user.login returns "coderabbitai[bot]" — but fetchReviews uses GraphQL, so this is correct.
-const CR_BOT = "coderabbitai";
 const EVIDENCE_BOT = "evidence-review-bot";
 
 export interface CheckRunSummary {
@@ -57,8 +56,11 @@ function sortReviewsNewestFirst(a: ReviewInfo, b: ReviewInfo): number {
  * Detect if a CR review was dismissed without a subsequent real APPROVED.
  * Mirrors hasUnresolvedDismissedReview in merge-gate-coderabbit.ts.
  */
-function hasUnresolvedDismissedReview(reviews: ReviewInfo[]): boolean {
-  const crReviews = reviews.filter((r) => r.author?.login === CR_BOT);
+function hasUnresolvedDismissedReview(
+  reviews: ReviewInfo[],
+  headSha: string,
+): boolean {
+  const crReviews = reviews.filter((r) => isCodeRabbitReview(r) && r.commitId === headSha);
   if (crReviews.length === 0) return false;
   const sorted = [...crReviews].sort(sortReviewsNewestFirst);
   for (const review of sorted) {
@@ -71,18 +73,27 @@ function hasUnresolvedDismissedReview(reviews: ReviewInfo[]): boolean {
 
 /**
  * Get the latest decisive CR review (approved or changes_requested, newest first).
+ *
+ * The result is restricted to reviews attached to the current `headSha`.
+ * This prevents stale `CHANGES_REQUESTED` reviews on a superseded head from
+ * causing false-FAIL verdicts. GitHub's UI-level `reviewDecision` reflects the
+ * worst state across ALL reviews (including ones on old heads), so we explicitly
+ * filter here.
  */
-function getLatestDecisiveReview(reviews: ReviewInfo[]): ReviewInfo | null {
-  return (
-    reviews
-      .filter(
-        (r) =>
-          r.author?.login === CR_BOT &&
-          ((r.state ?? "").toLowerCase() === "approved" ||
-            (r.state ?? "").toLowerCase() === "changes_requested"),
-      )
-      .sort(sortReviewsNewestFirst)[0] ?? null
+function getLatestDecisiveReview(
+  reviews: ReviewInfo[],
+  headSha: string,
+): ReviewInfo | null {
+  const filtered = reviews.filter(
+    (r) =>
+      isCodeRabbitReview(r) &&
+      (
+        (r.state ?? "").toLowerCase() === "approved" ||
+        (r.state ?? "").toLowerCase() === "changes_requested"
+      ) &&
+      r.commitId === headSha,
   );
+  return filtered.sort(sortReviewsNewestFirst)[0] ?? null;
 }
 
 function extractSkepticRequestId(body: string): string | undefined {
@@ -184,16 +195,32 @@ export async function fetchMergeGateState(
     // ciPassing stays false; noConflicts stays false (already initialized)
   }
 
+  // Fail-closed: headSha is mandatory for checking reviews and CI
+  if (!headSha) {
+    throw new Error("Could not determine head SHA for PR #" + prNumber);
+  }
+
   // 2. CR review state — mirrors checkMergeGate + merge-gate-coderabbit.ts
   const reviews = await fetchReviews(owner, repo, prNumber);
-  const latestCR = getLatestDecisiveReview(reviews);
-  const crDismissedWithoutApproval = hasUnresolvedDismissedReview(reviews);
+  // CRITICAL: filter by head SHA. GitHub's UI-level reviewDecision returns
+  // the worst state across ALL reviews, including stale CHANGES_REQUESTED
+  // reviews on superseded head SHAs. Passing headSha here makes the gate
+  // trust only reviews actually attached to the current head.
+  const latestCR = getLatestDecisiveReview(reviews, headSha);
+  const crDismissedWithoutApproval = hasUnresolvedDismissedReview(reviews, headSha);
 
-  let crApproved = false;
-  let crState = "none";
+  let crApproved: boolean;
+  let crState: string;
   if (latestCR) {
     crState = latestCR.state;
     crApproved = (latestCR.state ?? "").toLowerCase() === "approved" && !crDismissedWithoutApproval;
+  } else {
+    // No on-head decisive review. Surface this explicitly so the LLM doesn't
+    // fall back to GitHub's UI-level reviewDecision (which reflects stale
+    // reviews on old SHAs and would say CHANGES_REQUESTED even when the
+    // current head is clean).
+    crState = "none-on-head";
+    crApproved = false;
   }
 
   // Fallback: check comments for CodeRabbit's [approve] comment if review state is not approved
