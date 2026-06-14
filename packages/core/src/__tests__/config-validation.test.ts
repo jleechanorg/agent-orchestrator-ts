@@ -1130,6 +1130,39 @@ describe("Config Validation - Project key/path consistency (bd-686.1)", () => {
       warnSpy.mockRestore();
     }
   });
+
+  it("STILL WARNS when explicit name matches basename but not configKey (copy-paste indicator)", () => {
+    // Reviewer feedback (chatgpt-codex-connector, P2): a mislabeled block may
+    // carry an explicit `name` field that matches the *path basename* (because
+    // it was copied from a `claude-commands` template) but not the *configKey*
+    // (e.g. `cmux`). Opting out on `name !== undefined` would silence the
+    // warning in exactly this case — the very scenario the validator exists
+    // to catch. The opt-out must require `name === configKey`.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      validateConfig({
+        projects: {
+          cmux: {
+            name: "claude-commands",
+            path: "/repos/claude-commands",
+            repo: "org/claude-commands",
+            defaultBranch: "main",
+          },
+        },
+      });
+      const warnings = warnSpy.mock.calls.map((c) => String(c[0]));
+      expect(
+        warnings.some(
+          (w) =>
+            w.includes("cmux") &&
+            w.includes("claude-commands") &&
+            w.toLowerCase().includes("configkey"),
+        ),
+      ).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });
 
 describe("Config Validation - Duplicate basename error message (bd-686.1)", () => {

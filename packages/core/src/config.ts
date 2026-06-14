@@ -531,21 +531,26 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
 function validateProjectKeyConsistency(config: OrchestratorConfig): void {
   for (const [configKey, project] of Object.entries(config.projects)) {
     const projectBasename = basename(project.path);
-    // Must run BEFORE applyProjectDefaults — at that point `name` is still
-    // undefined when the user did not set it explicitly. We warn only when
-    // configKey !== basename AND the user did not opt out via an explicit
-    // name field.
-    const nameExplicitlySet = project.name !== undefined;
-    if (configKey !== projectBasename && !nameExplicitlySet) {
-      console.warn(
-        `[config] Mislabeled project block: configKey "${configKey}" has ` +
-          `path "${project.path}" whose basename is "${projectBasename}". ` +
-          `If this is intentional, set an explicit "name: ${configKey}" field to ` +
-          `silence this warning. Otherwise, rename the block to "${projectBasename}" ` +
-          `or move the project to a path with basename "${configKey}". ` +
-          `(bd-686.1)`,
-      );
+    if (configKey === projectBasename) {
+      continue; // Convention satisfied — no warning needed.
     }
+    // Opt-out rule: an explicit `name` field silences the warning ONLY when
+    // the name matches the configKey. A name that matches `basename(path)`
+    // but not `configKey` is a copy-paste indicator (motivating case: a block
+    // keyed `cmux` copied from a `claude-commands` template, where `name`
+    // and `path` were edited in lockstep — leaving the warning to fire is
+    // the correct behavior).
+    if (project.name === configKey) {
+      continue;
+    }
+    console.warn(
+      `[config] Mislabeled project block: configKey "${configKey}" has ` +
+        `path "${project.path}" whose basename is "${projectBasename}". ` +
+        `If this is intentional, set an explicit "name: ${configKey}" field ` +
+        `(must match the configKey) to silence this warning. Otherwise, ` +
+        `rename the block to "${projectBasename}" or move the project to a ` +
+        `path with basename "${configKey}". (bd-686.1)`,
+    );
   }
 }
 
