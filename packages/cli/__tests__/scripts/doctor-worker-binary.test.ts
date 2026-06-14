@@ -106,7 +106,7 @@ function runDoctorWithEnv(
   });
 }
 
-function writeConfig(tempRoot: string, fakeRepo: string): string {
+function writeConfig(tempRoot: string): string {
   const configPath = join(tempRoot, "agent-orchestrator.yaml");
   const dataDir = join(tempRoot, "data");
   const worktreeDir = join(tempRoot, "worktrees");
@@ -191,9 +191,10 @@ describe("scripts/ao-doctor.sh — lifecycle-worker binary canonicalization", ()
         "#!/bin/bash",
         'if [ "$1" = "--version" ]; then printf "0.1.3\\n"; exit 0; fi',
         // pnpm's actual shim writes the literal text "$basedir/..." into the
-        // shim file (the variable is exported above the exec line). Escape the
-        // $ here so the test's bash doesn't expand it when writing the shim.
-        `exec node "\$basedir/${repoRelativeDist}" "\$@"`,
+        // shim file (the variable is exported above the exec line). The
+        // doctor's $basedir substitution will rewrite this to the resolved
+        // shim-dir before comparing to worker argv.
+        `exec node "$basedir/${repoRelativeDist}" "$@"`,
         "",
       ].join("\n"),
     );
