@@ -25,7 +25,8 @@ set -u
 # (jleechanorg/jleechanclaw, lib/slack_thread_lib.sh): empty default > wrong
 # default. The plist's HERMES_WATCHDOG_ALERT_CHANNEL is the source of truth;
 # HERMES_OPS_SLACK_CHANNEL is the cross-job fallback. If both are empty,
-# the post fails soft (no channel bleed).
+# the post fails soft (no channel bleed). Red-Green evidence + design
+# rationale: PR #687.
 HERMES_OPS_SLACK_CHANNEL="${HERMES_OPS_SLACK_CHANNEL:-}"
 CHANNEL="${HERMES_WATCHDOG_ALERT_CHANNEL:-${HERMES_OPS_SLACK_CHANNEL:-}}"
 STATE_DIR="${HERMES_HOME:-$HOME/.hermes_prod}/.watchdog-state"
