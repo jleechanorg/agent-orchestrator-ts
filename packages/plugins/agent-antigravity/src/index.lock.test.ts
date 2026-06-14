@@ -132,7 +132,7 @@ describe("antigravity trustedFolders.json lock acquisition", () => {
     // Mock writeFileSync to throw EEXIST when trying to acquire the lock
     mockWriteFileSync.mockImplementation((filepath) => {
       if (typeof filepath === "string" && filepath.endsWith("trustedFolders.lock")) {
-        const err = new Error("mocked EEXIST") as any;
+        const err = new Error("mocked EEXIST") as NodeJS.ErrnoException;
         err.code = "EEXIST";
         throw err;
       }
