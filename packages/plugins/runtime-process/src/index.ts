@@ -63,7 +63,7 @@ export function create(): Runtime {
       try {
         child = spawn(config.launchCommand, {
           cwd: config.workspacePath,
-          env: { ...process.env, ...config.environment },
+          env: { ...process.env, ...(config.environment ?? {}) },
           stdio: ["pipe", "pipe", "pipe"],
           shell: true,
           detached: true, // Own process group so destroy() can kill child commands
