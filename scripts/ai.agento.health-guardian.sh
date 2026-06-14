@@ -34,7 +34,7 @@ TIER1_LOG="$HOME/.openclaw/logs/ao-health.log"
 # default. The plist's HEALTH_GUARDIAN_ALERT_CHANNEL is the source of truth;
 # HERMES_OPS_SLACK_CHANNEL is the cross-job fallback (also env-driven, no
 # hardcoded channel here). If both are empty, the post fails soft and no
-# channel bleed occurs.
+# channel bleed occurs. Red-Green evidence + design rationale: PR #687.
 HERMES_OPS_SLACK_CHANNEL="${HERMES_OPS_SLACK_CHANNEL:-}"
 CHANNEL="${HEALTH_GUARDIAN_ALERT_CHANNEL:-${HERMES_OPS_SLACK_CHANNEL:-}}"
 # post_slack refuses to post when CHANNEL is empty (token check still runs
