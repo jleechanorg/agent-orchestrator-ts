@@ -673,6 +673,53 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
       'echo hi\nexec "${SHELL:-/bin/bash}" -i',
     ]);
   });
+
+  it("truncates bashrc exports to MAX_BASHRC_VARS=10000 and warns with dropped var names", async () => {
+    const runtime = create();
+
+    // Build a bashrc dump with 10_001 lines so the cap fires. We use a
+    // small key prefix so the 10_000-var cap is the only thing limiting
+    // the resulting `-e` count.
+    const lines: string[] = [];
+    for (let i = 0; i < 10_001; i++) {
+      lines.push(`declare -x CAP_KEY_${i}="v${i}"`);
+    }
+    mockBashrcOutput(lines.join("\n"));
+    // 4 tmux calls
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await runtime.create({
+      sessionId: "cap-test",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: {},
+    });
+
+    // 10_000 -e flags + new-session/keep-alive tail. The 10_001st var
+    // is dropped.
+    const args = newSessionArgs();
+    const eFlags = args.filter((a) => /^CAP_KEY_\d+=/.test(a));
+    expect(eFlags).toHaveLength(10_000);
+    expect(eFlags).toContain("CAP_KEY_0=v0");
+    expect(eFlags).toContain("CAP_KEY_9999=v9999");
+    expect(eFlags).not.toContain("CAP_KEY_10000=v10000");
+
+    // Truncation warning surfaces the dropped var (singular here).
+    const warnCalls = warnSpy.mock.calls.map((c) => c[0] as string);
+    expect(
+      warnCalls.some(
+        (msg) =>
+          msg.includes("dropped 1 var") && msg.includes("CAP_KEY_10000"),
+      ),
+    ).toBe(true);
+
+    warnSpy.mockRestore();
+  });
 });
 
 describe("runtime.destroy()", () => {
