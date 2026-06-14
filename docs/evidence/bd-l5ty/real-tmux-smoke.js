@@ -1,18 +1,33 @@
 #!/usr/bin/env node
 /**
  * Real-tmux smoke test for bd-l5ty: end-to-end proof that bashrc-exported
- * vars actually reach a live tmux session via the same code path as
- * `loadBashrcEnv()` in `packages/plugins/runtime-tmux/src/index.ts`.
+ * vars actually reach a live tmux session via the OS-level integration
+ * boundary that `loadBashrcEnv()` in `packages/plugins/runtime-tmux/src/index.ts`
+ * relies on at runtime.
+ *
+ * This is NOT a unit test of the parser — that is already covered by
+ * `packages/plugins/runtime-tmux/src/__tests__/index.test.ts` (7 new tests
+ * including bash `$'…'` ANSI-C, empty values, 10K cap, missing bashrc,
+ * explicit env override, etc.).
+ *
+ * This IS a Layer 2 integration test of the bashrc → tmux boundary: the
+ * unit test mocks `execFile("bash", ["-ic", "declare -x"])`, but the real
+ * question is whether what bash ACTUALLY emits in a real interactive
+ * shell — with the user's real bashrc, real $'…' quoting, real multiline
+ * values, real aliases, etc. — round-trips through `tmux new-session -e`
+ * and shows up under `tmux show-env`. That is the only thing this script
+ * verifies.
  *
  * Pipeline:
  *   1. `bash -ic 'declare -x'` to dump real bashrc exports
- *   2. Parse the dump (mirror of `parseBashrcOutput`)
+ *      (same invocation loadBashrcEnv uses)
+ *   2. Parse the dump with the same regex as the runtime
  *   3. Build `-e KEY=VALUE` flags for tmux new-session
  *   4. Spawn a real tmux session with those flags
  *   5. `tmux show-env -t <session>` to verify vars landed in the session
  *
- * This is the proof that skeptics Gate 6/7 require: the runtime path is
- * exercised, not just mocked.
+ * On success, prints sentinel-var presence and exits 0. On any failure,
+ * prints which step failed and exits 1.
  */
 import { execFileSync } from "node:child_process";
 import { writeFileSync, appendFileSync } from "node:fs";
