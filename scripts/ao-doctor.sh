@@ -370,6 +370,12 @@ check_lifecycle_workers() {
   canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$DEFAULT_CONFIG_HOME/bin/ao")"
   local canonical_real
   canonical_real="$(realpath "$canonical_binary" 2>/dev/null || printf '%s' "$canonical_binary")"
+  # If the canonical binary is a pnpm-style shim (`exec node "/path/dist/index.js" "$@"`),
+  # extract the exec target so workers running directly via `node <dist>` are not flagged.
+  local canonical_shim_target=""
+  if [ -f "$canonical_binary" ]; then
+    canonical_shim_target="$(grep -oE 'exec node "[^"]+"' "$canonical_binary" 2>/dev/null | sed 's/exec node "//;s/"$//' || true)"
+  fi
 
   # --- Check 1: detect ALL lifecycle-worker processes, flag non-canonical binaries ---
   # NOTE: Checks 1 and 2 run unconditionally — they do not require the config file.
@@ -388,14 +394,22 @@ check_lifecycle_workers() {
     local stale_pids=""
     while IFS= read -r line; do
       [ -z "$line" ] && continue
+      # Extract the executed binary from the command line. Handles:
+      #   /path/to/ao lifecycle-worker project          (path ending in /ao)
+      #   node /path/to/dist/index.js lifecycle-worker  (node + absolute path)
       local cmd
-      cmd="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i ~ /\/ao$/) {print $i; exit}}')"
-      if [ -z "$cmd" ] || { [ "$cmd" != "${canonical_binary}" ] && [ "$cmd" != "${canonical_real}" ]; }; then
+      cmd="$(printf '%s' "$line" | awk '{
+        for(i=1;i<=NF;i++) {
+          if ($i ~ /\/ao$/) { print $i; exit }
+          if ($i == "node" && i+1 <= NF && substr($(i+1),1,1) == "/") { print $(i+1); exit }
+        }
+      }')"
+      if [ -z "$cmd" ] || { [ "$cmd" != "${canonical_binary}" ] && [ "$cmd" != "${canonical_real}" ] && { [ -z "$canonical_shim_target" ] || [ "$cmd" != "$canonical_shim_target" ]; }; }; then
         stale_count=$((stale_count + 1))
         local pid
         pid="$(echo "$line" | awk '{print $2}')"
         stale_pids="$stale_pids $pid"
-        warn "non-canonical lifecycle-worker binary detected: PID=$pid binary contains: $(echo "$line" | grep -oE '/[^ ]+lifecycle|[^ ]+/ao' | head -1 || echo "unknown")"
+        warn "non-canonical lifecycle-worker binary detected: PID=$pid binary: ${cmd:-unknown}"
       fi
     done <<< "$all_workers"
 
