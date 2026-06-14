@@ -327,13 +327,81 @@ const antigravityOverrides: Partial<Agent> = {
       }
     }
 
-    return {
+    // Resolve COLIMA_HOME once and reuse it for both COLIMA_HOME and the
+    // darwin DOCKER_HOST default. If a user overrides COLIMA_HOME to a
+    // non-default location (e.g. /opt/my-colima), the DOCKER_HOST default
+    // must follow the same path so colima and docker agree on where the
+    // socket lives — otherwise the worker would point docker at the user's
+    // real-home socket while colima is actually serving from /opt.
+    //
+    // Override behavior: read process.env first so a user-supplied value
+    // survives. This is necessary because the runtime layer applies
+    // config.environment ON TOP of process.env at spawn time
+    // (`{ ...process.env, ...config.environment }` in runtime-process;
+    // `tmux -e KEY=VALUE` per-key in runtime-tmux), so a value the plugin
+    // returns here would otherwise overwrite whatever the user set in
+    // their shell. `baseEnv.COLIMA_HOME` is also respected for callers that
+    // inject via the base agent.
+    const colimaHome =
+      process.env.COLIMA_HOME
+      ?? baseEnv.COLIMA_HOME
+      ?? path.join(userHome, ".colima");
+
+    // Build the env object explicitly. DOCKER_HOST is conditionally included
+    // because Object.entries(env) on a key with `undefined` value still yields
+    // the key, and the runtime layer (tmux `-e KEY=VALUE`, child-process `env`)
+    // stringifies the value as the literal "undefined" — which would break
+    // native Docker on Linux where DOCKER_HOST must be UNSET (not
+    // `DOCKER_HOST=undefined`). We also `delete` any pre-existing DOCKER_HOST
+    // key from baseEnv first so a future change to the base agent that
+    // includes `DOCKER_HOST: undefined` in baseEnv cannot leak through the
+    // spread. See PR #686 Skeptic Gate-7/8 follow-up.
+    const env: Record<string, string> = {
       ...baseEnv,
       HOME: sessionHome,
+      // Pin COLIMA_HOME to the resolved path so any subprocess in the worker
+      // that calls `colima start` or `docker compose up` reuses the host's
+      // main colima VM (or its socket) instead of deriving COLIMA_HOME from
+      // the overridden session HOME and bootstrapping a fresh per-worker VM
+      // at ~/.ao-sessions/<id>/.colima/ (~2GB each, accumulating to dozens of
+      // stale VMs across runs). See PR for the wa-2327 incident.
+      COLIMA_HOME: colimaHome,
       // Clear these to prevent the spawned CLI from inheriting parent agent context
       ANTIGRAVITY_PROJECT_ID: "",
       ANTIGRAVITY_TRAJECTORY_ID: "",
     };
+    // DOCKER_HOST: only set on darwin (colima default) or if the user
+    // explicitly overrode it. On Linux without an override, leave the key
+    // ABSENT (not undefined) so the runtime omits it and the worker's
+    // `docker` calls fall back to native /var/run/docker.sock.
+    //
+    // We use `"DOCKER_HOST" in process.env` (not truthiness) so a user who
+    // explicitly sets DOCKER_HOST="" to signal "unset" gets exactly that —
+    // not a silent fallback to the colima default. Empty-string is a
+    // meaningful override; truthiness (`if (process.env.DOCKER_HOST)`)
+    // would clobber it. The same applies to `baseEnv`. PR #686 Skeptic
+    // Gate-5/7 follow-up.
+    //
+    // We `delete` first to defend against baseEnv pre-pollution — even if
+    // baseAgent.getEnvironment() later adds DOCKER_HOST to its return, this
+    // explicit delete (combined with the conditional re-add below) keeps
+    // the key absent on Linux.
+    //
+    // KNOWN LIMITATION: the darwin DOCKER_HOST default below hardcodes the
+    // "default" colima profile directory. A user running a non-default
+    // profile (e.g. `~/.colima/myprofile/`) will get a DOCKER_HOST that
+    // doesn't match their actual socket path; they must also set
+    // DOCKER_HOST explicitly. Colima's stock install uses the "default"
+    // profile, so this covers the common case.
+    delete env.DOCKER_HOST;
+    if ("DOCKER_HOST" in process.env) {
+      env.DOCKER_HOST = process.env.DOCKER_HOST as string;
+    } else if ("DOCKER_HOST" in baseEnv) {
+      env.DOCKER_HOST = baseEnv.DOCKER_HOST as string;
+    } else if (os.platform() === "darwin") {
+      env.DOCKER_HOST = `unix://${path.join(colimaHome, "default", "docker.sock")}`;
+    }
+    return env;
   },
 
   async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {

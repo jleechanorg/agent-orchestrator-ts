@@ -690,5 +690,181 @@ describe("antigravity getEnvironment", () => {
     expect(sessionContent["~"]).toBeUndefined();
     expect(globalContent["~"]).toBeUndefined();
   });
+
+  it("sets COLIMA_HOME and DOCKER_HOST to the user's real home so subprocess colima/docker calls reuse the main colima", () => {
+    // Without this, any subprocess in the worker that calls `colima start` or
+    // `docker compose up` would derive COLIMA_HOME from the overridden session
+    // HOME (= ~/.ao-sessions/<id>) and bootstrap a fresh per-worker VM there
+    // (~2GB each, accumulating to dozens of stale VMs over time).
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+
+    expect(env.COLIMA_HOME).toBe(path.join("/Users/mockuser", ".colima"));
+    expect(env.DOCKER_HOST).toBe(
+      `unix://${path.join("/Users/mockuser", ".colima", "default", "docker.sock")}`
+    );
+  });
+
+  it("does NOT set DOCKER_HOST on Linux to avoid breaking native Docker", () => {
+    // Colima is darwin-only. On Linux, the user has native Docker with a
+    // different default socket (/var/run/docker.sock); unconditionally
+    // pointing DOCKER_HOST at the colima socket would break every docker
+    // call. COLIMA_HOME is harmless on Linux (colima doesn't read it) so we
+    // still set it as a stable, predictable default.
+    const agent = create();
+    mockHomedir.mockReturnValue("/home/linuxuser");
+    mockPlatform.mockReturnValue("linux");
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+
+    expect(env.COLIMA_HOME).toBe(path.join("/home/linuxuser", ".colima"));
+    expect(env.DOCKER_HOST).toBeUndefined();
+  });
+
+  it("preserves user-supplied COLIMA_HOME and DOCKER_HOST from process.env", () => {
+    // The runtime layer applies config.environment ON TOP of process.env at
+    // spawn time (`{ ...process.env, ...config.environment }` for the process
+    // runtime, `tmux -e KEY=VALUE` per-key for the tmux runtime). So if the
+    // plugin unconditionally sets these in its getEnvironment return, it
+    // clobbers whatever the user set in their shell. The plugin must read
+    // process.env first so a user-supplied value survives.
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const originalColimaHome = process.env.COLIMA_HOME;
+    const originalDockerHost = process.env.DOCKER_HOST;
+    process.env.COLIMA_HOME = "/custom/colima";
+    process.env.DOCKER_HOST = "unix:///custom/docker.sock";
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env.COLIMA_HOME).toBe("/custom/colima");
+      expect(env.DOCKER_HOST).toBe("unix:///custom/docker.sock");
+    } finally {
+      if (originalColimaHome === undefined) delete process.env.COLIMA_HOME;
+      else process.env.COLIMA_HOME = originalColimaHome;
+      if (originalDockerHost === undefined) delete process.env.DOCKER_HOST;
+      else process.env.DOCKER_HOST = originalDockerHost;
+    }
+  });
+
+  it("preserves an empty-string DOCKER_HOST override (uses 'in' check, not truthiness)", () => {
+    // Skeptic Gate-5 follow-up: truthiness (`if (process.env.DOCKER_HOST)`)
+    // would coerce DOCKER_HOST="" to "unset" and silently fall back to the
+    // colima default on darwin. An empty string is a meaningful override
+    // (a user may set it to signal "no socket, fall back to native docker
+    // socket selection"). The fix uses `"DOCKER_HOST" in process.env` so
+    // presence — not truthiness — determines whether to honor the override.
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const originalColimaHome = process.env.COLIMA_HOME;
+    const originalDockerHost = process.env.DOCKER_HOST;
+    delete process.env.COLIMA_HOME;
+    process.env.DOCKER_HOST = "";
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      // Empty string preserved verbatim, NOT replaced with the colima default.
+      expect("DOCKER_HOST" in env).toBe(true);
+      expect(env.DOCKER_HOST).toBe("");
+      expect(env.DOCKER_HOST).not.toContain("colima");
+    } finally {
+      if (originalColimaHome === undefined) delete process.env.COLIMA_HOME;
+      else process.env.COLIMA_HOME = originalColimaHome;
+      if (originalDockerHost === undefined) delete process.env.DOCKER_HOST;
+      else process.env.DOCKER_HOST = originalDockerHost;
+    }
+  });
+
+  it("preserves an empty-string COLIMA_HOME override (uses ??, not truthiness)", () => {
+    // Same Skeptic Gate-5 follow-up applied to COLIMA_HOME: the `??` chain
+    // only falls through on null/undefined, so COLIMA_HOME="" is preserved
+    // rather than coerced to the default ~/.colima.
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const originalColimaHome = process.env.COLIMA_HOME;
+    const originalDockerHost = process.env.DOCKER_HOST;
+    process.env.COLIMA_HOME = "";
+    delete process.env.DOCKER_HOST;
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env.COLIMA_HOME).toBe("");
+      expect(env.COLIMA_HOME).not.toContain(".colima");
+    } finally {
+      if (originalColimaHome === undefined) delete process.env.COLIMA_HOME;
+      else process.env.COLIMA_HOME = originalColimaHome;
+      if (originalDockerHost === undefined) delete process.env.DOCKER_HOST;
+      else process.env.DOCKER_HOST = originalDockerHost;
+    }
+  });
+
+  it("omits DOCKER_HOST key entirely on Linux so the runtime does not serialize it as 'DOCKER_HOST=undefined'", () => {
+    // Skeptic Gate-8 follow-up: Object.entries(env) includes keys with
+    // undefined values, and the runtime layer (tmux `-e KEY=VALUE` /
+    // child-process env) stringifies them as the literal "undefined". On
+    // Linux that produces `DOCKER_HOST=undefined`, which breaks native
+    // Docker (`docker` reads DOCKER_HOST and tries to dial "undefined" as a
+    // socket). The plugin must not return the key at all on Linux when
+    // there is no user override.
+    const agent = create();
+    mockHomedir.mockReturnValue("/home/linuxuser");
+    mockPlatform.mockReturnValue("linux");
+
+    const originalDockerHost = process.env.DOCKER_HOST;
+    delete process.env.DOCKER_HOST;
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      // Assert the KEY is absent, not just the value being undefined.
+      expect("DOCKER_HOST" in env).toBe(false);
+      // Defense in depth: assert Object.entries (which is what the runtime
+      // iterates) does not see the key.
+      const runtimeView = Object.fromEntries(
+        Object.entries(env).filter(([, v]) => v !== undefined),
+      );
+      expect("DOCKER_HOST" in runtimeView).toBe(false);
+    } finally {
+      if (originalDockerHost !== undefined) process.env.DOCKER_HOST = originalDockerHost;
+    }
+  });
+
+  it("derives the darwin DOCKER_HOST default from the resolved COLIMA_HOME, not the user home, when COLIMA_HOME is overridden", () => {
+    // Skeptic Gate-7 follow-up: if a user supplies COLIMA_HOME via process.env
+    // but NOT DOCKER_HOST, the plugin used to set DOCKER_HOST to
+    // `unix://${userHome}/.colima/default/docker.sock` (the real home) while
+    // COLIMA_HOME pointed to the custom location. That creates a path
+    // mismatch where docker dials the wrong socket. The fix: resolve
+    // `colimaHome` once and use it for both keys.
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const originalColimaHome = process.env.COLIMA_HOME;
+    const originalDockerHost = process.env.DOCKER_HOST;
+    process.env.COLIMA_HOME = "/opt/my-colima";
+    delete process.env.DOCKER_HOST;
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env.COLIMA_HOME).toBe("/opt/my-colima");
+      expect(env.DOCKER_HOST).toBe(
+        `unix://${path.join("/opt/my-colima", "default", "docker.sock")}`,
+      );
+    } finally {
+      if (originalColimaHome === undefined) delete process.env.COLIMA_HOME;
+      else process.env.COLIMA_HOME = originalColimaHome;
+      if (originalDockerHost === undefined) delete process.env.DOCKER_HOST;
+      else process.env.DOCKER_HOST = originalDockerHost;
+    }
+  });
 });
 
