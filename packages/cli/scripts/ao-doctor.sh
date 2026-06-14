@@ -382,13 +382,13 @@ check_lifecycle_workers() {
       #   /path/to/ao lifecycle-worker project  ($11 = /path/to/ao)
       #   node /path/to/ao lifecycle-worker project  ($12 = /path/to/ao, $11 = node)
       local cmd
-      cmd="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i ~ /\/ao$/) {print $i; exit}}')"
+      cmd="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i ~ /\/ao$/ || $i ~ /index\.js$/ || $i ~ /index\.ts$/) {print $i; exit}}')"
       if [ -z "$cmd" ] || { [ "$cmd" != "${canonical_binary}" ] && [ "$cmd" != "${canonical_real}" ]; }; then
         stale_count=$((stale_count + 1))
         local pid
         pid="$(echo "$line" | awk '{print $2}')"
         stale_pids="$stale_pids $pid"
-        warn "non-canonical lifecycle-worker binary detected: PID=$pid binary contains: $(echo "$line" | grep -oE '/[^ ]+lifecycle|[^ ]+/ao' | head -1 || echo "unknown")"
+        warn "non-canonical lifecycle-worker binary detected: PID=$pid binary contains: $(echo "$line" | grep -oE '/[^ ]+lifecycle|[^ ]+/ao|[^ ]+/index\.(js|ts)' | head -1 || echo "unknown")"
       fi
     done <<< "$all_workers"
 
