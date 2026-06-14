@@ -1,0 +1,205 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { AgentLaunchConfig } from "@jleechanorg/ao-core";
+import path from "node:path";
+
+const {
+  mockHomedir,
+  mockTmpdir,
+  mockPlatform,
+  mockMkdirSync,
+  mockExistsSync,
+  mockLstatSync,
+  mockReaddirSync,
+  mockCopyFileSync,
+  mockSymlinkSync,
+  mockUnlinkSync,
+  mockRmSync,
+  mockReadFileSync,
+  mockWriteFileSync,
+  mockReadlinkSync,
+  mockExecFileSync,
+  mockSpawn,
+} = vi.hoisted(() => ({
+  mockHomedir: vi.fn(() => "/mock/home"),
+  mockTmpdir: vi.fn(() => "/tmp"),
+  mockPlatform: vi.fn(() => "darwin"),
+  mockMkdirSync: vi.fn(),
+  mockExistsSync: vi.fn(() => false),
+  mockLstatSync: vi.fn(),
+  mockReaddirSync: vi.fn(() => []),
+  mockCopyFileSync: vi.fn(),
+  mockSymlinkSync: vi.fn(),
+  mockUnlinkSync: vi.fn(),
+  mockRmSync: vi.fn(),
+  mockReadFileSync: vi.fn(() => "{}"),
+  mockWriteFileSync: vi.fn(),
+  mockReadlinkSync: vi.fn(() => "/mock/home/Library/Keychains"),
+  mockExecFileSync: vi.fn(),
+  mockSpawn: vi.fn(() => ({ unref: vi.fn() })),
+}));
+
+vi.mock("node:os", () => ({
+  default: {
+    homedir: mockHomedir,
+    tmpdir: mockTmpdir,
+    platform: mockPlatform,
+  },
+  homedir: mockHomedir,
+  tmpdir: mockTmpdir,
+  platform: mockPlatform,
+}));
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal() as typeof import("node:child_process");
+  return {
+    ...actual,
+    execFileSync: mockExecFileSync,
+    spawn: mockSpawn,
+    default: {
+      ...actual.default,
+      execFileSync: mockExecFileSync,
+      spawn: mockSpawn,
+    },
+  };
+});
+
+vi.mock("node:fs", () => ({
+  default: {
+    mkdirSync: mockMkdirSync,
+    existsSync: mockExistsSync,
+    lstatSync: mockLstatSync,
+    readdirSync: mockReaddirSync,
+    copyFileSync: mockCopyFileSync,
+    symlinkSync: mockSymlinkSync,
+    unlinkSync: mockUnlinkSync,
+    rmSync: mockRmSync,
+    readFileSync: mockReadFileSync,
+    writeFileSync: mockWriteFileSync,
+    readlinkSync: mockReadlinkSync,
+  },
+  mkdirSync: mockMkdirSync,
+  existsSync: mockExistsSync,
+  lstatSync: mockLstatSync,
+  readdirSync: mockReaddirSync,
+  copyFileSync: mockCopyFileSync,
+  symlinkSync: mockSymlinkSync,
+  unlinkSync: mockUnlinkSync,
+  rmSync: mockRmSync,
+  readFileSync: mockReadFileSync,
+  writeFileSync: mockWriteFileSync,
+  readlinkSync: mockReadlinkSync,
+}));
+
+import { create } from "./index.js";
+
+function makeLaunchConfig(permissions?: AgentLaunchConfig["permissions"], prompt?: string): AgentLaunchConfig {
+  return {
+    sessionId: "sess-1",
+    permissions,
+    prompt,
+    projectConfig: {
+      name: "my-project",
+      repo: "owner/repo",
+      path: "/workspace/repo",
+      defaultBranch: "main",
+      sessionPrefix: "my",
+    },
+  };
+}
+
+describe("antigravity Library/Keychains symlink (Darwin)", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("always symlinks Library/Keychains to the real user keychains on Darwin, even in headless mode", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    mockLstatSync.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    expect(mockMkdirSync).toHaveBeenCalledWith(
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library"),
+      { recursive: true }
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      "/Users/mockuser/Library/Keychains",
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Keychains")
+    );
+  });
+
+  it("does not recreate the symlink if it already exists and points to the correct target", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    mockLstatSync.mockImplementation(() => ({
+      isSymbolicLink: () => true,
+      isDirectory: () => false,
+    }));
+    mockReadlinkSync.mockReturnValue("/Users/mockuser/Library/Keychains");
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    const keychainCalls = mockSymlinkSync.mock.calls.filter(call => call[1].includes("Keychains"));
+    expect(keychainCalls.length).toBe(0);
+    const keychainUnlinks = mockUnlinkSync.mock.calls.filter(call => call[0].includes("Keychains"));
+    expect(keychainUnlinks.length).toBe(0);
+  });
+
+  it("recreates the symlink if it points to an incorrect target", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    mockLstatSync.mockImplementation(() => ({
+      isSymbolicLink: () => true,
+      isDirectory: () => false,
+    }));
+    mockReadlinkSync.mockReturnValue("/wrong/path");
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    expect(mockUnlinkSync).toHaveBeenCalledWith(
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Keychains")
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      "/Users/mockuser/Library/Keychains",
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Keychains")
+    );
+  });
+
+  it("removes a real directory and creates the symlink if the path exists but is not a symlink", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    mockLstatSync.mockImplementation(() => ({
+      isSymbolicLink: () => false,
+      isDirectory: () => true,
+    }));
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    const sessionKeychainDir = path.join(
+      "/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Keychains"
+    );
+    expect(mockRmSync).toHaveBeenCalledWith(sessionKeychainDir, {
+      recursive: true,
+      force: true,
+    });
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      "/Users/mockuser/Library/Keychains",
+      sessionKeychainDir
+    );
+  });
+});
