@@ -17,6 +17,7 @@ const {
   mockReadFileSync,
   mockWriteFileSync,
   mockReadlinkSync,
+  mockRealpathSync,
   mockExecFileSync,
   mockSpawn,
 } = vi.hoisted(() => ({
@@ -34,6 +35,9 @@ const {
   mockReadFileSync: vi.fn(() => "{}"),
   mockWriteFileSync: vi.fn(),
   mockReadlinkSync: vi.fn(() => "/mock/home/Library/Keychains"),
+  // Default: return path unchanged (no symlink resolution). Tests that need
+  // a real path resolution override this with mockImplementation.
+  mockRealpathSync: vi.fn((p: string) => p),
   mockExecFileSync: vi.fn(),
   mockSpawn: vi.fn(() => ({ unref: vi.fn() })),
 }));
@@ -76,6 +80,7 @@ vi.mock("node:fs", () => ({
     readFileSync: mockReadFileSync,
     writeFileSync: mockWriteFileSync,
     readlinkSync: mockReadlinkSync,
+    realpathSync: mockRealpathSync,
   },
   mkdirSync: mockMkdirSync,
   existsSync: mockExistsSync,
@@ -88,6 +93,7 @@ vi.mock("node:fs", () => ({
   readFileSync: mockReadFileSync,
   writeFileSync: mockWriteFileSync,
   readlinkSync: mockReadlinkSync,
+  realpathSync: mockRealpathSync,
 }));
 
 import { create } from "./index.js";
@@ -418,6 +424,73 @@ describe("antigravity antigravity-cli/settings.json trustedWorkspaces pre-seed",
     expect(trusted).not.toContain("/tmp");
     // The filesystem root must never be added.
     expect(trusted).not.toContain("/");
+  });
+
+  it("exercises the realpathSync branch — symlinked seed paths are also trusted at their resolved target", () => {
+    // CodeRabbit nitpick (PR #693 round 2): the ancestor-walk in
+    // addWithAncestors() calls fs.realpathSync() for every seed path so a
+    // symlinked workspace is trusted at BOTH the leaf and the resolved
+    // target. If the fs mock has no realpathSync, the call throws and
+    // silently falls into the catch branch — masking bugs in the resolved
+    // path handling. This test stubs realpathSync to rewrite a leaf to its
+    // resolved target and verifies the rewritten path is also in the
+    // trusted list.
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+    mockWriteFileSync.mockReset();
+    mockRealpathSync.mockReset();
+
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath !== "string") return false;
+      if (filepath.endsWith(path.join("antigravity-cli", "settings.json"))) return true;
+      return false;
+    });
+
+    // Simulate a symlink: "/Users/mockuser/.worktrees/ao-9999" -> "/private/tmp/ao-9999-real"
+    // (the macOS /tmp -> /private/tmp symlink case is the canonical real-world
+    // reason this branch exists in the production code).
+    mockRealpathSync.mockImplementation((p: string) => {
+      if (typeof p !== "string") return p;
+      if (p === "/Users/mockuser/.worktrees/ao-9999") {
+        return "/private/tmp/ao-9999-real";
+      }
+      return p;
+    });
+
+    const writtenFiles = new Map<string, string>();
+    mockWriteFileSync.mockImplementation((filepath, content) => {
+      if (typeof filepath === "string") {
+        writtenFiles.set(filepath, content as string);
+      }
+    });
+
+    const env = agent.getEnvironment({
+      ...makeLaunchConfig(),
+      workspacePath: "/Users/mockuser/.worktrees/ao-9999",
+    });
+    expect(env).toBeDefined();
+
+    const innerSettingsPath = path.join(
+      "/Users/mockuser",
+      ".ao-sessions",
+      "sess-1",
+      ".gemini",
+      "antigravity-cli",
+      "settings.json",
+    );
+    const innerSettings = JSON.parse(writtenFiles.get(innerSettingsPath) || "{}");
+    const trusted = innerSettings.trustedWorkspaces as string[];
+
+    // Both the symlinked leaf AND its realpath-resolved target must be trusted.
+    expect(trusted).toContain("/Users/mockuser/.worktrees/ao-9999");
+    expect(trusted).toContain("/private/tmp/ao-9999-real");
+    // realpathSync must have been called at least once (not silently swallowed
+    // by the catch branch).
+    expect(mockRealpathSync).toHaveBeenCalled();
   });
 
   it("injects the security.folderTrust.enabled=false bypass flag (nested form per Gemini schema)", () => {
