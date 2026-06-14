@@ -378,17 +378,21 @@ check_lifecycle_workers() {
     local stale_pids=""
     while IFS= read -r line; do
       [ -z "$line" ] && continue
-      # Extract the ao binary path from the command line. Handles both:
+      # Extract the ao binary path from the command line. Handles all of:
       #   /path/to/ao lifecycle-worker project  ($11 = /path/to/ao)
       #   node /path/to/ao lifecycle-worker project  ($12 = /path/to/ao, $11 = node)
+      #   node /path/to/dist/index.js lifecycle-worker project  ($12 = dist/index.js, $11 = node)
+      # The dist/index.js shape is the source-tree spawn path used by scripts/start-all.sh
+      # after `pnpm install -g` writes @jleechanorg/ao-cli as a symlink to the source tree.
+      # Match the symlink target via realpath so both shapes are recognized as canonical.
       local cmd
-      cmd="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i ~ /\/ao$/) {print $i; exit}}')"
+      cmd="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i ~ /(\/ao$|\/dist\/index\.js$)/) {print $i; exit}}')"
       if [ -z "$cmd" ] || { [ "$cmd" != "${canonical_binary}" ] && [ "$cmd" != "${canonical_real}" ]; }; then
         stale_count=$((stale_count + 1))
         local pid
         pid="$(echo "$line" | awk '{print $2}')"
         stale_pids="$stale_pids $pid"
-        warn "non-canonical lifecycle-worker binary detected: PID=$pid binary contains: $(echo "$line" | grep -oE '/[^ ]+lifecycle|[^ ]+/ao' | head -1 || echo "unknown")"
+        warn "non-canonical lifecycle-worker binary detected: PID=$pid binary contains: $(echo "$line" | grep -oE '/[^ ]+lifecycle|[^ ]+/ao|dist/index\.js' | head -1 || echo "unknown")"
       fi
     done <<< "$all_workers"
 
