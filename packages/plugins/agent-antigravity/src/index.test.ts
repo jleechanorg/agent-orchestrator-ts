@@ -781,5 +781,35 @@ describe("antigravity getEnvironment", () => {
       if (originalDockerHost !== undefined) process.env.DOCKER_HOST = originalDockerHost;
     }
   });
+
+  it("derives the darwin DOCKER_HOST default from the resolved COLIMA_HOME, not the user home, when COLIMA_HOME is overridden", () => {
+    // Skeptic Gate-7 follow-up: if a user supplies COLIMA_HOME via process.env
+    // but NOT DOCKER_HOST, the plugin used to set DOCKER_HOST to
+    // `unix://${userHome}/.colima/default/docker.sock` (the real home) while
+    // COLIMA_HOME pointed to the custom location. That creates a path
+    // mismatch where docker dials the wrong socket. The fix: resolve
+    // `colimaHome` once and use it for both keys.
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const originalColimaHome = process.env.COLIMA_HOME;
+    const originalDockerHost = process.env.DOCKER_HOST;
+    process.env.COLIMA_HOME = "/opt/my-colima";
+    delete process.env.DOCKER_HOST;
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env.COLIMA_HOME).toBe("/opt/my-colima");
+      expect(env.DOCKER_HOST).toBe(
+        `unix://${path.join("/opt/my-colima", "default", "docker.sock")}`,
+      );
+    } finally {
+      if (originalColimaHome === undefined) delete process.env.COLIMA_HOME;
+      else process.env.COLIMA_HOME = originalColimaHome;
+      if (originalDockerHost === undefined) delete process.env.DOCKER_HOST;
+      else process.env.DOCKER_HOST = originalDockerHost;
+    }
+  });
 });
 
