@@ -327,7 +327,13 @@ const antigravityOverrides: Partial<Agent> = {
       }
     }
 
-    return {
+    // Build the env object explicitly. DOCKER_HOST is conditionally included
+    // because Object.entries(env) on a key with `undefined` value still yields
+    // the key, and the runtime layer (tmux `-e KEY=VALUE`, child-process `env`)
+    // stringifies the value as the literal "undefined" — which would break
+    // native Docker on Linux where DOCKER_HOST must be UNSET (not
+    // `DOCKER_HOST=undefined`). See PR #686 Skeptic Gate-8 follow-up.
+    const env: Record<string, string> = {
       ...baseEnv,
       HOME: sessionHome,
       // Pin COLIMA_HOME to the user's real home so any subprocess in the worker
@@ -336,11 +342,6 @@ const antigravityOverrides: Partial<Agent> = {
       // overridden session HOME and bootstrapping a fresh per-worker VM at
       // ~/.ao-sessions/<id>/.colima/ (~2GB each, accumulating to dozens of
       // stale VMs across runs). See PR for the wa-2327 incident.
-      //
-      // DOCKER_HOST is only pinned on darwin (where colima is the default
-      // docker provider). On Linux, the user typically has native Docker with
-      // /var/run/docker.sock; pointing DOCKER_HOST at the colima socket would
-      // break every docker call.
       //
       // Override behavior: read process.env first so a user-supplied value
       // survives. This is necessary because the runtime layer applies
@@ -354,16 +355,22 @@ const antigravityOverrides: Partial<Agent> = {
         process.env.COLIMA_HOME
         ?? baseEnv.COLIMA_HOME
         ?? path.join(userHome, ".colima"),
-      DOCKER_HOST:
-        process.env.DOCKER_HOST
-        ?? baseEnv.DOCKER_HOST
-        ?? (os.platform() === "darwin"
-          ? `unix://${path.join(userHome, ".colima", "default", "docker.sock")}`
-          : undefined),
       // Clear these to prevent the spawned CLI from inheriting parent agent context
       ANTIGRAVITY_PROJECT_ID: "",
       ANTIGRAVITY_TRAJECTORY_ID: "",
     };
+    // DOCKER_HOST: only set on darwin (colima default) or if the user
+    // explicitly overrode it. On Linux without an override, leave the key
+    // ABSENT (not undefined) so the runtime omits it and the worker's
+    // `docker` calls fall back to native /var/run/docker.sock.
+    if (process.env.DOCKER_HOST) {
+      env.DOCKER_HOST = process.env.DOCKER_HOST;
+    } else if (baseEnv.DOCKER_HOST) {
+      env.DOCKER_HOST = baseEnv.DOCKER_HOST;
+    } else if (os.platform() === "darwin") {
+      env.DOCKER_HOST = `unix://${path.join(userHome, ".colima", "default", "docker.sock")}`;
+    }
+    return env;
   },
 
   async getRestoreCommand(_session: Session, _project: ProjectConfig): Promise<string | null> {

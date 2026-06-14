@@ -751,5 +751,35 @@ describe("antigravity getEnvironment", () => {
       else process.env.DOCKER_HOST = originalDockerHost;
     }
   });
+
+  it("omits DOCKER_HOST key entirely on Linux so the runtime does not serialize it as 'DOCKER_HOST=undefined'", () => {
+    // Skeptic Gate-8 follow-up: Object.entries(env) includes keys with
+    // undefined values, and the runtime layer (tmux `-e KEY=VALUE` /
+    // child-process env) stringifies them as the literal "undefined". On
+    // Linux that produces `DOCKER_HOST=undefined`, which breaks native
+    // Docker (`docker` reads DOCKER_HOST and tries to dial "undefined" as a
+    // socket). The plugin must not return the key at all on Linux when
+    // there is no user override.
+    const agent = create();
+    mockHomedir.mockReturnValue("/home/linuxuser");
+    mockPlatform.mockReturnValue("linux");
+
+    const originalDockerHost = process.env.DOCKER_HOST;
+    delete process.env.DOCKER_HOST;
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      // Assert the KEY is absent, not just the value being undefined.
+      expect("DOCKER_HOST" in env).toBe(false);
+      // Defense in depth: assert Object.entries (which is what the runtime
+      // iterates) does not see the key.
+      const runtimeView = Object.fromEntries(
+        Object.entries(env).filter(([, v]) => v !== undefined),
+      );
+      expect("DOCKER_HOST" in runtimeView).toBe(false);
+    } finally {
+      if (originalDockerHost !== undefined) process.env.DOCKER_HOST = originalDockerHost;
+    }
+  });
 });
 
