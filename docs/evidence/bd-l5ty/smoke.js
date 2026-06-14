@@ -28,7 +28,7 @@ out(`# date:           ${new Date().toISOString()}`);
 out(`# HOME:           ${HOME}`);
 out(`# node:           ${process.version}`);
 out(`# shell:          ${process.env.SHELL || "<unset>"}`);
-out(`# invocation:     bash -ic 'source ~/.bashrc 2>/dev/null || true; declare -x'`);
+out(`# invocation:     bash -ic 'declare -x'  (matches loadBashrcEnv in runtime-tmux/src/index.ts)`);
 out("");
 
 if (!process.env.HOME) {
@@ -40,7 +40,7 @@ let raw;
 try {
   raw = execFileSync(
     "bash",
-    ["-ic", "source ~/.bashrc 2>/dev/null || true; declare -x"],
+    ["-ic", "declare -x"],
     {
       encoding: "utf-8",
       timeout: 5_000,

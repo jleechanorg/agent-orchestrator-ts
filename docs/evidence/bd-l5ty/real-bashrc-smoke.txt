@@ -1,11 +1,11 @@
 # bd-l5ty real-bashrc smoke test
-# date:           2026-06-14T15:39:09.596Z
+# date:           2026-06-14T15:55:26.784Z
 # HOME:           /Users/jleechan
 # node:           v22.22.0
 # shell:          /bin/bash
-# invocation:     bash -ic 'source ~/.bashrc 2>/dev/null || true; declare -x'
+# invocation:     bash -ic 'declare -x'  (matches loadBashrcEnv in runtime-tmux/src/index.ts)
 
-# raw output size: 21703 bytes
+# raw output size: 21609 bytes
 
 # total exported vars parsed: 251
 # (cap applied at MAX_BASHRC_VARS=10000; see runtime-tmux/src/index.ts)
