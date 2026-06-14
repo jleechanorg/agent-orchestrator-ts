@@ -616,6 +616,11 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
         'declare -x API_SECRET="a\\$b\\"c\\\\d"', // bash escapes: a\$b\"c\\d
         "declare -x NEUTRAL='no-escapes'",
         "declare -x NEWLINE_VALUE=$'a\\nb'",
+        // Bash emits values containing BOTH a literal newline AND a literal
+        // single quote in the ANSI-C $'...' form with the single quote
+        // escaped as \'. e.g. a\n'b → $'a\n\'b' (verified with
+        // bash -ic on a real value with both bytes).
+        "declare -x MIX_NL_QUOTE=$'a\\n\\'b'",
       ].join("\n"),
     );
 
@@ -638,6 +643,8 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
     expect(args).toContain("NEUTRAL=no-escapes");
     // Bash ANSI-C $'...': \n → literal newline byte
     expect(args).toContain("NEWLINE_VALUE=a\nb");
+    // Bash ANSI-C $'...': \n + \' → literal newline + literal single quote
+    expect(args).toContain("MIX_NL_QUOTE=a\n'b");
   });
 
   it("preserves the no-env regression: undefined config.environment + missing bashrc produces no -e flags", async () => {

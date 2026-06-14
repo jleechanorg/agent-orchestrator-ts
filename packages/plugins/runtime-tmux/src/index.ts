@@ -51,12 +51,16 @@ const MAX_BASHRC_VARS = 10_000;
  */
 /**
  * Decode Bash backslash escapes — applies to both `"..."` (double-quoted)
- * and `$'...'` (ANSI-C) emit forms. The same escape set is used for both:
- * `\$`, `\"`, `\\`, `\n`, `\r`, `\t`, `\v`, `\f`, `\a`, `\b`, `\e`, and octal
- * `\0`-`\7`. Single-quoted `'...'` values never receive this transform.
+ * and `$'...'` (ANSI-C) emit forms. The same escape set is used for both,
+ * plus `\'` which only appears in `$'...'` (a literal `'` inside double
+ * quotes is emitted unescaped by bash, but inside `$'...'` bash uses
+ * `\'` to escape the single quote that would otherwise terminate the
+ * literal). Full set: `\$`, `\"`, `\\`, `\'`, `` \` ``, `\n`, `\r`, `\t`,
+ * `\v`, `\f`, `\a`, `\b`, `\e`, and octal `\0`-`\7`.
+ * Single-quoted `'...'` values never receive this transform.
  */
 function unescapeBashString(s: string): string {
-  return s.replace(/\\([\\$"`nrtvfabe0-7])/g, (_, ch) => {
+  return s.replace(/\\([\\$"'`nrtvfabe0-7])/g, (_, ch) => {
     switch (ch) {
       case "n": return "\n";
       case "r": return "\r";
@@ -69,6 +73,7 @@ function unescapeBashString(s: string): string {
       case "\\": return "\\";
       case "$": return "$";
       case '"': return '"';
+      case "'": return "'";
       case "`": return "`";
       default: return ch; // \0-\7: pass through (octal)
     }
