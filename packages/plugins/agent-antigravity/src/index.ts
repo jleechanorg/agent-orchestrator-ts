@@ -342,11 +342,21 @@ const antigravityOverrides: Partial<Agent> = {
       // /var/run/docker.sock; pointing DOCKER_HOST at the colima socket would
       // break every docker call.
       //
-      // Both env vars use `??` so a value already in baseEnv (caller override
-      // or a future field) wins over our default.
-      COLIMA_HOME: baseEnv.COLIMA_HOME ?? path.join(userHome, ".colima"),
+      // Override behavior: read process.env first so a user-supplied value
+      // survives. This is necessary because the runtime layer applies
+      // config.environment ON TOP of process.env at spawn time
+      // (`{ ...process.env, ...config.environment }` in runtime-process;
+      // `tmux -e KEY=VALUE` per-key in runtime-tmux), so a value the plugin
+      // returns here would otherwise overwrite whatever the user set in
+      // their shell. `baseEnv.COLIMA_HOME` etc. are also respected for
+      // callers that inject via the base agent.
+      COLIMA_HOME:
+        process.env.COLIMA_HOME
+        ?? baseEnv.COLIMA_HOME
+        ?? path.join(userHome, ".colima"),
       DOCKER_HOST:
-        baseEnv.DOCKER_HOST
+        process.env.DOCKER_HOST
+        ?? baseEnv.DOCKER_HOST
         ?? (os.platform() === "darwin"
           ? `unix://${path.join(userHome, ".colima", "default", "docker.sock")}`
           : undefined),

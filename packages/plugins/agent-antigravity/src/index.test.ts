@@ -723,5 +723,33 @@ describe("antigravity getEnvironment", () => {
     expect(env.COLIMA_HOME).toBe(path.join("/home/linuxuser", ".colima"));
     expect(env.DOCKER_HOST).toBeUndefined();
   });
+
+  it("preserves user-supplied COLIMA_HOME and DOCKER_HOST from process.env", () => {
+    // The runtime layer applies config.environment ON TOP of process.env at
+    // spawn time (`{ ...process.env, ...config.environment }` for the process
+    // runtime, `tmux -e KEY=VALUE` per-key for the tmux runtime). So if the
+    // plugin unconditionally sets these in its getEnvironment return, it
+    // clobbers whatever the user set in their shell. The plugin must read
+    // process.env first so a user-supplied value survives.
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const originalColimaHome = process.env.COLIMA_HOME;
+    const originalDockerHost = process.env.DOCKER_HOST;
+    process.env.COLIMA_HOME = "/custom/colima";
+    process.env.DOCKER_HOST = "unix:///custom/docker.sock";
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env.COLIMA_HOME).toBe("/custom/colima");
+      expect(env.DOCKER_HOST).toBe("unix:///custom/docker.sock");
+    } finally {
+      if (originalColimaHome === undefined) delete process.env.COLIMA_HOME;
+      else process.env.COLIMA_HOME = originalColimaHome;
+      if (originalDockerHost === undefined) delete process.env.DOCKER_HOST;
+      else process.env.DOCKER_HOST = originalDockerHost;
+    }
+  });
 });
 
