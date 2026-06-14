@@ -74,7 +74,13 @@ print(json.dumps({"channel": os.environ["CHANNEL"], "text": os.environ["TEXT"]})
   fi
 }
 
-dedup_should_send() {
+# dedup split into a pure check + a separate record step so the fingerprint is
+# only written AFTER a successful post. The old combined `dedup_should_send`
+# wrote the fingerprint before post_slack ran, so a failed post (e.g. empty
+# channel, token missing, network error) would still suppress the next real
+# alert within the dedupe window — P2 review comment from
+# chatgpt-codex-connector on PR #687.
+dedup_already_sent() {
   local fingerprint="$1"
   local now
   now=$(date +%s)
@@ -83,11 +89,15 @@ dedup_should_send() {
     last_hash=$(awk '{print $1}' "$DEDUPE_FILE" 2>/dev/null || echo "")
     last_ts=$(awk '{print $2}' "$DEDUPE_FILE" 2>/dev/null || echo 0)
     if [ "$last_hash" = "$fingerprint" ] && [ $((now - last_ts)) -lt 1800 ]; then
-      return 1
+      return 0
     fi
   fi
-  printf '%s %s\n' "$fingerprint" "$now" > "$DEDUPE_FILE"
-  return 0
+  return 1
+}
+
+dedup_record() {
+  local fingerprint="$1"
+  printf '%s %s\n' "$fingerprint" "$(date +%s)" > "$DEDUPE_FILE"
 }
 
 fail_count=0
@@ -178,11 +188,13 @@ check_tmux
 if [ "$fail_count" -gt 0 ]; then
   body=":rotating_light: hermes-watchdog alerts ($fail_count):${alert_lines}"
   fingerprint=$(printf '%s' "$body" | shasum -a 256 | awk '{print $1}')
-  if dedup_should_send "$fingerprint"; then
-    post_slack "$body" || log "alert not delivered: $body"
+  if dedup_already_sent "$fingerprint"; then
+    log "alert dedup-suppressed (same fingerprint within 30 min)"
+  elif post_slack "$body"; then
+    dedup_record "$fingerprint"
     log "alert posted: $fail_count issue(s)"
   else
-    log "alert dedup-suppressed (same fingerprint within 30 min)"
+    log "alert not delivered: $body"
   fi
 else
   log "all checks green"
