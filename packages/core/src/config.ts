@@ -515,28 +515,71 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
   return config;
 }
 
+/**
+ * Warn when a project's configKey does not match basename(project.path)
+ * and no explicit `name:` field is set. This catches the "mislabeled block"
+ * pattern that copy-paste between configs produces — e.g., a block keyed
+ * `cmux:` whose `path`, `repo`, and `agentRules` all reference a different
+ * project (e.g. `claude-commands`). The collision surfaces only when another
+ * config also has a `claude-commands` block; this check warns proactively
+ * even in a single-config file.
+ *
+ * bd-686.1: 2026-06-14 — the AO config duplicate-basename bug recurred within
+ * hours of first discovery because the workaround (direct plugin invocation)
+ * was captured as a memory entry without applying the 1-line config fix.
+ */
+function validateProjectKeyConsistency(config: OrchestratorConfig): void {
+  for (const [configKey, project] of Object.entries(config.projects)) {
+    const projectBasename = basename(project.path);
+    // Must run BEFORE applyProjectDefaults — at that point `name` is still
+    // undefined when the user did not set it explicitly. We warn only when
+    // configKey !== basename AND the user did not opt out via an explicit
+    // name field.
+    const nameExplicitlySet = project.name !== undefined;
+    if (configKey !== projectBasename && !nameExplicitlySet) {
+      console.warn(
+        `[config] Mislabeled project block: configKey "${configKey}" has ` +
+          `path "${project.path}" whose basename is "${projectBasename}". ` +
+          `If this is intentional, set an explicit "name: ${configKey}" field to ` +
+          `silence this warning. Otherwise, rename the block to "${projectBasename}" ` +
+          `or move the project to a path with basename "${configKey}". ` +
+          `(bd-686.1)`,
+      );
+    }
+  }
+}
+
 /** Validate project uniqueness and session prefix collisions */
 function validateProjectUniqueness(config: OrchestratorConfig): void {
   // Check for duplicate project IDs (basenames)
   const projectIds = new Set<string>();
   const projectIdToPaths: Record<string, string[]> = {};
+  const projectIdToKeys: Record<string, string[]> = {};
 
-  for (const [_configKey, project] of Object.entries(config.projects)) {
+  for (const [configKey, project] of Object.entries(config.projects)) {
     const projectId = basename(project.path);
 
     if (!projectIdToPaths[projectId]) {
       projectIdToPaths[projectId] = [];
+      projectIdToKeys[projectId] = [];
     }
     projectIdToPaths[projectId].push(project.path);
+    projectIdToKeys[projectId].push(configKey);
 
     if (projectIds.has(projectId)) {
-      const paths = projectIdToPaths[projectId].join(", ");
+      const conflictLines = projectIdToKeys[projectId]
+        .map((key, i) => `  - configKey "${key}" → ${projectIdToPaths[projectId][i]}`)
+        .join("\n");
       throw new Error(
         `Duplicate project ID detected: "${projectId}"\n` +
-          `Multiple projects have the same directory basename:\n` +
-          `  ${paths}\n\n` +
-          `To fix this, ensure each project path has a unique directory name.\n` +
-          `Alternatively, you can use the config key as a unique identifier.`,
+          `Multiple projects share the same directory basename but use different config keys:\n` +
+          `${conflictLines}\n\n` +
+          `This usually means a config block was mislabeled (copy-pasted under a different key).\n` +
+          `To fix, either:\n` +
+          `  1. Rename one of the config keys to match the other (e.g. align all keys on the basename), or\n` +
+          `  2. Move the mislabeled project to its own path with a unique basename.\n\n` +
+          `If you intended one project to have a custom name, set an explicit "name:" field on the\n` +
+          `mislabeled block to silence the warning.`,
       );
     }
     projectIds.add(projectId);
@@ -1007,6 +1050,14 @@ export function validateConfig(raw: unknown): OrchestratorConfig {
   let config = validated as OrchestratorConfig;
   config = expandPaths(config);
   config = applyEvolveLoopPaths(config);
+
+  // Warn about mislabeled config blocks (configKey vs basename mismatch).
+  // Runs BEFORE applyProjectDefaults so we can distinguish "name: explicitly
+  // set" from "name: auto-derived from configKey" — only the latter triggers
+  // the warning. Runs after expandPaths so the basename is computed on the
+  // resolved path.
+  validateProjectKeyConsistency(config);
+
   config = applyProjectDefaults(config);
   config = applyDefaultReactions(config);
 

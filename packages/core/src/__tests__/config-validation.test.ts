@@ -2,7 +2,7 @@
  * Unit tests for config validation (project uniqueness, prefix collisions).
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { validateConfig } from "../config.js";
 
 describe("Config Validation - Project Uniqueness", () => {
@@ -1052,5 +1052,109 @@ describe("Config Validation - Auto-merge centralized config (bd-n047)", () => {
         },
       }),
     ).toThrow();
+  });
+});
+
+describe("Config Validation - Project key/path consistency (bd-686.1)", () => {
+  it("warns when configKey does not match basename(path) and no explicit name set", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Mislabeled block: key is "cmux" but path basename is "claude-commands"
+      validateConfig({
+        projects: {
+          cmux: {
+            path: "/repos/claude-commands",
+            repo: "org/claude-commands",
+            defaultBranch: "main",
+            agentRules: "You are working in the claude-commands repo.",
+          },
+        },
+      });
+      const warnings = warnSpy.mock.calls.map((c) => String(c[0]));
+      expect(
+        warnings.some(
+          (w) =>
+            w.includes("cmux") &&
+            w.includes("claude-commands") &&
+            w.toLowerCase().includes("configkey") &&
+            w.toLowerCase().includes("basename"),
+        ),
+      ).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("does NOT warn when configKey mismatches basename but explicit name is set", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Legitimate use: user explicitly named the block "cmux" with a custom path
+      validateConfig({
+        projects: {
+          cmux: {
+            name: "cmux",
+            path: "/repos/claude-commands",
+            repo: "org/claude-commands",
+            defaultBranch: "main",
+          },
+        },
+      });
+      const warnings = warnSpy.mock.calls.map((c) => String(c[0]));
+      expect(
+        warnings.some(
+          (w) => w.toLowerCase().includes("configkey") && w.includes("cmux"),
+        ),
+      ).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("does NOT warn when configKey matches basename(path)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      validateConfig({
+        projects: {
+          "claude-commands": {
+            path: "/repos/claude-commands",
+            repo: "org/claude-commands",
+            defaultBranch: "main",
+          },
+        },
+      });
+      const warnings = warnSpy.mock.calls.map((c) => String(c[0]));
+      expect(warnings.some((w) => w.toLowerCase().includes("configkey"))).toBe(
+        false,
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+describe("Config Validation - Duplicate basename error message (bd-686.1)", () => {
+  it("error message includes both configKeys when basenames collide", () => {
+    const config = {
+      projects: {
+        cmux: {
+          path: "/repos/claude-commands",
+          repo: "org/claude-commands",
+          defaultBranch: "main",
+        },
+        "claude-commands": {
+          path: "/repos/claude-commands",
+          repo: "org/claude-commands",
+          defaultBranch: "main",
+        },
+      },
+    };
+    try {
+      validateConfig(config);
+      expect.fail("Should have thrown");
+    } catch (err) {
+      const message = (err as Error).message;
+      expect(message).toContain("cmux");
+      expect(message).toContain("claude-commands");
+    }
   });
 });
