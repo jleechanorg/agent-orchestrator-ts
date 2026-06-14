@@ -364,12 +364,45 @@ check_lifecycle_workers() {
   local config_file
   config_file="$(ao_find_config_path 2>/dev/null || ao_staging_config_path)"
   # Resolve canonical ao binary from PATH at runtime rather than hardcoding a path.
-  # Also resolve the real path (symlink target) so we match both launchd-spawned
-  # workers (show as /path/to/ao) and node-spawned workers (show as node /real/path.js).
+  # Also resolve the real path (symlink target OR pnpm shim exec target) so we match:
+  #   - launchd-spawned workers (argv shows /path/to/ao — the symlink itself)
+  #   - node-spawned workers (argv shows node /real/dist/index.js — the resolved file)
+  # realpath alone handles symlinks; pnpm global installs write a SHELL-SCRIPT shim
+  # (e.g. /Users/jleechan/Library/pnpm/ao) whose `exec` line points at the dist file.
+  # For shims, parse the exec target so the comparison matches the real dist path.
   local canonical_binary
   canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$DEFAULT_CONFIG_HOME/bin/ao")"
   local canonical_real
   canonical_real="$(realpath "$canonical_binary" 2>/dev/null || printf '%s' "$canonical_binary")"
+  # For pnpm global installs, `command -v ao` returns a SHELL-SCRIPT shim
+  # (e.g. /Users/jleechan/Library/pnpm/ao). realpath on a file returns the file
+  # itself, so canonical_real cannot help in the shim case. Parse the shim to
+  # extract its `exec` target (the dist file the shim actually launches) and
+  # compare against that as a third canonical path.
+  #
+  # Two shim shapes are handled:
+  #   1. Literal path:    `exec node "/path/to/dist/index.js" "$@"`
+  #   2. $basedir-style:  `exec node "$basedir/.../dist/index.js" "$@"`
+  #      (pnpm-generated shims — replace $basedir with the shim's directory)
+  local canonical_shim=""
+  if [ -f "$canonical_binary" ] \
+      && head -1 "$canonical_binary" 2>/dev/null | grep -qE '^#!.*(sh|bash|zsh)\b'; then
+    local shim_target
+    shim_target="$(grep -oE '"[^"]*dist/index\.js[^"]*"' "$canonical_binary" 2>/dev/null | head -1 | tr -d '"')"
+    if [ -n "$shim_target" ]; then
+      # Resolve $basedir-style shims to their absolute exec target.
+      case "$shim_target" in
+        '$basedir'/*)
+          local shim_dir
+          shim_dir="$(dirname "$canonical_binary")"
+          shim_target="${shim_dir}${shim_target#'$basedir'}"
+          ;;
+      esac
+      if [ "$shim_target" != "$canonical_binary" ]; then
+        canonical_shim="$shim_target"
+      fi
+    fi
+  fi
 
   # --- Check 1: detect ALL lifecycle-worker processes, flag non-canonical binaries ---
   # NOTE: Checks 1 and 2 run unconditionally — they do not require the config file.
@@ -388,14 +421,42 @@ check_lifecycle_workers() {
     local stale_pids=""
     while IFS= read -r line; do
       [ -z "$line" ] && continue
+      # Extract the ao binary path from the command line. Handles all of:
+      #   /path/to/ao lifecycle-worker project  ($11 = /path/to/ao)
+      #   node /path/to/ao lifecycle-worker project  ($12 = /path/to/ao, $11 = node)
+      #   node /path/to/dist/index.js lifecycle-worker project  ($12 = dist/index.js, $11 = node)
+      # The dist/index.js shape is the source-tree spawn path used by scripts/start-all.sh
+      # after `pnpm install -g` writes @jleechanorg/ao-cli as a symlink to the source tree.
+      # Match the symlink target via realpath so both shapes are recognized as canonical.
       local cmd
-      cmd="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i ~ /\/ao$/) {print $i; exit}}')"
-      if [ -z "$cmd" ] || { [ "$cmd" != "${canonical_binary}" ] && [ "$cmd" != "${canonical_real}" ]; }; then
+      cmd="$(printf '%s' "$line" | awk '{for(i=1;i<=NF;i++) if($i ~ /(\/ao$|\/dist\/index\.js$)/) {print $i; exit}}')"
+      if [ -z "$cmd" ] || { [ "$cmd" != "${canonical_binary}" ] && [ "$cmd" != "${canonical_real}" ] && [ "$cmd" != "${canonical_shim}" ] ; }; then
         stale_count=$((stale_count + 1))
         local pid
         pid="$(echo "$line" | awk '{print $2}')"
         stale_pids="$stale_pids $pid"
-        warn "non-canonical lifecycle-worker binary detected: PID=$pid binary contains: $(echo "$line" | grep -oE '/[^ ]+lifecycle|[^ ]+/ao' | head -1 || echo "unknown")"
+        # Surface the actual binary we extracted (cmd) when present, otherwise
+        # fall back to a smarter extractor that walks the line to find the
+        # path right after `node` (or the path right before `lifecycle-worker`).
+        # The legacy `[^ ]+/ao` substring was unsafe: it could match a parent
+        # directory like /tmp/ao when the real binary lived deeper in the path.
+        if [ -n "$cmd" ]; then
+          warn "non-canonical lifecycle-worker binary detected: PID=$pid binary contains: $cmd"
+        else
+          local fallback
+          fallback="$(printf '%s' "$line" | awk '{
+            for (i = 1; i <= NF; i++) {
+              if ($i == "node" || $i == "/usr/bin/node" || $i ~ /node$/) {
+                if ((i+1) <= NF) { print $(i+1); exit }
+              }
+              if ($i ~ /lifecycle-worker$/ || $i == "lifecycle-worker") {
+                if (i > 1) { print $(i-1); exit }
+              }
+            }
+          }')"
+          if [ -z "$fallback" ]; then fallback="unknown"; fi
+          warn "non-canonical lifecycle-worker binary detected: PID=$pid binary contains: $fallback"
+        fi
       fi
     done <<< "$all_workers"
 
