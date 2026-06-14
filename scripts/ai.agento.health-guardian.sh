@@ -29,11 +29,16 @@ TIER1_PLIST="$HOME/Library/LaunchAgents/$TIER1_LABEL.plist"
 # Source-of-truth order: live (substituted) > frozen (template w/ @VAR@)
 # If live plist exists, use it; if missing, fall back to template + setup-launchd.sh.
 TIER1_LOG="$HOME/.openclaw/logs/ao-health.log"
-HERMES_OPS_SLACK_CHANNEL="${HERMES_OPS_SLACK_CHANNEL:-C0AJ3SD5C79}"
-if [ "${HEALTH_GUARDIAN_ALERT_CHANNEL:-}" = "C09GRLXF9GR" ]; then
-  HEALTH_GUARDIAN_ALERT_CHANNEL=""
-fi
-CHANNEL="${HEALTH_GUARDIAN_ALERT_CHANNEL:-$HERMES_OPS_SLACK_CHANNEL}"
+# Channel resolution matches the umbrella pattern from PR #615
+# (jleechanorg/jleechanclaw, lib/slack_thread_lib.sh): empty default > wrong
+# default. The plist's HEALTH_GUARDIAN_ALERT_CHANNEL is the source of truth;
+# HERMES_OPS_SLACK_CHANNEL is the cross-job fallback (also env-driven, no
+# hardcoded channel here). If both are empty, the post fails soft and no
+# channel bleed occurs. Red-Green evidence + design rationale: PR #687.
+HERMES_OPS_SLACK_CHANNEL="${HERMES_OPS_SLACK_CHANNEL:-}"
+CHANNEL="${HEALTH_GUARDIAN_ALERT_CHANNEL:-${HERMES_OPS_SLACK_CHANNEL:-}}"
+# post_slack refuses to post when CHANNEL is empty (token check still runs
+# first; missing token logs "no SLACK token" and returns 1 — same as before).
 STATE_DIR="$HOME/.openclaw/logs"
 DEDUPE_FILE="$STATE_DIR/health-guardian-alerts.sha"
 LOG_PREFIX="[ai.agento.health-guardian]"
@@ -47,6 +52,12 @@ post_slack() {
   local token="${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_USER_TOKEN:-}}"
   if [ -z "$token" ]; then
     log "no SLACK token; cannot post: $text"
+    return 1
+  fi
+  if [ -z "$CHANNEL" ]; then
+    # No channel resolved — matches the umbrella pattern from PR #615: a missing
+    # env no longer silently bleeds into a wrong channel; it fails soft.
+    log "no CHANNEL resolved; cannot post: $text"
     return 1
   fi
   local payload
@@ -75,7 +86,13 @@ print(json.dumps({"channel": os.environ["CHANNEL"], "text": os.environ["TEXT"]})
   fi
 }
 
-dedup_should_send() {
+# dedup split into a pure check + a separate record step so the fingerprint is
+# only written AFTER a successful post. The old combined `dedup_should_send`
+# wrote the fingerprint before post_slack ran, so a failed post (e.g. empty
+# channel, token missing, network error) would still suppress the next real
+# alert within the dedupe window — P2 review comment from
+# chatgpt-codex-connector on PR #687.
+dedup_already_sent() {
   local fingerprint="$1"
   local now
   now=$(date +%s)
@@ -84,11 +101,15 @@ dedup_should_send() {
     last_hash=$(awk '{print $1}' "$DEDUPE_FILE" 2>/dev/null || echo "")
     last_ts=$(awk '{print $2}' "$DEDUPE_FILE" 2>/dev/null || echo 0)
     if [ "$last_hash" = "$fingerprint" ] && [ $((now - last_ts)) -lt 3600 ]; then
-      return 1
+      return 0
     fi
   fi
-  printf '%s %s\n' "$fingerprint" "$now" > "$DEDUPE_FILE"
-  return 0
+  return 1
+}
+
+dedup_record() {
+  local fingerprint="$1"
+  printf '%s %s\n' "$fingerprint" "$(date +%s)" > "$DEDUPE_FILE"
 }
 
 alert_count=0
@@ -194,11 +215,13 @@ fi
 if [ "$alert_count" -gt 0 ]; then
   body=":rotating_light: ai.agento.health-guardian alerts ($alert_count):${alert_lines}"
   fingerprint=$(printf '%s' "$body" | shasum -a 256 | awk '{print $1}')
-  if dedup_should_send "$fingerprint"; then
-    post_slack "$body" || log "alert not delivered"
+  if dedup_already_sent "$fingerprint"; then
+    log "alert dedup-suppressed (same fingerprint within 60 min)"
+  elif post_slack "$body"; then
+    dedup_record "$fingerprint"
     log "alert posted: $alert_count issue(s)"
   else
-    log "alert dedup-suppressed (same fingerprint within 60 min)"
+    log "alert not delivered: $body"
   fi
 else
   log "all checks green (workers=$WORKER_COUNT)"
