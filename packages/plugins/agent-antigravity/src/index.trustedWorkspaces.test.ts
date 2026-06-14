@@ -370,6 +370,56 @@ describe("antigravity antigravity-cli/settings.json trustedWorkspaces pre-seed",
     expect(trusted).not.toContain("/Users/mockuser");
   });
 
+  it("never adds a top-level system root (e.g. /tmp, /var) to trustedWorkspaces", () => {
+    // 2026-06-14 Skeptic review: an AO worker launched from /tmp/<x> must
+    // not seed the entire /tmp directory (would trust every other
+    // /tmp/<y> workspace on the host). The ancestor walk must stop at the
+    // first "shared system" root, not just at the homedir.
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+
+    mockLstatSync.mockReset();
+    mockUnlinkSync.mockReset();
+    mockSymlinkSync.mockReset();
+    mockWriteFileSync.mockReset();
+
+    mockExistsSync.mockImplementation((filepath) => {
+      if (typeof filepath !== "string") return false;
+      if (filepath.endsWith(path.join("antigravity-cli", "settings.json"))) return true;
+      return false;
+    });
+
+    const writtenFiles = new Map<string, string>();
+    mockWriteFileSync.mockImplementation((filepath, content) => {
+      if (typeof filepath === "string") {
+        writtenFiles.set(filepath, content as string);
+      }
+    });
+
+    const env = agent.getEnvironment({
+      ...makeLaunchConfig(),
+      workspacePath: "/tmp/ao-sessions/sess-1",
+    });
+    expect(env).toBeDefined();
+
+    const innerSettingsPath = path.join(
+      "/Users/mockuser",
+      ".ao-sessions",
+      "sess-1",
+      ".gemini",
+      "antigravity-cli",
+      "settings.json",
+    );
+    const innerSettings = JSON.parse(writtenFiles.get(innerSettingsPath) || "{}");
+    const trusted = innerSettings.trustedWorkspaces as string[];
+
+    // Leaf is added; parent (/tmp) is the stop boundary and must NOT be added.
+    expect(trusted).toContain("/tmp/ao-sessions/sess-1");
+    expect(trusted).not.toContain("/tmp");
+    // The filesystem root must never be added.
+    expect(trusted).not.toContain("/");
+  });
+
   it("injects the security.folderTrust.enabled=false bypass flag (nested form per Gemini schema)", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");

@@ -500,7 +500,24 @@ const antigravityOverrides: Partial<Agent> = {
           // literally $HOME), don't add it.
           if (canonical === userHome) return;
           const stopAt = userHome;
+          // Top-level system directories are off-limits as trust roots — adding
+          // "/tmp" would trust every /tmp/<x> workspace on the host, "/var"
+          // would trust system-log locations, etc. The ancestor walk must stop
+          // at or above these boundaries, never add them, and never reach the
+          // filesystem root ("/").
+          // 2026-06-14: Skeptic review flagged the over-trust risk for
+          // /tmp/<x> AO sessions; cap the walk at the immediate parent of
+          // any "shared" system root.
+          const systemRootSet = new Set<string>([
+            path.dirname(userHome), // "/Users" on macOS, "/home" on Linux (parent of $HOME)
+            "/tmp",
+            "/var",
+            "/opt",
+            "/srv",
+            "/etc",
+          ]);
           while (cur && cur !== stopAt && cur !== path.dirname(cur)) {
+            if (systemRootSet.has(cur)) break; // never trust a shared system root
             allSeedPaths.add(cur);
             try {
               const resolved = fs.realpathSync(cur);
