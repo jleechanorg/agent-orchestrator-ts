@@ -369,6 +369,17 @@ const antigravityOverrides: Partial<Agent> = {
       // Clear these to prevent the spawned CLI from inheriting parent agent context
       ANTIGRAVITY_PROJECT_ID: "",
       ANTIGRAVITY_TRAJECTORY_ID: "",
+      // Belt-and-suspenders: gemini-cli (which `agy` forks from) reads
+      // GEMINI_CLI_TRUST_WORKSPACE=true at startup and skips the trust
+      // prompt for the session, regardless of folderTrust settings. Set
+      // this unconditionally in workers so a stale or accidentally-stricter
+      // settings.json can never re-introduce the trust-prompt deadlock.
+      // 2026-06-14: wa-2282/2351/2352 each blocked ~6-10 minutes on this
+      // prompt before any tool call. See:
+      //   https://geminicli.com/docs/cli/trusted-folders ("Headless and
+      //   Automated Environments" — "Bypass options: ... Environment
+      //   variable: GEMINI_CLI_TRUST_WORKSPACE=true").
+      GEMINI_CLI_TRUST_WORKSPACE: "true",
     };
     // DOCKER_HOST: only set on darwin (colima default) or if the user
     // explicitly overrode it. On Linux without an override, leave the key
@@ -455,19 +466,99 @@ const antigravityOverrides: Partial<Agent> = {
           : [];
         const trustedSet = new Set<string>(existingTrusted);
 
-        for (const p of innerPathsToTrust) {
-          // Canonical helper expands ~/...; bare ~ is the homedir itself.
-          const canonicalPath = p === "~" ? userHome : expandHome(p);
-          trustedSet.add(canonicalPath);
-          try {
-            const resolved = fs.realpathSync(canonicalPath);
-            trustedSet.add(resolved);
-          } catch {
-            // ignore if realpath fails (path may not exist yet at spawn time)
+        // Build a deduplicated list of every path that should be trusted: the
+        // explicit project + workspace paths AND every ancestor of each one.
+        // agy / gemini-cli checks `trustedWorkspaces` using longest-prefix
+        // match — it does NOT walk up the directory tree, so a path like
+        // `/Users/jleechan/.worktrees/worldarchitect/wa-1702` must be added
+        // explicitly; pre-seeding only the project root leaves worktrees
+        // un-trusted and re-introduces the TUI prompt. Adding every ancestor
+        // gives us belt-and-suspenders coverage for nested worktrees,
+        // /tmp/<x>/y sessions, and any future layout that nests a worker
+        // cwd under a path the AO operator did not anticipate. We dedupe via
+        // a Set so a path that is its own ancestor is not added twice.
+        // 2026-06-14: trust-prompt recurrence across wa-2282/wa-2351/wa-2352
+        // showed that pre-seeding only the project root was insufficient —
+        // the worker's tmux cwd was a deeper nested path inside the worktree.
+        const allSeedPaths = new Set<string>();
+        const addWithAncestors = (raw: string) => {
+          const canonical = raw === "~" ? userHome : expandHome(raw);
+          if (!canonical) return;
+          let cur = canonical;
+          // Walk up to (but not including) the home directory. We deliberately
+          // stop ONE level above the home dir so we never add the homedir
+          // itself to trustedWorkspaces — that would silently over-trust
+          // the user's entire home, including any unrelated cloned repo
+          // under ~/projects/ or similar. The path-prefix check is
+          // inclusive: trusting "/Users/jleechan" would match every
+          // workspace the user has, which violates the principle of least
+          // privilege. Stop at the parent of the homedir (i.e. "/Users" on
+          // macOS) instead.
+          //
+          // Special case: if the canonical path IS the homedir itself
+          // (extremely unusual — only happens for a project whose path is
+          // literally $HOME), don't add it.
+          if (canonical === userHome) return;
+          const stopAt = userHome;
+          while (cur && cur !== stopAt && cur !== path.dirname(cur)) {
+            allSeedPaths.add(cur);
+            try {
+              const resolved = fs.realpathSync(cur);
+              if (resolved && resolved !== cur) allSeedPaths.add(resolved);
+            } catch {
+              // realpath may fail for non-existent or permission-denied paths; ignore.
+            }
+            const parent = path.dirname(cur);
+            if (parent === cur) break; // reached filesystem root
+            cur = parent;
           }
+        };
+        for (const p of innerPathsToTrust) {
+          addWithAncestors(p);
+        }
+
+        for (const p of allSeedPaths) {
+          trustedSet.add(p);
         }
 
         innerSettings.trustedWorkspaces = Array.from(trustedSet);
+
+        // ALSO inject the global trust-bypass flags so that even if
+        // `trustedWorkspaces` is missing some future path the worker lands in,
+        // agy / gemini-cli will not pop the TUI prompt. The flags are the
+        // canonical escape hatches documented in
+        // https://geminicli.com/docs/cli/trusted-folders (gemini-cli upstream;
+        // agy is a downstream fork that honors the same keys).
+        //
+        // Both keys are written idempotently: if either is already set to
+        // `true`, the write flips it to `false` to honor the AO operator's
+        // intent of "never prompt in workers".
+        const ensureFlagFalse = (
+          root: Record<string, unknown>,
+          dottedPath: readonly string[],
+        ) => {
+          let cur: Record<string, unknown> = root;
+          for (let i = 0; i < dottedPath.length - 1; i++) {
+            const seg = dottedPath[i];
+            const next = cur[seg];
+            if (next === undefined || next === null || typeof next !== "object" || Array.isArray(next)) {
+              cur[seg] = {};
+            }
+            cur = cur[seg] as Record<string, unknown>;
+          }
+          const last = dottedPath[dottedPath.length - 1];
+          cur[last] = false;
+        };
+        ensureFlagFalse(innerSettings, ["security", "folderTrust", "enabled"]);
+        // VS Code-style dotted key form. Some gemini-cli builds read the
+        // legacy `security.folderTrust.enabled` (nested) and others read the
+        // VS Code flat `security.folderTrust.enabled` (dotted) — write BOTH
+        // forms so the flag survives any future build switch.
+        // The flat form lives on a side key so it does not collide with the
+        // nested object we just wrote.
+        const flatKey = "security.folderTrust.enabled";
+        innerSettings[flatKey] = false;
+
         fs.mkdirSync(path.dirname(agyCliSettingsPath), { recursive: true });
         fs.writeFileSync(
           agyCliSettingsPath,
