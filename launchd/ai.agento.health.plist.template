@@ -79,7 +79,7 @@
     <key>MINIMAX_ANTHROPIC_BASE_URL</key>
     <string>https://api.minimax.io/anthropic</string>
     <key>MINIMAX_MODEL</key>
-    <string>MiniMax-M2.7</string>
+    <string>MiniMax-M3</string>
     <key>CLAUDE_BINARY</key>
     <string>@CLAUDE_BINARY@</string>
     <key>SSL_CERT_FILE</key>
