@@ -779,9 +779,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         const sessionsDir = getSessionsDir(config.configPath, project.path);
         updateMetadata(sessionsDir, session.id, { scmFailureCount: String(scmFailureCount) });
         if (agentDead && scmFailureCount >= SCM_FAILURE_THRESHOLD) {
-          // Threshold reached — same killConfirmed pattern as step 4 catch.
-          session.metadata["killConfirmed"] = "true";
-          updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
+          // Threshold reached during detectPR — use a structured reason tag
+          // (not the boolean "true") so the auton diagnostic can attribute
+          // kills to the SCM path that triggered them. Same pattern as the
+          // post-detectPR threshold-kill branch below and the stuck-probe
+          // branch at line 2558.
+          session.metadata["killConfirmed"] = "scm-failure-detectPR-threshold";
+          updateMetadata(sessionsDir, session.id, { killConfirmed: "scm-failure-detectPR-threshold" });
           return { status: "killed", agentDead: true };
         }
       } finally {
@@ -1031,12 +1035,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         updateMetadata(sessionsDir, session.id, { scmFailureCount: String(scmFailureCount) });
 
         if (agentDead && scmFailureCount >= SCM_FAILURE_THRESHOLD) {
-          // Threshold reached — mark killConfirmed so checkSession's bd-kki skips
-          // its secondary SCM absorption re-check (which could throw on a session
-          // whose PR state is stale).  Update both in-memory and on-disk so the
-          // guard activates within the same poll cycle.
-          session.metadata["killConfirmed"] = "true";
-          updateMetadata(sessionsDir, session.id, { killConfirmed: "true" });
+          // Threshold reached during the post-detectPR SCM call — use a
+          // structured reason tag (not the boolean "true") so the auton
+          // diagnostic can attribute kills to the SCM path that triggered
+          // them. Mark killConfirmed so checkSession's bd-kki skips its
+          // secondary SCM absorption re-check (which could throw on a
+          // session whose PR state is stale). Update both in-memory and
+          // on-disk so the guard activates within the same poll cycle.
+          session.metadata["killConfirmed"] = "scm-failure-threshold";
+          updateMetadata(sessionsDir, session.id, { killConfirmed: "scm-failure-threshold" });
           return { status: "killed", agentDead: true };
         }
       } finally {
