@@ -158,7 +158,7 @@ describe("scripts/ao-doctor.sh — lifecycle-worker binary canonicalization", ()
       `printf "user  12345  12345  node ${distPath} lifecycle-worker agent-orchestrator\\n"`,
     );
 
-    const configPath = writeConfig(tempRoot, fakeRepo);
+    const configPath = writeConfig(tempRoot);
     const result = runDoctorWithEnv(binDir, fakeRepo, configPath, tempRoot);
     rmSync(tempRoot, { recursive: true, force: true });
 
@@ -207,7 +207,7 @@ describe("scripts/ao-doctor.sh — lifecycle-worker binary canonicalization", ()
       `printf "user  12345  12345  node ${distPath} lifecycle-worker agent-orchestrator\\n"`,
     );
 
-    const configPath = writeConfig(tempRoot, fakeRepo);
+    const configPath = writeConfig(tempRoot);
     const result = runDoctorWithEnv(binDir, fakeRepo, configPath, tempRoot);
     rmSync(tempRoot, { recursive: true, force: true });
 
@@ -249,7 +249,7 @@ describe("scripts/ao-doctor.sh — lifecycle-worker binary canonicalization", ()
       `printf "user  12345  12345  node ${otherPath} lifecycle-worker agent-orchestrator\\n"`,
     );
 
-    const configPath = writeConfig(tempRoot, fakeRepo);
+    const configPath = writeConfig(tempRoot);
     const result = runDoctorWithEnv(binDir, fakeRepo, configPath, tempRoot);
     rmSync(tempRoot, { recursive: true, force: true });
 
