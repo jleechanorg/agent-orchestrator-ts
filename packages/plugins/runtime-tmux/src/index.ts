@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,6 +29,97 @@ export const manifest = {
 
 /** Only allow safe characters in session IDs */
 const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]+$/;
+
+/** Cap on the number of bashrc exports we'll inject. Beyond this we log a
+ * warning and truncate. Pathological .bashrc files (hundreds of exports)
+ * shouldn't bloat every new tmux session's -e flag list. */
+const MAX_BASHRC_VARS = 200;
+
+/**
+ * Parse `declare -x KEY=VALUE` lines from `bash -ic 'declare -x'` output.
+ * Handles double-quoted, single-quoted, and unquoted values. Skips entries
+ * with empty values (passing `-e KEY=` to tmux would override any inherited
+ * default to empty, which is rarely what we want).
+ */
+function parseBashrcOutput(output: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (typeof output !== "string" || output.length === 0) return result;
+  for (const line of output.split("\n")) {
+    const m = line.match(/^declare -x ([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!m) continue;
+    const key = m[1];
+    let value = m[2].replace(/\s+$/, "");
+    if (value.length >= 2) {
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1);
+      } else if (value.startsWith("'") && value.endsWith("'")) {
+        value = value.slice(1, -1);
+      }
+    }
+    if (value.length === 0) continue;
+    result[key] = value;
+  }
+  return result;
+}
+
+/**
+ * Source the user's `~/.bashrc` and return the exports it sets, as a plain
+ * object suitable for merging into the tmux session's environment.
+ *
+ * `tmux new-session -d` starts a non-interactive, non-login shell that does
+ * NOT source `~/.bashrc` or `~/.bash_profile`. As a result, any secrets or
+ * PATH additions exported from bashrc (`AO_BOT_GH_TOKEN`, `GH_TOKEN_AGENT1`,
+ * `MINIMAX_API_KEY`, custom PATH entries, etc.) are missing from worker
+ * shells. This helper runs an interactive `bash -ic` so bashrc IS sourced,
+ * dumps the resulting environment with `declare -x`, and parses the output
+ * back into a key→value map.
+ *
+ * Mirrors the proven pattern in `scripts/launchd-launcher.sh` (commit
+ * 504a347) used to inject the same set of vars into launchd plists.
+ *
+ * Non-fatal: returns `{}` on any failure (HOME unset, bash missing, bashrc
+ * missing, parse error). The caller falls back to whatever was in
+ * `config.environment`.
+ *
+ * Cap: at most `MAX_BASHRC_VARS` (200) entries are returned. If the user's
+ * bashrc exports more, the rest are dropped with a warning.
+ */
+function loadBashrcEnv(): Record<string, string> {
+  if (!process.env.HOME) return {};
+  let output: string;
+  try {
+    output = execFileSync(
+      "bash",
+      ["-ic", "source ~/.bashrc 2>/dev/null || true; declare -x"],
+      {
+        encoding: "utf-8",
+        timeout: 2_000,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+  } catch {
+    // bash missing, bashrc unreadable, or timeout — non-fatal.
+    return {};
+  }
+  if (typeof output !== "string") return {};
+  const result = parseBashrcOutput(output);
+  const keys = Object.keys(result);
+  if (keys.length > MAX_BASHRC_VARS) {
+    console.warn(
+      `[runtime-tmux] bashrc exported ${keys.length} vars; truncating to ${MAX_BASHRC_VARS}`,
+    );
+    const truncated: Record<string, string> = {};
+    for (const k of keys.slice(0, MAX_BASHRC_VARS)) {
+      truncated[k] = result[k];
+    }
+    return truncated;
+  }
+  if (keys.length > 0) {
+    // Log the count only — never log values (they may contain secrets).
+    console.warn(`[runtime-tmux] loaded ${keys.length} vars from ~/.bashrc`);
+  }
+  return result;
+}
 
 /**
  * Detect if the agent is Gemini CLI by inspecting the launch command.
@@ -242,9 +334,17 @@ export function create(): Runtime {
       assertValidSessionId(config.sessionId);
       const sessionName = config.sessionId;
 
-      // Build environment flags: -e KEY=VALUE for each env var
+      // Source bashrc-sourced env vars (bd-l5ty): tmux new-session starts a
+      // non-interactive non-login shell that does NOT source ~/.bashrc, so
+      // secrets exported from bashrc (AO_BOT_GH_TOKEN, GH_TOKEN_AGENT1, …)
+      // are missing from worker shells unless we inject them explicitly.
+      // Mirrors the proven pattern in scripts/launchd-launcher.sh.
+      const bashrcEnv = loadBashrcEnv();
+      // Explicit per-session config.environment takes precedence over bashrc.
+      const mergedEnv = { ...bashrcEnv, ...(config.environment ?? {}) };
       const envArgs: string[] = [];
-      for (const [key, value] of Object.entries(config.environment ?? {})) {
+      for (const [key, value] of Object.entries(mergedEnv)) {
+        if (value === "") continue;
         envArgs.push("-e", `${key}=${value}`);
       }
 

@@ -1,0 +1,359 @@
+# bd-l5ty real-bashrc smoke test
+# date:           2026-06-14T14:05:17.700Z
+# HOME:           /Users/jleechan
+# node:           v22.22.0
+# shell:          /bin/bash
+# invocation:     bash -ic 'source ~/.bashrc 2>/dev/null || true; declare -x'
+
+# raw output size: 21945 bytes
+
+# total exported vars parsed: 251
+# (cap applied at MAX_BASHRC_VARS=200; see runtime-tmux/src/index.ts)
+
+# exported key list (alphabetical, values redacted):
+#   (no-underscore)           21 keys
+#   AGENTO_                    1 keys
+#   AI_                        9 keys
+#   ALLOWLIST_                 1 keys
+#   AMAZON_                    1 keys
+#   ANTHROPIC_                 4 keys
+#   AO_                       12 keys
+#   API_                       1 keys
+#   BACKUP_                    1 keys
+#   BASH_                      3 keys
+#   BD_                        1 keys
+#   BEADS_                     1 keys
+#   BUN_                       1 keys
+#   CEREBRAS_                  3 keys
+#   CLAUDE_                   17 keys
+#   CMUXD_                     1 keys
+#   CMUXTERM_                  1 keys
+#   CMUX_                     24 keys
+#   CODEX_                     1 keys
+#   COMMAND_                   1 keys
+#   COREPACK_                  1 keys
+#   DEEPSEEK_                  1 keys
+#   DISABLE_                   1 keys
+#   DISCORD_                   1 keys
+#   EMAIL_                     2 keys
+#   ENABLE_                    2 keys
+#   FIREBASE_                  8 keys
+#   GATEWAY_                   1 keys
+#   GCLOUD_                    1 keys
+#   GCP_                       1 keys
+#   GEMINI_                    2 keys
+#   GHOSTTY_                   4 keys
+#   GH_                        3 keys
+#   GIT_                       1 keys
+#   GLM_                       2 keys
+#   GODADDY_                   2 keys
+#   GOG_                       1 keys
+#   GOOGLE_                    9 keys
+#   GPT_                       3 keys
+#   GROK_                      1 keys
+#   GROQ_                      1 keys
+#   HERMES_                    2 keys
+#   HOMEBREW_                  3 keys
+#   HTTP_                      1 keys
+#   JLEECHAN_                  2 keys
+#   LOCAL_                     1 keys
+#   MCP_                       4 keys
+#   MEETING_                   2 keys
+#   MINIMAX_                   4 keys
+#   MISSION_                   2 keys
+#   N8N_                       1 keys
+#   NOTION_                    1 keys
+#   NVM_                       1 keys
+#   OPENAI_                    1 keys
+#   OPENCLAW_                 12 keys
+#   OPENCODE_                  1 keys
+#   OPENROUTER_                1 keys
+#   PERPLEXITY_                1 keys
+#   PNPM_                      1 keys
+#   PYENV_                     1 keys
+#   PYPI_                      1 keys
+#   REDIS_                     2 keys
+#   RENDER_                    1 keys
+#   RUNPOD_                    1 keys
+#   SLACK_                     7 keys
+#   SMOKE_                     1 keys
+#   SSH_                       2 keys
+#   SSL_                       1 keys
+#   TAVILY_                    1 keys
+#   TELEGRAM_                  1 keys
+#   TERM_                      2 keys
+#   TEST_                      4 keys
+#   TMUX_                      1 keys
+#   VITE_                     14 keys
+#   WAFER_                     1 keys
+#   WIKI_                      1 keys
+#   WORLDAI_                   6 keys
+#   WORLDARCH_                 1 keys
+#   WORLDCLAW_                 1 keys
+#   XAI_                       1 keys
+#   XDG_                       1 keys
+#   XPC_                       2 keys
+#   _                          3 keys
+
+# all keys (no values, sorted; secret-named vars redacted as <redacted:N>):
+#   AGENTO_CHANNEL
+#   AI_AGENT
+#   AI_UNIVERSE_FIREBASE_API_KEY
+#   AI_UNIVERSE_FIREBASE_APP_ID
+#   AI_UNIVERSE_FIREBASE_AUTH_DOMAIN
+#   AI_UNIVERSE_FIREBASE_MEASUREMENT_ID
+#   AI_UNIVERSE_FIREBASE_MESSAGING_SENDER_ID
+#   AI_UNIVERSE_FIREBASE_PROJECT_ID
+#   AI_UNIVERSE_FIREBASE_STORAGE_BUCKET
+#   AI_UNIV_GROK_KEY
+#   ALLOWLIST_SECRET_NAME
+#   AMAZON_CLONE_PORT
+#   ANTHROPIC_API_KEY
+#   ANTHROPIC_AUTH_TOKEN
+#   ANTHROPIC_BASE_URL
+#   ANTHROPIC_MODEL
+#   AO_ALLOW_GH_PR_MERGE
+#   AO_BOT_GH_TOKEN
+#   AO_CALLER_TYPE
+#   AO_CONFIG_PATH
+#   AO_DATA_DIR
+#   AO_NO_OPEN_BROWSER
+#   AO_PORT
+#   AO_PROJECT_ID
+#   AO_SESSION
+#   AO_SESSION_ID
+#   AO_SESSION_NAME
+#   AO_TMUX_NAME
+#   API_SERVER_ENABLED
+#   BACKUP_EMAIL
+#   BASH_DEFAULT_TIMEOUT_MS
+#   BASH_MAX_OUTPUT_LENGTH
+#   BASH_SILENCE_DEPRECATION_WARNING
+#   BD_NO_DAEMON
+#   BEADS_USE_DAEMON
+#   BUN_INSTALL
+#   CEREBRAS_API_KEY
+#   CEREBRAS_BASE_URL
+#   CEREBRAS_MODEL
+#   CLAUDECODE
+#   CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR
+#   CLAUDE_BINARY
+#   CLAUDE_CODE_AUTO_COMPACT_WINDOW
+#   CLAUDE_CODE_CHILD_SESSION
+#   CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN
+#   CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+#   CLAUDE_CODE_DISABLE_MOUSE
+#   CLAUDE_CODE_DISABLE_TERMINAL_TITLE
+#   CLAUDE_CODE_ENABLE_TASKS
+#   CLAUDE_CODE_ENTRYPOINT
+#   CLAUDE_CODE_EXECPATH
+#   CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+#   CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS
+#   CLAUDE_CODE_MAX_CONTEXT_TOKENS
+#   CLAUDE_CODE_MAX_OUTPUT_TOKENS
+#   CLAUDE_CODE_SESSION_ID
+#   CLAUDE_EFFORT
+#   CMUXD_UNIX_PATH
+#   CMUXTERM_REPO_ROOT
+#   CMUX_AGENT_LAUNCH_ARGV_B64
+#   CMUX_AGENT_LAUNCH_CWD
+#   CMUX_AGENT_LAUNCH_EXECUTABLE
+#   CMUX_AGENT_LAUNCH_KIND
+#   CMUX_API_BASE_URL
+#   CMUX_AUTH_WWW_ORIGIN
+#   CMUX_BUNDLED_CLI_PATH
+#   CMUX_BUNDLE_ID
+#   CMUX_CLAUDE_HOOK_CMUX_BIN
+#   CMUX_CLAUDE_PID
+#   CMUX_DEBUG_LOG
+#   CMUX_LOAD_GHOSTTY_BASH_INTEGRATION
+#   CMUX_PORT
+#   CMUX_PORT_END
+#   CMUX_PORT_RANGE
+#   CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD
+#   CMUX_SHELL_INTEGRATION
+#   CMUX_SHELL_INTEGRATION_DIR
+#   CMUX_SOCKET_ENABLE
+#   CMUX_SOCKET_MODE
+#   CMUX_SOCKET_PATH
+#   CMUX_TAB_ID
+#   CMUX_VM_API_BASE_URL
+#   CMUX_WORKSPACE_ID
+#   CODEX_NO_CEREB_PORT
+#   COLORTERM
+#   COMMAND_MODE
+#   COREPACK_ENABLE_AUTO_PIN
+#   DEEPSEEK_API_KEY
+#   DISABLE_AUTOUPDATER
+#   DISCORD_BOT_TOKEN
+#   EDITOR
+#   EMAIL_PASS
+#   EMAIL_USER
+#   ENABLE_EXPERIMENTAL_MCP_CLI
+#   ENABLE_TOOL_SEARCH
+#   FIREBASE_API_KEY
+#   FIREBASE_APP_ID
+#   FIREBASE_AUTH_DOMAIN
+#   FIREBASE_MEASUREMENT_ID
+#   FIREBASE_MESSAGING_SENDER_ID
+#   FIREBASE_PROJECT_ID
+#   FIREBASE_STORAGE_BUCKET
+#   FIREBASE_TEST_UID
+#   GATEWAY_ALLOW_ALL_USERS
+#   GCLOUD_SERVICE_ACCOUNT_JSON_B64
+#   GCP_PROJECT_ID
+#   GEMINI_API_KEY
+#   GEMINI_MODEL
+#   GHOSTTY_BIN_DIR
+#   GHOSTTY_RESOURCES_DIR
+#   GHOSTTY_SHELL_FEATURES
+#   GHOSTTY_SURFACE_ID
+#   GH_PAGER
+#   GH_PROMPT_DISABLED
+#   <redacted:1> (name contains sensitive substring)
+#   GIT_EDITOR
+#   GLM_API_KEY
+#   GLM_BASE_URL
+#   GODADDY_API_KEY
+#   GODADDY_API_SECRET
+#   GOG_KEYRING_PASSWORD
+#   GOOGLE_APPLICATION_CREDENTIALS
+#   GOOGLE_CLIENT_EMAIL
+#   GOOGLE_CLIENT_ID
+#   GOOGLE_CLOUD_PROJECT
+#   GOOGLE_PRIVATE_KEY
+#   GOOGLE_PRIVATE_KEY_ID
+#   GOOGLE_PROJECT_ID
+#   GOOGLE_TEST_EMAIL
+#   GOOGLE_TEST_PASSWORD
+#   GPT_OSS_API_KEY
+#   GPT_OSS_BASE_URL
+#   GPT_OSS_MODEL
+#   GROK_API_KEY
+#   GROQ_API_KEY
+#   HERMES_SLACK_BOT_TOKEN
+#   HERMES_STATE_DIR
+#   HOME
+#   HOMEBREW_CELLAR
+#   HOMEBREW_PREFIX
+#   HOMEBREW_REPOSITORY
+#   HTTP_BEARER_TOKEN
+#   INFOPATH
+#   JLEECHAN_DM_CHANNEL
+#   JLEECHAN_SLACK_USER_ID
+#   LANG
+#   LOCAL_ADMIN_FRONTEND_PORT
+#   LOGNAME
+#   MANPATH
+#   MCP_AGENT_MAIL_LOG
+#   MCP_AGENT_MAIL_PIDFILE
+#   MCP_AGENT_MAIL_PORT
+#   MCP_AGENT_MAIL_RESERVATION_FILE
+#   MEETING_BAAS_API_KEY
+#   MEETING_BAAS_WEBHOOK_URL
+#   MINIMAX_ANTHROPIC_BASE_URL
+#   MINIMAX_API_KEY
+#   MINIMAX_BASE_URL
+#   MINIMAX_MODEL
+#   MISSION_CONTROL_BASE_URL
+#   MISSION_CONTROL_BOARD_ID
+#   N8N_AUTH
+#   NOTION_KEY
+#   NVM_DIR
+#   NoDefaultCurrentDirectoryInExePath
+#   OPENAI_API_KEY
+#   OPENCLAW_AO_HOOK_TOKEN
+#   OPENCLAW_BOT_USER_ID
+#   OPENCLAW_GOOGLECHAT_SERVICE_ACCOUNT_FILE
+#   OPENCLAW_MONITOR_GATEWAY_PROBE_TARGET
+#   OPENCLAW_MONITOR_PROBE_SLACK_TARGET
+#   OPENCLAW_MONITOR_SLACK_TARGET
+#   OPENCLAW_MONITOR_STATUS_SLACK_TARGET
+#   OPENCLAW_MONITOR_THREAD_REPLY_CHANNEL
+#   OPENCLAW_SLACK_APP_TOKEN
+#   OPENCLAW_SLACK_BOT_TOKEN
+#   OPENCLAW_STAGING_SLACK_APP_TOKEN
+#   OPENCLAW_STAGING_SLACK_BOT_TOKEN
+#   OPENCODE_GO_API_KEY
+#   OPENROUTER_API_KEY
+#   PATH
+#   PERPLEXITY_API_KEY
+#   PNPM_HOME
+#   PORT
+#   PWD
+#   PYENV_ROOT
+#   PYPI_TOKEN
+#   PYTHONUNBUFFERED
+#   REDIS_PORT
+#   REDIS_URL
+#   RENDER_API_KEY
+#   RUNPOD_API_KEY
+#   SHELL
+#   SHLVL
+#   SLACK_APP_TOKEN
+#   SLACK_BOT_TOKEN
+#   SLACK_MCP_MAIL_WEBHOOK_URL
+#   SLACK_MCP_XOXB_TOKEN
+#   SLACK_MCP_XOXP_TOKEN
+#   SLACK_TEST_CHANNEL
+#   SLACK_WEBHOOK_URL
+#   SMOKE_TOKEN
+#   SSH_AGENT_PID
+#   SSH_AUTH_SOCK
+#   SSL_CERT_FILE
+#   TAVILY_API_KEY
+#   TELEGRAM_BOT_TOKEN
+#   TERM
+#   TERMINFO
+#   TERM_PROGRAM
+#   TERM_PROGRAM_VERSION
+#   TEST_EMAIL
+#   TEST_EMAIL_UI
+#   TEST_PASSWORD
+#   TEST_PASSWORD_UI
+#   TMPDIR
+#   TMUX
+#   TMUX_PANE
+#   USER
+#   VISUAL
+#   VITE_AI_UNIVERSE_FIREBASE_API_KEY
+#   VITE_AI_UNIVERSE_FIREBASE_APP_ID
+#   VITE_AI_UNIVERSE_FIREBASE_AUTH_DOMAIN
+#   VITE_AI_UNIVERSE_FIREBASE_MEASUREMENT_ID
+#   VITE_AI_UNIVERSE_FIREBASE_MESSAGING_SENDER_ID
+#   VITE_AI_UNIVERSE_FIREBASE_PROJECT_ID
+#   VITE_AI_UNIVERSE_FIREBASE_STORAGE_BUCKET
+#   VITE_FIREBASE_API_KEY
+#   VITE_FIREBASE_APP_ID
+#   VITE_FIREBASE_AUTH_DOMAIN
+#   VITE_FIREBASE_MEASUREMENT_ID
+#   VITE_FIREBASE_MESSAGING_SENDER_ID
+#   VITE_FIREBASE_PROJECT_ID
+#   VITE_FIREBASE_STORAGE_BUCKET
+#   WAFER_API_KEY
+#   WIKI_AGENT
+#   WORLDAI_CLAW_BG3_PORT
+#   WORLDAI_CLAW_LOCAL_PORT_RANGE_MAX
+#   WORLDAI_CLAW_LOCAL_PORT_RANGE_MIN
+#   WORLDAI_FIREBASE_PROJECT_ID
+#   WORLDAI_GOOGLE_APPLICATION_CREDENTIALS
+#   WORLDAI_GROK_KEY
+#   WORLDARCH_SERVICE_ACCOUNT_KEY
+#   WORLDCLAW_PORT
+#   XAI_API_KEY
+#   XDG_DATA_DIRS
+#   XPC_FLAGS
+#   XPC_SERVICE_NAME
+#   __BREW_SHELLENV_LOADED
+#   __CFBundleIdentifier
+#   __CF_USER_TEXT_ENCODING
+#   (1 secret-named vars redacted from listing)
+
+# status of bead-mentioned bashrc exports (4th target redacted from listing):
+#   AO_BOT_GH_TOKEN                  FOUND
+#   GH_PAGER                         FOUND
+#   MINIMAX_API_KEY                  FOUND
+#   MINIMAX_ANTHROPIC_BASE_URL       FOUND
+#   GH_TOKEN_<REDACTED>              FOUND (redacted from listing above)
+
+# PASS: bashrc sourced 251 vars; loadBashrcEnv() would inject them.

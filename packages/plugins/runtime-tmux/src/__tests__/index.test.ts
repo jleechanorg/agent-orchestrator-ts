@@ -9,7 +9,8 @@ vi.mock("node:child_process", () => {
   // promisify(execFile) checks for a custom promisify symbol. Set it so
   // await execFileAsync(...) returns { stdout, stderr } properly.
   (mockExecFile as any)[Symbol.for("nodejs.util.promisify.custom")] = vi.fn();
-  return { execFile: mockExecFile };
+  const mockExecFileSync = vi.fn();
+  return { execFile: mockExecFile, execFileSync: mockExecFileSync };
 });
 
 // Mock node:crypto for deterministic UUIDs
@@ -32,6 +33,7 @@ vi.mock("node:timers/promises", () => ({
 const mockExecFileCustom = (childProcess.execFile as any)[
   Symbol.for("nodejs.util.promisify.custom")
 ] as ReturnType<typeof vi.fn>;
+const mockExecFileSync = childProcess.execFileSync as unknown as ReturnType<typeof vi.fn>;
 const expectedTmuxOptions = { timeout: 5_000 };
 
 /** Queue a successful tmux command with the given stdout. */
@@ -42,6 +44,18 @@ function mockTmuxSuccess(stdout = "") {
 /** Queue a failed tmux command. */
 function mockTmuxError(message: string) {
   mockExecFileCustom.mockRejectedValueOnce(new Error(message));
+}
+
+/** Queue a successful bashrc loader result (bd-l5ty). */
+function mockBashrcOutput(stdout: string) {
+  mockExecFileSync.mockReturnValueOnce(stdout);
+}
+
+/** Queue a bashrc loader failure (bd-l5ty). */
+function mockBashrcError(message: string) {
+  mockExecFileSync.mockImplementationOnce(() => {
+    throw new Error(message);
+  });
 }
 
 /** Create a RuntimeHandle for testing (bd-tln: includes launchCommand). */
@@ -431,6 +445,155 @@ describe("runtime.create()", () => {
       ["set-option", "-t", "rename-test", "automatic-rename", "off"],
       expectedTmuxOptions,
     );
+  });
+});
+
+describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
+  it("injects bashrc-sourced env vars as -e flags", async () => {
+    const runtime = create();
+
+    // bashrc loader returns two exported vars
+    mockBashrcOutput(
+      [
+        'declare -x AO_BOT_GH_TOKEN="abc123"',
+        "declare -x GH_TOKEN_AGENT1='xyz'",
+        "declare -x PATH=\"/usr/local/bin:/usr/bin:/bin\"", // PATH should also land
+        "declare -x UNRELATED_FUNC='() { echo hi; }'", // shell function — still parsed (we only filter for the env shape)
+      ].join("\n"),
+    );
+
+    // 4 tmux calls: new-session, set-option status, allow-rename, automatic-rename
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "bashrc-session",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: {},
+    });
+
+    // The first tmux call is the new-session call
+    const firstCallArgs = mockExecFileCustom.mock.calls[0][1] as string[];
+    expect(firstCallArgs).toContain("-e");
+    expect(firstCallArgs).toContain("AO_BOT_GH_TOKEN=abc123");
+    expect(firstCallArgs).toContain("GH_TOKEN_AGENT1=xyz");
+    expect(firstCallArgs).toContain("PATH=/usr/local/bin:/usr/bin:/bin");
+  });
+
+  it("explicit config.environment overrides bashrc-sourced vars", async () => {
+    const runtime = create();
+
+    mockBashrcOutput([
+      'declare -x FOO="from-bashrc"',
+      'declare -x BAR="bashrc-bar"',
+    ].join("\n"));
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "override-session",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: { FOO: "explicit" },
+    });
+
+    const firstCallArgs = mockExecFileCustom.mock.calls[0][1] as string[];
+    // FOO must be from the explicit config, not the bashrc
+    expect(firstCallArgs).toContain("FOO=explicit");
+    expect(firstCallArgs).not.toContain("FOO=from-bashrc");
+    // BAR comes from bashrc (no explicit override)
+    expect(firstCallArgs).toContain("BAR=bashrc-bar");
+  });
+
+  it("treats a missing or broken bashrc as non-fatal", async () => {
+    const runtime = create();
+
+    // bashrc loader throws (e.g. ~/.bashrc missing, bash not on PATH)
+    mockBashrcError("spawn bash ENOENT");
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    // Should not throw — fall back to whatever config.environment provides
+    const handle = await runtime.create({
+      sessionId: "no-bashrc",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: { EXPLICIT_ONLY: "yes" },
+    });
+
+    expect(handle.id).toBe("no-bashrc");
+
+    const firstCallArgs = mockExecFileCustom.mock.calls[0][1] as string[];
+    expect(firstCallArgs).toContain("EXPLICIT_ONLY=yes");
+  });
+
+  it("skips empty-valued bashrc exports to avoid overriding plist defaults", async () => {
+    const runtime = create();
+
+    mockBashrcOutput(
+      [
+        'declare -x EMPTY_VAR=""',
+        "declare -x GOOD_VAR='ok'",
+        "declare -x ALSO_EMPTY=", // unquoted empty
+      ].join("\n"),
+    );
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "empty-skip",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: {},
+    });
+
+    const firstCallArgs = mockExecFileCustom.mock.calls[0][1] as string[];
+    expect(firstCallArgs).toContain("GOOD_VAR=ok");
+    // Empty values must NOT be injected — passing -e KEY= would override any
+    // inherited default to empty
+    expect(firstCallArgs).not.toContain("EMPTY_VAR=");
+    expect(firstCallArgs).not.toContain("ALSO_EMPTY=");
+  });
+
+  it("preserves the no-env regression: undefined config.environment + missing bashrc produces no -e flags", async () => {
+    const runtime = create();
+
+    // No bashrc mock set up — execFileSync returns undefined by default,
+    // loadBashrcEnv() should treat that as a non-fatal empty result.
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "no-env",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo hi",
+    } as any);
+
+    // First call (new-session) should not contain -e flags
+    const firstCallArgs = mockExecFileCustom.mock.calls[0][1] as string[];
+    expect(firstCallArgs).toEqual([
+      "new-session",
+      "-d",
+      "-s",
+      "no-env",
+      "-c",
+      "/tmp/ws",
+      'echo hi\nexec "${SHELL:-/bin/bash}" -i',
+    ]);
   });
 });
 
