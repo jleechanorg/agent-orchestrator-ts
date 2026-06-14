@@ -362,8 +362,14 @@ check_lifecycle_workers() {
   # For shims, parse the exec target so the comparison matches the real dist path.
   local canonical_binary
   canonical_binary="$(command -v ao 2>/dev/null || printf '%s' "$HOME/bin/ao")"
+  # Use ao_realpath() (from lib/ao-config-topology.sh) so symlink resolution
+  # succeeds even when the system realpath binary is missing. Falls back
+  # through python3 → node → readlink → shell cd+`pwd -P` before giving up.
+  # For SHELL-SCRIPT shims (pnpm global install) every fallback also returns
+  # the script itself, so canonical_real is not sufficient on its own — see
+  # the canonical_shim parsing below.
   local canonical_real
-  canonical_real="$(realpath "$canonical_binary" 2>/dev/null || printf '%s' "$canonical_binary")"
+  canonical_real="$(ao_realpath "$canonical_binary" 2>/dev/null || printf '%s' "$canonical_binary")"
   # For pnpm global installs, `command -v ao` returns a SHELL-SCRIPT shim
   # (e.g. /Users/jleechan/Library/pnpm/ao). realpath on a file returns the file
   # itself, so canonical_real cannot help in the shim case. Parse the shim to
@@ -380,12 +386,22 @@ check_lifecycle_workers() {
     local shim_target
     shim_target="$(grep -oE '"[^"]*dist/index\.js[^"]*"' "$canonical_binary" 2>/dev/null | head -1 | tr -d '"')"
     if [ -n "$shim_target" ]; then
-      # Resolve $basedir-style shims to their absolute exec target.
+      # Resolve $basedir-style shims to their absolute exec target, then
+      # normalize the resulting path so the comparison is string-equal to
+      # a worker's argv. We use `os.path.normpath` rather than `realpath`
+      # so we resolve `..` segments WITHOUT following symlinks — argv from
+      # `ps aux` is the textual exec path, not a symlink-resolved one
+      # (e.g. macOS /var vs /private/var must not be re-resolved).
       case "$shim_target" in
         '$basedir'/*)
           local shim_dir
           shim_dir="$(dirname "$canonical_binary")"
           shim_target="${shim_dir}${shim_target#'$basedir'}"
+          if command -v python3 >/dev/null 2>&1; then
+            shim_target="$(python3 -c 'import os,sys; print(os.path.normpath(sys.argv[1]))' "$shim_target" 2>/dev/null || printf '%s' "$shim_target")"
+          elif command -v node >/dev/null 2>&1; then
+            shim_target="$(node -e 'console.log(require("node:path").normalize(process.argv[1]))' "$shim_target" 2>/dev/null || printf '%s' "$shim_target")"
+          fi
           ;;
       esac
       if [ "$shim_target" != "$canonical_binary" ]; then
