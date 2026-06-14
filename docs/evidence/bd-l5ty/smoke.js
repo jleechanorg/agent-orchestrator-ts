@@ -72,7 +72,7 @@ for (const line of raw.split("\n")) {
 
 const keys = Object.keys(vars).sort();
 out(`# total exported vars parsed: ${keys.length}`);
-out(`# (cap applied at MAX_BASHRC_VARS=200; see runtime-tmux/src/index.ts)`);
+out(`# (cap applied at MAX_BASHRC_VARS=10000; see runtime-tmux/src/index.ts)`);
 out("");
 
 // Aggregated prefix counts only — do NOT enumerate individual keys (the full
