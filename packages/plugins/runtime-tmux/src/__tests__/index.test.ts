@@ -615,6 +615,7 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
       [
         'declare -x API_SECRET="a\\$b\\"c\\\\d"', // bash escapes: a\$b\"c\\d
         "declare -x NEUTRAL='no-escapes'",
+        "declare -x NEWLINE_VALUE=$'a\\nb'",
       ].join("\n"),
     );
 
@@ -635,6 +636,8 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
     expect(args).toContain('API_SECRET=a$b"c\\d');
     // Single-quoted: literal — no escape processing
     expect(args).toContain("NEUTRAL=no-escapes");
+    // Bash ANSI-C $'...': \n → literal newline byte
+    expect(args).toContain("NEWLINE_VALUE=a\nb");
   });
 
   it("preserves the no-env regression: undefined config.environment + missing bashrc produces no -e flags", async () => {

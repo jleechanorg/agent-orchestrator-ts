@@ -49,6 +49,32 @@ const MAX_BASHRC_VARS = 10_000;
  * `-e KEY=` to tmux would override any inherited default to empty, which
  * is rarely what we want).
  */
+/**
+ * Decode Bash backslash escapes — applies to both `"..."` (double-quoted)
+ * and `$'...'` (ANSI-C) emit forms. The same escape set is used for both:
+ * `\$`, `\"`, `\\`, `\n`, `\r`, `\t`, `\v`, `\f`, `\a`, `\b`, `\e`, and octal
+ * `\0`-`\7`. Single-quoted `'...'` values never receive this transform.
+ */
+function unescapeBashString(s: string): string {
+  return s.replace(/\\([\\$"`nrtvfabe0-7])/g, (_, ch) => {
+    switch (ch) {
+      case "n": return "\n";
+      case "r": return "\r";
+      case "t": return "\t";
+      case "v": return "\v";
+      case "f": return "\f";
+      case "a": return "\x07";
+      case "b": return "\b";
+      case "e": return "\x1b";
+      case "\\": return "\\";
+      case "$": return "$";
+      case '"': return '"';
+      case "`": return "`";
+      default: return ch; // \0-\7: pass through (octal)
+    }
+  });
+}
+
 function parseBashrcOutput(output: string): Record<string, string> {
   const result: Record<string, string> = {};
   if (typeof output !== "string" || output.length === 0) return result;
@@ -60,26 +86,19 @@ function parseBashrcOutput(output: string): Record<string, string> {
     let value: string;
     if (raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')) {
       // Bash double-quoted: process ANSI-C backslash escapes (\$, \", \\, \n, etc.)
-      value = raw.slice(1, -1).replace(/\\([\\$"`nrtvfabe0-7])/g, (_, ch) => {
-        switch (ch) {
-          case "n": return "\n";
-          case "r": return "\r";
-          case "t": return "\t";
-          case "v": return "\v";
-          case "f": return "\f";
-          case "a": return "\x07";
-          case "b": return "\b";
-          case "e": return "\x1b";
-          case "\\": return "\\";
-          case "$": return "$";
-          case '"': return '"';
-          case "`": return "`";
-          default: return ch; // \0-\7: pass through (octal)
-        }
-      });
+      value = unescapeBashString(raw.slice(1, -1));
     } else if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")) {
       // Bash single-quoted: literal — no escape processing.
       value = raw.slice(1, -1);
+    } else if (
+      raw.length >= 3 &&
+      raw.startsWith("$'") &&
+      raw.endsWith("'")
+    ) {
+      // Bash ANSI-C $'...': same escape rules as the double-quoted branch.
+      // Bash emits this form for any export whose value contains a literal
+      // newline, tab, or other non-printable byte (e.g. $'a\nb').
+      value = unescapeBashString(raw.slice(2, -1));
     } else {
       // Unquoted: take as-is.
       value = raw;
