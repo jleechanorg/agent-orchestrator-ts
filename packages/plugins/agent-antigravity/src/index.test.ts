@@ -752,6 +752,61 @@ describe("antigravity getEnvironment", () => {
     }
   });
 
+  it("preserves an empty-string DOCKER_HOST override (uses 'in' check, not truthiness)", () => {
+    // Skeptic Gate-5 follow-up: truthiness (`if (process.env.DOCKER_HOST)`)
+    // would coerce DOCKER_HOST="" to "unset" and silently fall back to the
+    // colima default on darwin. An empty string is a meaningful override
+    // (a user may set it to signal "no socket, fall back to native docker
+    // socket selection"). The fix uses `"DOCKER_HOST" in process.env` so
+    // presence — not truthiness — determines whether to honor the override.
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const originalColimaHome = process.env.COLIMA_HOME;
+    const originalDockerHost = process.env.DOCKER_HOST;
+    delete process.env.COLIMA_HOME;
+    process.env.DOCKER_HOST = "";
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      // Empty string preserved verbatim, NOT replaced with the colima default.
+      expect("DOCKER_HOST" in env).toBe(true);
+      expect(env.DOCKER_HOST).toBe("");
+      expect(env.DOCKER_HOST).not.toContain("colima");
+    } finally {
+      if (originalColimaHome === undefined) delete process.env.COLIMA_HOME;
+      else process.env.COLIMA_HOME = originalColimaHome;
+      if (originalDockerHost === undefined) delete process.env.DOCKER_HOST;
+      else process.env.DOCKER_HOST = originalDockerHost;
+    }
+  });
+
+  it("preserves an empty-string COLIMA_HOME override (uses ??, not truthiness)", () => {
+    // Same Skeptic Gate-5 follow-up applied to COLIMA_HOME: the `??` chain
+    // only falls through on null/undefined, so COLIMA_HOME="" is preserved
+    // rather than coerced to the default ~/.colima.
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const originalColimaHome = process.env.COLIMA_HOME;
+    const originalDockerHost = process.env.DOCKER_HOST;
+    process.env.COLIMA_HOME = "";
+    delete process.env.DOCKER_HOST;
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env.COLIMA_HOME).toBe("");
+      expect(env.COLIMA_HOME).not.toContain(".colima");
+    } finally {
+      if (originalColimaHome === undefined) delete process.env.COLIMA_HOME;
+      else process.env.COLIMA_HOME = originalColimaHome;
+      if (originalDockerHost === undefined) delete process.env.DOCKER_HOST;
+      else process.env.DOCKER_HOST = originalDockerHost;
+    }
+  });
+
   it("omits DOCKER_HOST key entirely on Linux so the runtime does not serialize it as 'DOCKER_HOST=undefined'", () => {
     // Skeptic Gate-8 follow-up: Object.entries(env) includes keys with
     // undefined values, and the runtime layer (tmux `-e KEY=VALUE` /

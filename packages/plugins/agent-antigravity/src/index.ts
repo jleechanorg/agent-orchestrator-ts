@@ -374,15 +374,30 @@ const antigravityOverrides: Partial<Agent> = {
     // explicitly overrode it. On Linux without an override, leave the key
     // ABSENT (not undefined) so the runtime omits it and the worker's
     // `docker` calls fall back to native /var/run/docker.sock.
+    //
+    // We use `"DOCKER_HOST" in process.env` (not truthiness) so a user who
+    // explicitly sets DOCKER_HOST="" to signal "unset" gets exactly that —
+    // not a silent fallback to the colima default. Empty-string is a
+    // meaningful override; truthiness (`if (process.env.DOCKER_HOST)`)
+    // would clobber it. The same applies to `baseEnv`. PR #686 Skeptic
+    // Gate-5/7 follow-up.
+    //
     // We `delete` first to defend against baseEnv pre-pollution — even if
     // baseAgent.getEnvironment() later adds DOCKER_HOST to its return, this
     // explicit delete (combined with the conditional re-add below) keeps
     // the key absent on Linux.
+    //
+    // KNOWN LIMITATION: the darwin DOCKER_HOST default below hardcodes the
+    // "default" colima profile directory. A user running a non-default
+    // profile (e.g. `~/.colima/myprofile/`) will get a DOCKER_HOST that
+    // doesn't match their actual socket path; they must also set
+    // DOCKER_HOST explicitly. Colima's stock install uses the "default"
+    // profile, so this covers the common case.
     delete env.DOCKER_HOST;
-    if (process.env.DOCKER_HOST) {
-      env.DOCKER_HOST = process.env.DOCKER_HOST;
-    } else if (baseEnv.DOCKER_HOST) {
-      env.DOCKER_HOST = baseEnv.DOCKER_HOST;
+    if ("DOCKER_HOST" in process.env) {
+      env.DOCKER_HOST = process.env.DOCKER_HOST as string;
+    } else if ("DOCKER_HOST" in baseEnv) {
+      env.DOCKER_HOST = baseEnv.DOCKER_HOST as string;
     } else if (os.platform() === "darwin") {
       env.DOCKER_HOST = `unix://${path.join(colimaHome, "default", "docker.sock")}`;
     }
