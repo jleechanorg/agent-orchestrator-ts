@@ -1,0 +1,37 @@
+PR #692: CodeRabbit commit a2999fe34 introduced a syntax error in
+`unescapeBashString` — the closing `);` of the `String.prototype.replace`
+call was deleted, leaving the switch statement unclosed. `tsc` and
+`vitest` both fail because esbuild cannot transform the broken module.
+
+$ pnpm --filter @jleechanorg/ao-plugin-runtime-tmux run typecheck
+
+> @jleechanorg/ao-plugin-runtime-tmux@0.1.0 typecheck ...
+> tsc --noEmit
+
+src/index.ts(82,1): error TS1005: ',' expected.
+src/index.ts(142,1): error TS1005: ',' expected.
+src/index.ts(189,1): error TS1005: ',' expected.
+src/index.ts(210,1): error TS1005: ',' expected.
+src/index.ts(233,1): error TS1005: ',' expected.
+src/index.ts(251,1): error TS1005: ',' expected.
+src/index.ts(597,1): error TS1005: '}' expected.
+ ELIFECYCLE  Command failed with exit code 2.
+
+$ pnpm --filter @jleechanorg/ao-plugin-runtime-tmux test
+
+ FAIL  src/__tests__/index.test.ts [ src/__tests__/index.test.ts ]
+Error: Transform failed with 1 error:
+/.../packages/plugins/runtime-tmux/src/index.ts:82:0: ERROR: Expected ")" but found "function"
+  Plugin: vite:esbuild
+  File: /.../packages/plugins/runtime-tmux/src/index.ts:82:0
+
+  Expected ")" but found "function"
+  80 |  }
+  81 |
+  82 |  function parseBashrcOutput(output: string): Record<string, string> {
+     |  ^
+
+ Test Files  1 failed (1)
+      Tests  no tests
+
+ERR: typecheck and tests both fail because the switch block is unclosed.
