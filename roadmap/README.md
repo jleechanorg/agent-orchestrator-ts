@@ -9,6 +9,7 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 - **Root cause diagnosed:** Worker wa-2355 (MiniMax-M3, worldarchitect) was killed after 3 consecutive SCM failures (`scm-failure-threshold`) at 23:01 UTC on 2026-06-14 with zero user notification. Two stacked failure modes: (1) `notifyHuman()` in `lifecycle-manager.ts:1869` has bare `catch {}` — no fallback log when ALL notifiers fail; (2) worldarchitect Slack notifier has unresolved `PLACEHOLDER` webhookUrl, making it a permanent no-op.
 - **Beads created:** [bd-s1qg](https://github.com/jleechanorg/agent-orchestrator/issues/695) (code: console.error fallback in notifyHuman for undelivered urgent events), [bd-3rvp](https://github.com/jleechanorg/agent-orchestrator/issues/696) (config: worldarchitect urgent routing → working `webhook` notifier)
 - **Nextsteps doc:** `~/roadmap/nextsteps-2026-06-15-wa2355-silent-kill-investigation.md`
+- **Evidence (this entry):** [PR #697](https://github.com/jleechanorg/agent-orchestrator/pull/697) — TDD Red-Green cycle in `packages/core/src/__tests__/lifecycle-manager.test.ts`; 2 new tests + 1-line `console.error` fallback in `lifecycle-manager.ts:1871`. Authoritative PR-level evidence (gists, vitest output, Red/Green transition): see `## Evidence` in PR #697 description.
 
 ### 2026-06-09 — Skeptic chain decoupling (three chapters)
 
