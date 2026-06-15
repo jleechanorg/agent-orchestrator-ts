@@ -3,7 +3,9 @@ import {
   chmodSync,
   mkdtempSync,
   mkdirSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -255,5 +257,43 @@ describe("scripts/ao-doctor.sh — lifecycle-worker binary canonicalization", ()
 
     expect(result.stdout).toContain("non-canonical lifecycle-worker");
     expect(result.stdout).toContain("some-other-ao");
+  });
+
+  it("recognizes workers as canonical when ao is a direct symlink to dist/index.js (ao_realpath path)", { timeout: 30000 }, () => {
+    // Gate 8a coverage: ao_realpath() symlink resolution.
+    // When `ao` is a direct OS symlink (not a shell shim) pointing to
+    // dist/index.js, `command -v ao` returns the symlink path but
+    // ao_realpath() follows it to dist/index.js, stored as canonical_real.
+    // Workers spawning as `node dist/index.js lifecycle-worker` must be
+    // accepted as canonical via the canonical_real match, not rejected.
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-symlink-"));
+    const fakeRepo = createHealthyRepo(tempRoot);
+    const binDir = join(tempRoot, "bin");
+    mkdirSync(binDir, { recursive: true });
+    createHealthyPath(binDir);
+
+    // Replace the healthy-path shell-script `ao` with a direct OS symlink.
+    // This matches the pnpm npm-pack install shape where ao -> dist/index.js.
+    // Use realpathSync to normalize the target so /var and /private/var agree
+    // on macOS (where /var is itself a symlink to /private/var and ao_realpath()
+    // returns the /private/var form while tmpdir() returns /var).
+    const distPath = realpathSync(join(fakeRepo, "packages", "cli", "dist", "index.js"));
+    rmSync(join(binDir, "ao"), { force: true });
+    symlinkSync(distPath, join(binDir, "ao"));
+
+    // Worker argv uses the resolved dist path (exec resolves symlinks at spawn).
+    createFakeBinary(
+      binDir,
+      "ps",
+      `printf "user  12345  12345  node ${distPath} lifecycle-worker agent-orchestrator\\n"`,
+    );
+
+    const configPath = writeConfig(tempRoot);
+    const result = runDoctorWithEnv(binDir, fakeRepo, configPath, tempRoot);
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    // ao_realpath() resolves binDir/ao -> distPath, so cmd == canonical_real.
+    expect(result.stdout).not.toContain("non-canonical lifecycle-worker");
+    expect(result.stdout).toContain("all lifecycle-workers using canonical binary");
   });
 });
