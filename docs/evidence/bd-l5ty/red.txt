@@ -24,7 +24,7 @@
    ✓ runtime.create() > handles no environment (undefined) 0ms
    ✓ runtime.create() > sets allow-rename and automatic-rename to off on create 0ms
    × runtime.create() — bashrc env injection (bd-l5ty) > injects bashrc-sourced env vars as -e flags 4ms
-     → expected [ 'new-session', '-d', '-s', …(12) ] to include 'AO_BOT_GH_TOKEN=WRONG_VALUE'
+     → expected [ 'new-session', '-d', '-s', …(12) ] to include 'AO_BOT_GH_TOKEN=abc123'
    ✓ runtime.create() — bashrc env injection (bd-l5ty) > explicit config.environment overrides bashrc-sourced vars 0ms
    ✓ runtime.create() — bashrc env injection (bd-l5ty) > treats a missing or broken bashrc as non-fatal 0ms
    ✓ runtime.create() — bashrc env injection (bd-l5ty) > skips empty-valued bashrc exports to avoid overriding plist defaults 0ms
@@ -78,7 +78,7 @@
 
  Test Files  1 failed (1)
       Tests  1 failed | 67 passed (68)
-   Start at  08:40:21
+   Start at  08:40:04
    Duration  816ms (transform 334ms, setup 0ms, collect 564ms, tests 43ms, environment 0ms, prepare 33ms)
 
 /Users/jleechan/.worktrees/agent-orchestrator/ao-6377/packages/plugins/runtime-tmux:
