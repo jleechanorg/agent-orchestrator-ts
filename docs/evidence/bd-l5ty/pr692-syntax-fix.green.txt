@@ -1,6 +1,16 @@
-PR #692: after closing the switch block with the missing `);`,
-typecheck is clean and the full 68-test suite passes, including the
-new ANSI-C `$'a\'b'` → `a'b` test added by CodeRabbit.
+PR #692: this transcript documents the **post-fix** state of the
+`runtime-tmux` package. The fix itself (closing the unclosed switch
+block in `unescapeBashString()`) already landed on the base branch
+`fix/tmux-runtime-source-bashrc` (PR #691) at commit `0adc6d257`.
+PR #692 is a stacked documentation/evidence follow-up that adds only
+this transcript file and `pr692-syntax-fix.red.txt`; the code change
+in this transcript's output is NOT part of PR #692's incremental diff.
+
+For convenience, the transcript is preserved here as a Red/Green TDD
+record of the syntax fix that this branch was originally chartered
+to land.
+
+---
 
 $ pnpm --filter @jleechanorg/ao-plugin-runtime-tmux run typecheck
 
@@ -22,7 +32,7 @@ stderr | src/__tests__/index.test.ts > runtime.create() — bashrc env injection
       Tests  68 passed (68)
    Duration  841ms
 
-VERDICT: All 68 tests pass. The new ANSI-C $'a\'b' → a'b assertion
-succeeds. The fix is a one-line correction that closes the previously
-unclosed `replace(...).replace(...)` switch with `);` — no runtime
-behavior change beyond what the bot already intended.
+VERDICT: All 68 tests pass against the post-fix code on the base
+branch (PR #691, commit `0adc6d257`). This transcript is a historical
+record of the fix and is not a claim that the 68 tests were added by
+PR #692 — the test suite was inherited unchanged from PR #691.
