@@ -32,7 +32,7 @@ stderr | src/__tests__/index.test.ts > runtime.create() — bashrc env injection
       Tests  68 passed (68)
    Duration  841ms
 
-VERDICT: All 68 tests pass against the post-fix code on the base
-branch (PR #691, commit `0adc6d257`). This transcript is a historical
-record of the fix and is not a claim that the 68 tests were added by
-PR #692 — the test suite was inherited unchanged from PR #691.
+# Author note: All 68 tests pass against the post-fix code on the base
+# branch (PR #691, commit 0adc6d257). This transcript is a historical
+# record of the fix; the 68 tests were inherited unchanged from PR
+# #691 and are not added by PR #692.
