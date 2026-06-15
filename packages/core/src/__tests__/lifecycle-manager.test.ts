@@ -5663,20 +5663,22 @@ describe("notifyHuman — urgent fallback", () => {
 
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const lm = createLifecycleManager({
-      config,
-      registry: registryWithBrokenNotifier,
-      sessionManager: mockSessionManager,
-    });
+    try {
+      const lm = createLifecycleManager({
+        config,
+        registry: registryWithBrokenNotifier,
+        sessionManager: mockSessionManager,
+      });
 
-    await lm.check("app-1");
+      await lm.check("app-1");
 
-    expect(errSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[lifecycle-manager] URGENT notification undelivered"),
-      expect.any(String),
-    );
-
-    errSpy.mockRestore();
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[lifecycle-manager] URGENT notification undelivered"),
+        expect.any(String),
+      );
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 
   it("does NOT log to console.error when at least one notifier succeeds for an urgent event", async () => {
@@ -5713,19 +5715,21 @@ describe("notifyHuman — urgent fallback", () => {
 
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const lm = createLifecycleManager({
-      config,
-      registry: registryWithWorking,
-      sessionManager: mockSessionManager,
-    });
+    try {
+      const lm = createLifecycleManager({
+        config,
+        registry: registryWithWorking,
+        sessionManager: mockSessionManager,
+      });
 
-    await lm.check("app-1");
+      await lm.check("app-1");
 
-    const urgentUndeliveredCalls = errSpy.mock.calls.filter((args) =>
-      String(args[0]).includes("[lifecycle-manager] URGENT notification undelivered"),
-    );
-    expect(urgentUndeliveredCalls).toHaveLength(0);
-
-    errSpy.mockRestore();
+      const urgentUndeliveredCalls = errSpy.mock.calls.filter((args) =>
+        String(args[0]).includes("[lifecycle-manager] URGENT notification undelivered"),
+      );
+      expect(urgentUndeliveredCalls).toHaveLength(0);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });
