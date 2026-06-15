@@ -22,6 +22,35 @@ export const manifest = {
   displayName: "Antigravity (agy)",
 };
 
+// Top-level system directories that must NEVER be added to
+// `trustedWorkspaces` — adding e.g. "/tmp" would trust every /tmp/<x>
+// workspace on the host, "/var" would trust system-log locations, etc.
+// The ancestor walk stops at or above these boundaries, never adds them,
+// and never reaches the filesystem root ("/").
+// 2026-06-14: Skeptic review flagged the over-trust risk for /tmp/<x> AO
+// sessions; see PR #693 for the full rationale.
+const TRUST_BOUNDARY_SYSTEM_ROOTS: readonly string[] = Object.freeze([
+  "/tmp",
+  "/var",
+  "/opt",
+  "/srv",
+  "/etc",
+]);
+
+/**
+ * Build the system-root stop set for the trust-workspace ancestor walk.
+ * Includes the per-user homedir parent (e.g. "/Users" on macOS, "/home" on
+ * Linux) plus the canonical shared system directories, so a worker launched
+ * from `$HOME` or anywhere under it never gets to over-trust its way up
+ * to the filesystem root.
+ */
+function buildSystemRootStopSet(userHome: string): ReadonlySet<string> {
+  return new Set<string>([
+    path.dirname(userHome),
+    ...TRUST_BOUNDARY_SYSTEM_ROOTS,
+  ]);
+}
+
 const antigravityConfig: AgentPluginConfig = {
   name: "antigravity",
   description: manifest.description,
@@ -369,6 +398,17 @@ const antigravityOverrides: Partial<Agent> = {
       // Clear these to prevent the spawned CLI from inheriting parent agent context
       ANTIGRAVITY_PROJECT_ID: "",
       ANTIGRAVITY_TRAJECTORY_ID: "",
+      // Belt-and-suspenders: gemini-cli (which `agy` forks from) reads
+      // GEMINI_CLI_TRUST_WORKSPACE=true at startup and skips the trust
+      // prompt for the session, regardless of folderTrust settings. Set
+      // this unconditionally in workers so a stale or accidentally-stricter
+      // settings.json can never re-introduce the trust-prompt deadlock.
+      // 2026-06-14: wa-2282/2351/2352 each blocked ~6-10 minutes on this
+      // prompt before any tool call. See:
+      //   https://geminicli.com/docs/cli/trusted-folders ("Headless and
+      //   Automated Environments" — "Bypass options: ... Environment
+      //   variable: GEMINI_CLI_TRUST_WORKSPACE=true").
+      GEMINI_CLI_TRUST_WORKSPACE: "true",
     };
     // DOCKER_HOST: only set on darwin (colima default) or if the user
     // explicitly overrode it. On Linux without an override, leave the key
@@ -455,19 +495,114 @@ const antigravityOverrides: Partial<Agent> = {
           : [];
         const trustedSet = new Set<string>(existingTrusted);
 
-        for (const p of innerPathsToTrust) {
-          // Canonical helper expands ~/...; bare ~ is the homedir itself.
-          const canonicalPath = p === "~" ? userHome : expandHome(p);
-          trustedSet.add(canonicalPath);
-          try {
-            const resolved = fs.realpathSync(canonicalPath);
-            trustedSet.add(resolved);
-          } catch {
-            // ignore if realpath fails (path may not exist yet at spawn time)
+        // Build a deduplicated list of every path that should be trusted: the
+        // explicit project + workspace paths AND every ancestor of each one.
+        // agy / gemini-cli checks `trustedWorkspaces` using longest-prefix
+        // match — it does NOT walk up the directory tree, so a path like
+        // `/Users/jleechan/.worktrees/worldarchitect/wa-1702` must be added
+        // explicitly; pre-seeding only the project root leaves worktrees
+        // un-trusted and re-introduces the TUI prompt. Adding every ancestor
+        // gives us belt-and-suspenders coverage for nested worktrees,
+        // /tmp/<x>/y sessions, and any future layout that nests a worker
+        // cwd under a path the AO operator did not anticipate. We dedupe via
+        // a Set so a path that is its own ancestor is not added twice.
+        // 2026-06-14: trust-prompt recurrence across wa-2282/wa-2351/wa-2352
+        // showed that pre-seeding only the project root was insufficient —
+        // the worker's tmux cwd was a deeper nested path inside the worktree.
+        const allSeedPaths = new Set<string>();
+        const addWithAncestors = (raw: string) => {
+          const canonical = raw === "~" ? userHome : expandHome(raw);
+          if (!canonical) return;
+          let cur = canonical;
+          // Walk up to (but not including) the home directory. We deliberately
+          // stop ONE level above the home dir so we never add the homedir
+          // itself to trustedWorkspaces — that would silently over-trust
+          // the user's entire home, including any unrelated cloned repo
+          // under ~/projects/ or similar. The path-prefix check is
+          // inclusive: trusting "/Users/jleechan" would match every
+          // workspace the user has, which violates the principle of least
+          // privilege. Stop at the parent of the homedir (i.e. "/Users" on
+          // macOS) instead.
+          //
+          // Special case: if the canonical path IS the homedir itself
+          // (extremely unusual — only happens for a project whose path is
+          // literally $HOME), don't add it.
+          if (canonical === userHome) return;
+          const stopAt = userHome;
+          // Top-level system directories are off-limits as trust roots (see
+          // TRUST_BOUNDARY_SYSTEM_ROOTS at module top). The ancestor walk
+          // stops at or above these boundaries, never adds them, and never
+          // reaches the filesystem root ("/").
+          // 2026-06-14: Skeptic review flagged the over-trust risk for
+          // /tmp/<x> AO sessions; cap the walk at the immediate parent of
+          // any "shared" system root.
+          const systemRootSet = buildSystemRootStopSet(userHome);
+          while (cur && cur !== stopAt && cur !== path.dirname(cur)) {
+            if (systemRootSet.has(cur)) break; // never trust a shared system root
+            allSeedPaths.add(cur);
+            try {
+              const resolved = fs.realpathSync(cur);
+              if (resolved && resolved !== cur) allSeedPaths.add(resolved);
+            } catch {
+              // realpath may fail for non-existent or permission-denied paths; ignore.
+            }
+            const parent = path.dirname(cur);
+            if (parent === cur) break; // reached filesystem root
+            cur = parent;
           }
+        };
+        for (const p of innerPathsToTrust) {
+          addWithAncestors(p);
+        }
+
+        for (const p of allSeedPaths) {
+          trustedSet.add(p);
         }
 
         innerSettings.trustedWorkspaces = Array.from(trustedSet);
+
+        // ALSO inject the global trust-bypass flags so that even if
+        // `trustedWorkspaces` is missing some future path the worker lands in,
+        // agy / gemini-cli will not pop the TUI prompt. The flags are the
+        // canonical escape hatches documented in
+        // https://geminicli.com/docs/cli/trusted-folders (gemini-cli upstream;
+        // agy is a downstream fork that honors the same keys).
+        //
+        // Both keys are written idempotently: if either is already set to
+        // `true`, the write flips it to `false` to honor the AO operator's
+        // intent of "never prompt in workers".
+        const ensureFlagFalse = (
+          root: Record<string, unknown>,
+          dottedPath: readonly string[],
+        ) => {
+          let cur: Record<string, unknown> = root;
+          for (let i = 0; i < dottedPath.length - 1; i++) {
+            const seg = dottedPath[i];
+            const next = cur[seg];
+            if (next === undefined || next === null || typeof next !== "object" || Array.isArray(next)) {
+              cur[seg] = {};
+            }
+            cur = cur[seg] as Record<string, unknown>;
+          }
+          const last = dottedPath[dottedPath.length - 1];
+          cur[last] = false;
+        };
+        ensureFlagFalse(innerSettings, ["security", "folderTrust", "enabled"]);
+        // NOTE: do NOT also write a top-level `"security.folderTrust.enabled"`
+        // (literal dots) key as a belt-and-suspenders fallback. Gemini's settings
+        // schema (https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json)
+        // represents `security.folderTrust.enabled` as a nested property and
+        // rejects unknown top-level keys; writing the dotted form alongside the
+        // nested form would fail strict settings validation and surface as a
+        // "bad manual settings" warning at agy startup, blocking the trust
+        // bypass from taking effect (CodeRabbit P2 review of PR #693).
+        //
+        // Also drop any pre-existing top-level dotted key in the user file —
+        // if a previous version of this pre-seed wrote one, it would survive
+        // the read-modify-write cycle above and continue to fail strict
+        // settings validation in newer agy builds. We delete it explicitly.
+        delete innerSettings["security.folderTrust.enabled"];
+
         fs.mkdirSync(path.dirname(agyCliSettingsPath), { recursive: true });
         fs.writeFileSync(
           agyCliSettingsPath,
