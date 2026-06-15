@@ -1,0 +1,38 @@
+PR #692: this transcript documents the **post-fix** state of the
+`runtime-tmux` package. The fix itself (closing the unclosed switch
+block in `unescapeBashString()`) already landed on the base branch
+`fix/tmux-runtime-source-bashrc` (PR #691) at commit `0adc6d257`.
+PR #692 is a stacked documentation/evidence follow-up that adds only
+this transcript file and `pr692-syntax-fix.red.txt`; the code change
+in this transcript's output is NOT part of PR #692's incremental diff.
+
+For convenience, the transcript is preserved here as a Red/Green TDD
+record of the syntax fix that this branch was originally chartered
+to land.
+
+---
+
+$ pnpm --filter @jleechanorg/ao-plugin-runtime-tmux run typecheck
+
+> @jleechanorg/ao-plugin-runtime-tmux@0.1.0 typecheck ...
+> tsc --noEmit
+
+(no output — clean compile)
+
+$ pnpm --filter @jleechanorg/ao-plugin-runtime-tmux test
+
+ RUN  v3.2.4 /.../packages/plugins/runtime-tmux
+
+stderr | src/__tests__/index.test.ts > runtime.create() — bashrc env injection (bd-l5ty) > unescapes shell-escaped values from declare -x (Codex P2)
+[runtime-tmux] loaded 4 vars from ~/.bashrc
+
+ ✓ src/__tests__/index.test.ts (68 tests) 29ms
+
+ Test Files  1 passed (1)
+      Tests  68 passed (68)
+   Duration  841ms
+
+# Author note: All 68 tests pass against the post-fix code on the base
+# branch (PR #691, commit 0adc6d257). This transcript is a historical
+# record of the fix; the 68 tests were inherited unchanged from PR
+# #691 and are not added by PR #692.

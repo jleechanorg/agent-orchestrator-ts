@@ -1,0 +1,53 @@
+PR #692: this transcript documents the **pre-fix** state of the
+`runtime-tmux` package — a syntax error in `unescapeBashString()` that
+CodeRabbit Chat's commit `a2999fe34` on PR #691 introduced (the
+closing `);` of the `String.prototype.replace` call was deleted,
+leaving the switch statement unclosed).
+
+The fix (closing the switch block with `);`) already landed on the
+base branch `fix/tmux-runtime-source-bashrc` (PR #691) at commit
+`0adc6d257`. PR #692 is a stacked documentation/evidence follow-up
+that adds only this transcript file and `pr692-syntax-fix.green.txt`;
+the code change shown in this transcript is NOT part of PR #692's
+incremental diff.
+
+For convenience, the transcript is preserved here as a Red/Green TDD
+record of the syntax fix that this branch was originally chartered
+to land.
+
+---
+
+$ pnpm --filter @jleechanorg/ao-plugin-runtime-tmux run typecheck
+
+> @jleechanorg/ao-plugin-runtime-tmux@0.1.0 typecheck ...
+> tsc --noEmit
+
+src/index.ts(82,1): error TS1005: ',' expected.
+src/index.ts(142,1): error TS1005: ',' expected.
+src/index.ts(189,1): error TS1005: ',' expected.
+src/index.ts(210,1): error TS1005: ',' expected.
+src/index.ts(233,1): error TS1005: ',' expected.
+src/index.ts(251,1): error TS1005: ',' expected.
+src/index.ts(597,1): error TS1005: '}' expected.
+ ELIFECYCLE  Command failed with exit code 2.
+
+$ pnpm --filter @jleechanorg/ao-plugin-runtime-tmux test
+
+ FAIL  src/__tests__/index.test.ts [ src/__tests__/index.test.ts ]
+Error: Transform failed with 1 error:
+/.../packages/plugins/runtime-tmux/src/index.ts:82:0: ERROR: Expected ")" but found "function"
+  Plugin: vite:esbuild
+  File: /.../packages/plugins/runtime-tmux/src/index.ts:82:0
+
+  Expected ")" but found "function"
+  80 |  }
+  81 |
+  82 |  function parseBashrcOutput(output: string): Record<string, string> {
+     |  ^
+
+ Test Files  1 failed (1)
+      Tests  no tests
+
+# Author note: typecheck and tests both fail because the switch block
+# is unclosed. This file and pr692-syntax-fix.green.txt together form
+# the Red/Green TDD record of the unescapeBashString() syntax fix.
