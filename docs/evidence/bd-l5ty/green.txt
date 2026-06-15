@@ -1,0 +1,26 @@
+
+> @jleechanorg/ao-plugin-runtime-tmux@0.1.0 test /Users/jleechan/.worktrees/agent-orchestrator/ao-6377/packages/plugins/runtime-tmux
+> vitest run
+
+
+ RUN  v3.2.4 /Users/jleechan/.worktrees/agent-orchestrator/ao-6377/packages/plugins/runtime-tmux
+
+stderr | src/__tests__/index.test.ts > runtime.create() — bashrc env injection (bd-l5ty) > injects bashrc-sourced env vars as -e flags
+[runtime-tmux] loaded 4 vars from ~/.bashrc
+
+stderr | src/__tests__/index.test.ts > runtime.create() — bashrc env injection (bd-l5ty) > explicit config.environment overrides bashrc-sourced vars
+[runtime-tmux] loaded 2 vars from ~/.bashrc
+
+stderr | src/__tests__/index.test.ts > runtime.create() — bashrc env injection (bd-l5ty) > skips empty-valued bashrc exports to avoid overriding plist defaults
+[runtime-tmux] loaded 1 vars from ~/.bashrc
+
+stderr | src/__tests__/index.test.ts > runtime.create() — bashrc env injection (bd-l5ty) > unescapes shell-escaped values from declare -x (Codex P2)
+[runtime-tmux] loaded 2 vars from ~/.bashrc
+
+ ✓ src/__tests__/index.test.ts (68 tests) 27ms
+
+ Test Files  1 passed (1)
+      Tests  68 passed (68)
+   Start at  08:40:12
+   Duration  706ms (transform 319ms, setup 0ms, collect 498ms, tests 27ms, environment 0ms, prepare 33ms)
+

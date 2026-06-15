@@ -1,0 +1,86 @@
+
+> @jleechanorg/ao-plugin-runtime-tmux@0.1.0 test /Users/jleechan/.worktrees/agent-orchestrator/ao-6377/packages/plugins/runtime-tmux
+> vitest run
+
+
+ RUN  v3.2.4 /Users/jleechan/.worktrees/agent-orchestrator/ao-6377/packages/plugins/runtime-tmux
+
+ ❯ src/__tests__/index.test.ts (68 tests | 1 failed) 43ms
+   ✓ manifest > has name 'tmux' and slot 'runtime' 1ms
+   ✓ manifest > default export includes manifest and create 0ms
+   ✓ create() > returns a Runtime with name 'tmux' 0ms
+   ✓ runtime.create() > calls new-session with correct args 1ms
+   ✓ runtime.create() > kills stale session and retries when new-session reports duplicate 0ms
+   ✓ runtime.create() > propagates non-duplicate new-session errors without killing existing session 1ms
+   ✓ runtime.create() > stores launchCommand in handle.data for restart capability (bd-tln) 0ms
+   ✓ runtime.create() > includes -e KEY=VALUE flags for environment variables 0ms
+   ✓ runtime.create() > sends launch command via send-keys 0ms
+   ✓ runtime.create() > appends an interactive shell tail so the tmux pane survives agent exit (regression for #1756) 0ms
+   ✓ runtime.create() > keeps the keep-alive tail in the temp script for long launch commands 1ms
+   ✓ runtime.create() > surfaces tmux set-option failures and cleans up 0ms
+   ✓ runtime.create() > rejects invalid session IDs with special characters 0ms
+   ✓ runtime.create() > rejects session IDs with dots 0ms
+   ✓ runtime.create() > accepts valid session IDs with hyphens and underscores 0ms
+   ✓ runtime.create() > handles no environment (undefined) 0ms
+   ✓ runtime.create() > sets allow-rename and automatic-rename to off on create 0ms
+   × runtime.create() — bashrc env injection (bd-l5ty) > injects bashrc-sourced env vars as -e flags 4ms
+     → expected [ 'new-session', '-d', '-s', …(12) ] to include 'AO_BOT_GH_TOKEN=abc123'
+   ✓ runtime.create() — bashrc env injection (bd-l5ty) > explicit config.environment overrides bashrc-sourced vars 0ms
+   ✓ runtime.create() — bashrc env injection (bd-l5ty) > treats a missing or broken bashrc as non-fatal 0ms
+   ✓ runtime.create() — bashrc env injection (bd-l5ty) > skips empty-valued bashrc exports to avoid overriding plist defaults 0ms
+   ✓ runtime.create() — bashrc env injection (bd-l5ty) > unescapes shell-escaped values from declare -x (Codex P2) 0ms
+   ✓ runtime.create() — bashrc env injection (bd-l5ty) > preserves the no-env regression: undefined config.environment + missing bashrc produces no -e flags 0ms
+   ✓ runtime.create() — bashrc env injection (bd-l5ty) > truncates bashrc exports to MAX_BASHRC_VARS=10000 and warns with dropped var names 28ms
+   ✓ runtime.destroy() > calls kill-session with the handle id 0ms
+   ✓ runtime.destroy() > does not throw if session is already gone 0ms
+   ✓ runtime.isAvailable() > returns true when tmux server is running 0ms
+   ✓ runtime.isAvailable() > returns false when tmux server is unavailable 0ms
+   ✓ runtime.sendMessage() > sends short text with send-keys -l (literal) + Enter 0ms
+   ✓ runtime.sendMessage() > uses load-buffer + paste-buffer for long text (> 200 chars) 0ms
+   ✓ runtime.sendMessage() > retries Enter when pane still ends with message tail (swallowed Enter) 0ms
+   ✓ runtime.sendMessage() > retries Enter up to 3 times if pane never changes 0ms
+   ✓ runtime.sendMessage() > uses load-buffer for multiline text 0ms
+   ✓ runtime.sendMessage() > cleans up buffer and temp file on paste failure 0ms
+   ✓ runtime.sendMessage() > skips C-u clear for gemini agents (gemini CLI doesn't handle input clearing) 0ms
+   ✓ runtime.sendMessage() > uses send-keys -l (not paste-buffer) for long gemini messages 0ms
+   ✓ runtime.getOutput() > calls capture-pane with correct args and default lines 0ms
+   ✓ runtime.getOutput() > passes custom line count 0ms
+   ✓ runtime.getOutput() > returns empty string on error 0ms
+   ✓ runtime.isAlive() > returns true when has-session succeeds 0ms
+   ✓ runtime.isAlive() > returns false when has-session fails 0ms
+   ✓ runtime.getMetrics() > returns uptimeMs based on createdAt 0ms
+   ✓ runtime.getMetrics() > handles missing createdAt by using Date.now() 0ms
+   ✓ runtime.getAttachInfo() > returns tmux type and attach command 0ms
+   ✓ runtime.getRestartCommand() — bd-tln > returns the stored launchCommand 0ms
+   ✓ runtime.getRestartCommand() — bd-tln > throws when launchCommand is not stored 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns false when pane ends with bash $ prompt 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns false when pane ends with zsh % prompt 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns false when pane ends with starship ❯ prompt 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns false when pane ends with root # prompt 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns true when pane contains Claude ✻ thinking indicator 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns true when pane contains ● progress indicator 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns true when pane contains ◆ tool indicator 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns true when pane contains braille spinner (codex) 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns true when pane contains Thinking... text 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns true when pane has no conclusive indicator (conservative default) 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns false when capture-pane fails (session dead) 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns true when pane is empty (conservative default) 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > calls capture-pane with -30 line window 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns false when last line is shell prompt even if stale ✻ Thinking appears in history (detection order) 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns true when last line has no shell prompt but recent window shows spinner 0ms
+   ✓ isAgentAliveInPane() — dead-agent detection (bd-tln) > returns true when spinner appears in last 5 lines (recent activity) 0ms
+   ✓ restartAgentCli() — dead-agent restart (bd-tln) > throws if launchCommand is not stored in handle.data 0ms
+   ✓ restartAgentCli() — dead-agent restart (bd-tln) > sends C-c twice, then re-launches the agent CLI (short command) 0ms
+   ✓ restartAgentCli() — dead-agent restart (bd-tln) > resolves on first poll if agent shows alive indicator immediately 0ms
+   ✓ restartAgentCli() — dead-agent restart (bd-tln) > throws after 6 polls if agent does not restart 0ms
+   ✓ runtime.sendMessage() — dead-agent restart integration (bd-tln) > restarts agent before sending when pre-send check detects dead agent 0ms
+   ✓ runtime.sendMessage() — dead-agent restart integration (bd-tln) > restarts agent and resends when post-send check detects dead agent 0ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 67 passed (68)
+   Start at  08:40:04
+   Duration  816ms (transform 334ms, setup 0ms, collect 564ms, tests 43ms, environment 0ms, prepare 33ms)
+
+/Users/jleechan/.worktrees/agent-orchestrator/ao-6377/packages/plugins/runtime-tmux:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @jleechanorg/ao-plugin-runtime-tmux@0.1.0 test: `vitest run`
+Exit status 1

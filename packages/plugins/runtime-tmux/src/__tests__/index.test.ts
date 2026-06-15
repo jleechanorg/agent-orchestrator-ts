@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
-import type { RuntimeHandle } from "@jleechanorg/ao-core";
+import type { RuntimeCreateConfig, RuntimeHandle } from "@jleechanorg/ao-core";
 
 // Mock node:child_process with custom promisify support
 vi.mock("node:child_process", () => {
@@ -42,6 +42,39 @@ function mockTmuxSuccess(stdout = "") {
 /** Queue a failed tmux command. */
 function mockTmuxError(message: string) {
   mockExecFileCustom.mockRejectedValueOnce(new Error(message));
+}
+
+/** Queue a successful bashrc loader result (bd-l5ty). The bashrc loader
+ * uses async execFile under the hood, so the mock target is the same as
+ * tmux commands. */
+function mockBashrcOutput(stdout: string) {
+  mockExecFileCustom.mockResolvedValueOnce({ stdout, stderr: "" });
+}
+
+/** Queue a bashrc loader failure (bd-l5ty). */
+function mockBashrcError(message: string) {
+  mockExecFileCustom.mockRejectedValueOnce(new Error(message));
+}
+
+/** Queue a bashrc loader returning empty (no exports) — used by tests
+ * that don't care about bashrc to avoid the unhandled async rejection
+ * from the default mock fallback. */
+function mockBashrcEmpty() {
+  mockBashrcOutput("");
+}
+
+/** Find the call whose args begin with the given tmux subcommand. */
+function findCall(startsWith: string): unknown[] | undefined {
+  return mockExecFileCustom.mock.calls.find(
+    (c) => Array.isArray(c[1]) && c[1][0] === startsWith,
+  );
+}
+
+/** Args of a tmux subcommand call (e.g. "new-session", "kill-session"). */
+function argsOf(startsWith: string): string[] {
+  const call = findCall(startsWith);
+  if (!call) throw new Error(`no call found starting with ${startsWith}`);
+  return call[1] as string[];
 }
 
 /** Create a RuntimeHandle for testing (bd-tln: includes launchCommand). */
@@ -90,7 +123,8 @@ describe("runtime.create()", () => {
   it("calls new-session with correct args", async () => {
     const runtime = create();
 
-    // Happy path (no collision): 1: new-session, 2: set-option status, 3: set-option allow-rename, 4: set-option automatic-rename
+    // Happy path (no collision): 0: bashrc load, 1: new-session, 2: set-option status, 3: set-option allow-rename, 4: set-option automatic-rename
+    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -107,10 +141,9 @@ describe("runtime.create()", () => {
     expect(handle.runtimeName).toBe("tmux");
     expect(handle.data.workspacePath).toBe("/tmp/workspace");
 
-    // First call: new-session — launch command has the keep-alive shell tail
+    // First tmux call: new-session — launch command has the keep-alive shell tail
     // appended so the tmux session survives agent exit (issue #1756).
-    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
-      1,
+    expect(mockExecFileCustom).toHaveBeenCalledWith(
       "tmux",
       [
         "new-session",
@@ -128,7 +161,8 @@ describe("runtime.create()", () => {
   it("kills stale session and retries when new-session reports duplicate", async () => {
     const runtime = create();
 
-    // Collision path: 1: new-session → duplicate error, 2: kill-session, 3: new-session (retry), 4: set-option, 5-6: allow-rename/automatic-rename
+    // 0: bashrc load, 1: new-session → duplicate error, 2: kill-session, 3: new-session (retry), 4: set-option, 5-6: allow-rename/automatic-rename
+    mockBashrcEmpty();
     mockTmuxError("duplicate session: dup-session");
     mockTmuxSuccess(); // kill-session
     mockTmuxSuccess(); // new-session retry
@@ -144,16 +178,22 @@ describe("runtime.create()", () => {
     });
 
     expect(handle.id).toBe("dup-session");
-    // 6 calls: new-session (fail), kill-session, new-session (retry), set-option status, allow-rename, automatic-rename
-    expect(mockExecFileCustom).toHaveBeenCalledTimes(6);
-    expect((mockExecFileCustom.mock.calls[1][1] as string[])[0]).toBe("kill-session");
-    expect((mockExecFileCustom.mock.calls[2][1] as string[])[0]).toBe("new-session");
+    // 7 calls: bashrc, new-session (fail), kill-session, new-session (retry), set-option status, allow-rename, automatic-rename
+    expect(mockExecFileCustom).toHaveBeenCalledTimes(7);
+    // Walk tmux calls in order; skip the leading bash call (binary is "bash").
+    const tmuxSubcommands = mockExecFileCustom.mock.calls
+      .map((c) => c[0] === "tmux" ? (c[1] as string[])[0] : null)
+      .filter((sub): sub is string => sub !== null);
+    expect(tmuxSubcommands[0]).toBe("new-session");
+    expect(tmuxSubcommands[1]).toBe("kill-session");
+    expect(tmuxSubcommands[2]).toBe("new-session");
   });
 
   it("propagates non-duplicate new-session errors without killing existing session", async () => {
     const runtime = create();
 
-    // A real failure (not duplicate) should propagate, not kill anything
+    // 0: bashrc load succeeds, 1: new-session fails (not duplicate)
+    mockBashrcEmpty();
     mockTmuxError("permission denied");
 
     await expect(
@@ -165,14 +205,15 @@ describe("runtime.create()", () => {
       }),
     ).rejects.toThrow("permission denied");
 
-    // Only 1 call (new-session) — no kill-session issued
-    expect(mockExecFileCustom).toHaveBeenCalledTimes(1);
+    // 2 calls: bashrc load + new-session — no kill-session issued
+    expect(mockExecFileCustom).toHaveBeenCalledTimes(2);
   });
 
   it("stores launchCommand in handle.data for restart capability (bd-tln)", async () => {
     const runtime = create();
 
-    // Happy path: new-session, set-option status, allow-rename, automatic-rename
+    // 0: bashrc load, 1: new-session, 2-4: set-option calls
+    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -191,6 +232,7 @@ describe("runtime.create()", () => {
   it("includes -e KEY=VALUE flags for environment variables", async () => {
     const runtime = create();
 
+    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -203,9 +245,8 @@ describe("runtime.create()", () => {
       environment: { AO_SESSION: "env-session", FOO: "bar" },
     });
 
-    // First call: new-session with env args
-    const firstCallArgs = mockExecFileCustom.mock.calls[0];
-    const args = firstCallArgs[1] as string[];
+    // new-session call should contain -e flags
+    const args = argsOf("new-session");
     expect(args).toContain("-e");
     expect(args).toContain("AO_SESSION=env-session");
     expect(args).toContain("FOO=bar");
@@ -215,6 +256,7 @@ describe("runtime.create()", () => {
   it("sends launch command via send-keys", async () => {
     const runtime = create();
 
+    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -227,9 +269,9 @@ describe("runtime.create()", () => {
       environment: {},
     });
 
-    // First call: new-session passes the launch command as the pane's initial
+    // new-session passes the launch command as the pane's initial
     // command, with the keep-alive shell tail appended.
-    expect(mockExecFileCustom).toHaveBeenNthCalledWith(1,
+    expect(mockExecFileCustom).toHaveBeenCalledWith(
       "tmux",
       [
         "new-session",
@@ -247,6 +289,7 @@ describe("runtime.create()", () => {
   it("appends an interactive shell tail so the tmux pane survives agent exit (regression for #1756)", async () => {
     const runtime = create();
 
+    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -259,7 +302,7 @@ describe("runtime.create()", () => {
       environment: {},
     });
 
-    const finalArg = (mockExecFileCustom.mock.calls[0][1] as string[]).at(-1)!;
+    const finalArg = argsOf("new-session").at(-1)!;
     expect(finalArg).toContain("claude --session abc");
     expect(finalArg).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i\s*$/);
   });
@@ -268,6 +311,7 @@ describe("runtime.create()", () => {
     const runtime = create();
     const longCommand = "x".repeat(250);
 
+    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -292,8 +336,7 @@ describe("runtime.create()", () => {
       .calls[0];
     expect(writeCall[1]).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);
 
-    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
-      1,
+    expect(mockExecFileCustom).toHaveBeenCalledWith(
       "tmux",
       [
         "new-session",
@@ -311,11 +354,10 @@ describe("runtime.create()", () => {
   it("surfaces tmux set-option failures and cleans up", async () => {
     const runtime = create();
 
-    // 1: new-session succeeds
+    // 0: bashrc load, 1: new-session succeeds, 2: set-option fails, 3: kill-session (cleanup)
+    mockBashrcEmpty();
     mockTmuxSuccess();
-    // 2: set-option fails
     mockTmuxError("set-option failed");
-    // 3: kill-session (cleanup attempt)
     mockTmuxSuccess();
 
     await expect(
@@ -364,6 +406,7 @@ describe("runtime.create()", () => {
   it("accepts valid session IDs with hyphens and underscores", async () => {
     const runtime = create();
 
+    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -382,20 +425,21 @@ describe("runtime.create()", () => {
   it("handles no environment (undefined)", async () => {
     const runtime = create();
 
+    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
 
-    await runtime.create({
+    const noEnvConfig: RuntimeCreateConfig = {
       sessionId: "no-env",
       workspacePath: "/tmp/ws",
       launchCommand: "echo hi",
-    } as any);
+    };
+    await runtime.create(noEnvConfig);
 
-    // First call (new-session) should not contain -e flags
-    const firstCallArgs = mockExecFileCustom.mock.calls[0][1] as string[];
-    expect(firstCallArgs).toEqual([
+    // The new-session call should not contain -e flags
+    expect(argsOf("new-session")).toEqual([
       "new-session",
       "-d",
       "-s",
@@ -409,6 +453,7 @@ describe("runtime.create()", () => {
   it("sets allow-rename and automatic-rename to off on create", async () => {
     const runtime = create();
 
+    mockBashrcEmpty(); // bashrc load
     mockTmuxSuccess(); // new-session
     mockTmuxSuccess(); // set-option status off
     mockTmuxSuccess(); // set-option allow-rename off
@@ -431,6 +476,259 @@ describe("runtime.create()", () => {
       ["set-option", "-t", "rename-test", "automatic-rename", "off"],
       expectedTmuxOptions,
     );
+  });
+});
+
+describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
+  /** Find the args of the new-session tmux call (skipping the bash call). */
+  function newSessionArgs(): string[] {
+    const call = mockExecFileCustom.mock.calls.find(
+      (c) => Array.isArray(c[1]) && c[1][0] === "new-session",
+    );
+    if (!call) throw new Error("no new-session call found in mockExecFileCustom");
+    return call[1] as string[];
+  }
+
+  it("injects bashrc-sourced env vars as -e flags", async () => {
+    const runtime = create();
+
+    // bashrc loader returns two exported vars
+    mockBashrcOutput(
+      [
+        'declare -x AO_BOT_GH_TOKEN="abc123"',
+        "declare -x GH_TOKEN_AGENT1='xyz'",
+        "declare -x PATH=\"/usr/local/bin:/usr/bin:/bin\"", // PATH should also land
+        "declare -x UNRELATED_FUNC='() { echo hi; }'", // shell function — still parsed (we only filter for the env shape)
+      ].join("\n"),
+    );
+
+    // 4 tmux calls: new-session, set-option status, allow-rename, automatic-rename
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "bashrc-session",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: {},
+    });
+
+    const args = newSessionArgs();
+    expect(args).toContain("-e");
+    expect(args).toContain("AO_BOT_GH_TOKEN=abc123");
+    expect(args).toContain("GH_TOKEN_AGENT1=xyz");
+    expect(args).toContain("PATH=/usr/local/bin:/usr/bin:/bin");
+  });
+
+  it("explicit config.environment overrides bashrc-sourced vars", async () => {
+    const runtime = create();
+
+    mockBashrcOutput([
+      'declare -x FOO="from-bashrc"',
+      'declare -x BAR="bashrc-bar"',
+    ].join("\n"));
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "override-session",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: { FOO: "explicit" },
+    });
+
+    const args = newSessionArgs();
+    // FOO must be from the explicit config, not the bashrc
+    expect(args).toContain("FOO=explicit");
+    expect(args).not.toContain("FOO=from-bashrc");
+    // BAR comes from bashrc (no explicit override)
+    expect(args).toContain("BAR=bashrc-bar");
+  });
+
+  it("treats a missing or broken bashrc as non-fatal", async () => {
+    const runtime = create();
+
+    // bashrc loader throws (e.g. ~/.bashrc missing, bash not on PATH)
+    mockBashrcError("spawn bash ENOENT");
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    // Should not throw — fall back to whatever config.environment provides
+    const handle = await runtime.create({
+      sessionId: "no-bashrc",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: { EXPLICIT_ONLY: "yes" },
+    });
+
+    expect(handle.id).toBe("no-bashrc");
+
+    const args = newSessionArgs();
+    expect(args).toContain("EXPLICIT_ONLY=yes");
+  });
+
+  it("skips empty-valued bashrc exports to avoid overriding plist defaults", async () => {
+    const runtime = create();
+
+    mockBashrcOutput(
+      [
+        'declare -x EMPTY_VAR=""',
+        "declare -x GOOD_VAR='ok'",
+        "declare -x ALSO_EMPTY=", // unquoted empty
+      ].join("\n"),
+    );
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "empty-skip",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: {},
+    });
+
+    const args = newSessionArgs();
+    expect(args).toContain("GOOD_VAR=ok");
+    // Empty values must NOT be injected — passing -e KEY= would override any
+    // inherited default to empty
+    expect(args).not.toContain("EMPTY_VAR=");
+    expect(args).not.toContain("ALSO_EMPTY=");
+  });
+
+  it("unescapes shell-escaped values from declare -x (Codex P2)", async () => {
+    const runtime = create();
+
+    // declare -x escapes $, ", \ inside double-quoted values. The parser
+    // must unescape them so the worker receives the original bytes.
+    mockBashrcOutput(
+      [
+        'declare -x API_SECRET="a\\$b\\"c\\\\d"', // bash escapes: a\$b\"c\\d
+        "declare -x NEUTRAL='no-escapes'",
+        "declare -x NEWLINE_VALUE=$'a\\nb'",
+        // Bash emits values containing BOTH a literal newline AND a literal
+        // single quote in the ANSI-C $'...' form with the single quote
+        // escaped as \'. e.g. a\n'b → $'a\n\'b' (verified with
+        // bash -ic on a real value with both bytes).
+        "declare -x MIX_NL_QUOTE=$'a\\n\\'b'",
+      ].join("\n"),
+    );
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "escape-test",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: {},
+    });
+
+    const args = newSessionArgs();
+    // Bash double-quoted: a\$b\"c\\d → a$b"c\d after unescape
+    expect(args).toContain('API_SECRET=a$b"c\\d');
+    // Single-quoted: literal — no escape processing
+    expect(args).toContain("NEUTRAL=no-escapes");
+    // Bash ANSI-C $'...': \n → literal newline byte
+    expect(args).toContain("NEWLINE_VALUE=a\nb");
+    // Bash ANSI-C $'...': \n + \' → literal newline + literal single quote
+    expect(args).toContain("MIX_NL_QUOTE=a\n'b");
+  });
+
+  it("preserves the no-env regression: undefined config.environment + missing bashrc produces no -e flags", async () => {
+    const runtime = create();
+
+    // No bashrc mock set up — execFile rejects by default in the mock, so
+    // loadBashrcEnv() should treat that as a non-fatal empty result.
+    mockBashrcError("spawn bash ENOENT");
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    const noEnvConfig: RuntimeCreateConfig = {
+      sessionId: "no-env",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo hi",
+    };
+    await runtime.create(noEnvConfig);
+
+    // Find the new-session call (the only `new-session` arg in any of the
+    // mocked execFile invocations). The first call should be the bash
+    // loader (which rejected); the next is the new-session.
+    const newSessionCall = mockExecFileCustom.mock.calls.find(
+      (call) => Array.isArray(call[1]) && call[1][0] === "new-session",
+    );
+    expect(newSessionCall).toBeDefined();
+    const newSessionArgs = newSessionCall?.[1] as string[];
+    expect(newSessionArgs).toEqual([
+      "new-session",
+      "-d",
+      "-s",
+      "no-env",
+      "-c",
+      "/tmp/ws",
+      'echo hi\nexec "${SHELL:-/bin/bash}" -i',
+    ]);
+  });
+
+  it("truncates bashrc exports to MAX_BASHRC_VARS=10000 and warns with dropped var names", async () => {
+    const runtime = create();
+
+    // Build a bashrc dump with 10_001 lines so the cap fires. We use a
+    // small key prefix so the 10_000-var cap is the only thing limiting
+    // the resulting `-e` count.
+    const lines: string[] = [];
+    for (let i = 0; i < 10_001; i++) {
+      lines.push(`declare -x CAP_KEY_${i}="v${i}"`);
+    }
+    mockBashrcOutput(lines.join("\n"));
+    // 4 tmux calls
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await runtime.create({
+      sessionId: "cap-test",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: {},
+    });
+
+    // 10_000 -e flags + new-session/keep-alive tail. The 10_001st var
+    // is dropped.
+    const args = newSessionArgs();
+    const eFlags = args.filter((a) => /^CAP_KEY_\d+=/.test(a));
+    expect(eFlags).toHaveLength(10_000);
+    expect(eFlags).toContain("CAP_KEY_0=v0");
+    expect(eFlags).toContain("CAP_KEY_9999=v9999");
+    expect(eFlags).not.toContain("CAP_KEY_10000=v10000");
+
+    // Truncation warning surfaces the dropped var (singular here).
+    const warnCalls = warnSpy.mock.calls.map((c) => c[0] as string);
+    expect(
+      warnCalls.some(
+        (msg) =>
+          msg.includes("dropped 1 var") && msg.includes("CAP_KEY_10000"),
+      ),
+    ).toBe(true);
+
+    warnSpy.mockRestore();
   });
 });
 

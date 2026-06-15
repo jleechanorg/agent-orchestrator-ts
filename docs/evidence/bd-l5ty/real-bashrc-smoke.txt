@@ -1,0 +1,104 @@
+# bd-l5ty real-bashrc smoke test
+# date:           2026-06-14T15:55:26.784Z
+# HOME:           /Users/jleechan
+# node:           v22.22.0
+# shell:          /bin/bash
+# invocation:     bash -ic 'declare -x'  (matches loadBashrcEnv in runtime-tmux/src/index.ts)
+
+# raw output size: 21609 bytes
+
+# total exported vars parsed: 251
+# (cap applied at MAX_BASHRC_VARS=10000; see runtime-tmux/src/index.ts)
+
+# aggregated key count by prefix (values never printed):
+#   (no-underscore)           21 keys
+#   AGENTO_                    1 keys
+#   AI_                        9 keys
+#   ALLOWLIST_                 1 keys
+#   AMAZON_                    1 keys
+#   ANTHROPIC_                 4 keys
+#   AO_                       12 keys
+#   API_                       1 keys
+#   BACKUP_                    1 keys
+#   BASH_                      3 keys
+#   BD_                        1 keys
+#   BEADS_                     1 keys
+#   BUN_                       1 keys
+#   CEREBRAS_                  3 keys
+#   CLAUDE_                   17 keys
+#   CMUXD_                     1 keys
+#   CMUXTERM_                  1 keys
+#   CMUX_                     24 keys
+#   CODEX_                     1 keys
+#   COMMAND_                   1 keys
+#   COREPACK_                  1 keys
+#   DEEPSEEK_                  1 keys
+#   DISABLE_                   1 keys
+#   DISCORD_                   1 keys
+#   EMAIL_                     2 keys
+#   ENABLE_                    2 keys
+#   FIREBASE_                  8 keys
+#   GATEWAY_                   1 keys
+#   GCLOUD_                    1 keys
+#   GCP_                       1 keys
+#   GEMINI_                    2 keys
+#   GHOSTTY_                   4 keys
+#   GH_                        3 keys
+#   GIT_                       1 keys
+#   GLM_                       2 keys
+#   GODADDY_                   2 keys
+#   GOG_                       1 keys
+#   GOOGLE_                    9 keys
+#   GPT_                       3 keys
+#   GROK_                      1 keys
+#   GROQ_                      1 keys
+#   HERMES_                    2 keys
+#   HOMEBREW_                  3 keys
+#   HTTP_                      1 keys
+#   JLEECHAN_                  2 keys
+#   LOCAL_                     1 keys
+#   MCP_                       4 keys
+#   MEETING_                   2 keys
+#   MINIMAX_                   4 keys
+#   MISSION_                   2 keys
+#   N8N_                       1 keys
+#   NOTION_                    1 keys
+#   NVM_                       1 keys
+#   OPENAI_                    1 keys
+#   OPENCLAW_                 12 keys
+#   OPENCODE_                  1 keys
+#   OPENROUTER_                1 keys
+#   PERPLEXITY_                1 keys
+#   PNPM_                      1 keys
+#   PYENV_                     1 keys
+#   PYPI_                      1 keys
+#   REDIS_                     2 keys
+#   RENDER_                    1 keys
+#   RUNPOD_                    1 keys
+#   SLACK_                     7 keys
+#   SMOKE_                     1 keys
+#   SSH_                       2 keys
+#   SSL_                       1 keys
+#   TAVILY_                    1 keys
+#   TELEGRAM_                  1 keys
+#   TERM_                      2 keys
+#   TEST_                      4 keys
+#   TMUX_                      1 keys
+#   VITE_                     14 keys
+#   WAFER_                     1 keys
+#   WIKI_                      1 keys
+#   WORLDAI_                   6 keys
+#   WORLDARCH_                 1 keys
+#   WORLDCLAW_                 1 keys
+#   XAI_                       1 keys
+#   XDG_                       1 keys
+#   XPC_                       2 keys
+#   _                          3 keys
+
+# status of bead-mentioned bashrc exports:
+#   AO_BOT_GH_TOKEN                  FOUND
+#   MINIMAX_API_KEY                  FOUND
+#   MINIMAX_ANTHROPIC_BASE_URL       FOUND
+#   <GH_TOKEN-style var>             FOUND
+
+# PASS: bashrc sourced 251 vars; loadBashrcEnv() would inject them.

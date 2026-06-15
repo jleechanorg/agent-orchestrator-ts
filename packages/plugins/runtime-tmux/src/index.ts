@@ -1,8 +1,12 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 import {
   type PluginModule,
   type Runtime,
@@ -28,6 +32,156 @@ export const manifest = {
 
 /** Only allow safe characters in session IDs */
 const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]+$/;
+
+/** Safety cap on the number of bashrc exports we'll inject. Beyond this we
+ * log a warning that lists the dropped var names (count only, never values)
+ * and continue without those vars. The cap is intentionally large (10_000) —
+ * real-world bashrcs export 100-300 vars; pathological cases hit the cap with
+ * a loud warning rather than silent truncation. */
+const MAX_BASHRC_VARS = 10_000;
+
+/**
+ * Parse `declare -x KEY=VALUE` lines from `bash -ic 'declare -x'` output.
+ * Handles double-quoted, single-quoted, and unquoted values, and unescapes
+ * backslash-escaped characters inside double-quoted values so that values
+ * like `\$HOME` and `\"foo\"` round-trip back to their original bytes
+ * (Codex P2 — see PR #691 review). Skips entries with empty values (passing
+ * `-e KEY=` to tmux would override any inherited default to empty, which
+ * is rarely what we want).
+ */
+/**
+ * Decode Bash backslash escapes — applies to both `"..."` (double-quoted)
+ * and `$'...'` (ANSI-C) emit forms. The same escape set is used for both,
+ * plus `\'` which only appears in `$'...'` (a literal `'` inside double
+ * quotes is emitted unescaped by bash, but inside `$'...'` bash uses
+ * `\'` to escape the single quote that would otherwise terminate the
+ * literal). Full set: `\$`, `\"`, `\\`, `\'`, `` \` ``, `\n`, `\r`, `\t`,
+ * `\v`, `\f`, `\a`, `\b`, `\e`, and octal `\0`-`\7`.
+ * Single-quoted `'...'` values never receive this transform.
+ */
+function unescapeBashString(s: string): string {
+  return s.replace(/\\([\\$"'`nrtvfabe0-7])/g, (_, ch) => {
+    switch (ch) {
+      case "n": return "\n";
+      case "r": return "\r";
+      case "t": return "\t";
+      case "v": return "\v";
+      case "f": return "\f";
+      case "a": return "\x07";
+      case "b": return "\b";
+      case "e": return "\x1b";
+      case "\\": return "\\";
+      case "$": return "$";
+      case '"': return '"';
+      case "'": return "'";
+      case "`": return "`";
+      default: return ch; // \0-\7: pass through (octal)
+    }
+  });
+}
+
+function parseBashrcOutput(output: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (typeof output !== "string" || output.length === 0) return result;
+  for (const line of output.split("\n")) {
+    const m = line.match(/^declare -x ([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!m) continue;
+    const key = m[1];
+    const raw = m[2].replace(/\s+$/, "");
+    let value: string;
+    if (raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')) {
+      // Bash double-quoted: process ANSI-C backslash escapes (\$, \", \\, \n, etc.)
+      value = unescapeBashString(raw.slice(1, -1));
+    } else if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")) {
+      // Bash single-quoted: literal — no escape processing.
+      value = raw.slice(1, -1);
+    } else if (
+      raw.length >= 3 &&
+      raw.startsWith("$'") &&
+      raw.endsWith("'")
+    ) {
+      // Bash ANSI-C $'...': same escape rules as the double-quoted branch.
+      // Bash emits this form for any export whose value contains a literal
+      // newline, tab, or other non-printable byte (e.g. $'a\nb').
+      value = unescapeBashString(raw.slice(2, -1));
+    } else {
+      // Unquoted: take as-is.
+      value = raw;
+    }
+    if (value.length === 0) continue;
+    result[key] = value;
+  }
+  return result;
+}
+
+/**
+ * Source the user's `~/.bashrc` and return the exports it sets, as a plain
+ * object suitable for merging into the tmux session's environment.
+ *
+ * `tmux new-session -d` starts a non-interactive, non-login shell that does
+ * NOT source `~/.bashrc` or `~/.bash_profile`. As a result, any secrets or
+ * PATH additions exported from bashrc (`AO_BOT_GH_TOKEN`, `GH_TOKEN_AGENT1`,
+ * `MINIMAX_API_KEY`, custom PATH entries, etc.) are missing from worker
+ * shells. This helper runs an interactive `bash -ic` so bashrc IS sourced
+ * (Codex P2: bash reads ~/.bashrc automatically for an interactive shell —
+ * we let bash handle that once instead of double-sourcing it), dumps the
+ * resulting environment with `declare -x`, and parses the output back into
+ * a key→value map.
+ *
+ * Mirrors the proven pattern in `scripts/launchd-launcher.sh` (commit
+ * 504a347) used to inject the same set of vars into launchd plists.
+ *
+ * Non-fatal: returns `{}` on any failure (HOME unset, bash missing, bashrc
+ * missing, parse error). The caller falls back to whatever was in
+ * `config.environment`.
+ *
+ * Cap: at most `MAX_BASHRC_VARS` (10_000) entries are returned. If the user's
+ * bashrc exports more, the dropped var names are listed in a warning log so
+ * the user can identify why an expected env var is missing (CodeRabbit MAJOR
+ * — see PR #691 review).
+ */
+async function loadBashrcEnv(): Promise<Record<string, string>> {
+  if (!process.env.HOME) return {};
+  let output: string;
+  try {
+    // Use async execFile so we don't block the Node event loop on session
+    // creation (CodeRabbit MAJOR — see PR #691 review). `--norc` is NOT
+    // passed: bash sources ~/.bashrc for an interactive shell exactly once.
+    const result = await execFileAsync(
+      "bash",
+      ["-ic", "declare -x"],
+      {
+        encoding: "utf-8",
+        timeout: 2_000,
+        maxBuffer: 4 * 1024 * 1024,
+      },
+    );
+    output = result.stdout;
+  } catch {
+    // bash missing, bashrc unreadable, or timeout — non-fatal.
+    return {};
+  }
+  if (typeof output !== "string") return {};
+  const result = parseBashrcOutput(output);
+  const keys = Object.keys(result);
+  if (keys.length > MAX_BASHRC_VARS) {
+    const dropped = keys.slice(MAX_BASHRC_VARS);
+    console.warn(
+      `[runtime-tmux] bashrc exported ${keys.length} vars (> ${MAX_BASHRC_VARS} cap); ` +
+        `dropped ${dropped.length} vars: ${dropped.join(", ")}`,
+    );
+    const truncated: Record<string, string> = {};
+    for (const k of keys.slice(0, MAX_BASHRC_VARS)) {
+      truncated[k] = result[k];
+    }
+    return truncated;
+  }
+  if (keys.length > 0) {
+    // Log the count only — never log values (they may contain secrets).
+    console.warn(`[runtime-tmux] loaded ${keys.length} vars from ~/.bashrc`);
+  }
+  return result;
+}
 
 /**
  * Detect if the agent is Gemini CLI by inspecting the launch command.
@@ -242,9 +396,17 @@ export function create(): Runtime {
       assertValidSessionId(config.sessionId);
       const sessionName = config.sessionId;
 
-      // Build environment flags: -e KEY=VALUE for each env var
+      // Source bashrc-sourced env vars (bd-l5ty): tmux new-session starts a
+      // non-interactive non-login shell that does NOT source ~/.bashrc, so
+      // secrets exported from bashrc (AO_BOT_GH_TOKEN, GH_TOKEN_AGENT1, …)
+      // are missing from worker shells unless we inject them explicitly.
+      // Mirrors the proven pattern in scripts/launchd-launcher.sh.
+      const bashrcEnv = await loadBashrcEnv();
+      // Explicit per-session config.environment takes precedence over bashrc.
+      const mergedEnv = { ...bashrcEnv, ...(config.environment ?? {}) };
       const envArgs: string[] = [];
-      for (const [key, value] of Object.entries(config.environment ?? {})) {
+      for (const [key, value] of Object.entries(mergedEnv)) {
+        if (value === "") continue;
         envArgs.push("-e", `${key}=${value}`);
       }
 

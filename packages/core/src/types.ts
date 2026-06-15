@@ -356,7 +356,14 @@ export interface RuntimeCreateConfig {
   sessionId: SessionId;
   workspacePath: string;
   launchCommand: string;
-  environment: Record<string, string>;
+  /**
+   * Per-session environment to inject into the spawned worker. When unset
+   * (e.g. by a test or a future caller that doesn't pre-merge env), the
+   * runtime falls back to its own defaults (e.g. bashrc-sourced vars for
+   * runtime-tmux) — see runtime-tmux/src/index.ts create() for the merge
+   * order.
+   */
+  environment?: Record<string, string>;
   /**
    * Optional lifecycle callback invoked by the runtime when it detects the
    * managed session has gone idle (e.g. a conversation completed or is
