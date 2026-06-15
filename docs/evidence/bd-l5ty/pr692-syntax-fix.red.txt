@@ -48,4 +48,6 @@ Error: Transform failed with 1 error:
  Test Files  1 failed (1)
       Tests  no tests
 
-ERR: typecheck and tests both fail because the switch block is unclosed.
+# Author note: typecheck and tests both fail because the switch block
+# is unclosed. This file and pr692-syntax-fix.green.txt together form
+# the Red/Green TDD record of the unescapeBashString() syntax fix.
