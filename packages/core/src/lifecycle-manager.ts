@@ -1871,15 +1871,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const notifierNames = (config.notificationRouting[priority]?.length ?? 0) > 0
       ? config.notificationRouting[priority]!
       : config.defaults.notifiers;
+    let delivered = false;
     for (const name of notifierNames) {
       const notifier = registry.get<Notifier>("notifier", name);
       if (notifier) {
         try {
           await notifier.notify(eventWithPriority);
+          delivered = true;
         } catch {
           // Notifier failed — not much we can do
         }
       }
+    }
+    if (!delivered && priority === "urgent") {
+      console.error(
+        "[lifecycle-manager] URGENT notification undelivered — all notifiers failed",
+        JSON.stringify({ type: event.type, sessionId: event.sessionId ?? "", projectId: event.projectId ?? "" }),
+      );
     }
   }
 

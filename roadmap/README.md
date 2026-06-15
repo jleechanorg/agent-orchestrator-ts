@@ -4,6 +4,23 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-06-15 — wa-2355 silent kill investigation
+
+- **Root cause diagnosed:** Worker wa-2355 (MiniMax-M3, worldarchitect) was killed after 3 consecutive SCM failures (`scm-failure-threshold`) at 23:01 UTC on 2026-06-14 with zero user notification. Two stacked failure modes: (1) `notifyHuman()` in `lifecycle-manager.ts:1869` has bare `catch {}` — no fallback log when ALL notifiers fail; (2) worldarchitect Slack notifier has unresolved `PLACEHOLDER` webhookUrl, making it a permanent no-op.
+- **Beads created:** [bd-s1qg](https://github.com/jleechanorg/agent-orchestrator/issues/695) (code: console.error fallback in notifyHuman for undelivered urgent events), [bd-3rvp](https://github.com/jleechanorg/agent-orchestrator/issues/696) (config: worldarchitect urgent routing → working `webhook` notifier)
+- **Nextsteps doc:** `~/roadmap/nextsteps-2026-06-15-wa2355-silent-kill-investigation.md`
+
+#### Evidence
+
+**Claim class**: unit — pure logic change in synchronous code path, no external service dependency.
+
+| Artifact | Link |
+|----------|------|
+| PR (code fix + tests) | [PR #697](https://github.com/jleechanorg/agent-orchestrator/pull/697) |
+| TDD Red phase (test file) | `packages/core/src/__tests__/lifecycle-manager.test.ts` — `describe("notifyHuman — urgent fallback")` |
+| TDD Green phase | Both new tests PASS; 2356 pre-existing tests unchanged |
+| Fix A config validation | `python3 -c "import yaml; yaml.safe_load(open('...').read())"` on both `~/.hermes` and `~/.hermes_prod` configs → OK |
+
 ### 2026-06-09 — Skeptic chain decoupling (three chapters)
 
 - **PR [#654](https://github.com/jleechanorg/agent-orchestrator/pull/654) MERGED** — skepticModel list fallback + minimax/agy. **Unintentionally introduced `eligiblePRs` 24h age filter** at top of `runLocalSkepticCron` — this is the runtime coupling that caused the worldarchitect fleet-wide skeptic silence (rev-itrz9). The 251 `lifecycle.backfill.disabled_with_open_prs` warnings were operational noise; the actual cause was a fresh `/skeptic` trigger being silently dropped on a stale PR.
