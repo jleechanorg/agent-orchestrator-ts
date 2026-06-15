@@ -5624,3 +5624,108 @@ describe("post-merge reap: reapPostMergeCoWorkers is called on merged transition
     expect(mockSessionManager.kill).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("notifyHuman — urgent fallback", () => {
+  it("logs to console.error when all notifiers fail for an urgent event", async () => {
+    const throwingNotifier: Notifier = {
+      name: "broken",
+      notify: vi.fn().mockRejectedValue(new Error("notifier down")),
+    };
+
+    // Override isAlive to return false so determineStatus returns "killed"
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    const registryWithBrokenNotifier: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        // No scm slot → determineStatus returns "killed" immediately when !alive && !scm
+        if (slot === "notifier" && name === "broken") return throwingNotifier;
+        return null;
+      }),
+    };
+
+    config.notifiers = { broken: { plugin: "broken" } };
+    config.notificationRouting = {
+      urgent: ["broken"],
+      action: [],
+      warning: [],
+      info: [],
+    };
+    config.reactions = {
+      "agent-exited": { action: "notify", priority: "urgent" },
+    };
+
+    // Use "running" status — "spawning" would cause determineStatus early-return
+    const session = makeSession({ status: "running" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithBrokenNotifier,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[lifecycle-manager] URGENT notification undelivered"),
+      expect.any(String),
+    );
+
+    errSpy.mockRestore();
+  });
+
+  it("does NOT log to console.error when at least one notifier succeeds for an urgent event", async () => {
+    const workingNotifier: Notifier = {
+      name: "working",
+      notify: vi.fn().mockResolvedValue(undefined),
+    };
+
+    vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
+
+    const registryWithWorking: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string, name: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "notifier" && name === "working") return workingNotifier;
+        return null;
+      }),
+    };
+
+    config.notifiers = { working: { plugin: "working" } };
+    config.notificationRouting = {
+      urgent: ["working"],
+      action: [],
+      warning: [],
+      info: [],
+    };
+    config.reactions = {
+      "agent-exited": { action: "notify", priority: "urgent" },
+    };
+
+    const session = makeSession({ status: "running" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithWorking,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    const urgentUndeliveredCalls = errSpy.mock.calls.filter((args) =>
+      String(args[0]).includes("[lifecycle-manager] URGENT notification undelivered"),
+    );
+    expect(urgentUndeliveredCalls).toHaveLength(0);
+
+    errSpy.mockRestore();
+  });
+});
