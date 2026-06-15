@@ -1,7 +1,21 @@
-PR #692: CodeRabbit commit a2999fe34 introduced a syntax error in
-`unescapeBashString` — the closing `);` of the `String.prototype.replace`
-call was deleted, leaving the switch statement unclosed. `tsc` and
-`vitest` both fail because esbuild cannot transform the broken module.
+PR #692: this transcript documents the **pre-fix** state of the
+`runtime-tmux` package — a syntax error in `unescapeBashString()` that
+CodeRabbit Chat's commit `a2999fe34` on PR #691 introduced (the
+closing `);` of the `String.prototype.replace` call was deleted,
+leaving the switch statement unclosed).
+
+The fix (closing the switch block with `);`) already landed on the
+base branch `fix/tmux-runtime-source-bashrc` (PR #691) at commit
+`0adc6d257`. PR #692 is a stacked documentation/evidence follow-up
+that adds only this transcript file and `pr692-syntax-fix.green.txt`;
+the code change shown in this transcript is NOT part of PR #692's
+incremental diff.
+
+For convenience, the transcript is preserved here as a Red/Green TDD
+record of the syntax fix that this branch was originally chartered
+to land.
+
+---
 
 $ pnpm --filter @jleechanorg/ao-plugin-runtime-tmux run typecheck
 
