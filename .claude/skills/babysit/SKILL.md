@@ -58,7 +58,7 @@ ao spawn --claim-pr N  "DRIVER MODE: take ownership of PR N and iterate until
 **Rules:**
 - Spawn ALL independent fix workers in parallel (one `ao spawn` per PR)
 - Pass PR number, current specific failure (CI test name, review thread, skeptic gate) as a starting hint, and the fix scope. The fix-all invariant below still applies — "specific failure" is the FIRST thing to look at, not the ONLY thing to fix.
-- **DRIVER-mode steering must be specific**: when babysit sends a correction to a DRIVER worker, the message MUST include file:line + exact change (e.g. "fix `packages/cli/src/spawn.ts:42` by adding `--driver` to the options map"). Generic "fix CI" / "keep going" / "CI is red" nudges are FORBIDDEN — they are the failure mode this skill exists to prevent. See `.claude/commands/babysit.md` "DRIVER mode contract" rule 4.
+- **DRIVER-mode steering must be specific**: when babysit sends a correction to a DRIVER worker, the message MUST include file:line + exact change (e.g. "fix `packages/cli/src/spawn.ts:42` by removing the redundant `dryRun` branch"). Generic "fix CI" / "keep going" / "CI is red" nudges are FORBIDDEN — they are the failure mode this skill exists to prevent. See `.claude/commands/babysit.md` "DRIVER mode contract" rule 4. Note: per the tenet above, do NOT suggest adding a `--driver` CLI option; the DRIVER contract is conveyed in the spawn prompt, never as a flag.
 - AO manages worktree creation, session metadata, and CI monitoring automatically
 - Max 5 concurrent workers to avoid context explosion
 
