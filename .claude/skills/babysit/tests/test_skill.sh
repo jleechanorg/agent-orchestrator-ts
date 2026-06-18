@@ -42,21 +42,36 @@ ok "SKILL.md does not advertise fake --driver CLI flag"
 grep -q "DRIVER MODE:" "$SKILL" || fail "DRIVER MODE prompt missing from spawn example"
 ok "SKILL.md spawn example uses DRIVER MODE prompt"
 
-# 6. The fix-all invariant 5-step loop is present (1. ... 2. ... 3. ... 4. ... 5.)
-STEP_COUNT=$(grep -cE '^[0-9]+\.[[:space:]]' "$SKILL" || true)
-[ "$STEP_COUNT" -ge 5 ] || fail "fix-all invariant 5 numbered steps missing (found $STEP_COUNT)"
-ok "SKILL.md has $STEP_COUNT numbered list items (>=5)"
+# 6. The fix-all invariant 5-step loop is present, scoped to that section.
+#    Extract content between "### Fix-all invariant" and the next "### " or
+#    "## " heading (or EOF), then count numbered list items within.
+FIXALL_SECTION=$(awk '
+  /^### Fix-all invariant/ {flag=1; next}
+  /^### / && flag {flag=0}
+  /^## / && flag {flag=0}
+  flag
+' "$SKILL")
+[ -n "$FIXALL_SECTION" ] || fail "could not extract Fix-all invariant section"
+STEP_COUNT=$(printf '%s\n' "$FIXALL_SECTION" | grep -cE '^[0-9]+\.[[:space:]]' || true)
+[ "$STEP_COUNT" -eq 5 ] || fail "expected 5 fix-all steps in Fix-all invariant section, found $STEP_COUNT"
+ok "SKILL.md Fix-all invariant section has 5 numbered steps"
 
 # 7. /babysit command file documents --driver
 [ -f "$COMMAND_FILE" ] || fail "missing $COMMAND_FILE"
 grep -q "/babysit --driver N" "$COMMAND_FILE" || fail "/babysit --driver N arg missing from babysit.md"
 ok "babysit.md documents /babysit --driver N"
 
-# 8. /babysit command file has 4 numbered rules in DRIVER mode contract
-DRIVER_SECTION=$(sed -n '/## DRIVER mode contract/,$p' "$COMMAND_FILE")
+# 8. /babysit command file has 4 numbered rules in DRIVER mode contract,
+#    scoped to that section only (stop at next "## " heading).
+DRIVER_SECTION=$(awk '
+  /^## DRIVER mode contract/ {flag=1; next}
+  /^## / && flag {flag=0}
+  flag
+' "$COMMAND_FILE")
+[ -n "$DRIVER_SECTION" ] || fail "could not extract DRIVER mode contract section"
 RULE_COUNT=$(printf '%s\n' "$DRIVER_SECTION" | grep -cE '^[0-9]+\.[[:space:]]' || true)
-[ "$RULE_COUNT" -eq 4 ] || fail "expected 4 DRIVER rules, found $RULE_COUNT"
-ok "babysit.md has 4 numbered DRIVER mode contract rules"
+[ "$RULE_COUNT" -eq 4 ] || fail "expected 4 DRIVER rules in DRIVER mode contract section, found $RULE_COUNT"
+ok "babysit.md DRIVER mode contract section has 4 numbered rules"
 
 echo
 echo "ALL CHECKS PASSED"
