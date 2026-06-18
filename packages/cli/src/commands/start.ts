@@ -837,12 +837,12 @@ async function runStartup(
 
   if (shouldStartLifecycle) {
     try {
-      spinner.start("Starting lifecycle worker");
+      spinner.start("Starting lifecycle worker (in-process)");
       lifecycleStatus = await ensureLifecycleWorker(config, projectId);
       spinner.succeed(
         lifecycleStatus.started
-          ? `Lifecycle worker started${lifecycleStatus.pid ? ` (PID ${lifecycleStatus.pid})` : ""}`
-          : `Lifecycle worker already running${lifecycleStatus.pid ? ` (PID ${lifecycleStatus.pid})` : ""}`,
+          ? "Lifecycle worker started (in-process polling)"
+          : "Lifecycle worker already running (in-process polling)",
       );
     } catch (err) {
       spinner.fail("Lifecycle worker failed to start");
@@ -899,10 +899,9 @@ async function runStartup(
   }
 
   if (shouldStartLifecycle && lifecycleStatus) {
-    const lifecycleLabel = lifecycleStatus.started ? "started" : "already running";
-    const lifecycleTarget = lifecycleStatus.pid
-      ? `${lifecycleLabel} (PID ${lifecycleStatus.pid})`
-      : lifecycleLabel;
+    const lifecycleTarget = lifecycleStatus.started
+      ? "started (in-process polling)"
+      : "already running (in-process polling)";
     console.log(chalk.cyan("Lifecycle:"), lifecycleTarget);
   }
 
@@ -955,7 +954,7 @@ async function runStartup(
       clearInterval(keepAlive);
       try {
         if (lifecycleStatus?.started) {
-          await stopLifecycleWorker(config, projectId);
+          await stopLifecycleWorker(projectId);
         }
       } finally {
         process.exit(0);
@@ -1382,7 +1381,7 @@ export function registerStop(program: Command): void {
             await sm.kill(session.id, { purgeOpenCode });
           }
           await writeLastStop({ projectId, sessionIds });
-          await stopLifecycleWorker(config, projectId);
+          await stopLifecycleWorker(projectId);
         } else {
           const allSessions = await sm.list();
           const projectSessions = allSessions.filter(
@@ -1399,7 +1398,7 @@ export function registerStop(program: Command): void {
             await writeLastStop({ projectId, sessionIds: [] });
             console.log(chalk.yellow("Orchestrator is not running"));
           }
-          await stopLifecycleWorker(config, projectId);
+          await stopLifecycleWorker(projectId);
         }
 
         console.log(chalk.bold.green("\n✓ Project stopped\n"));

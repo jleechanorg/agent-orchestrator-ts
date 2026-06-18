@@ -1,646 +1,167 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+/**
+ * Tests for the in-process lifecycle-service.
+ *
+ * Replaces the old subprocess-based test suite (deleted with the
+ * `lifecycle-worker` CLI in PR #712). The new API is a thin in-memory
+ * Map<projectId, LifecycleManager>: no PID file, no lock file, no subprocess
+ * spawn, no `ps` scan. Mirrors upstream `AgentWrapper/agent-orchestrator`
+ * PR #1186.
+ */
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { OrchestratorConfig } from "@jleechanorg/ao-core";
 
-// Stable mock references used inside vi.mock factories.
-// Default implementation: return an empty buffer so bare calls don't throw.
-// Tests override specific calls with mockReturnValueOnce / mockImplementationOnce.
-const mockExecFileSync = vi.hoisted(() =>
-  vi.fn(() => {
-    // Default: return an empty buffer (trims to "", no match → false/null).
-    // Tests override with mockReturnValueOnce for the specific calls they care about.
-    return Buffer.from("");
-  }),
-);
+const mockStart = vi.fn();
+const mockStop = vi.fn();
+const mockGetLifecycleManager = vi.fn();
+const mockSetHealth = vi.fn();
+const mockCreateProjectObserver = vi.fn(() => ({ setHealth: mockSetHealth }));
 
-const mockSpawn = vi.fn();
+vi.mock("../../src/lib/create-session-manager.js", () => ({
+  getLifecycleManager: (...args: unknown[]) => mockGetLifecycleManager(...args),
+}));
 
-const MOCK_FS = vi.hoisted(() => {
-  let store: Record<string, unknown> = {};
-  let lockHeld = false;
+vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@jleechanorg/ao-core")>();
   return {
-    get store() {
-      return store;
-    },
-    get lockHeld() {
-      return lockHeld;
-    },
-    set lockHeld(val: boolean) {
-      lockHeld = val;
-    },
-    reset() {
-      mockExecFileSync.mockReset();
-      mockSpawn.mockReset();
-      store = {};
-      lockHeld = false;
-    },
+    ...actual,
+    createProjectObserver: (...args: unknown[]) => mockCreateProjectObserver(...args),
   };
 });
 
-vi.mock("node:child_process", () => ({
-  execFileSync: mockExecFileSync,
-  spawn: mockSpawn,
-}));
+function makeFakeLifecycle() {
+  return { start: mockStart, stop: mockStop };
+}
 
-vi.mock("node:fs", () => ({
-  closeSync: () => undefined,
-  constants: { O_CREAT: 64, O_EXCL: 128, O_WRONLY: 1 },
-  existsSync: (path: string) =>
-    Boolean(MOCK_FS.store[`existsSync:${path}`]),
-  mkdirSync: () => undefined,
-  openSync: (path: string, flags: number | string) => {
-    const O_EXCL = 128;
-    if (typeof flags === "number" && (flags & O_EXCL) !== 0) {
-      if (MOCK_FS.lockHeld) {
-        const err = Object.assign(new Error("EEXIST"), { code: "EEXIST" });
-        throw err;
-      }
-      MOCK_FS.lockHeld = true;
-      MOCK_FS.store[`existsSync:${path}`] = true;
-    }
-    return 99;
-  },
-  readFileSync: (path: string) =>
-    (MOCK_FS.store[`readFileSync:${path}`] as string) ?? "",
-  unlinkSync: (path: string) => {
-    MOCK_FS.store[`unlinkSync:${path}`] = true;
-    if (path.endsWith("lifecycle-worker.lock")) {
-      MOCK_FS.lockHeld = false;
-    }
-  },
-  writeFileSync: (path: string, data: string) => {
-    MOCK_FS.store[`writeFileSync:${path}`] = data;
-  },
-}));
-
-vi.mock("@jleechanorg/ao-core", () => ({
-  getProjectBaseDir: (_configPath: string, projectPath: string) => {
-    const projectId = projectPath.split("/").pop() ?? projectPath;
-    return `/tmp/ao-test/${projectId}`;
-  },
-}));
-
-const {
-  getLifecycleWorkerStatus,
-  stopLifecycleWorker,
-  ensureLifecycleWorker,
-  writeLifecycleWorkerPid,
-  clearLifecycleWorkerPid,
-  forceLifecycleLock,
-  tryAcquireLifecycleLock,
-  scanForRunningLifecycleWorker,
-  resolveLifecycleWorkerLaunch,
-} = await import("../../src/lib/lifecycle-service.js");
-
-function mockConfig(projects: Record<string, string>): OrchestratorConfig {
+function makeConfig(projectIds: string[]): OrchestratorConfig {
   return {
-    configPath: "/tmp/ao-ls-test/agent-orchestrator.yaml",
+    configPath: "/tmp/ao-lifecycle-test/agent-orchestrator.yaml",
     projects: Object.fromEntries(
-      Object.entries(projects).map(([k, v]) => [k, { path: v }]),
+      projectIds.map((id) => [id, { name: id, path: `/tmp/${id}` }]),
     ),
   } as unknown as OrchestratorConfig;
 }
 
-function pidFile(projectId: string): string {
-  return `/tmp/ao-test/${projectId}/lifecycle-worker.pid`;
-}
-
-function setExists(file: string, val: boolean): void {
-  MOCK_FS.store[`existsSync:${file}`] = val;
-}
-
-function setReadFile(file: string, val: string): void {
-  MOCK_FS.store[`readFileSync:${file}`] = val;
-}
-
-function mockPsResult(cmdline: string): void {
-  mockExecFileSync.mockReturnValueOnce(Buffer.from(`${cmdline}\n`));
-}
-
-function mockPsFailure(): void {
-  mockExecFileSync.mockImplementationOnce(() => {
-    throw new Error("No such process");
-  });
-}
-
-function mockPsNoSuchProcess(): void {
-  mockExecFileSync.mockImplementationOnce(() => {
-    const err = Object.assign(new Error("No such process"), { status: 1 });
-    throw err;
-  });
-}
-
-beforeEach(() => {
-  MOCK_FS.reset();
-});
-
-describe("getLifecycleWorkerStatus", () => {
-  it("returns running=true and verified=true when pid file exists and ps matches the project", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const pf = pidFile("test-proj");
-
-    setExists(pf, true);
-    setReadFile(pf, "12345\n");
-    mockPsResult("/path/to/node ao lifecycle-worker test-proj");
-
-    const status = getLifecycleWorkerStatus(cfg, "test-proj");
-
-    expect(status.running).toBe(true);
-    expect(status.pid).toBe(12345);
-    expect(status.verified).toBe(true);
-  });
-
-  it("returns verified=null and does NOT call unlinkSync when ps fails (indeterminate)", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const pf = pidFile("test-proj");
-
-    setExists(pf, true);
-    setReadFile(pf, "99999\n");
-    mockPsFailure(); // isLifecycleWorkerProcess returns null
-
-    const status = getLifecycleWorkerStatus(cfg, "test-proj");
-
-    // indeterminate → PID file is NOT cleared; verified=null signals to
-    // callers that they should not act on this state.
-    expect(status.running).toBe(false);
-    expect(status.pid).toBeNull();
-    expect(status.verified).toBeNull();
-    expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBeUndefined();
-  });
-
-  it("returns verified=false when ps succeeds but project ID is different", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const pf = pidFile("test-proj");
-
-    setExists(pf, true);
-    setReadFile(pf, "54321\n");
-    // ps finds a different project's lifecycle-worker
-    mockPsResult("/path/to/node ao lifecycle-worker other-proj");
-
-    const status = getLifecycleWorkerStatus(cfg, "test-proj");
-
-    expect(status.running).toBe(false);
-    expect(status.pid).toBeNull();
-    expect(status.verified).toBe(false);
-  });
-
-  it("treats ps exit status=1 as stale/dead PID and clears pid file", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const pf = pidFile("test-proj");
-
-    setExists(pf, true);
-    setReadFile(pf, "77777\n");
-    mockPsNoSuchProcess();
-
-    const status = getLifecycleWorkerStatus(cfg, "test-proj");
-
-    expect(status.running).toBe(false);
-    expect(status.pid).toBeNull();
-    expect(status.verified).toBe(false);
-    expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBe(true);
-  });
-
-  it("prevents prefix false positive: api does not match api-v2", () => {
-    // Both projects exist, api's PID file is stale and points to api-v2's worker
-    const cfg = mockConfig({
-      api: "/repos/api",
-      "api-v2": "/repos/api-v2",
-    });
-    const apiPf = pidFile("api");
-
-    setExists(apiPf, true);
-    setReadFile(apiPf, "11111\n");
-    // ps finds api-v2, not api — PID was recycled
-    mockPsResult("/path/to/node ao lifecycle-worker api-v2");
-
-    const status = getLifecycleWorkerStatus(cfg, "api");
-
-    expect(status.running).toBe(false);
-    expect(status.pid).toBeNull();
-    expect(status.verified).toBe(false);
-  });
-
-  it("api correctly matches lifecycle-worker api", () => {
-    const cfg = mockConfig({ api: "/repos/api" });
-    const pf = pidFile("api");
-
-    setExists(pf, true);
-    setReadFile(pf, "22222\n");
-    mockPsResult("/path/to/node ao lifecycle-worker api");
-
-    const status = getLifecycleWorkerStatus(cfg, "api");
-
-    expect(status.running).toBe(true);
-    expect(status.pid).toBe(22222);
-    expect(status.verified).toBe(true);
-  });
-});
-
-describe("stopLifecycleWorker", () => {
-  it("returns false when worker is not running (no pid file)", async () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    setExists(pidFile("test-proj"), false);
-
-    const result = await stopLifecycleWorker(cfg, "test-proj");
-
-    expect(result).toBe(false);
-  });
-
-  it("sends SIGTERM and returns true on clean stop", async () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const pf = pidFile("test-proj");
-
-    setExists(pf, true);
-    setReadFile(pf, "33333\n");
-    // isLifecycleWorkerProcess call 1 (from getLifecycleWorkerStatus): match → running
-    mockPsResult("/path/to/node ao lifecycle-worker test-proj");
-    // isLifecycleWorkerProcess call 2 (wait loop): process is gone
-    mockPsFailure();
-
-    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
-    try {
-      const result = await stopLifecycleWorker(cfg, "test-proj");
-
-      expect(result).toBe(true);
-      expect(killSpy).toHaveBeenCalledWith(33333, "SIGTERM");
-    } finally {
-      killSpy.mockRestore();
-    }
-  });
-
-  it("returns false and does NOT call process.kill when verified=null (ps failed)", async () => {
-    // When verified=null, stopLifecycleWorker must not send SIGTERM because the
-    // PID file still exists and the worker may be running (ps was just flaky).
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const pf = pidFile("test-proj");
-
-    setExists(pf, true);
-    setReadFile(pf, "44444\n");
-    mockPsFailure(); // isLifecycleWorkerProcess returns null → verified=null
-
-    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
-    try {
-      const result = await stopLifecycleWorker(cfg, "test-proj");
-
-      // Cannot kill a PID we cannot verify — conservative: do not attempt
-      expect(result).toBe(false);
-      expect(killSpy).not.toHaveBeenCalled();
-      // PID file is also not cleared (verified=null means indeterminate)
-      expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBeUndefined();
-    } finally {
-      killSpy.mockRestore();
-    }
-  });
-});
-
-describe("ensureLifecycleWorker", () => {
-  it("does NOT spawn a new worker when verified=null (ps failed) — preserves PID file", async () => {
-    // When ps fails (verified=null), ensureLifecycleWorker must not spawn a new
-    // worker because a genuine lifecycle-worker may already be running. The PID
-    // file is left intact so the next call can retry verification.
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const pf = pidFile("test-proj");
-
-    setExists(pf, true);
-    setReadFile(pf, "55555\n");
-    mockPsFailure(); // getLifecycleWorkerStatus: verified=null
-
-    // Mock spawn so we can assert it was NOT called
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockSpawn.mockReturnValueOnce({ pid: 99999, unref: () => {} } as any);
-
-    const result = await ensureLifecycleWorker(cfg, "test-proj");
-
-    // verified=null → must not start a new worker
-    expect(result.started).toBe(false);
-    // spawn must not have been called — no duplicate worker created
-    expect(mockSpawn).not.toHaveBeenCalled();
-    // PID file is preserved
-    expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBeUndefined();
-  });
-});
-
-
-describe("tryAcquireLifecycleLock (orch-886k)", () => {
-  it("returns a release function on first acquire", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const release = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release).toBeTypeOf("function");
-    if (release) release();
-  });
-
-  it("returns null when lock is already held by a live process", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    // First acquire: succeeds.
-    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release1).toBeTypeOf("function");
-
-    // Simulate the lock file contains a PID of a still-alive process.
-    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
-    MOCK_FS.store[`readFileSync:${lockFile}`] = "99999\n";
-    // ps finds the process alive.
-    mockExecFileSync.mockReturnValueOnce(
-      Buffer.from("/path/to/node ao lifecycle-worker test-proj\n"),
+describe("lifecycle-service (in-process)", () => {
+  beforeEach(async () => {
+    mockStart.mockReset();
+    mockStop.mockReset();
+    mockGetLifecycleManager.mockReset();
+    mockSetHealth.mockReset();
+    mockCreateProjectObserver.mockClear();
+    mockGetLifecycleManager.mockResolvedValue(makeFakeLifecycle());
+    const { __resetLifecycleServiceForTesting } = await import(
+      "../../src/lib/lifecycle-service.js"
     );
-
-    // Second acquire: lock is live → must return null.
-    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release2).toBeNull();
-    if (release1) release1();
+    __resetLifecycleServiceForTesting();
   });
 
-  it("reaps a stale lock (crashed owner) and returns a valid release function", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
+  it("starts a polling loop for a registered project", async () => {
+    const { ensureLifecycleWorker, listLifecycleWorkers, isLifecycleWorkerRunning } =
+      await import("../../src/lib/lifecycle-service.js");
+    const cfg = makeConfig(["app"]);
 
-    // First acquire succeeds and simulates a crash (no release called).
-    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release1).toBeTypeOf("function");
-    // Simulate the lock file contains the PID of a crashed process.
-    MOCK_FS.store[`readFileSync:${lockFile}`] = "77777\n";
-    // ps returns empty (process is dead).
-    mockExecFileSync.mockReturnValueOnce(Buffer.from("\n"));
+    const status = await ensureLifecycleWorker(cfg, "app", 30_000);
 
-    // Second acquire: stale lock is reaped, re-acquisition succeeds.
-    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release2).toBeTypeOf("function");
-    if (release2) release2();
-    if (release1) release1();
+    expect(status).toEqual({ running: true, started: true });
+    expect(mockStart).toHaveBeenCalledWith(30_000);
+    expect(isLifecycleWorkerRunning("app")).toBe(true);
+    expect(listLifecycleWorkers()).toEqual(["app"]);
   });
 
-  it("reaps a stale lock when lock owner PID belongs to another command", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
+  it("uses the 30s default interval when none is provided", async () => {
+    const { ensureLifecycleWorker } = await import("../../src/lib/lifecycle-service.js");
+    const cfg = makeConfig(["app"]);
 
-    // First acquire succeeds and simulates a crash/no release.
-    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release1).toBeTypeOf("function");
-    MOCK_FS.store[`readFileSync:${lockFile}`] = "88999\n";
-    // PID is alive, but not a lifecycle-worker for this project.
-    mockExecFileSync.mockReturnValueOnce(Buffer.from("/usr/bin/python long_running_job.py\n"));
+    await ensureLifecycleWorker(cfg, "app");
 
-    // Second acquire should treat this as stale and succeed.
-    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release2).toBeTypeOf("function");
-    if (release2) release2();
-    if (release1) release1();
+    expect(mockStart).toHaveBeenCalledWith(30_000);
   });
 
-  it("returns null and preserves lock when ps fails (indeterminate owner)", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
+  it("returns started=false when the project already has a polling loop", async () => {
+    const { ensureLifecycleWorker } = await import("../../src/lib/lifecycle-service.js");
+    const cfg = makeConfig(["app"]);
 
-    // First acquire succeeds (no release — simulating crash).
-    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release1).toBeTypeOf("function");
-    // Lock file contains a PID.
-    MOCK_FS.store[`readFileSync:${lockFile}`] = "88888\n";
-    // ps fails (ESRCH: process does not exist).
-    mockExecFileSync.mockImplementationOnce(() => {
-      throw new Error("No such process");
-    });
+    await ensureLifecycleWorker(cfg, "app");
+    const second = await ensureLifecycleWorker(cfg, "app");
 
-    // Second acquire: ps failure is indeterminate -> fail closed and preserve lock.
-    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release2).toBeNull();
-    expect(MOCK_FS.lockHeld).toBe(true);
-    expect(MOCK_FS.store[`unlinkSync:${lockFile}`]).toBeUndefined();
-    if (release1) release1();
+    expect(second).toEqual({ running: true, started: false });
+    expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
-  it("returns null when lock is already held", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release1).toBeTypeOf("function");
-    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release2).toBeNull();
-    if (release1) release1();
-  });
+  it("throws when the projectId is not registered in config", async () => {
+    const { ensureLifecycleWorker } = await import("../../src/lib/lifecycle-service.js");
+    const cfg = makeConfig(["app"]);
 
-  it("allows re-acquire after lock is released", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const release1 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release1).toBeTypeOf("function");
-    if (release1) release1();
-    const release2 = tryAcquireLifecycleLock(cfg, "test-proj");
-    expect(release2).toBeTypeOf("function");
-    if (release2) release2();
-  });
-});
-
-describe("forceLifecycleLock (orch-886k)", () => {
-  it("returns null when lock owner is a live worker for the same project", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
-    MOCK_FS.store[`readFileSync:${lockFile}`] = "77777\n";
-    // Live matching worker => do not steal lock.
-    mockExecFileSync.mockReturnValueOnce(
-      Buffer.from("node /Users/jleechan/bin/ao lifecycle-worker test-proj\n"),
+    await expect(ensureLifecycleWorker(cfg, "missing")).rejects.toThrow(
+      "Unknown project: missing",
     );
-    const release = forceLifecycleLock(cfg, "test-proj");
-    expect(release).toBeNull();
+    expect(mockGetLifecycleManager).not.toHaveBeenCalled();
   });
 
-  it("reclaims lock when owner PID belongs to another command", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
-    MOCK_FS.store[`readFileSync:${lockFile}`] = "77778\n";
-    // PID exists, but this is not our lifecycle-worker.
-    mockExecFileSync.mockReturnValueOnce(Buffer.from("/usr/bin/python stale_owner.py\n"));
-    const release = forceLifecycleLock(cfg, "test-proj");
-    expect(release).toBeTypeOf("function");
-    if (release) release();
+  it("stopLifecycleWorker halts the polling loop and removes it from the active map", async () => {
+    const { ensureLifecycleWorker, stopLifecycleWorker, isLifecycleWorkerRunning } =
+      await import("../../src/lib/lifecycle-service.js");
+    const cfg = makeConfig(["app"]);
+
+    await ensureLifecycleWorker(cfg, "app");
+    expect(isLifecycleWorkerRunning("app")).toBe(true);
+
+    stopLifecycleWorker("app");
+
+    expect(mockStop).toHaveBeenCalledTimes(1);
+    expect(isLifecycleWorkerRunning("app")).toBe(false);
   });
 
-  it("proceeds with acquisition when ps fails (indeterminate owner)", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const lockFile = `/tmp/ao-test/test-proj/lifecycle-worker.lock`;
-    MOCK_FS.store[`readFileSync:${lockFile}`] = "77779\n";
-    mockExecFileSync.mockImplementationOnce(() => {
-      throw new Error("ps timeout");
+  it("stopLifecycleWorker is a no-op for an unknown projectId", async () => {
+    const { stopLifecycleWorker } = await import("../../src/lib/lifecycle-service.js");
+
+    expect(() => stopLifecycleWorker("never-started")).not.toThrow();
+    expect(mockStop).not.toHaveBeenCalled();
+  });
+
+  it("stopAllLifecycleWorkers halts every active project", async () => {
+    const { ensureLifecycleWorker, stopAllLifecycleWorkers, listLifecycleWorkers } =
+      await import("../../src/lib/lifecycle-service.js");
+    const cfg = makeConfig(["a", "b", "c"]);
+
+    await ensureLifecycleWorker(cfg, "a");
+    await ensureLifecycleWorker(cfg, "b");
+    await ensureLifecycleWorker(cfg, "c");
+    expect(listLifecycleWorkers().sort()).toEqual(["a", "b", "c"]);
+
+    stopAllLifecycleWorkers();
+
+    expect(mockStop).toHaveBeenCalledTimes(3);
+    expect(listLifecycleWorkers()).toEqual([]);
+  });
+
+  it("listLifecycleWorkers reflects the current active set", async () => {
+    const { ensureLifecycleWorker, stopLifecycleWorker, listLifecycleWorkers } =
+      await import("../../src/lib/lifecycle-service.js");
+    const cfg = makeConfig(["a", "b"]);
+
+    expect(listLifecycleWorkers()).toEqual([]);
+    await ensureLifecycleWorker(cfg, "a");
+    await ensureLifecycleWorker(cfg, "b");
+    expect(listLifecycleWorkers().sort()).toEqual(["a", "b"]);
+
+    stopLifecycleWorker("a");
+    expect(listLifecycleWorkers()).toEqual(["b"]);
+  });
+
+  it("survives lifecycle.stop() throwing — still removes the project from active map", async () => {
+    const { ensureLifecycleWorker, stopLifecycleWorker, isLifecycleWorkerRunning } =
+      await import("../../src/lib/lifecycle-service.js");
+    mockGetLifecycleManager.mockResolvedValueOnce({
+      start: mockStart,
+      stop: vi.fn(() => {
+        throw new Error("LifecycleManager exploded");
+      }),
     });
+    const cfg = makeConfig(["flaky"]);
 
-    const release = forceLifecycleLock(cfg, "test-proj");
-    expect(release).toBeTypeOf("function");
-    if (release) release();
-  });
-});
-
-describe("scanForRunningLifecycleWorker (orch-886k)", () => {
-  it("returns the PID when a matching lifecycle-worker is found in ps output", () => {
-    // ps -ww -o pid,args= format: "  PID command..." (no USER column, no header)
-    mockExecFileSync.mockReturnValueOnce(
-      Buffer.from("12345 node /path/to/ao lifecycle-worker myproject\n"),
-    );
-    const pid = scanForRunningLifecycleWorker("myproject");
-    expect(pid).toBe(12345);
-  });
-
-  it("returns null when no matching lifecycle-worker is in ps output", () => {
-    mockExecFileSync.mockReturnValueOnce(
-      Buffer.from("99999 node /path/to/ao lifecycle-worker other-project\n"),
-    );
-    const pid = scanForRunningLifecycleWorker("myproject");
-    expect(pid).toBeNull();
-  });
-
-  it("returns null when ps fails", () => {
-    mockExecFileSync.mockImplementationOnce(() => { throw new Error("ps failed"); });
-    const pid = scanForRunningLifecycleWorker("myproject");
-    expect(pid).toBeNull();
-  });
-
-  it("does not match a project whose name is a prefix of another", () => {
-    mockExecFileSync.mockReturnValueOnce(
-      Buffer.from("11111 node ao lifecycle-worker api-v2\n"),
-    );
-    const pid = scanForRunningLifecycleWorker("api");
-    expect(pid).toBeNull();
-  });
-});
-
-describe("ensureLifecycleWorker -- ps-scan fallback (orch-886k)", () => {
-  it("does NOT spawn when scanForRunningLifecycleWorker finds a running worker (no PID file)", async () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    setExists(pidFile("test-proj"), false);
-    // ps -ww -o pid,args= format: "  PID command..." (no USER column, no header)
-    mockExecFileSync.mockReturnValueOnce(
-      Buffer.from("77777 node ao lifecycle-worker test-proj\n"),
-    );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockSpawn.mockReturnValueOnce({ pid: 88888, unref: () => {} } as any);
-    const result = await ensureLifecycleWorker(cfg, "test-proj");
-    // running=true: verified=true means ps confirmed the worker is alive, so the
-    // worker IS running even though no PID file exists yet (e.g. launchd started it).
-    expect(result.started).toBe(false);
-    expect(result.running).toBe(true);
-    expect(result.pid).toBe(77777);
-    expect(result.verified).toBe(true);
-    expect(mockSpawn).not.toHaveBeenCalled();
-  });
-});
-
-describe("writeLifecycleWorkerPid / clearLifecycleWorkerPid", () => {
-  it("writeLifecycleWorkerPid stores the PID in the correct file", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const pf = pidFile("test-proj");
-
-    writeLifecycleWorkerPid(cfg, "test-proj", 77777);
-
-    expect(MOCK_FS.store[`writeFileSync:${pf}`]).toBe("77777\n");
-  });
-
-  it("clearLifecycleWorkerPid is called (guarded by PID match)", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const pf = pidFile("test-proj");
-
-    setExists(pf, true);
-    setReadFile(pf, "88888\n");
-
-    // PID in file is 88888, passed PID is 88888 — should clear via unlinkSync
-    clearLifecycleWorkerPid(cfg, "test-proj", 88888);
-    expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBe(true);
-  });
-
-  it("clearLifecycleWorkerPid skips when PID does not match", () => {
-    const cfg = mockConfig({ "test-proj": "/repos/test-proj" });
-    const pf = pidFile("test-proj");
-
-    setExists(pf, true);
-    setReadFile(pf, "99999\n");
-
-    // PID in file is 99999, passed PID is 88888 — should NOT call unlinkSync
-    clearLifecycleWorkerPid(cfg, "test-proj", 88888);
-    expect(MOCK_FS.store[`unlinkSync:${pf}`]).toBeUndefined();
-  });
-});
-
-describe("resolveLifecycleWorkerLaunch", () => {
-  let originalArgv: string[];
-  let originalPlatform: string;
-
-  beforeEach(() => {
-    originalArgv = process.argv;
-    originalPlatform = process.platform;
-  });
-
-  afterEach(() => {
-    process.argv = originalArgv;
-    Object.defineProperty(process, "platform", {
-      value: originalPlatform,
-      configurable: true,
-    });
-    MOCK_FS.reset();
-  });
-
-  it("returns process.execPath for js entry files", () => {
-    process.argv = [process.execPath, "/path/to/cli/index.js"];
-    const launch = resolveLifecycleWorkerLaunch("test-proj");
-    expect(launch.command).toBe(process.execPath);
-    expect(launch.args).toEqual(["/path/to/cli/index.js", "lifecycle-worker", "test-proj"]);
-  });
-
-  it("returns tsx when global tsx is found in PATH for ts entry files", () => {
-    process.argv = [process.execPath, "/path/to/cli/index.ts"];
-    // Mock which tsx to succeed
-    mockExecFileSync.mockReturnValueOnce(Buffer.from("/usr/local/bin/tsx\n"));
-
-    const launch = resolveLifecycleWorkerLaunch("test-proj");
-    expect(launch.command).toBe("tsx");
-    expect(launch.args).toEqual(["/path/to/cli/index.ts", "lifecycle-worker", "test-proj"]);
-  });
-
-  it("returns local tsx when global tsx is missing but local node_modules/.bin/tsx exists", () => {
-    process.argv = [process.execPath, "/path/to/cli/src/index.ts"];
-    // Mock which tsx to throw/fail
-    mockExecFileSync.mockImplementationOnce(() => {
-      throw new Error("not found");
-    });
-    // Mock existence of local tsx relative to entry
-    MOCK_FS.store["existsSync:/path/to/cli/node_modules/.bin/tsx"] = true;
-
-    const launch = resolveLifecycleWorkerLaunch("test-proj");
-    expect(launch.command).toBe("/path/to/cli/node_modules/.bin/tsx");
-    expect(launch.args).toEqual(["/path/to/cli/src/index.ts", "lifecycle-worker", "test-proj"]);
-  });
-
-  it("falls back to npx when both global and local tsx are missing", () => {
-    process.argv = [process.execPath, "/path/to/cli/src/index.ts"];
-    // Mock which tsx to throw/fail
-    mockExecFileSync.mockImplementationOnce(() => {
-      throw new Error("not found");
-    });
-    // No local tsx mocked in MOCK_FS
-
-    const launch = resolveLifecycleWorkerLaunch("test-proj");
-    expect(launch.command).toBe("npx");
-    expect(launch.args).toEqual(["tsx", "/path/to/cli/src/index.ts", "lifecycle-worker", "test-proj"]);
-  });
-
-  it("returns ao command as default fallback when entry is not js or ts", () => {
-    process.argv = [process.execPath, "/path/to/cli/ao"];
-    const launch = resolveLifecycleWorkerLaunch("test-proj");
-    expect(launch.command).toBe("ao");
-    expect(launch.args).toEqual(["lifecycle-worker", "test-proj"]);
-  });
-
-  it("uses where instead of which on Windows, and checks Windows extensions for local tsx", () => {
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
-    process.argv = [process.execPath, "/path/to/cli/src/index.ts"];
-
-    // 1. Verify global tsx uses 'where' on Windows
-    mockExecFileSync.mockImplementationOnce((cmd) => {
-      expect(cmd).toBe("where");
-      return Buffer.from("C:\\path\\to\\tsx.cmd\n");
-    });
-    let launch = resolveLifecycleWorkerLaunch("test-proj");
-    expect(launch.command).toBe("tsx");
-
-    // 2. Verify local tsx checks .cmd on Windows
-    mockExecFileSync.mockImplementationOnce(() => {
-      throw new Error("not found");
-    });
-    MOCK_FS.store["existsSync:/path/to/cli/node_modules/.bin/tsx.cmd"] = true;
-    launch = resolveLifecycleWorkerLaunch("test-proj");
-    expect(launch.command).toBe("/path/to/cli/node_modules/.bin/tsx.cmd");
+    await ensureLifecycleWorker(cfg, "flaky");
+    expect(() => stopLifecycleWorker("flaky")).not.toThrow();
+    expect(isLifecycleWorkerRunning("flaky")).toBe(false);
   });
 });

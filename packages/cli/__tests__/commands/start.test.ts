@@ -1066,10 +1066,7 @@ describe("stop command", () => {
     expect(mockSessionManager.kill).toHaveBeenCalledWith("app-orchestrator", {
       purgeOpenCode: false,
     });
-    expect(mockStopLifecycleWorker).toHaveBeenCalledWith(
-      expect.objectContaining({ configPath: expect.any(String) }),
-      "my-app",
-    );
+    expect(mockStopLifecycleWorker).toHaveBeenCalledWith("my-app");
     const output = vi
       .mocked(console.log)
       .mock.calls.map((c) => c.join(" "))
@@ -1085,10 +1082,7 @@ describe("stop command", () => {
     await program.parseAsync(["node", "test", "stop"]);
 
     expect(mockSessionManager.kill).not.toHaveBeenCalled();
-    expect(mockStopLifecycleWorker).toHaveBeenCalledWith(
-      expect.objectContaining({ configPath: expect.any(String) }),
-      "my-app",
-    );
+    expect(mockStopLifecycleWorker).toHaveBeenCalledWith("my-app");
     const output = vi
       .mocked(console.log)
       .mock.calls.map((c) => c.join(" "))

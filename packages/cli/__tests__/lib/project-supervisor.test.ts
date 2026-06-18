@@ -54,7 +54,7 @@ vi.mock("../../src/lib/lifecycle-service.js", () => ({
     activeWorkers.add(projectId);
     return result;
   },
-  stopLifecycleWorker: (_config: unknown, projectId: string) => {
+  stopLifecycleWorker: (projectId: string) => {
     activeWorkers.delete(projectId);
   },
   listLifecycleWorkers: () => Array.from(activeWorkers),

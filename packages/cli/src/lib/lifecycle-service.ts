@@ -1,586 +1,131 @@
-import { execFileSync, spawn } from "node:child_process";
+/**
+ * Lifecycle service — in-process polling for project session lifecycles.
+ *
+ * Replaces the old subprocess-based model (deleted with the `lifecycle-worker`
+ * CLI command in PR #712). The in-process pattern mirrors upstream
+ * `AgentWrapper/agent-orchestrator` PR #1186: a single `Map<projectId,
+ * ActiveLoop>` holds active polling handles for the current `ao start`
+ * process. There is no PID file, no lock file, no subprocess, and no
+ * `tmux list-sessions` ps-scan.
+ *
+ * API is intentionally compatible with the previous subprocess-based surface
+ * (`ensureLifecycleWorker`, `stopLifecycleWorker`, `listLifecycleWorkers`) so
+ * existing callers in `project-supervisor.ts`, `start.ts`, `spawn.ts`, and
+ * `shutdown.ts` need no caller-side migration.
+ */
 import {
-  closeSync,
-  constants,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { join, dirname } from "node:path";
-import { getProjectBaseDir, type OrchestratorConfig, registerChildReaper } from "@jleechanorg/ao-core";
+  createCorrelationId,
+  createProjectObserver,
+  type OrchestratorConfig,
+} from "@jleechanorg/ao-core";
+import type { LifecycleManager } from "@jleechanorg/ao-core";
+import { getLifecycleManager } from "./create-session-manager.js";
 
-const LIFECYCLE_PID_FILE = "lifecycle-worker.pid";
-const LIFECYCLE_LOCK_FILE = "lifecycle-worker.lock";
-const LIFECYCLE_LOG_FILE = "lifecycle-worker.log";
-const DEFAULT_START_TIMEOUT_MS = 5_000;
-const STOP_TIMEOUT_MS = 5_000;
+const DEFAULT_INTERVAL_MS = 30_000;
+
+interface ActiveLoop {
+  lifecycle: LifecycleManager;
+  stop: () => void;
+}
+
+const active = new Map<string, ActiveLoop>();
+
+// Note: no SIGINT/SIGTERM listeners are installed here. Adding a listener for
+// those signals removes Node.js's default "exit on signal" behavior, which
+// would leave `ao start` hanging when `ao stop` sends SIGTERM (the setInterval
+// keeps the event loop alive forever). Default signal handling terminates the
+// process cleanly; the OS reclaims the interval timer. Callers that need to
+// flush state explicitly before exit can call `stopAllLifecycleWorkers()`.
 
 export interface LifecycleWorkerStatus {
   running: boolean;
-  pid: number | null;
-  /** Whether the PID was verified as a genuine lifecycle-worker via ps. */
-  verified: boolean | null;
-  pidFile: string;
-  logFile: string;
-}
-
-function getProjectBase(config: OrchestratorConfig, projectId: string): string {
-  const project = config.projects[projectId];
-  if (!project) {
-    throw new Error(`Unknown project: ${projectId}`);
-  }
-  return getProjectBaseDir(config.configPath, project.path);
-}
-
-export function getLifecyclePidFile(config: OrchestratorConfig, projectId: string): string {
-  return join(getProjectBase(config, projectId), LIFECYCLE_PID_FILE);
-}
-
-export function getLifecycleLogFile(config: OrchestratorConfig, projectId: string): string {
-  return join(getProjectBase(config, projectId), LIFECYCLE_LOG_FILE);
-}
-
-export function getLifecycleLockFile(config: OrchestratorConfig, projectId: string): string {
-  return join(getProjectBase(config, projectId), LIFECYCLE_LOCK_FILE);
-}
-
-/**
- * Compare-and-reap helper for the --force recovery path.
- *
- * Reads the current lock-file owner PID. If the PID is confirmed dead (via ps),
- * clears the stale lock and atomically re-acquires it. Returns null if the lock
- * is held by a live process — the force worker yields rather than steal it.
- *
- * This closes the race in the naive force path (clearLifecycleLockFile →
- * tryAcquireLifecycleLock) where the force worker could unlink a live peer's
- * lock, causing both workers to proceed with overlapping locks. (orch-886k)
- */
-export function forceLifecycleLock(
-  config: OrchestratorConfig,
-  projectId: string,
-): (() => void) | null {
-  const lockFile = getLifecycleLockFile(config, projectId);
-
-  // Step 1: read current lock owner PID.
-  let ownerPid: number | null;
-  try {
-    const raw = readFileSync(lockFile, "utf-8").trim();
-    ownerPid = Number.parseInt(raw, 10);
-    if (!Number.isFinite(ownerPid) || ownerPid <= 0) ownerPid = null;
-  } catch {
-    // No lock file — try to acquire fresh.
-    ownerPid = null;
-  }
-
-  // Step 2: if we have an owner PID, confirm it's dead before clearing anything.
-  if (ownerPid !== null && ownerPid !== process.pid) {
-    const ownerIsWorker = isLifecycleWorkerProcess(ownerPid, projectId);
-    if (ownerIsWorker === true) {
-      // Lock owner is a live lifecycle-worker for this exact project.
-      // Do not steal it.
-      return null;
-    }
-
-    // ownerIsWorker === false: process is dead OR belongs to some other
-    // command/project. Both cases are stale for this project lock and safe
-    // to reap.
-    // ownerIsWorker === null: indeterminate (ps failure). Keep historical
-    // force behavior and continue, allowing operators to recover from stale
-    // lock deadlocks.
-  }
-
-  // Step 3: lock is absent or confirmed dead. Re-acquire atomically.
-  return tryAcquireLifecycleLock(config, projectId);
-}
-
-/**
- * Attempt to atomically claim the lifecycle-worker startup lock for a project.
- *
- * Uses O_EXCL so only one process can create the lock file. Returns a release
- * function on success, or null if another process holds the lock. Closes the
- * TOCTOU window between getLifecycleWorkerStatus() and writeLifecycleWorkerPid()
- * so two concurrent processes (e.g. launchd restart + ao start) cannot both
- * pass the dedup check before either writes its PID. (orch-886k)
- *
- * If the lock file already exists, checks whether the owning process is still
- * alive. Stale locks from crashed workers are reaped and acquisition is retried
- * atomically, preventing a crash from permanently blocking future startups.
- */
-export function tryAcquireLifecycleLock(
-  config: OrchestratorConfig,
-  projectId: string,
-): (() => void) | null {
-  const lockFile = getLifecycleLockFile(config, projectId);
-  const baseDir = getProjectBase(config, projectId);
-
-  const _reapStaleLock = (): boolean => {
-    // Read the PID stored in the stale lock file.
-    let stalePid: number;
-    try {
-      const raw = readFileSync(lockFile, "utf-8").trim();
-      stalePid = Number.parseInt(raw, 10);
-    } catch {
-      return false;
-    }
-    if (!Number.isFinite(stalePid) || stalePid === process.pid) return false;
-
-    const staleIsWorker = isLifecycleWorkerProcess(stalePid, projectId);
-    if (staleIsWorker !== false) {
-      // staleIsWorker === true: live worker for this project still owns the lock.
-      // staleIsWorker === null: process inspection failed (indeterminate).
-      // In non-forced acquisition, fail closed unless we can prove staleness.
-      return false;
-    }
-
-    // staleIsWorker === false: process is dead OR unrelated command/project.
-    // Safe to reap and retry lock acquisition.
-
-    try {
-      unlinkSync(lockFile);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  try {
-    mkdirSync(baseDir, { recursive: true });
-    // O_EXCL ensures the creation is atomic -- only one caller succeeds.
-    const fd = openSync(lockFile, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
-    try {
-      writeFileSync(fd, `${process.pid}\n`);
-    } finally {
-      closeSync(fd);
-    }
-    return () => {
-      try {
-        unlinkSync(lockFile);
-      } catch {
-        /* best effort */
-      }
-    };
-  } catch (err: unknown) {
-    // Distinguish EEXIST (lock held by peer) from other filesystem errors.
-    const code = typeof err === "object" && err !== null && "code" in err
-      ? String((err as { code: unknown }).code)
-      : "";
-    if (code !== "EEXIST") {
-      // EACCES, ENOENT, disk full, etc. — re-throw so the caller knows this
-      // is a real error, not merely "another worker is starting".
-      throw err;
-    }
-    // EEXIST: another process holds the lock. Check for a stale lock (crashed
-    // owner) before giving up.
-    if (_reapStaleLock()) {
-      // Stale lock removed. Retry acquisition atomically.
-      try {
-        mkdirSync(baseDir, { recursive: true });
-        const fd2 = openSync(lockFile, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
-        try {
-          writeFileSync(fd2, `${process.pid}\n`);
-        } finally {
-          closeSync(fd2);
-        }
-        return () => {
-          try {
-            unlinkSync(lockFile);
-          } catch {
-            /* best effort */
-          }
-        };
-      } catch {
-        // Another process acquired it between our unlink and retry — yield.
-        return null;
-      }
-    }
-    // Genuinely held by a live process — yield to the peer.
-    return null;
-  }
-}
-
-/**
- * Scan the process table for a running lifecycle-worker for the given project.
- *
- * Used as a fallback in ensureLifecycleWorker when no PID file exists -- covers
- * the case where launchd started a worker before it had a chance to write its
- * PID file, which would otherwise cause ensureLifecycleWorker to spawn a
- * duplicate. (orch-886k)
- *
- * Returns the PID if found, null otherwise. Returns null on ps failure so that
- * the caller (ensureLifecycleWorker) skips the scan and conservatively refuses
- * to spawn -- preserving the PID file for the next call to retry.
- */
-export function scanForRunningLifecycleWorker(projectId: string): number | null {
-  try {
-    // -ww: do not truncate the command column (macOS/BSD default to ~16 columns,
-    // which cuts off the "lifecycle-worker <projectId>" marker for long paths).
-    // -o pid,args=: output PID and full command line, no header.
-    const stdout = execFileSync("ps", ["-ww", "-o", "pid,args="], {
-      timeout: 5_000,
-      stdio: ["ignore", "pipe", "ignore"],
-    }).toString("utf-8");
-
-    const marker = `lifecycle-worker ${projectId}`;
-    const markerEscaped = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(`(?:^|\\s)${markerEscaped}(?:\\s|$)`);
-
-    for (const line of stdout.split("\n")) {
-      if (!pattern.test(line)) continue;
-      // Output format: "  PID  args..." — PID is the first whitespace-separated token.
-      const trimmed = line.trim();
-      const spaceIdx = trimmed.indexOf(" ");
-      const pidStr = spaceIdx >= 0 ? trimmed.slice(0, spaceIdx) : trimmed;
-      const pid = Number.parseInt(pidStr, 10);
-      if (Number.isFinite(pid) && pid > 0 && pid !== process.pid) {
-        return pid;
-      }
-    }
-    return null;
-  } catch {
-    // ps failed (unavailable, timeout, etc.) -- return null so the caller
-    // refuses to spawn rather than risk creating a duplicate worker.
-    return null;
-  }
-}
-
-export function listLifecycleWorkers(): string[] {
-  try {
-    const stdout = execFileSync("ps", ["-ww", "-o", "args="], {
-      timeout: 5_000,
-      stdio: ["ignore", "pipe", "ignore"],
-    }).toString("utf-8");
-
-    const projectIds: string[] = [];
-    for (const line of stdout.split("\n")) {
-      const match = line.match(/\blifecycle-worker\s+(\S+)/);
-      if (match) {
-        projectIds.push(match[1]);
-      }
-    }
-    return projectIds;
-  } catch {
-    return [];
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Verify the PID belongs to a lifecycle-worker process for the given projectId.
- *
- * Uses `ps` to read the full command line of the PID and checks for the
- * `lifecycle-worker <projectId>` marker. This prevents false positives when
- * the PID has been recycled and now belongs to an unrelated process.
- *
- * Returns:
- *   true  — process is a lifecycle-worker for this projectId
- *   false — process is confirmed not a lifecycle-worker for this projectId
- *   null  — cannot determine (ps failed); callers must handle conservatively
- */
-function isLifecycleWorkerProcess(
-  pid: number,
-  projectId: string,
-): boolean | null {
-  try {
-    // macOS and Linux both support -o args= for the full command line.
-    // Use -ww to disable column truncation (macOS/BSD default to ~16 columns,
-    // cutting off the lifecycle-worker marker for long paths/args).
-    // Use execFileSync so no shell is involved — avoids quoting issues.
-    const cmdline = execFileSync("ps", ["-ww", "-p", String(pid), "-o", "args="], {
-      timeout: 3_000,
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .toString("utf-8")
-      .trim();
-
-    // Require the marker to appear as a distinct token pair: the ao binary
-    // argument list ends with "... lifecycle-worker <projectId>", so the
-    // marker must either be at the start of the line or follow whitespace.
-    // Using a word-boundary check prevents "api" from matching "api-v2".
-    const marker = `lifecycle-worker ${projectId}`;
-    const markerEscaped = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(`(?:^|\\s)${markerEscaped}(?:\\s|$)`);
-    return pattern.test(cmdline);
-  } catch (err: unknown) {
-    // execFileSync("ps", ["-p", <pid>]) exits with status=1 when PID no longer
-    // exists. Treat that case as stale/dead (false), not indeterminate, so
-    // stale PID files do not block lifecycle-worker restarts forever.
-    const status = typeof err === "object" && err !== null && "status" in err
-      ? (err as { status?: unknown }).status
-      : undefined;
-    if (status === 1) return false;
-
-    // Other failures (timeout/permission/tooling issues) remain indeterminate.
-    return null;
-  }
-}
-
-function readPid(pidFile: string): number | null {
-  if (!existsSync(pidFile)) return null;
-
-  try {
-    const raw = readFileSync(pidFile, "utf-8").trim();
-    const pid = Number.parseInt(raw, 10);
-    return Number.isFinite(pid) && pid > 0 ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-export function writeLifecycleWorkerPid(
-  config: OrchestratorConfig,
-  projectId: string,
-  pid: number,
-): void {
-  const pidFile = getLifecyclePidFile(config, projectId);
-  mkdirSync(getProjectBase(config, projectId), { recursive: true });
-  writeFileSync(pidFile, `${pid}\n`, "utf-8");
-}
-
-export function clearLifecycleWorkerPid(
-  config: OrchestratorConfig,
-  projectId: string,
-  pid?: number,
-): void {
-  const pidFile = getLifecyclePidFile(config, projectId);
-  if (!existsSync(pidFile)) return;
-
-  if (pid !== undefined) {
-    const currentPid = readPid(pidFile);
-    if (currentPid !== null && currentPid !== pid) {
-      return;
-    }
-  }
-
-  try {
-    unlinkSync(pidFile);
-  } catch {
-    // Best effort cleanup
-  }
-}
-
-export function getLifecycleWorkerStatus(
-  config: OrchestratorConfig,
-  projectId: string,
-): LifecycleWorkerStatus {
-  const pidFile = getLifecyclePidFile(config, projectId);
-  const logFile = getLifecycleLogFile(config, projectId);
-  const pid = readPid(pidFile);
-
-  if (pid !== null) {
-    const confirmed = isLifecycleWorkerProcess(pid, projectId);
-    if (confirmed === true) {
-      return { running: true, pid, verified: true, pidFile, logFile };
-    }
-    // false = confirmed not ours → clear the stale PID file.
-    // null  = indeterminate (ps failed) → leave PID file; next startup
-    //           will retry verification or clear when the PID is gone.
-    if (confirmed === false) {
-      clearLifecycleWorkerPid(config, projectId, pid);
-      return { running: false, pid: null, verified: false, pidFile, logFile };
-    }
-    // confirmed === null: indeterminate; preserve PID file and surface
-    // verified=null so callers know not to act on this state.
-    return { running: false, pid: null, verified: null, pidFile, logFile };
-  }
-
-  return { running: false, pid: null, verified: false, pidFile, logFile };
-}
-
-export function resolveLifecycleWorkerLaunch(projectId: string): { command: string; args: string[] } {
-  const entry = process.argv[1];
-  const workerArgs = ["lifecycle-worker", projectId];
-
-  if (entry && /\.(?:c|m)?js$/i.test(entry)) {
-    return {
-      command: process.execPath,
-      args: [entry, ...workerArgs],
-    };
-  }
-
-  if (entry && /\.ts$/i.test(entry)) {
-    try {
-      const whichCmd = process.platform === "win32" ? "where" : "which";
-      execFileSync(whichCmd, ["tsx"], { stdio: "ignore" });
-      return {
-        command: "tsx",
-        args: [entry, ...workerArgs],
-      };
-    } catch {
-      // ignore
-    }
-
-    try {
-      const entryDir = dirname(entry);
-      const suffixes = process.platform === "win32" ? [".cmd", ".ps1", ""] : [""];
-      const possibleTsxPaths: string[] = [];
-      for (const suffix of suffixes) {
-        possibleTsxPaths.push(
-          join(entryDir, `../node_modules/.bin/tsx${suffix}`),
-          join(entryDir, `../../node_modules/.bin/tsx${suffix}`),
-        );
-      }
-      for (const p of possibleTsxPaths) {
-        if (existsSync(p)) {
-          return {
-            command: p,
-            args: [entry, ...workerArgs],
-          };
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    return {
-      command: "npx",
-      args: ["tsx", entry, ...workerArgs],
-    };
-  }
-
-  return {
-    command: "ao",
-    args: workerArgs,
-  };
-}
-
-async function waitForLifecycleWorker(
-  config: OrchestratorConfig,
-  projectId: string,
-  timeoutMs = DEFAULT_START_TIMEOUT_MS,
-): Promise<LifecycleWorkerStatus> {
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const status = getLifecycleWorkerStatus(config, projectId);
-    if (status.running) {
-      return status;
-    }
-    await sleep(100);
-  }
-
-  return getLifecycleWorkerStatus(config, projectId);
+  started: boolean;
 }
 
 export async function ensureLifecycleWorker(
   config: OrchestratorConfig,
   projectId: string,
-): Promise<LifecycleWorkerStatus & { started: boolean }> {
-  const current = getLifecycleWorkerStatus(config, projectId);
-  if (current.running) {
-    return { ...current, started: false };
-  }
-  // verified === null means ps failed and we cannot confirm the process state.
-  // Do not spawn a new worker — a genuine worker may already exist and we risk
-  // creating a duplicate. The PID file is preserved so the next call retries.
-  if (current.verified === null) {
-    return { ...current, started: false };
+  intervalMs: number = DEFAULT_INTERVAL_MS,
+): Promise<LifecycleWorkerStatus> {
+  if (!config.projects[projectId]) {
+    throw new Error(`Unknown project: ${projectId}`);
   }
 
-  // orch-886k: ps-scan fallback -- detect workers started by launchd (or any
-  // external caller) that haven't written their PID file yet. If a running
-  // lifecycle-worker is found in the process table, skip spawning a duplicate
-  // even when no PID file exists. This closes the window where launchd + ao
-  // start race to spawn two workers for the same project.
-  const scannedPid = scanForRunningLifecycleWorker(projectId);
-  if (scannedPid !== null) {
-    // A worker was found via ps scan even though no PID file exists (e.g.
-    // launchd started it). running=true is consistent with LifecycleWorkerStatus:
-    // verified=true means ps confirmed a genuine lifecycle-worker process, so the
-    // worker IS running even though it hasn't written the PID file yet.
-    return { ...current, running: true, pid: scannedPid, verified: true, started: false };
+  if (active.has(projectId)) {
+    return { running: true, started: false };
   }
 
-  const baseDir = getProjectBase(config, projectId);
-  const logFile = getLifecycleLogFile(config, projectId);
-  mkdirSync(baseDir, { recursive: true });
+  const observer = createProjectObserver(config, "lifecycle-service");
+  const lifecycle = await getLifecycleManager(config, projectId);
 
-  const stdoutFd = openSync(logFile, "a");
-  const stderrFd = openSync(logFile, "a");
+  lifecycle.start(intervalMs);
 
-  try {
-    // Resolve launch configuration for the lifecycle worker process
-    const launch = resolveLifecycleWorkerLaunch(projectId);
-    const child = spawn(launch.command, launch.args, {
-      cwd: process.cwd(),
-      detached: true,
-      stdio: ["ignore", stdoutFd, stderrFd],
-      env: {
-        ...process.env,
-        AO_LIFECYCLE_PROJECT: projectId,
-        AO_CONFIG_PATH: config.configPath,
-      },
-    });
+  observer.setHealth({
+    surface: "lifecycle.worker",
+    status: "ok",
+    projectId,
+    correlationId: createCorrelationId("lifecycle-service"),
+    details: { projectId, intervalMs, inProcess: true },
+  });
 
-    child.unref();
+  active.set(projectId, {
+    lifecycle,
+    stop: () => {
+      try {
+        lifecycle.stop();
+      } finally {
+        observer.setHealth({
+          surface: "lifecycle.worker",
+          status: "warn",
+          projectId,
+          correlationId: createCorrelationId("lifecycle-service"),
+          reason: "Lifecycle polling stopped",
+          details: { projectId },
+        });
+      }
+    },
+  });
 
-    // Write PID from the parent immediately after spawn to close the TOCTOU
-    // window: without this, a second concurrent `ensureLifecycleWorker` call
-    // could pass the "not running" check before the child writes its own PID.
-    if (child.pid) {
-      writeLifecycleWorkerPid(config, projectId, child.pid);
-      registerChildReaper(child, `lifecycle-worker:${projectId}`, [launch.command, ...launch.args].join(" "));
-    }
-  } finally {
-    closeSync(stdoutFd);
-    closeSync(stderrFd);
-  }
-
-  const status = await waitForLifecycleWorker(config, projectId);
-  if (!status.running) {
-    throw new Error(
-      `Lifecycle worker failed to start for project ${projectId}. See ${status.logFile}`,
-    );
-  }
-
-  return { ...status, started: true };
+  return { running: true, started: true };
 }
 
-export async function stopLifecycleWorker(
-  config: OrchestratorConfig,
-  projectId: string,
-): Promise<boolean> {
-  const status = getLifecycleWorkerStatus(config, projectId);
-  if (!status.running || status.pid === null) {
-    // verified=null means ps failed; do not clear the PID file — a genuine
-    // worker may be running and the next call can retry verification.
-    if (status.verified === null) {
-      return false;
-    }
-    clearLifecycleWorkerPid(config, projectId);
-    return false;
-  }
+export function stopLifecycleWorker(projectId: string): void {
+  const entry = active.get(projectId);
+  if (!entry) return;
 
   try {
-    process.kill(status.pid, "SIGTERM");
+    entry.stop();
   } catch {
-    clearLifecycleWorkerPid(config, projectId, status.pid);
-    return false;
+    // Best-effort
   }
+  active.delete(projectId);
+}
 
-  const deadline = Date.now() + STOP_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const confirmed = isLifecycleWorkerProcess(status.pid, projectId);
-    if (confirmed === true) {
-      await sleep(100);
-      continue;
+export function stopAllLifecycleWorkers(): void {
+  for (const projectId of Array.from(active.keys())) {
+    stopLifecycleWorker(projectId);
+  }
+}
+
+export function isLifecycleWorkerRunning(projectId: string): boolean {
+  return active.has(projectId);
+}
+
+export function listLifecycleWorkers(): string[] {
+  return Array.from(active.keys());
+}
+
+/**
+ * Test-only: clear the in-memory `active` map. Exported so unit tests can
+ * reset state between cases. Do not call from production code.
+ */
+export function __resetLifecycleServiceForTesting(): void {
+  for (const projectId of Array.from(active.keys())) {
+    try {
+      active.get(projectId)?.stop();
+    } catch {
+      // Best-effort
     }
-    // null (ps failed, process likely gone) or false (PID recycled) → success
-    clearLifecycleWorkerPid(config, projectId, status.pid);
-    return true;
+    active.delete(projectId);
   }
-
-  try {
-    process.kill(status.pid, "SIGKILL");
-  } catch {
-    // Best effort hard stop
-  }
-
-  clearLifecycleWorkerPid(config, projectId, status.pid);
-  return true;
 }
