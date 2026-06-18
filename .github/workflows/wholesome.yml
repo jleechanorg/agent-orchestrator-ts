@@ -139,6 +139,9 @@ jobs:
 
   babysit-skill-test:
     name: Babysit skill structural test
+    permissions:
+      contents: read
+      pull-requests: read
     runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
               || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
                   && 'ubuntu-latest'
@@ -151,12 +154,17 @@ jobs:
       - name: Run babysit skill structural validation
         # Guard: only run when the babysit skill or its test was touched on this PR.
         # Other PRs pay zero cost; this PR + future babysit PRs get the regression guard.
+        # Fail-closed on PR-file discovery error: silent skip would mask regressions.
         env:
           PR_NUMBER: ${{ needs._pr-context.outputs.pr_number }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          FILES=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename' 2>/dev/null || echo "")
+          if ! FILES=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename' 2>&1); then
+            echo "FAIL: Could not list PR files for babysit-files detection" >&2
+            echo "$FILES" >&2
+            exit 1
+          fi
           if printf '%s' "$FILES" | grep -qE '(^|/)\.claude/(skills/)?babysit(/|/.claude/skills/babysit/tests/test_skill\.sh)|babysit\.md'; then
             echo "babysit files touched — running test_skill.sh"
             bash .claude/skills/babysit/tests/test_skill.sh
