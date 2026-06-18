@@ -36,8 +36,9 @@ if echo "$content" | grep -q "Press up to edit queued messages"; then
   exit 0
 fi
 
-# 4. Stalled completed — Baked/Sautéed for ≥ 30m
-if echo "$content" | grep -qE "(Baked|Sautéed) for [3-9][0-9]m|[0-9]+h"; then
+# 4. Stalled completed — Baked/Sautéed for ≥ 30m (scope the [0-9]+h branch to the
+#    Baked/Sautéed prefix so unrelated "2h" text in a pane does not false-positive).
+if echo "$content" | grep -qE "(Baked|Sautéed) for ([3-9][0-9]m|[0-9]+h)"; then
   echo "STALLED-COMPLETED"
   exit 0
 fi

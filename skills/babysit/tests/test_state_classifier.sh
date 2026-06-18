@@ -73,19 +73,29 @@ cat > "$FIXTURES/dead.txt" <<'EOF'
   no recent tool output
 EOF
 
+# Regression fixture: 2h uptime string in pane must NOT be misread as STALLED-COMPLETED
+# (pre-fix regex `(Baked|Sautéed) for [3-9][0-9]m|[0-9]+h` matched any "2h" text).
+cat > "$FIXTURES/regression_2h_idle.txt" <<'EOF'
+  uptime 2h
+  PR #659 | ctx ##-------- 20%
+  No recent activity.
+  ❯
+EOF
+
 # Classify each fixture
 fail=0
-for fixture in working completed stalled_completed idle queued tui_blocked dead; do
+for fixture in working completed stalled_completed idle queued tui_blocked dead regression_2h_idle; do
   result=$(bash "$CLASSIFIER" "$FIXTURES/${fixture}.txt")
   echo "  ${fixture}: $result"
   case "$fixture" in
-    working)            expected="WORKING" ;;
-    completed)          expected="COMPLETED" ;;
-    stalled_completed)  expected="STALLED-COMPLETED" ;;
-    idle)               expected="IDLE" ;;
-    queued)             expected="QUEUED" ;;
-    tui_blocked)        expected="TUI-BLOCKED" ;;
-    dead)               expected="DEAD" ;;
+    working)              expected="WORKING" ;;
+    completed)            expected="COMPLETED" ;;
+    stalled_completed)    expected="STALLED-COMPLETED" ;;
+    idle)                 expected="IDLE" ;;
+    queued)               expected="QUEUED" ;;
+    tui_blocked)          expected="TUI-BLOCKED" ;;
+    dead)                 expected="DEAD" ;;
+    regression_2h_idle)   expected="IDLE" ;;
   esac
   if [[ "$result" != "$expected" ]]; then
     echo "    FAIL: expected $expected, got $result"
@@ -99,4 +109,4 @@ if [[ $fail -ne 0 ]]; then
   echo "STATE-CLASSIFIER: FAIL"
   exit 1
 fi
-echo "STATE-CLASSIFIER: PASS (7/7)"
+echo "STATE-CLASSIFIER: PASS (8/8)"

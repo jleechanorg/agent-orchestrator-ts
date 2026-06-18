@@ -123,8 +123,9 @@ while [[ $(date +%s) -lt $deadline ]]; do
     # Update last_state
     echo "$state" > "$CACHE/${s}.last_state"
 
-    # Pull PR + uncommitted
-    pr=$(echo "$content" | grep -oE "PR: #[0-9]+" | head -1 || true)
+    # Pull PR + uncommitted (match both "PR #123" and "PR: #123" so the column
+    # works regardless of the worker's status-line punctuation).
+    pr=$(echo "$content" | grep -oE "PR[ ]*:[ ]*#[0-9]+|PR #[0-9]+" | head -1 || true)
     uc=""; echo "$content" | grep -q "uncommitted" && uc="+uc"
     rows+=("$s|$state|$pr|$uc")
   done
