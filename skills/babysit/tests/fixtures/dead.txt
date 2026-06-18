@@ -1,0 +1,2 @@
+  [terminal not responding]
+  ^C

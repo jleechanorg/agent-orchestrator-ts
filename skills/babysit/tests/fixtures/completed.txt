@@ -1,0 +1,5 @@
+  ✻ Baked for 1m 24s
+  ⎿  Wrote 3 files to /tmp/spec
+  PR #661 | ctx ####------ 46%
+  > All done. The spec is committed.
+  ❯
