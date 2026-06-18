@@ -1918,12 +1918,15 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                 workspacePath,
               ).catch(() => {});
               // Override the push remote for this session branch so `git push` routes
-              // to the correct remote. With push.default=simple (git's default), plain
-              // `git push` still requires the local and upstream names to match; to push
-              // transparently use `git push origin HEAD:${pr.branch}` or set
-              // push.default=upstream in your personal git config.
+              // to the correct remote. Also set push.default=upstream so that plain
+              // `git push` (no args) works transparently even when local/remote branch
+              // names differ (the default "simple" policy rejects mismatched names).
               await git(
                 ["config", `branch.${sessionBranch}.pushRemote`, remoteName],
+                workspacePath,
+              ).catch(() => {});
+              await git(
+                ["config", "push.default", "upstream"],
                 workspacePath,
               ).catch(() => {});
             }
