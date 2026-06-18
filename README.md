@@ -343,10 +343,12 @@ weeks before a manual audit surfaced them. See [jleechanorg/agent-orchestrator#7
 **Install:**
 
 ```bash
-# Render the template (substitute @HOME@ + Slack channel) and bootstrap:
+# Render the template (substitute @HOME@, @REPO_ROOT@, + Slack channel) and bootstrap:
 bash scripts/setup-launchd.sh launchd-drift-audit
 # or manually:
-sed "s|@HOME@|$HOME|g; s|@HERMES_OPS_SLACK_CHANNEL@|$HERMES_OPS_SLACK_CHANNEL|g" \
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+sed -e "s|@HOME@|$HOME|g" -e "s|@REPO_ROOT@|$REPO_ROOT|g" \
+  -e "s|@HERMES_OPS_SLACK_CHANNEL@|$HERMES_OPS_SLACK_CHANNEL|g" \
   launchd/ai.hermes.launchd-drift-audit.plist.template \
   > ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
 launchctl bootstrap gui/$(id -u) \

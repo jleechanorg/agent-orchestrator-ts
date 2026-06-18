@@ -21,13 +21,9 @@
 
 set -euo pipefail
 
-# launchd-env-wrapper.sh is invoked by the plist as the ProgramArguments[0]
-# entry — it sources .bashrc + .profile, exports the SLACK_* and
-# HERMES_OPS_SLACK_CHANNEL vars, then `exec "$@"` this script. We don't
-# source it from here because the wrapper ends with `exec "$@"` and would
-# kill this process. The plist's EnvironmentVariables block is the source of
-# truth; HERMES_OPS_SLACK_CHANNEL falls back to whatever the wrapper
-# exported when run by launchd.
+# The plist invokes this script directly via /bin/bash. The plist's
+# EnvironmentVariables block provides HERMES_OPS_SLACK_CHANNEL and other
+# required env vars. The script reads these vars from the launchd environment.
 
 # Channel + token resolution matches scripts/hermes-watchdog.sh: plist is
 # source of truth, HERMES_OPS_SLACK_CHANNEL is the cross-job fallback.

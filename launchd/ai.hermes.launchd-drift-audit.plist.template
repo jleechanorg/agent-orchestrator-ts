@@ -11,8 +11,10 @@
   INSTALLATION (per ~/.claude/skills/launchd-plist-template/SKILL.md):
     bash scripts/setup-launchd.sh launchd-drift-audit
   or:
-    # Substitute @HOME@ and render
-    sed "s|@HOME@|$HOME|g" \
+    # Substitute @HOME@ and @REPO_ROOT@ and render
+    REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+    sed -e "s|@HOME@|$HOME|g" -e "s|@REPO_ROOT@|$REPO_ROOT|g" \
+      -e "s|@HERMES_OPS_SLACK_CHANNEL@|${HERMES_OPS_SLACK_CHANNEL}|g" \
       launchd/ai.hermes.launchd-drift-audit.plist.template \
       > ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
     launchctl bootstrap gui/$(id -u) \
@@ -27,8 +29,8 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>@HOME@/.hermes/scripts/launchd-env-wrapper.sh</string>
-    <string>@HOME@/.hermes/scripts/audit-launchd-drift.sh</string>
+    <string>/bin/bash</string>
+    <string>@REPO_ROOT@/scripts/audit-launchd-drift.sh</string>
   </array>
 
   <key>StartCalendarInterval</key>
@@ -54,10 +56,9 @@
     <string>@HOME@</string>
     <key>PATH</key>
     <string>@HOME@/.bun/bin:@HOME@/.local/bin:@HOME@/bin:@HOME@/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    <!-- Source of truth per PR #615 umbrella pattern. launchd-env-wrapper.sh
-         reads this and merges with .bashrc defaults; the script falls back to
-         it if HERMES_OPS_SLACK_CHANNEL is empty. NEVER hardcode a channel ID
-         here — render-time substitution only. -->
+    <!-- Source of truth per PR #615 umbrella pattern. The audit script reads
+         this env var directly. NEVER hardcode a channel ID here — render-time
+         substitution only. -->
     <key>HERMES_OPS_SLACK_CHANNEL</key>
     <string>@HERMES_OPS_SLACK_CHANNEL@</string>
   </dict>
