@@ -328,6 +328,40 @@ This includes both:
 
 Use this doc as the source of truth for dashboards, scripts, and status reporting.
 
+## Operational Scripts
+
+### `scripts/audit-launchd-drift.sh` — nightly launchd plist drift audit
+
+Structural backstop against the 2026-06-18 incident: 15 LaunchAgents were at
+exit 127 (script-missing / wrong container name) and silently retrying for
+weeks before a manual audit surfaced them. See [jleechanorg/agent-orchestrator#709](https://github.com/jleechanorg/agent-orchestrator/issues/709).
+
+| What it does | When it runs | Where it alerts |
+|---|---|---|
+| `launchctl list \| awk '$0 ~ /- +127 +/'` collects labels at exit 127; on non-empty list, posts a single Slack alert to `$HERMES_OPS_SLACK_CHANNEL` and exits 1; on empty list prints `no drift detected` and exits 0 | Nightly at 02:00 via `launchd/ai.hermes.launchd-drift-audit.plist.template` | `$HERMES_OPS_SLACK_CHANNEL` (umbrella fallback) with `$OPENCLAW_STAGING_SLACK_BOT_TOKEN` / `$SLACK_BOT_TOKEN` token |
+
+**Install:**
+
+```bash
+# Render the template (substitute @HOME@ + Slack channel) and bootstrap:
+bash scripts/setup-launchd.sh launchd-drift-audit
+# or manually:
+sed "s|@HOME@|$HOME|g; s|@HERMES_OPS_SLACK_CHANNEL@|$HERMES_OPS_SLACK_CHANNEL|g" \
+  launchd/ai.hermes.launchd-drift-audit.plist.template \
+  > ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
+launchctl bootstrap gui/$(id -u) \
+  ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
+```
+
+**Interpreting an alert:** the alert body lists the labels at exit 127. For each:
+
+1. `launchctl print gui/$(id -u)/<label>` to see the last error.
+2. Find the referenced script: `find ~/.hermes/.claude/worktrees ~/.hermes/.worktrees -name "<script>"`.
+3. Restore from the worktree backup or regenerate the plist from its `*.plist.template` per [`~/.claude/skills/launchd-plist-template/SKILL.md`](https://github.com/jleechanorg/agent-orchestrator/blob/main/launchd/).
+4. `launchctl kickstart -k gui/$(id -u)/<label>` to restart, then `launchctl list | grep <label>` should show PID + exit 0 within a few seconds.
+
+**Tests:** `tests/unit/test-audit-launchd-drift.sh` (13 assertions: empty drift → exit 0 + no Slack; non-empty drift → exit 1 + Slack post + correct channel/token; plist template validates via `plutil -lint`).
+
 ## Documentation
 
 | Doc                                      | What it covers                                               |

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  ai.hermes.launchd-drift-audit — nightly structural backstop for plist drift
+  ----------------------------------------------------------------------
+  Detects LaunchAgents at exit 127 (script-missing / wrong container name)
+  and posts a single Slack alert to $HERMES_OPS_SLACK_CHANNEL. Cadence: nightly
+  at 02:00 local.
+
+  INSTALLATION (per ~/.claude/skills/launchd-plist-template/SKILL.md):
+    bash scripts/setup-launchd.sh launchd-drift-audit
+  or:
+    # Substitute @HOME@ and render
+    sed "s|@HOME@|$HOME|g" \
+      launchd/ai.hermes.launchd-drift-audit.plist.template \
+      > ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
+    launchctl bootstrap gui/$(id -u) \
+      ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
+
+  Reference: jleechanorg/agent-orchestrator #709
+             feedback_2026-06-18_launchd_plist_drift
+-->
+<dict>
+  <key>Label</key>
+  <string>ai.hermes.launchd-drift-audit</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@HOME@/.hermes/scripts/launchd-env-wrapper.sh</string>
+    <string>@HOME@/.hermes/scripts/audit-launchd-drift.sh</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>2</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>@HOME@/.hermes/logs/launchd-drift-audit.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>@HOME@/.hermes/logs/launchd-drift-audit.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>@HOME@</string>
+    <key>PATH</key>
+    <string>@HOME@/.bun/bin:@HOME@/.local/bin:@HOME@/bin:@HOME@/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <!-- Source of truth per PR #615 umbrella pattern. launchd-env-wrapper.sh
+         reads this and merges with .bashrc defaults; the script falls back to
+         it if HERMES_OPS_SLACK_CHANNEL is empty. NEVER hardcode a channel ID
+         here — render-time substitution only. -->
+    <key>HERMES_OPS_SLACK_CHANNEL</key>
+    <string>@HERMES_OPS_SLACK_CHANNEL@</string>
+  </dict>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+</dict>
+</plist>
