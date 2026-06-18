@@ -39,17 +39,45 @@ The `failed=N` count excludes Skeptic Gate checks (they are self-referential and
 
 ### Step 3 — Spawn parallel AO workers
 
-For each **needs-fix** PR that is independent (no mutual dependencies), spawn an AO worker per PR:
+For each **needs-fix** PR that is independent (no mutual dependencies), spawn an AO worker per PR. The DRIVER-mode contract is conveyed via the **spawn prompt**, not a CLI flag — `ao spawn` has no `--driver` option today (verified: `packages/cli/src/commands/spawn.ts:287` registers `--claim-pr` and the other existing options, no `--driver` exists):
 
 ```text
-ao spawn --claim-pr N  // one per PR, uses AO worker model
+# Default one-shot dispatch (worker exits after one fix attempt):
+ao spawn --claim-pr N  "fix PR N: <specific failure>"
+
+# DRIVER mode — worker owns the PR until 7-green is confirmed:
+# Pass the DRIVER mode contract in the prompt itself. The worker is told to
+# iterate, not exit, and to apply the fix-all invariant below.
+ao spawn --claim-pr N  "DRIVER MODE: take ownership of PR N and iterate until
+                       ALL 7-green gates pass (CI green + CR APPROVED + Skeptic
+                       PASS). See DRIVER mode contract in .claude/commands/babysit.md.
+                       Apply the fix-all invariant — fix ALL outstanding issues in
+                       ONE commit. Do not exit until done or explicitly blocked."
 ```
 
 **Rules:**
 - Spawn ALL independent fix workers in parallel (one `ao spawn` per PR)
-- Each worker gets: PR number, specific failure (CI test name, review thread, skeptic gate), and the fix scope
+- Pass PR number, current specific failure (CI test name, review thread, skeptic gate) as a starting hint, and the fix scope. The fix-all invariant below still applies — "specific failure" is the FIRST thing to look at, not the ONLY thing to fix.
+- **DRIVER-mode steering must be specific**: when babysit sends a correction to a DRIVER worker, the message MUST include file:line + exact change (e.g. "fix `packages/cli/src/spawn.ts:42` by removing the redundant `dryRun` branch"). Generic "fix CI" / "keep going" / "CI is red" nudges are FORBIDDEN — they are the failure mode this skill exists to prevent. See `.claude/commands/babysit.md` "DRIVER mode contract" rule 4. Note: per the tenet above, do NOT suggest adding a `--driver` CLI option; the DRIVER contract is conveyed in the spawn prompt, never as a flag.
 - AO manages worktree creation, session metadata, and CI monitoring automatically
 - Max 5 concurrent workers to avoid context explosion
+
+### Fix-all invariant (mandatory for all PR workers)
+
+Every worker spawned by babysit MUST apply the fix-all invariant — this OVERRIDES the older "one specific failure per push" pattern:
+
+Before making ANY edits to a PR:
+1. Collect ALL outstanding issues: CI test failures, CR review comments, Skeptic Gate findings, Bugbot errors, unresolved threads
+2. Fix ALL of them in a SINGLE commit
+3. Push ONCE
+4. Wait for all bots to settle (CI, CR, Bugbot, Skeptic)
+5. Re-survey — if new issues appeared, repeat from step 1
+
+Why one-at-a-time is banned: each partial push triggers a full CI run (~5-15 min) and resets CR/Skeptic. A 5-issue PR fixed one-at-a-time = 5 CI runs = 25-75 min. Fixed in one batch = 1 CI run = 5-15 min.
+
+Exception: merge conflicts must be resolved before other fixes (they block the push); resolve conflict first, then batch remaining fixes in the same commit.
+
+Note: the "specific failure" hint passed to the worker is a starting point for triage, not a scope limit. The fix-all invariant requires the worker to enumerate ALL failures before editing — a single CR comment passed in the prompt does not authorize a single-CR-comment fix.
 
 ### Step 4 — Monitor and collect
 
