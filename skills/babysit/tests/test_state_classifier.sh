@@ -61,6 +61,16 @@ EOF
 cat > "$FIXTURES/dead.txt" <<'EOF'
   [terminal not responding]
   ^C
+  [process exited with code 137]
+  last output: 2026-06-18T07:31:12Z
+  no activity since 12m
+  pane size: 80x24
+  scrollback: 0 lines
+  current tty: /dev/ttys003
+  owner: ao-6302
+  status: dead
+  no prompt visible
+  no recent tool output
 EOF
 
 # Classify each fixture

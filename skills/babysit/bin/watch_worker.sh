@@ -21,8 +21,18 @@ all=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --max-min)  max_min="$2"; shift 2 ;;
-    --poll-sec) poll_sec="$2"; shift 2 ;;
+    --max-min)
+      if [[ $# -lt 2 ]] || [[ -z "$2" ]] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: --max-min requires a non-negative integer" >&2
+        exit 2
+      fi
+      max_min="$2"; shift 2 ;;
+    --poll-sec)
+      if [[ $# -lt 2 ]] || [[ -z "$2" ]] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: --poll-sec requires a non-negative integer" >&2
+        exit 2
+      fi
+      poll_sec="$2"; shift 2 ;;
     --all)      all=true; shift ;;
     -h|--help)  sed -n '2,30p' "$0"; exit 0 ;;
     *)          session="$1"; shift ;;

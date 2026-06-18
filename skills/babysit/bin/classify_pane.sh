@@ -15,7 +15,6 @@ set -euo pipefail
 
 input="${1:-/dev/stdin}"
 content=$(cat "$input")
-lines=$(echo "$content" | wc -l)
 
 # 1. TUI blocked — trust prompt visible (check before DEAD; trust prompt has no ❯)
 if echo "$content" | grep -q "Do you trust the contents of this project"; then
@@ -23,10 +22,10 @@ if echo "$content" | grep -q "Do you trust the contents of this project"; then
   exit 0
 fi
 
-# 2. Dead — no `❯` prompt AND no activity indicators AND short content (< 10 lines)
+# 2. Dead — no `❯` prompt AND no activity indicators (line-count gate removed: a 13-line
+#    dead pane with no prompt and no activity is still DEAD, not IDLE).
 if ! echo "$content" | grep -q "❯" \
-   && ! echo "$content" | grep -qE "[✻✶✳✽✾]" \
-   && [[ $lines -lt 10 ]]; then
+   && ! echo "$content" | grep -qE "[✻✶✳✽✾]"; then
   echo "DEAD"
   exit 0
 fi
