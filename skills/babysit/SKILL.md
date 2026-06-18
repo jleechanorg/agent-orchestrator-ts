@@ -293,10 +293,11 @@ Asserts 9/9 fixtures map to the expected state:
 - `tui_blocked.txt` → TUI-BLOCKED
 - `dead.txt` → DEAD (13-line dead pane; would have been mis-classified as IDLE pre-fix)
 - `regression_2h_idle.txt` → IDLE (would have been mis-classified as STALLED-COMPLETED pre-fix due to the bare `2h` regex)
+- `regression_bash_working.txt` → WORKING (would have been mis-classified as DEAD pre-fix because DEAD check fired before in-flight tool output detection)
 
 ### Fixtures
 
-`skills/babysit/tests/fixtures/{working,completed,stalled_completed,idle,queued,tui_blocked,dead,regression_2h_idle}.txt` — one fixture per state.
+`skills/babysit/tests/fixtures/{working,completed,stalled_completed,idle,queued,tui_blocked,dead,regression_2h_idle,regression_bash_working}.txt` — one fixture per state.
 
 ### Bash one-liners (also documented in the PR body)
 
@@ -308,7 +309,7 @@ Asserts 9/9 fixtures map to the expected state:
 
 ### Terminal recordings (gists)
 
-- **Terminal `.cast` of post-fix test run** (9/9 fixtures, syntax checks, validation, dual-format PR extraction): https://gist.github.com/jleechan2015/512e90653f2ab80daa3bc2c7b257ab09
+- **Terminal `.cast` of post-fix test run** (9/9 fixtures, syntax checks, validation, dual-format PR extraction): https://gist.githubusercontent.com/jleechan2015/0127d254deb082bb1f7250c7a6a1317e/raw/6248f2588eb8112315cbe9544cb327be96097dbe/pr700_cast_18fe9b96.cast
 - **Red-phase transcript** (pre-fix bugs): https://gist.github.com/jleechan2015/4c18465b1c5ac0e336c6163b668aeb0d
 - **Green-phase transcript** (post-fix behavior): https://gist.github.com/jleechan2015/2f1a88889d74b9c389aeb351e937b1dd
 
