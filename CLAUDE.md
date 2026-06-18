@@ -140,9 +140,9 @@ If a worker sends "what task?" or "is there a specific task?", that is a spawn c
 
 Before calling a worker "blocked" or sending a correction, run:
 ```bash
-tmux capture-pane -t <session> -p -S -200 | head -100
+tmux capture-pane -t <session> -p -S -200 | tail -200
 ```
-`tail -40` only shows the most-recent lines. A worker with completed edits deeper in the history only needs a commit + PR push — not a correction. Sending a correction to a done worker misdirects it.
+`tail -40` only shows the most-recent lines, so use `tail -200` to widen the window while still keeping the newest output. A worker with completed edits deeper in the history only needs a commit + PR push — not a correction. Sending a correction to a done worker misdirects it.
 
 ### ao send corrections — validate bead before sending
 
