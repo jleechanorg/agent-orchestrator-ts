@@ -83,7 +83,7 @@ Verify: <command to run before pushing>"
 - If you cannot extract a specific file:line, push-notify the user instead of sending a vague message
 - Do not paste raw `gh run` output — distill to one specific actionable instruction
 
-**Why:** babysit's success metric was "status posted" not "failure fixed." Generic nudges do not move workers that have already tried and failed. Observed in PR #7618 (rate-limit) over 4+ hours with 15+ babysit status updates and zero progress. 2026-06-18.
+**Why:** babysit's success metric was "status posted" not "failure fixed." Generic nudges do not move workers who have already tried and failed. Observed in PR #7618 (rate-limit) over 4+ hours with 15+ babysit status updates and zero progress. 2026-06-18.
 
 ## Anti-patterns (DO NOT)
 
