@@ -58,7 +58,7 @@ if echo "$content" | grep -qE "Bash\(|Read\(|Edit\(|Write\(|Grep\(|Glob\("; then
   echo "WORKING"
   exit 0
 fi
-if echo "$content" | grep -qE "Running…|timeout|⏱"; then
+if echo "$content" | grep -qE "Running(…|\.\.\.)|timeout|⏱"; then
   echo "WORKING"
   exit 0
 fi

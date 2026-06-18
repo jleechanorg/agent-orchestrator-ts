@@ -3,7 +3,7 @@
 # against synthetic tmux output, no live workers required.
 #
 # Run: bash tests/test_state_classifier.sh
-# Pass criterion: 7/7 tests pass with explicit PASS/FAIL output.
+# Pass criterion: 8/8 tests pass with explicit PASS/FAIL output.
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

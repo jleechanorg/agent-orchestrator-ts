@@ -110,7 +110,7 @@ One commit, one push, then immediately back to step 1 (the loop continues). Whil
 When running babysit against a worker that is using this protocol:
 
 - Babysit observes the protocol's step 1-5 cycle in the worker's logs
-- If the worker is stuck between steps (e.g., step 3 partial, did not advance to step 4), babysit's DRIVER mode fires and sends the next step's specific instruction
+- If the worker is stuck between steps (e.g., step 3 partial, did not advance to step 4), babysit's DRIVER mode (**planned** — see `~/.claude/skills/babysit/SKILL.md §DRIVER`) would send the next step's specific instruction
 - The protocol is **worker-side** (this file); DRIVER mode is **observer-side** (`~/.claude/skills/babysit/SKILL.md`)
 
 ## Origin and evidence

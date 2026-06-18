@@ -28,14 +28,19 @@ while [[ $# -gt 0 ]]; do
       fi
       max_min="$2"; shift 2 ;;
     --poll-sec)
-      if [[ $# -lt 2 ]] || [[ -z "$2" ]] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
-        echo "ERROR: --poll-sec requires a non-negative integer" >&2
+      if [[ $# -lt 2 ]] || [[ -z "$2" ]] || ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: --poll-sec requires a positive integer" >&2
         exit 2
       fi
       poll_sec="$2"; shift 2 ;;
     --all)      all=true; shift ;;
     -h|--help)  sed -n '2,30p' "$0"; exit 0 ;;
-    *)          session="$1"; shift ;;
+    *)
+      if [[ -n "$session" ]]; then
+        echo "ERROR: only one session name is allowed (or use --all)" >&2
+        exit 2
+      fi
+      session="$1"; shift ;;
   esac
 done
 

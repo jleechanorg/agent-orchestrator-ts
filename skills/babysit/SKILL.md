@@ -72,7 +72,7 @@ Runs the ao-session-monitor one-liner, prints the table, exits.
 /babysit watch ao-6312 --max-min 60
 ```
 
-Polls every 60s. Auto-remediates TUI/queue. Push-notifies on stalled/dead. Exits when:
+Polls every 60s. Auto-remediates TUI-blocked panes (sends Enter). Emits `[NOTIFY]` to stderr on stalled/dead transitions. Exits when:
 - All watched sessions reach COMPLETED (the watcher exits the loop on its own)
 - `--max-min` reached (default 90)
 
@@ -258,9 +258,9 @@ Verify: <command to run before pushing> (e.g., pnpm -C packages/cli test)"
 |---|---|---|
 | tmux server not running | `tmux has-session` returns 1 | Push-notify: "tmux server down — restart with `tmux start-server`" |
 | ao-* sessions exist but capture-pane returns empty | `last == ""` | Mark DEAD, push-notify |
-| Sentinel dir not writable | `mkdir -p` fails | Print to stderr, continue without idempotency (degraded) |
-| `ao list` not in PATH | `which ao` returns empty | Print to stderr, use tmux-only mode (no PR resolution) |
-| Push-notification tool unavailable | ImportError | Fall back to printing to stdout + writing a sentinel flag file `~/.cache/babysit/${s}.needs_human` |
+| Sentinel dir not writable | `mkdir -p` fails | Print to stderr, continue (shipped watcher does not use sentinel files) |
+| `ao list` not in PATH | `which ao` returns empty | Print to stderr (shipped watcher uses tmux session names, not ao-resolved names) |
+| Push-notification tool unavailable | N/A | Shipped watcher emits `[NOTIFY]` to stderr only; native push delivery is planned |
 
 ## Why not just use `Monitor` tool directly?
 
