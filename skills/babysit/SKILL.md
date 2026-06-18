@@ -36,17 +36,17 @@ type: skill
 | Indicator | State | Babysit action |
 |---|---|---|
 | `✻✶✳✽✾` + duration, `Running…`, `Bash(`/`Read(` etc. in last 20 lines | **WORKING** | No action — log every 5 min |
-| `Baked for Xm` or `Sautéed for Xm` and X ≥ 30 | **STALLED-COMPLETED** | Push-notify: "Worker has been completed-but-untouched for Xm — review output" |
-| `❯` prompt with no activity indicators in 20 lines | **IDLE** | If lifecycle-worker should have sent a message, push-notify |
-| `Press up to edit queued messages` | **QUEUED** | If queued > 10 min, push-notify (worker may be stuck on input) |
+| `Baked for Xm` or `Sautéed for Xm` and X ≥ 30 | **STALLED-COMPLETED** | Print `[NOTIFY] ...` line to stderr (idempotent 1 per 30 min per session); real push delivery is the caller's responsibility (planned, not shipped) |
+| `❯` prompt with no activity indicators in 20 lines | **IDLE** | If lifecycle-worker should have sent a message, print `[NOTIFY]` line to stderr (caller decides push) |
+| `Press up to edit queued messages` | **QUEUED** | If queued > 10 min, print `[NOTIFY]` line to stderr (worker may be stuck on input) |
 | Trust TUI: "Do you trust the contents of this project?" with no auto-`--add-dir` | **TUI-BLOCKED** | Auto-remediate: send Enter to select "Yes, I trust this folder" |
-| `+uncommitted` in status bar with no recent `Bash(git` in 25 lines | **HAS-WORK-NO-COMMIT** | Push-notify at 15 min: "Worker has uncommitted edits and is not committing" |
-| Pane dead (no `❯`, no activity indicators, no recent tool output) for > 5 min | **DEAD** | Push-notify: "Worker tmux pane is dead — manual respawn required" |
+| `+uncommitted` in status bar with no recent `Bash(git` in 25 lines | **HAS-WORK-NO-COMMIT** | Print `[NOTIFY]` line to stderr at 15 min: "Worker has uncommitted edits and is not committing" |
+| Pane dead (no `❯`, no activity indicators, no recent tool output) for > 5 min | **DEAD** | Print `[NOTIFY]` line to stderr: "Worker tmux pane is dead — manual respawn required" |
 
 ## Auto-remediation policy (user-scope, opt-in)
 
 - **Trust TUI (`Do you trust...`)**: send Enter once. Only if the prompt is visible. Never send on a `❯` prompt without the trust question.
-- **Queued prompt with Enter required**: do not send — this is destructive. Push-notify only.
+- **Queued prompt with Enter required**: do not send — this is destructive. Print `[NOTIFY]` line to stderr only (push delivery is caller's responsibility).
 - **Dead shell**: NEVER auto-respawn. Push-notify with the spawn command you would have used. User decides.
 - **Stalled completed**: NEVER auto-respawn or auto-commit. Push-notify.
 - **Idempotency**: each remediation is gated on a sentinel — do not send Enter twice in 60s, do not push-notify the same condition twice in 30 min.
