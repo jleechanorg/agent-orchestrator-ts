@@ -16,9 +16,9 @@
 import {
   createCorrelationId,
   createProjectObserver,
+  type LifecycleManager,
   type OrchestratorConfig,
 } from "@jleechanorg/ao-core";
-import type { LifecycleManager } from "@jleechanorg/ao-core";
 import { getLifecycleManager } from "./create-session-manager.js";
 
 const DEFAULT_INTERVAL_MS = 30_000;
