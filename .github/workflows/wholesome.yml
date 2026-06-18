@@ -139,7 +139,10 @@ jobs:
 
   babysit-skill-test:
     name: Babysit skill structural test
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+                  && 'ubuntu-latest'
+                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
     needs: [_pr-context]
     if: needs._pr-context.outputs.pr_number != ''
     steps:
