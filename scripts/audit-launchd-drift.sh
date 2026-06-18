@@ -31,7 +31,20 @@ HERMES_OPS_SLACK_CHANNEL="${HERMES_OPS_SLACK_CHANNEL:-}"
 LAUNCHCTL_LABEL_RE='^-[[:space:]]+127[[:space:]]+'
 
 # Collect labels whose status column is exactly 127.
-DRIFT_LABELS="$(launchctl list 2>/dev/null \
+# Distinguish "launchctl itself failed" from "launchctl succeeded but no
+# matches" — the previous `|| true` form silently masked launchctl errors
+# (e.g., launchctl missing on non-macOS, or `launchctl list` returning
+# non-zero) as a clean run, hiding real problems.
+set +e
+LAUNCHCTL_OUTPUT="$(launchctl list 2>/dev/null)"
+LAUNCHCTL_EXIT=$?
+set -e
+if [ "$LAUNCHCTL_EXIT" -ne 0 ]; then
+  echo "WARN: launchctl list failed (exit=$LAUNCHCTL_EXIT) — cannot audit drift" >&2
+  exit 2
+fi
+
+DRIFT_LABELS="$(printf '%s\n' "$LAUNCHCTL_OUTPUT" \
   | awk -v re="$LAUNCHCTL_LABEL_RE" '$0 ~ re {print $3}' \
   | grep -v '^$' || true)"
 
@@ -65,11 +78,26 @@ ESCAPED_TEXT="$(printf '%s' "$DRIFT_TEXT" \
 PAYLOAD="$(printf '{"channel":"%s","text":%s}' \
   "$HERMES_OPS_SLACK_CHANNEL" "$ESCAPED_TEXT")"
 
-curl -sS -X POST \
+SLACK_RESPONSE="$(curl -sS -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json; charset=utf-8" \
   -d "$PAYLOAD" \
-  https://slack.com/api/chat.postMessage >/dev/null \
-  || echo "WARN: Slack post returned non-zero (drift still listed above)" >&2
+  https://slack.com/api/chat.postMessage 2>&1)" || true
 
+# Slack can return HTTP 200 with body {"ok":false, "error": "..."} (rate
+# limit, missing_scope, channel_not_found). Match the umbrella pattern in
+# scripts/hermes-watchdog.sh: parse for "ok":true and warn if missing.
+# Drift was already detected (exit 1 below); this is a secondary signal
+# that the alert was NOT delivered so the operator checks Slack manually.
+SLACK_DELIVERED=false
+if echo "$SLACK_RESPONSE" | grep -q '"ok":true'; then
+  SLACK_DELIVERED=true
+fi
+
+if [ "$SLACK_DELIVERED" != "true" ]; then
+  echo "WARN: Slack post did not return ok:true (response: $SLACK_RESPONSE)" >&2
+fi
+
+# Drift is the primary failure signal; if Slack also failed the cron log
+# captures both, but we still return 1 so the babysit dashboard picks it up.
 exit 1
