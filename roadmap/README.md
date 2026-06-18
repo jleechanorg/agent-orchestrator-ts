@@ -4,6 +4,27 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ## Recent activity (rolling)
 
+### 2026-06-18 — babysit-not-a-driver systemic harness gap
+
+- **Root cause diagnosed:** AO babysit cron is a reporter, not a driver. It posts "Blocked: Green Gate failing" status updates and sends generic "keep working" nudges but never sends specific `ao send` fix instructions. Same failure persists 15+ ticks (4+ hours) with zero progress. Pattern confirmed across 6+ PRs in the past 2 weeks.
+- **Trigger:** PR [#7618](https://github.com/jleechanorg/worldarchitect.ai/pull/7618) (rate-limit `RATE_LIMIT_DAILY_TURNS=30`) stalled for 4h then required manual `/claw` dispatch to Hermes. PR MERGED 2026-06-18T05:22:12Z.
+- **5-whys:** Babysit success metric = "status posted" not "failure fixed"; generic nudges don't unblock workers that already tried; babysit skill has no DRIVER mode; no CLAUDE.md rule mandating fix-all before push.
+- **Beads created:** [bd-fh89] harness: babysit must drive not just report, [bd-6gld] harness: pr-driver-protocol fix-all gate failures before push invariant
+- **Nextsteps doc:** `~/roadmap/nextsteps-2026-06-18-babysit-driver-harness.md`
+- **Fixes proposed (not yet implemented):** CLAUDE.md PR driver loop contract rule; babysit skill DRIVER mode (2-tick → `ao send` with exact file:line); pr-driver-protocol skill (new).
+
+#### Evidence
+
+**Claim class**: docs-only — this entry is a status post describing a systemic harness gap; the structural fixes themselves land in [PR #702](https://github.com/jleechanorg/agent-orchestrator/pull/702) (this PR) and [PR #700](https://github.com/jleechanorg/agent-orchestrator/pull/700) (pr-driver-protocol).
+
+| Artifact | Link |
+|----------|------|
+| Pattern observation (4h stall, 15+ ticks) | PR [#7618](https://github.com/jleechanorg/worldarchitect.ai/pull/7618) — `RATE_LIMIT_DAILY_TURNS=30`, manual `/claw` dispatch required to Hermes |
+| PR implementing DRIVER mode + worker-review recipe | [PR #702](https://github.com/jleechanorg/agent-orchestrator/pull/702) |
+| PR implementing fix-all-before-push contract | [PR #700](https://github.com/jleechanorg/agent-orchestrator/pull/700) |
+| Red-phase: 4h babysit stall | PR #7618 session: babysit cron reported `blocked: Green Gate failing` every poll, no `ao send` ever fired |
+| Green-phase (this PR): DRIVER mode trigger rule | `.claude/skills/babysit/SKILL.md` lines 67-86 — "if the same CI gate failure (same check name, same error class) appears in ≥2 consecutive polls … babysit MUST switch to DRIVER mode for that worker" |
+
 ### 2026-06-15 — wa-2355 silent kill investigation
 
 - **Root cause diagnosed:** Worker wa-2355 (MiniMax-M3, worldarchitect) was killed after 3 consecutive SCM failures (`scm-failure-threshold`) at 23:01 UTC on 2026-06-14 with zero user notification. Two stacked failure modes: (1) `notifyHuman()` in `lifecycle-manager.ts:1869` has bare `catch {}` — no fallback log when ALL notifiers fail; (2) worldarchitect Slack notifier has unresolved `PLACEHOLDER` webhookUrl, making it a permanent no-op.

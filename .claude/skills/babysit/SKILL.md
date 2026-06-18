@@ -64,12 +64,34 @@ If a PR needs >30 minutes of your own direct work:
 2. If yes, spawn an AO worker for the stuck PR and move on
 3. If no, continue but set a 15-minute check-in timer
 
+## DRIVER mode — send specific fix when same failure persists (bd-snx3)
+
+By default, babysit **observes and reports** — it posts status updates but does not steer workers. In DRIVER mode, babysit sends a specific `ao send` fix instruction when it detects a stuck-on-same-failure pattern.
+
+**Trigger rule (mandatory):** if the same CI gate failure (same check name, same error class) appears in **≥2 consecutive polls** for the same worker, babysit MUST switch to DRIVER mode for that worker.
+
+**What to send:**
+```bash
+ao send <session-id> "DRIVER (babysit): <check-name> failing 2+ ticks.
+Failure: <one-line description of the error>
+Fix: change <file>:<line> — <specific patch in plain English>
+Verify: <command to run before pushing>"
+```
+
+**Do NOT in DRIVER mode:**
+- Do not send "keep working" or "fix CI" — that is the failure pattern this mode replaces
+- If you cannot extract a specific file:line, push-notify the user instead of sending a vague message
+- Do not paste raw `gh run` output — distill to one specific actionable instruction
+
+**Why:** babysit's success metric was "status posted" not "failure fixed." Generic nudges do not move workers who have already tried and failed. Observed in PR #7618 (rate-limit) over 4+ hours with 15+ babysit status updates and zero progress. 2026-06-18.
+
 ## Anti-patterns (DO NOT)
 
 - ❌ Spend entire session on one PR without surveying others
 - ❌ Run `ao skeptic verify` serially on each PR — parallelize
 - ❌ Fix one gate, push, wait, fix next gate — batch fixes before pushing
 - ❌ Treat a context-resume summary as a single-PR task queue
+- ❌ Send generic "keep working" or "fix CI" after 2+ ticks of the same failure — use DRIVER mode
 
 ## Why this exists
 
