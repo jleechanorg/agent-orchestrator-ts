@@ -143,7 +143,7 @@ jobs:
       contents: read
       pull-requests: read
     runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
-              || (github.event_pull_request.head.repo.fork && github.event_name == 'pull_request'
+              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
                   && 'ubuntu-latest'
                   || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
     needs: [_pr-context]
