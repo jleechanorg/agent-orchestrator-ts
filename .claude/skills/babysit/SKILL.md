@@ -43,6 +43,9 @@ For each **needs-fix** PR that is independent (no mutual dependencies), spawn an
 
 ```text
 ao spawn --claim-pr N  // one per PR, uses AO worker model
+
+// For DRIVER mode (worker iterates until 7-green):
+// ao spawn --claim-pr N --driver  // worker owns the PR until done, not just one attempt
 ```
 
 **Rules:**
@@ -50,6 +53,21 @@ ao spawn --claim-pr N  // one per PR, uses AO worker model
 - Each worker gets: PR number, specific failure (CI test name, review thread, skeptic gate), and the fix scope
 - AO manages worktree creation, session metadata, and CI monitoring automatically
 - Max 5 concurrent workers to avoid context explosion
+
+### Fix-all invariant (mandatory for all PR workers)
+
+Every worker spawned by babysit MUST apply the fix-all invariant:
+
+Before making ANY edits to a PR:
+1. Collect ALL outstanding issues: CI test failures, CR review comments, Skeptic Gate findings, Bugbot errors, unresolved threads
+2. Fix ALL of them in a SINGLE commit
+3. Push ONCE
+4. Wait for all bots to settle (CI, CR, Bugbot, Skeptic)
+5. Re-survey — if new issues appeared, repeat from step 1
+
+Why one-at-a-time is banned: each partial push triggers a full CI run (~5-15 min) and resets CR/Skeptic. A 5-issue PR fixed one-at-a-time = 5 CI runs = 25-75 min. Fixed in one batch = 1 CI run = 5-15 min.
+
+Exception: merge conflicts must be resolved before other fixes (they block the push); resolve conflict first, then batch remaining fixes in the same commit.
 
 ### Step 4 — Monitor and collect
 
