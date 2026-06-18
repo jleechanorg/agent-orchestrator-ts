@@ -1,6 +1,6 @@
 ---
 name: babysit
-description: Watch one or more AO worker tmux sessions, classify their state (WORKING/IDLE/QUEUED/DEAD/COMPLETED), auto-remediate known failures (trust TUI, queued prompt), and push-notify on stuck sessions. Reuses ao-session-monitor state detection. Use /babysit to start a monitoring loop on a specific worker, all active workers, or workers matching a PR/branch.
+description: Watch one or more AO worker tmux sessions, classify their state (WORKING/IDLE/QUEUED/DEAD/COMPLETED), auto-remediate known failures (trust TUI), and push-notify on STALLED-COMPLETED / DEAD sessions. Reuses ao-session-monitor state detection. Use /babysit to start a monitoring loop on a specific worker, all active workers, or workers matching a PR/branch.
 type: skill
 ---
 
@@ -33,15 +33,17 @@ type: skill
 
 ## State classification (from `ao-session-monitor`)
 
+> **Shipped vs planned:** the shipped `bin/watch_worker.sh` only emits `[NOTIFY]` for `STALLED-COMPLETED` and `DEAD`. The IDLE / QUEUED / HAS-WORK-NO-COMMIT notification behaviors below are documented in the classifier contract and are part of the **planned** remediation set, not the shipped watcher. Tracked under `bd-snx3` follow-ups; do not infer shipped support from this table.
+
 | Indicator | State | Babysit action |
 |---|---|---|
 | `✻✶✳✽✾` + duration, `Running…`, `Bash(`/`Read(` etc. in last 20 lines | **WORKING** | No action — log every 5 min |
-| `Baked for Xm` or `Sautéed for Xm` and X ≥ 30 | **STALLED-COMPLETED** | Print `[NOTIFY] ...` line to stderr (idempotent 1 per 30 min per session); real push delivery is the caller's responsibility (planned, not shipped) |
-| `❯` prompt with no activity indicators in 20 lines | **IDLE** | If lifecycle-worker should have sent a message, print `[NOTIFY]` line to stderr (caller decides push) |
-| `Press up to edit queued messages` | **QUEUED** | If queued > 10 min, print `[NOTIFY]` line to stderr (worker may be stuck on input) |
-| Trust TUI: "Do you trust the contents of this project?" with no auto-`--add-dir` | **TUI-BLOCKED** | Auto-remediate: send Enter to select "Yes, I trust this folder" |
-| `+uncommitted` in status bar with no recent `Bash(git` in 25 lines | **HAS-WORK-NO-COMMIT** | Print `[NOTIFY]` line to stderr at 15 min: "Worker has uncommitted edits and is not committing" |
-| Pane dead (no `❯`, no activity indicators, no recent tool output) for > 5 min | **DEAD** | Print `[NOTIFY]` line to stderr: "Worker tmux pane is dead — manual respawn required" |
+| `Baked for Xm` or `Sautéed for Xm` and X ≥ 30 | **STALLED-COMPLETED** | **Shipped:** print `[NOTIFY] ...` line to stderr (idempotent 1 per 30 min per session); real push delivery is the caller's responsibility (planned, not shipped) |
+| `❯` prompt with no activity indicators in 20 lines | **IDLE** | **Planned:** if lifecycle-worker should have sent a message, print `[NOTIFY]` line to stderr (caller decides push) |
+| `Press up to edit queued messages` | **QUEUED** | **Planned:** if queued > 10 min, print `[NOTIFY]` line to stderr (worker may be stuck on input) |
+| Trust TUI: "Do you trust the contents of this project?" with no auto-`--add-dir` | **TUI-BLOCKED** | **Shipped:** auto-remediate: send Enter to select "Yes, I trust this folder" (idempotent 1 per 60s) |
+| `+uncommitted` in status bar with no recent `Bash(git` in 25 lines | **HAS-WORK-NO-COMMIT** | **Planned:** print `[NOTIFY]` line to stderr at 15 min: "Worker has uncommitted edits and is not committing" |
+| Pane dead (no `❯`, no activity indicators, no recent tool output) for > 5 min | **DEAD** | **Shipped:** print `[NOTIFY]` line to stderr: "Worker tmux pane is dead — manual respawn required" |
 
 ## Auto-remediation policy (user-scope, opt-in)
 
