@@ -22,10 +22,13 @@ if echo "$content" | grep -q "Do you trust the contents of this project"; then
   exit 0
 fi
 
-# 2. Dead — no `❯` prompt AND no activity indicators (line-count gate removed: a 13-line
-#    dead pane with no prompt and no activity is still DEAD, not IDLE).
+# 2. Dead — no `❯`, no activity spinner, no in-flight tool output, no running signal.
+#    In-flight tool output (e.g. "Bash(...)" or "Running...") means the process is
+#    actively executing — not dead — even without a visible spinner character.
 if ! echo "$content" | grep -q "❯" \
-   && ! echo "$content" | grep -qE "[✻✶✳✽✾]"; then
+   && ! echo "$content" | grep -qE "[✻✶✳✽✾]" \
+   && ! echo "$content" | grep -qE "Bash\(|Read\(|Edit\(|Write\(|Grep\(|Glob\(" \
+   && ! echo "$content" | grep -qE "Running(…|\.\.\.)|timeout|⏱"; then
   echo "DEAD"
   exit 0
 fi

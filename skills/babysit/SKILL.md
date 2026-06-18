@@ -284,7 +284,7 @@ Verify: <command to run before pushing> (e.g., pnpm -C packages/cli test)"
 bash skills/babysit/tests/test_state_classifier.sh
 ```
 
-Asserts 8/8 fixtures map to the expected state:
+Asserts 9/9 fixtures map to the expected state:
 - `working.txt` → WORKING
 - `completed.txt` → COMPLETED
 - `stalled_completed.txt` → STALLED-COMPLETED
@@ -308,7 +308,7 @@ Asserts 8/8 fixtures map to the expected state:
 
 ### Terminal recordings (gists)
 
-- **Terminal `.cast` of post-fix test run** (8/8 fixtures, syntax checks, validation, dual-format PR extraction): https://gist.github.com/jleechan2015/512e90653f2ab80daa3bc2c7b257ab09
+- **Terminal `.cast` of post-fix test run** (9/9 fixtures, syntax checks, validation, dual-format PR extraction): https://gist.github.com/jleechan2015/512e90653f2ab80daa3bc2c7b257ab09
 - **Red-phase transcript** (pre-fix bugs): https://gist.github.com/jleechan2015/4c18465b1c5ac0e336c6163b668aeb0d
 - **Green-phase transcript** (post-fix behavior): https://gist.github.com/jleechan2015/2f1a88889d74b9c389aeb351e937b1dd
 

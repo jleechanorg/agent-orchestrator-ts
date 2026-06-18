@@ -3,7 +3,7 @@
 # against synthetic tmux output, no live workers required.
 #
 # Run: bash tests/test_state_classifier.sh
-# Pass criterion: 8/8 tests pass with explicit PASS/FAIL output.
+# Pass criterion: 9/9 tests pass with explicit PASS/FAIL output.
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -82,9 +82,16 @@ cat > "$FIXTURES/regression_2h_idle.txt" <<'EOF'
   ❯
 EOF
 
+# Regression fixture: in-flight tool output without ❯ must be WORKING, not DEAD.
+# (pre-fix DEAD check fired before WORKING signals; "Bash(...) Running..." was mis-classified as DEAD).
+cat > "$FIXTURES/regression_bash_working.txt" <<'EOF'
+  Bash(git status) (ctrl+o to expand)
+  Running...
+EOF
+
 # Classify each fixture
 fail=0
-for fixture in working completed stalled_completed idle queued tui_blocked dead regression_2h_idle; do
+for fixture in working completed stalled_completed idle queued tui_blocked dead regression_2h_idle regression_bash_working; do
   result=$(bash "$CLASSIFIER" "$FIXTURES/${fixture}.txt")
   echo "  ${fixture}: $result"
   case "$fixture" in
@@ -95,7 +102,8 @@ for fixture in working completed stalled_completed idle queued tui_blocked dead 
     queued)               expected="QUEUED" ;;
     tui_blocked)          expected="TUI-BLOCKED" ;;
     dead)                 expected="DEAD" ;;
-    regression_2h_idle)   expected="IDLE" ;;
+    regression_2h_idle)    expected="IDLE" ;;
+    regression_bash_working) expected="WORKING" ;;
   esac
   if [[ "$result" != "$expected" ]]; then
     echo "    FAIL: expected $expected, got $result"
@@ -109,4 +117,4 @@ if [[ $fail -ne 0 ]]; then
   echo "STATE-CLASSIFIER: FAIL"
   exit 1
 fi
-echo "STATE-CLASSIFIER: PASS (8/8)"
+echo "STATE-CLASSIFIER: PASS (9/9)"
