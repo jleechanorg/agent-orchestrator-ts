@@ -125,10 +125,50 @@ ao spawn --project agent-orchestrator --no-worktree "run the evolve loop"
 
 Do not manually create worktrees, `cd` into directories, or run `claude` directly for tasks that belong to an AO worker.
 
+### ao spawn — always include task prose, never bead ID alone
+
+`ao spawn --bead <id>` resolves the worktree but does **not** inject the bead description into the worker's initial prompt. Workers started with only a bead ID and no task text will ask "what should I do?" immediately.
+
+**Required pattern:**
+```bash
+ao spawn --bead bd-xxx "Implement X: change <file>:<line> to Y. Acceptance: <criterion>. Bead: bd-xxx."
+```
+
+If a worker sends "what task?" or "is there a specific task?", that is a spawn context gap — send the task text via `ao send` immediately (do not escalate to user).
+
+### Reviewing workers — read full session history before diagnosing
+
+Before calling a worker "blocked" or sending a correction, run:
+```bash
+tmux capture-pane -t <session> -p -S -200 | head -100
+```
+`tail -40` only shows the most-recent lines. A worker with completed edits deeper in the history only needs a commit + PR push — not a correction. Sending a correction to a done worker misdirects it.
+
+### ao send corrections — validate bead before sending
+
+Before any `ao send` that includes a bead ID (correction, redirect, or reassignment):
+1. `br show <bead>` — confirm it exists, title matches intent, status is OPEN
+2. Include the bead title in the message so the worker can self-verify
+3. If bead doesn't exist: `br create ...` first, then send
+
+A wrong-bead correction (pointing to a merged or non-existent bead) is worse than no correction — the worker will find the dead-end and stop.
+
 **AO usage skill:** `skills/agent-orchestrator/SKILL.md`
 
 - `bash scripts/setup.sh` installs this repo skill into `~/.claude/skills/agent-orchestrator` and `~/.codex/skills/agent-orchestrator`.
 - When you need the operational AO workflow, read that skill before inventing an ad hoc spawn/status/send pattern.
+
+### PR driver loop contract — fix-all before push
+
+After every `git push`, a PR driver (worker or babysit session) MUST enumerate ALL current gate failures and fix ALL of them in one local pass before the next push. **"CI pending" is not an idle state** — while CI runs, pre-diagnose the next likely failure from CR comments or the previous run output and stage the fix.
+
+**Why**: Workers stop after one partial fix and wait for CI, then read only the first remaining failure and fix only that one. The result is N serial pushes for N gate failures instead of 1 push fixing all N. Observed in PR #7618 (rate-limit): 3+ partial fix pushes over 4h. Skill: `skills/pr-driver-protocol/SKILL.md`.
+
+**How to apply**:
+- After any push, run `/green <PR>` and build a full failure list — file, line, what is wrong
+- Fix ALL failures in one local pass before pushing again. One commit per cycle, not one commit per gate
+- While CI is running, pre-read CR threads + previous run tail — start fixing the next category
+- If babysit sees the same failure 2+ ticks: switch to DRIVER mode (see `.claude/skills/babysit/SKILL.md`)
 
 ## Skeptic Architecture — SETTLED DECISION (do not revisit)
 
