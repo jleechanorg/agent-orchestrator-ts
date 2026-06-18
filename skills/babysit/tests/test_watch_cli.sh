@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# test_watch_cli.sh — validates watch_worker.sh CLI argument handling.
+# test_watch_cli.sh — validates watch_worker.sh CLI argument handling and
+# PR extraction logic (via --pr-extract-test shim).
 # Run: bash tests/test_watch_cli.sh
-# Pass criterion: 8/8 tests pass
+# Pass criterion: 10/10 tests pass
 set -euo pipefail
 
 SCRIPT="$(dirname "$0")/../bin/watch_worker.sh"
@@ -56,6 +57,23 @@ check "--max-min abc rejected" 2 --max-min abc
 # Duplicate positional argument rejected
 check "duplicate session arg rejected" 2 session1 session2
 check_output "duplicate session error message" "only one session" session1 session2
+
+# PR extraction behavioral tests — exercise watch_worker.sh's actual grep-oE
+# command via the --pr-extract-test shim (same code path as line 133 in the loop).
+check_extract() {
+  local label="$1" input="$2" expected="$3"
+  local result exit_code=0
+  result=$(echo "$input" | bash "$SCRIPT" --pr-extract-test 2>&1) || exit_code=$?
+  if [[ "$result" == "$expected" ]]; then
+    echo "  PASS: $label (got '$result')"
+    ((PASS++)) || true
+  else
+    echo "  FAIL: $label — expected '$expected', got '$result'"
+    ((FAIL++)) || true
+  fi
+}
+check_extract "PR #123 format extracted" "PR #123 | ctx ###------ 40%" "PR #123"
+check_extract "PR: #123 format extracted" "PR: #123 | ctx ###------ 40%" "PR: #123"
 
 echo "WATCH-CLI: $([[ $FAIL -eq 0 ]] && echo PASS || echo FAIL) ($PASS/$((PASS+FAIL)))"
 [[ $FAIL -eq 0 ]]

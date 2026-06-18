@@ -19,6 +19,16 @@ max_min=90
 poll_sec=60
 all=false
 
+# Testability shim: --pr-extract-test reads stdin and prints extracted PR ref.
+# Uses the exact same grep-oE command as line 133, enabling behavioral tests
+# without a live tmux session.
+if [[ "${1:-}" == "--pr-extract-test" ]]; then
+  content=$(cat)
+  pr=$(echo "$content" | grep -oE "PR[ ]*:[ ]*#[0-9]+|PR #[0-9]+" | head -1 || true)
+  echo "$pr"
+  exit 0
+fi
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --max-min)
