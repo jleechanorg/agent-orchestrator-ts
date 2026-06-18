@@ -162,7 +162,7 @@ A wrong-bead correction (pointing to a merged or non-existent bead) is worse tha
 
 After every `git push`, a PR driver (worker or babysit session) MUST enumerate ALL current gate failures and fix ALL of them in one local pass before the next push. **"CI pending" is not an idle state** — while CI runs, pre-diagnose the next likely failure from CR comments or the previous run output and stage the fix.
 
-**Why**: Workers stop after one partial fix and wait for CI, then read only the first remaining failure and fix only that one. The result is N serial pushes for N gate failures instead of 1 push fixing all N. Observed in PR #7618 (rate-limit): 3+ partial fix pushes over 4h. 5-step fix-all protocol lives at `skills/pr-driver-protocol/SKILL.md` (ships in PR [#700](https://github.com/jleechanorg/agent-orchestrator/pull/700)).
+**Why**: Workers stop after one partial fix and wait for CI, then read only the first remaining failure and fix only that one. The result is N serial pushes for N gate failures instead of 1 push fixing all N. Observed in PR #7618 (rate-limit): 3+ partial fix pushes over 4h. Bead: bd-snx3.
 
 **How to apply**:
 - After any push, run `/green <PR>` and build a full failure list — file, line, what is wrong
