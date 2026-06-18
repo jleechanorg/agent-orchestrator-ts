@@ -95,7 +95,7 @@ Babysit cron posts "Blocked: Green Gate failing" status updates and sends generi
 | Layer | File | Change |
 |---|---|---|
 | Global rule | `~/.claude/CLAUDE.md` | New section "PR driver loop contract — fix-all before push" — after every push, enumerate ALL gate failures and fix ALL in one local pass |
-| Skill (shipped) | `skills/babysit/SKILL.md` (+ `bin/`, `tests/`) | New "DRIVER mode" section — when same CI failure appears ≥2 ticks, extract file:line + change and send `ao send <session> "<exact fix>"` |
+| Skill (shipped) | `skills/babysit/SKILL.md` (+ `bin/`, `tests/`) | 7-state classifier, 60-s watch loop with TUI auto-remediation and stderr `[NOTIFY]` on state transitions; DRIVER mode CI-gate extraction and `ao send` are **planned** (see SKILL.md §DRIVER) |
 | Skill (shipped) | `skills/pr-driver-protocol/SKILL.md` | New 5-step loop: ENUMERATE → CLASSIFY → FIX-ALL → VERIFY → PUSH |
 
 **Shipment:** both skills live in this repo's `skills/` directory, so `bash scripts/setup.sh` (which calls `scripts/install-repo-skills.sh`) symlinks them into `~/.claude/skills/` on a fresh checkout. The same files are also kept in the author's user-scope `~/.claude/skills/` for active-session use. The global `~/.claude/CLAUDE.md` rule is **not** in source control (it is per-user configuration); the doc update in this repo is the durable surface pointing at it.
