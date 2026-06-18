@@ -1,3 +1,8 @@
+---
+name: evidence-standards
+description: Evidence standards for testing and verification, including evidence classes, mock/real boundaries, and proof bundle requirements.
+---
+
 # Evidence Standards for All Testing and Verification
 
 ## Core Principle
