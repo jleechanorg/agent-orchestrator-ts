@@ -261,3 +261,45 @@ Verify: <command to run before pushing> (e.g., pnpm -C packages/cli test)"
 - `/auton` — system-level autonomy diagnostic
 - `/ao-lifecycle-triage` — log-driven deep triage of a single stuck worker
 - `/evolve-loop` / `/eloop` — autonomous loop; babysit is intentionally NOT autonomous (always opt-in)
+
+## Evidence
+
+> This skill is shipped by PR #700 in `jleechanorg/agent-orchestrator`. The classification script (`bin/classify_pane.sh`), the watch loop (`bin/watch_worker.sh`), and the 8-state fixtures were tested TDD-style: a Red phase confirmed the broken behavior, the Green phase applied the fix, and the test fixtures lock in the post-fix classification. The PR description includes authoritative links to the test runner output and the fixtures.
+
+### Test runner
+
+```bash
+bash skills/babysit/tests/test_state_classifier.sh
+```
+
+Asserts 8/8 fixtures map to the expected state:
+- `working.txt` → WORKING
+- `completed.txt` → COMPLETED
+- `stalled_completed.txt` → STALLED-COMPLETED
+- `idle.txt` → IDLE
+- `queued.txt` → QUEUED
+- `tui_blocked.txt` → TUI-BLOCKED
+- `dead.txt` → DEAD (13-line dead pane; would have been mis-classified as IDLE pre-fix)
+- `regression_2h_idle.txt` → IDLE (would have been mis-classified as STALLED-COMPLETED pre-fix due to the bare `2h` regex)
+
+### Fixtures
+
+`skills/babysit/tests/fixtures/{working,completed,stalled_completed,idle,queued,tui_blocked,dead,regression_2h_idle}.txt` — one fixture per state.
+
+### Bash one-liners (also documented in the PR body)
+
+| One-liner | Purpose | Reference |
+|---|---|---|
+| Detection primitive | `tmux capture-pane -t "$s" -p -S -20` | `## Internals` → Detection primitive |
+| TUI-block detection | `tmux capture-pane -t "$s" -p -S -30 \| grep -q "Do you trust..." && tmux send-keys -t "$s" Enter` | `## Internals` → TUI-block detection (bd-jya0) |
+| Watch loop | `while :; do classify; remediate; sleep 60; done` | `bin/watch_worker.sh` |
+
+### Terminal recordings (gists)
+
+- **Terminal `.cast` of post-fix test run** (8/8 fixtures, syntax checks, validation, dual-format PR extraction): https://gist.github.com/jleechan2015/512e90653f2ab80daa3bc2c7b257ab09
+- **Red-phase transcript** (pre-fix bugs): https://gist.github.com/jleechan2015/4c18465b1c5ac0e336c6163b668aeb0d
+- **Green-phase transcript** (post-fix behavior): https://gist.github.com/jleechan2015/2f1a88889d74b9c389aeb351e937b1dd
+
+### DRIVER mode status
+
+> The DRIVER mode contract is documented in this SKILL.md but **CI-gate extraction has not landed**. The current watcher classifies pane state and tracks sentinels, but does NOT extract CI gate names, error classes, or file:line from the pane content. The "≥2 consecutive polls" trigger rule cannot fire as written until CI extraction lands. This is a known gap — tracked under `bd-snx3` follow-ups.
