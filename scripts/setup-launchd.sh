@@ -551,6 +551,77 @@ install_health_guardian_plist() {
   echo "Installed launchd: $plist_path"
 }
 
+install_launchd_drift_audit_plist() {
+  local template="$TEMPLATE_DIR/ai.hermes.launchd-drift-audit.plist.template"
+  local plist_path="$LAUNCH_AGENTS_DIR/ai.hermes.launchd-drift-audit.plist"
+  local script="$REPO_ROOT/scripts/audit-launchd-drift.sh"
+  local log_dir="$HOME/.hermes/logs"
+  local label="ai.hermes.launchd-drift-audit"
+
+  if [ ! -f "$template" ]; then
+    echo "ERROR: Missing template at $template"
+    return 1
+  fi
+
+  if [ ! -f "$script" ]; then
+    echo "ERROR: Missing script: $script"
+    return 1
+  fi
+
+  chmod +x "$script" 2>/dev/null || true
+
+  mkdir -p "$LAUNCH_AGENTS_DIR" "$log_dir"
+
+  local tmp_plist
+  tmp_plist="$(mktemp)"
+
+  local slack_bot_token=""
+  local slack_user_token=""
+  local hermes_ops_channel=""
+
+  slack_bot_token=$(bash -lic 'echo "${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${OPENCLAW_SLACK_BOT_TOKEN:-${HERMES_SLACK_BOT_TOKEN:-}}}"' 2>/dev/null || true)
+  if [ -z "$slack_bot_token" ]; then
+    slack_bot_token=$(bash -ic 'source ~/.bashrc 2>/dev/null; echo "${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${OPENCLAW_SLACK_BOT_TOKEN:-${HERMES_SLACK_BOT_TOKEN:-}}}"' 2>/dev/null || true)
+  fi
+
+  slack_user_token=$(bash -lic 'echo "$SLACK_USER_TOKEN"' 2>/dev/null || true)
+  if [ -z "$slack_user_token" ]; then
+    slack_user_token=$(bash -ic 'source ~/.bashrc 2>/dev/null; echo "$SLACK_USER_TOKEN"' 2>/dev/null || true)
+  fi
+
+  hermes_ops_channel=$(bash -lic 'echo "$HERMES_OPS_SLACK_CHANNEL"' 2>/dev/null || true)
+  if [ -z "$hermes_ops_channel" ]; then
+    hermes_ops_channel=$(bash -ic 'source ~/.bashrc 2>/dev/null; echo "$HERMES_OPS_SLACK_CHANNEL"' 2>/dev/null || true)
+  fi
+
+  # Fallback to current process env if profile sourcing is empty
+  [ -z "$slack_bot_token" ] && slack_bot_token="${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${OPENCLAW_SLACK_BOT_TOKEN:-${HERMES_SLACK_BOT_TOKEN:-}}}"
+  [ -z "$slack_user_token" ] && slack_user_token="${SLACK_USER_TOKEN:-}"
+  [ -z "$hermes_ops_channel" ] && hermes_ops_channel="${HERMES_OPS_SLACK_CHANNEL:-}"
+
+  [ -z "$slack_bot_token" ] && slack_bot_token="__SET_BY_SETUP_LAUNCHD__"
+  [ -z "$slack_user_token" ] && slack_user_token="__SET_BY_SETUP_LAUNCHD__"
+  [ -z "$hermes_ops_channel" ] && hermes_ops_channel="__SET_BY_SETUP_LAUNCHD__"
+
+  sed \
+    -e "s|@HOME@|$(escape_sed "$HOME")|g" \
+    -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
+    -e "s|@HERMES_OPS_SLACK_CHANNEL@|$(escape_sed "$hermes_ops_channel")|g" \
+    -e "s|@SLACK_BOT_TOKEN@|$(escape_sed "$slack_bot_token")|g" \
+    -e "s|@SLACK_USER_TOKEN@|$(escape_sed "$slack_user_token")|g" \
+    "$template" > "$tmp_plist"
+
+  plutil -lint "$tmp_plist" >/dev/null
+  install -m 600 "$tmp_plist" "$plist_path"
+  rm -f "$tmp_plist"
+
+  launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$(id -u)" "$plist_path"
+  launchctl enable "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+
+  echo "Installed launchd: $plist_path"
+}
+
 case "$action_script" in
   all)
     install_health_plist
@@ -562,6 +633,9 @@ case "$action_script" in
     ;;
   health-guardian)
     install_health_guardian_plist
+    ;;
+  launchd-drift-audit)
+    install_launchd_drift_audit_plist
     ;;
   lifecycle)
     echo "NOTE: 'lifecycle' mode is deprecated. Installing unified 'health' job instead."
@@ -575,11 +649,12 @@ case "$action_script" in
     install_health_plist
     ;;
   *)
-    echo "ERROR: Unknown mode '$action_script'. Use all|health|health-guardian|novel"
-    echo "  health          — unified AO health check (replaces lifecycle + watchdog)"
-    echo "  health-guardian — hourly watchdog-of-watchdogs guardian"
-    echo "  novel           — daily novel aggregation"
-    echo "  all             — health + novel + health-guardian"
+    echo "ERROR: Unknown mode '$action_script'. Use all|health|health-guardian|novel|launchd-drift-audit"
+    echo "  health               — unified AO health check (replaces lifecycle + watchdog)"
+    echo "  health-guardian      — hourly watchdog-of-watchdogs guardian"
+    echo "  novel                — daily novel aggregation"
+    echo "  launchd-drift-audit  — nightly launchd drift audit with Slack alerts"
+    echo "  all                  — health + novel + health-guardian"
     exit 1
     ;;
 esac
