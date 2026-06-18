@@ -203,7 +203,15 @@ Watching ao-6312. Same as /babysit watch ao-6312.
 
 ## DRIVER mode — when babysit must send specific fix instructions (bd-snx3)
 
+> **Status:** contract defined; CI-gate extraction is **planned** — see "CI gate extraction (planned)" below. The current `bin/watch_worker.sh` does **not** implement CI gate name / error class / file:line extraction or `ao send` DRIVER messages; the shipped watcher only does classifier + remediation + `[NOTIFY]` stderr lines. Tracked under `bd-snx3` follow-ups.
+
 By default, babysit **observes and reports**: it posts status updates but does not steer workers. In DRIVER mode, babysit takes the next step when it detects a stuck-on-failure pattern: it extracts the specific failure and sends an `ao send` with an exact fix instruction.
+
+### CI gate extraction (planned)
+
+The current watcher (`bin/watch_worker.sh` + `bin/classify_pane.sh`) classifies pane state and tracks sentinels, but does NOT extract CI gate names, error classes, or file:line from the pane content. The "≥2 consecutive polls" trigger rule cannot fire as written until CI extraction lands.
+
+Until then, DRIVER mode is exercised manually by the human operator (or by `/babysit DRIVER <session>` once `ao send` integration ships). This is a known gap — track under bead `bd-snx3` follow-ups.
 
 **Trigger rule (mandatory):** if the same CI gate failure (same check name, same error class) appears in **≥2 consecutive polls** for the same worker, babysit MUST switch to DRIVER mode for that worker.
 
