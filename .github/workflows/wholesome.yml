@@ -143,13 +143,15 @@ jobs:
       contents: read
       pull-requests: read
     runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
-              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+              || (github.event_pull_request.head.repo.fork && github.event_name == 'pull_request'
                   && 'ubuntu-latest'
                   || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
     needs: [_pr-context]
     if: needs._pr-context.outputs.pr_number != ''
     steps:
       - uses: actions/checkout@v4.1.1
+        with:
+          persist-credentials: false
 
       - name: Run babysit skill structural validation
         # Guard: only run when the babysit skill or its test was touched on this PR.
