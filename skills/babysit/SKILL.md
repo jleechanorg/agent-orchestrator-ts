@@ -73,7 +73,6 @@ Runs the ao-session-monitor one-liner, prints the table, exits.
 Polls every 60s. Auto-remediates TUI/queue. Push-notifies on stalled/dead. Exits when:
 - All watched sessions reach COMPLETED (the watcher exits the loop on its own)
 - `--max-min` reached (default 90)
-- User says `stop` / `cancel`
 
 > **Note:** the shipped `bin/watch_worker.sh` takes a tmux session name (or `--all`) and exits on completion or `--max-min` only. It does **not** resolve a PR/branch to a session, and it does **not** detect DEAD as an exit condition. Mode 4 below is documented as the future interface for the same shape.
 
@@ -155,7 +154,7 @@ The bash one-liner runs every 60s. Each iteration:
 ## Stop conditions
 
 ```text
-- Watch loop exits on: user `stop`, `--max-min` reached, DEAD state, COMPLETED + PR merged
+- Watch loop exits on: `--max-min` reached (default 90), all sessions COMPLETED
 - One-shot snapshot always exits after one pass
 - If the user is also running `/auton` or `/eloop`, babysit must not stack — exit cleanly and let those drive the system-level state
 ```
