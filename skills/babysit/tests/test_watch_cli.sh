@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # test_watch_cli.sh — validates watch_worker.sh CLI argument handling.
 # Run: bash tests/test_watch_cli.sh
+# Pass criterion: 8/8 tests pass
 set -euo pipefail
 
 SCRIPT="$(dirname "$0")/../bin/watch_worker.sh"
