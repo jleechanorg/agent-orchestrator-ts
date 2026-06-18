@@ -608,6 +608,7 @@ install_launchd_drift_audit_plist() {
     -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
     -e "s|@HERMES_OPS_SLACK_CHANNEL@|$(escape_sed "$hermes_ops_channel")|g" \
     -e "s|@SLACK_BOT_TOKEN@|$(escape_sed "$slack_bot_token")|g" \
+    -e "s|@OPENCLAW_STAGING_SLACK_BOT_TOKEN@|$(escape_sed "$slack_bot_token")|g" \
     -e "s|@SLACK_USER_TOKEN@|$(escape_sed "$slack_user_token")|g" \
     "$template" > "$tmp_plist"
 

@@ -3,18 +3,25 @@
 <plist version="1.0">
 <!--
   ai.hermes.launchd-drift-audit — nightly structural backstop for plist drift
-  ----------------------------------------------------------------------
+
   Detects LaunchAgents at exit 127 (script-missing / wrong container name)
   and posts a single Slack alert to $HERMES_OPS_SLACK_CHANNEL. Cadence: nightly
   at 02:00 local.
 
   INSTALLATION (per ~/.claude/skills/launchd-plist-template/SKILL.md):
     bash scripts/setup-launchd.sh launchd-drift-audit
-  or:
-    # Substitute @HOME@ and render
-    sed "s|@HOME@|$HOME|g" \
-      launchd/ai.hermes.launchd-drift-audit.plist.template \
-      > ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
+  or (manual; mirrors scripts/setup-launchd.sh launchd-drift-audit):
+    # Substitute ALL placeholders (HOME, REPO_ROOT, channel, tokens).
+    # setup-launchd.sh does this with escape_sed; the manual sed below uses
+    # empty defaults per the PR #615 umbrella pattern (empty > wrong).
+    REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+    sed -e "s|@HOME@|$HOME|g" \
+        -e "s|@HERMES_OPS_SLACK_CHANNEL@|${HERMES_OPS_SLACK_CHANNEL:-}|g" \
+        -e "s|@SLACK_BOT_TOKEN@|${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_BOT_TOKEN:-}}|g" \
+        -e "s|@OPENCLAW_STAGING_SLACK_BOT_TOKEN@|${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_BOT_TOKEN:-}}|g" \
+        -e "s|@SLACK_USER_TOKEN@|${SLACK_USER_TOKEN:-}|g" \
+        launchd/ai.hermes.launchd-drift-audit.plist.template \
+        > ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
     launchctl bootstrap gui/$(id -u) \
       ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
 
