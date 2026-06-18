@@ -16,7 +16,7 @@ A standalone, callable protocol for any agent (worker, babysit, human) that is d
 
 ## The 5-step loop
 
-```
+```text
 1. ENUMERATE   — read ALL current gate failures, not just the first
 2. CLASSIFY    — group by file + root cause (same root cause = one fix)
 3. FIX-ALL     — apply every fix locally; do not push until all are staged
@@ -37,7 +37,7 @@ Do not stop at the first failure. Use `/green <PR>` or read the `failure-class` 
 
 Group failures by the underlying root cause. Two failures with the same root cause are one fix:
 
-```
+```text
 F1: dist/index.js argv shape not recognized in non-canonical check   (cli/doctor.ts:142)
 F2: worker binary path resolution fails when global npm is used        (cli/doctor.ts:203)
   → Same root cause: argv path normalization is regex-naive
@@ -50,7 +50,7 @@ Do not push two commits to fix one root cause. The whole point of this protocol 
 
 Apply every fix in one local working tree. Stage selectively — **never `git add -A`**. The commit message should describe the bundle, not each individual fix:
 
-```
+```text
 [agento] fix: doctor argv-path handling (resolves gate 1 + 2)
 
 - cli/doctor.ts:142 use path.basename() instead of regex match

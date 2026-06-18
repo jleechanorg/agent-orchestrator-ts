@@ -55,7 +55,7 @@ type: skill
 
 ### Mode 1 — One-shot snapshot (no loop)
 
-```
+```text
 /babysit snapshot [session-name]
 /babysit snapshot              # all ao-* sessions
 /babysit snapshot ao-6312      # one session
@@ -65,34 +65,35 @@ Runs the ao-session-monitor one-liner, prints the table, exits.
 
 ### Mode 2 — Watch a single worker
 
-```
+```text
 /babysit watch <session-name> [--max-min N]
 /babysit watch ao-6312 --max-min 60
 ```
 
 Polls every 60s. Auto-remediates TUI/queue. Push-notifies on stalled/dead. Exits when:
-- Worker reaches COMPLETED and PR is merged/closed (then push-notify "Worker finished cleanly")
-- User says `stop` / `cancel`
+- All watched sessions reach COMPLETED (the watcher exits the loop on its own)
 - `--max-min` reached (default 90)
-- Worker enters DEAD state
+- User says `stop` / `cancel`
+
+> **Note:** the shipped `bin/watch_worker.sh` takes a tmux session name (or `--all`) and exits on completion or `--max-min` only. It does **not** resolve a PR/branch to a session, and it does **not** detect DEAD as an exit condition. Mode 4 below is documented as the future interface for the same shape.
 
 ### Mode 3 — Watch all active AO workers
 
-```
+```text
 /babysit watch-all [--max-min N]
 ```
 
-Same as Mode 2, but applies to all `ao-*` tmux sessions. Per-worker status table printed every 5 min.
+Same as Mode 2, but applies to all `ao-*` tmux sessions. Per-worker status table printed every 5 min. Shipped as `bin/watch_worker.sh --all`.
 
-### Mode 4 — Watch by PR/branch
+### Mode 4 — Watch by PR/branch (planned — not shipped)
 
-```
+```text
 /babysit pr <PR#|branch> [--max-min N]
 /babysit pr 661
 /babysit pr fix/bd-rgk0-skeptic-cron-trigger-age-filter
 ```
 
-Resolves the PR/branch → tmux session via `ao list` and the worktree's git state, then watches.
+Resolves the PR/branch → tmux session via `ao list` and the worktree's git state, then watches. The current `bin/watch_worker.sh` does not implement PR/branch resolution; the existing `bin/watch_worker.sh <session> [--max-min N] [--poll-sec N]` interface is what Mode 2 and Mode 3 build on. Tracked under `bd-snx3` follow-ups.
 
 ## Internals
 
@@ -143,7 +144,7 @@ The bash one-liner runs every 60s. Each iteration:
 
 ### Sentinel layout
 
-```
+```text
 ~/.cache/babysit/
   ao-6312.last_enter          # epoch ms of last Enter sent
   ao-6312.last_notify         # epoch ms of last push-notify
@@ -153,13 +154,15 @@ The bash one-liner runs every 60s. Each iteration:
 
 ## Stop conditions
 
+```text
 - Watch loop exits on: user `stop`, `--max-min` reached, DEAD state, COMPLETED + PR merged
 - One-shot snapshot always exits after one pass
 - If the user is also running `/auton` or `/eloop`, babysit must not stack — exit cleanly and let those drive the system-level state
+```
 
 ## Output format (snapshot)
 
-```
+```text
 Session         State           PR      Uncommitted  Last activity
 ao-6312         WORKING         #661    no           ✻ Cascading… (3m 12s)
 ao-6309         TUI-BLOCKED     #?      no           (trust prompt)
@@ -171,7 +174,7 @@ ao-6302         DEAD            —       —            (no output 8m)
 
 ### Watch the worker I just spawned
 
-```
+```text
 > /babysit watch ao-6312
 Watching ao-6312 (PR #661, branch fix/bd-rgk0-skeptic-cron-trigger-age-filter)
 Polling every 60s. Will push-notify on stalled/dead/TUI-block. Max run 90 min.
@@ -185,7 +188,7 @@ Polling every 60s. Will push-notify on stalled/dead/TUI-block. Max run 90 min.
 
 ### Snapshot of all workers
 
-```
+```text
 > /babysit snapshot
 Session         State           PR      Uncommitted  Last activity
 ao-6312         WORKING         #661    no           ✻ Germinating… (0m 30s)
@@ -195,7 +198,7 @@ ao-6305         STALLED-CMP     #657    yes          Baked for 42m
 
 ### Watch by PR
 
-```
+```text
 > /babysit pr 661
 Resolved 661 → ao-6312 (worktree /Users/jleechan/.worktrees/agent-orchestrator/ao-6312, branch fix/bd-rgk0-...)
 Watching ao-6312. Same as /babysit watch ao-6312.
@@ -213,7 +216,7 @@ The current watcher (`bin/watch_worker.sh` + `bin/classify_pane.sh`) classifies 
 
 Until then, DRIVER mode is exercised manually by the human operator (or by `/babysit DRIVER <session>` once `ao send` integration ships). This is a known gap — track under bead `bd-snx3` follow-ups.
 
-**Trigger rule (mandatory):** if the same CI gate failure (same check name, same error class) appears in **≥2 consecutive polls** for the same worker, babysit MUST switch to DRIVER mode for that worker.
+**Trigger rule (mandatory, gated on CI extraction landing):** if the same CI gate failure (same check name, same error class) appears in **≥2 consecutive polls** for the same worker, babysit MUST switch to DRIVER mode for that worker.
 
 **What to extract (the minimum to act on):**
 - File path and line number from the failure log (e.g., `packages/cli/src/doctor.ts:142`)
