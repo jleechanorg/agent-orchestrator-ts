@@ -107,13 +107,17 @@ function shellQuoteValue(value: string): string {
   return "'" + value.replace(/'/g, "'\\''") + "'";
 }
 
+/**
+ * Write `command` to a self-deleting temp script and return the shell
+ * invocation string.  Using `bash -i` ensures ~/.bashrc is sourced on
+ * startup — including sections guarded by `case $- in *i*)` — so API
+ * keys and other secrets exported only in interactive shells are available
+ * to the worker (bd-l5ty).
+ */
 function writeLaunchScript(command: string): string {
   const scriptPath = join(tmpdir(), `ao-launch-${randomUUID()}.sh`);
   const content = `#!/usr/bin/env bash\nrm -- "$0" 2>/dev/null || true\n${withKeepAliveShell(command)}\n`;
   writeFileSync(scriptPath, content, { encoding: "utf-8", mode: 0o700 });
-  // bash -i: starts an interactive shell that sources ~/.bashrc on startup,
-  // so even .bashrc files guarded by $- interactivity checks will load their
-  // exported secrets into the worker's environment (bd-l5ty).
   return `bash -i ${shellEscape(scriptPath)}`;
 }
 
