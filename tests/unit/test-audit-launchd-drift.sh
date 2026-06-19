@@ -169,15 +169,21 @@ assert_contains "stderr echoes the Slack response body" "$STDERR5" "channel_not_
 rm -rf "$FBIN5"
 
 echo ""
-echo "=== TEST 3: plist template validates via plutil -lint ==="
+echo "=== TEST 3: plist template validates via plutil -lint (macOS only) ==="
 if [[ ! -f "$PLIST_TEMPLATE" ]]; then
   printf "  FAIL  plist template exists at %s\n" "$PLIST_TEMPLATE"
   FAIL=$((FAIL + 1))
 else
-  LINT_OUT="$(plutil -lint "$PLIST_TEMPLATE" 2>&1)"
-  LINT_EXIT=$?
-  assert_eq "plutil -lint exit 0" "$LINT_EXIT" "0"
-  assert_contains "plutil OK message" "$LINT_OUT" "OK"
+  # plutil is macOS-only. On Linux CI we still run the structural checks
+  # (placeholder syntax, hardcoded-path guard) and skip the lint assertion.
+  if command -v plutil >/dev/null 2>&1; then
+    LINT_OUT="$(plutil -lint "$PLIST_TEMPLATE" 2>&1)"
+    LINT_EXIT=$?
+    assert_eq "plutil -lint exit 0" "$LINT_EXIT" "0"
+    assert_contains "plutil OK message" "$LINT_OUT" "OK"
+  else
+    printf "  SKIP  plutil not available (non-macOS); structural checks below still run\n"
+  fi
   # No hardcoded /Users/jleechan paths — only __HOME__ placeholders.
   if grep -q "/Users/jleechan" "$PLIST_TEMPLATE"; then
     printf "  FAIL  template contains hardcoded /Users/jleechan path\n"
@@ -187,6 +193,7 @@ else
     PASS=$((PASS + 1))
   fi
   assert_contains "template uses __HOME__ placeholder" "$(cat "$PLIST_TEMPLATE")" "__HOME__"
+  assert_contains "template uses __REPO_ROOT__ placeholder" "$(cat "$PLIST_TEMPLATE")" "__REPO_ROOT__"
   # @VAR@ syntax is forbidden in this template (defensive: @ tripped at least
   # one downstream validator even though plutil accepted it).
   if grep -qE '@[A-Z_]+@' "$PLIST_TEMPLATE"; then

@@ -599,9 +599,10 @@ install_launchd_drift_audit_plist() {
   [ -z "$slack_user_token" ] && slack_user_token="${SLACK_USER_TOKEN:-}"
   [ -z "$hermes_ops_channel" ] && hermes_ops_channel="${HERMES_OPS_SLACK_CHANNEL:-}"
 
-  [ -z "$slack_bot_token" ] && slack_bot_token="__SET_BY_SETUP_LAUNCHD__"
-  [ -z "$slack_user_token" ] && slack_user_token="__SET_BY_SETUP_LAUNCHD__"
-  [ -z "$hermes_ops_channel" ] && hermes_ops_channel="__SET_BY_SETUP_LAUNCHD__"
+  # When a value is empty, leave the placeholder literal so the audit script's
+  # soft-fail branch (empty HERMES_OPS_SLACK_CHANNEL or empty token) triggers
+  # correctly — substituting __SET_BY_SETUP_LAUNCHD__ as a value would let it
+  # bypass the empty check and post to Slack with bogus credentials.
 
   # NOTE: ai.hermes.launchd-drift-audit.plist.template uses __VAR__ placeholders
   # (not @VAR@) because at least one downstream plist validator rejected the
@@ -609,6 +610,7 @@ install_launchd_drift_audit_plist() {
   # still use @VAR@; only this one diverges.
   sed \
     -e "s|__HOME__|$(escape_sed "$HOME")|g" \
+    -e "s|__REPO_ROOT__|$(escape_sed "$REPO_ROOT")|g" \
     -e "s|__HERMES_OPS_SLACK_CHANNEL__|$(escape_sed "$hermes_ops_channel")|g" \
     -e "s|__SLACK_BOT_TOKEN__|$(escape_sed "$slack_bot_token")|g" \
     -e "s|__OPENCLAW_STAGING_SLACK_BOT_TOKEN__|$(escape_sed "$slack_bot_token")|g" \

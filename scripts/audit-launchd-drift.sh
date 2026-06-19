@@ -59,6 +59,22 @@ printf '  %s\n' $DRIFT_LABELS
 # Resolve Slack token (prefer staging token used by Hermes umbrella jobs).
 TOKEN="${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_BOT_TOKEN:-${SLACK_USER_TOKEN:-}}}"
 
+# Defensive: treat unsubstituted placeholders (e.g. __HERMES_OPS_SLACK_CHANNEL__
+# from a failed install) as empty. This catches install-time failures where
+# setup-launchd.sh could not resolve a value but the literal placeholder ended
+# up in the rendered plist — without this check the script would attempt
+# chat.postMessage with bogus credentials and silently miss the alert.
+case "$HERMES_OPS_SLACK_CHANNEL" in
+  ""|__HERMES_OPS_SLACK_CHANNEL__|__SET_BY_SETUP_LAUNCHD__)
+    HERMES_OPS_SLACK_CHANNEL=""
+    ;;
+esac
+case "$TOKEN" in
+  ""|__SLACK_BOT_TOKEN__|__OPENCLAW_STAGING_SLACK_BOT_TOKEN__|__SLACK_USER_TOKEN__|__SET_BY_SETUP_LAUNCHD__)
+    TOKEN=""
+    ;;
+esac
+
 if [ -z "$HERMES_OPS_SLACK_CHANNEL" ]; then
   # No channel resolved — match the PR #615 umbrella pattern: fail soft
   # rather than bleed into a wrong channel. Drift is still printed.

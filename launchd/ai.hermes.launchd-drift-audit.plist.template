@@ -11,19 +11,19 @@
   INSTALLATION (per ~/.claude/skills/launchd-plist-template/SKILL.md):
     bash scripts/setup-launchd.sh launchd-drift-audit
   or (manual; mirrors scripts/setup-launchd.sh launchd-drift-audit):
-    # Substitute ALL placeholders (HOME, channel, tokens).
-    # setup-launchd.sh does this with escape_sed; the manual sed below uses
-    # empty defaults per the PR #615 umbrella pattern (empty > wrong).
+    # Substitute required placeholders and render. setup-launchd.sh does this
+    # with escape_sed; the manual sed below uses empty defaults per the
+    # PR #615 umbrella pattern (empty > wrong).
     # NOTE: placeholders use double-underscore syntax (not the more common
     # at-sign form) — at-sign placeholders tripped at least one plist
     # validator downstream of plutil even though plutil itself accepted
     # them; the double-underscore form has no special meaning in any
-    # XML/JSON parser and matches the __SET_BY_SETUP_LAUNCHD__ sentinel
-    # pattern in scripts/setup-launchd.sh.
+    # XML/JSON parser.
     sed -e "s|__HOME__|${HOME}|g" \
+        -e "s|__REPO_ROOT__|$(cd "$(dirname "$0")/.." && pwd)|g" \
         -e "s|__HERMES_OPS_SLACK_CHANNEL__|${HERMES_OPS_SLACK_CHANNEL:-}|g" \
-        -e "s|__SLACK_BOT_TOKEN__|${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_BOT_TOKEN:-}}|g" \
         -e "s|__OPENCLAW_STAGING_SLACK_BOT_TOKEN__|${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_BOT_TOKEN:-}}|g" \
+        -e "s|__SLACK_BOT_TOKEN__|${SLACK_BOT_TOKEN:-}|g" \
         -e "s|__SLACK_USER_TOKEN__|${SLACK_USER_TOKEN:-}|g" \
         launchd/ai.hermes.launchd-drift-audit.plist.template \
         > ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
@@ -39,9 +39,12 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>__HOME__/.hermes/scripts/launchd-env-wrapper.sh</string>
-    <string>__HOME__/.hermes/scripts/audit-launchd-drift.sh</string>
+    <string>/bin/bash</string>
+    <string>__REPO_ROOT__/scripts/audit-launchd-drift.sh</string>
   </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO_ROOT__</string>
 
   <key>StartCalendarInterval</key>
   <dict>
