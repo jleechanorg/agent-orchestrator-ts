@@ -542,7 +542,7 @@ describe("runtime.create() — direct bashrc source", () => {
     expect(shellCmd).not.toContain("rm -rf");
   });
 
-  it("launch script includes bashrc source preamble for long commands (>200 chars)", async () => {
+  it("launch script uses bash -i so interactive .bashrc guards don't block secrets", async () => {
     const runtime = create();
     const longCommand = "y".repeat(250);
 
@@ -558,9 +558,17 @@ describe("runtime.create() — direct bashrc source", () => {
       environment: {},
     });
 
+    // The tmux new-session command uses bash -i so .bashrc is sourced with
+    // interactive semantics — guards like `case $- in *i*) ;; *) return ;; esac`
+    // won't prevent secrets from loading (bd-l5ty).
+    const shellCmd = argsOf("new-session").at(-1) as string;
+    expect(shellCmd).toMatch(/^bash -i '.*ao-launch-.+\.sh'$/);
+
     const writeCall = (fs.writeFileSync as unknown as { mock: { calls: unknown[][] } }).mock
       .calls[0];
     const scriptBody = writeCall[1] as string;
+    // Script body still has the explicit .bashrc source (belt-and-suspenders),
+    // plus the preamble config.environment exports and the keep-alive tail.
     expect(scriptBody).toMatch(/\. "\$\{HOME\}\/\.bashrc" 2>\/dev\/null \|\| true/);
     expect(scriptBody).toContain(longCommand);
     expect(scriptBody).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);

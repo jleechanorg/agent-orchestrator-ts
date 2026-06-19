@@ -111,7 +111,10 @@ function writeLaunchScript(command: string): string {
   const scriptPath = join(tmpdir(), `ao-launch-${randomUUID()}.sh`);
   const content = `#!/usr/bin/env bash\nrm -- "$0" 2>/dev/null || true\n${withKeepAliveShell(command)}\n`;
   writeFileSync(scriptPath, content, { encoding: "utf-8", mode: 0o700 });
-  return `bash ${shellEscape(scriptPath)}`;
+  // bash -i: starts an interactive shell that sources ~/.bashrc on startup,
+  // so even .bashrc files guarded by $- interactivity checks will load their
+  // exported secrets into the worker's environment (bd-l5ty).
+  return `bash -i ${shellEscape(scriptPath)}`;
 }
 
 /**
