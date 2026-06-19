@@ -109,7 +109,7 @@ export async function reconcileProjectSupervisor(
     for (const projectId of activeProjectIds) {
       if (!configuredProjectIds.has(projectId)) {
         try {
-          await stopLifecycleWorker(config, projectId);
+          await stopLifecycleWorker(projectId);
           await removeProjectFromRunning(projectId);
         } catch (error) {
           reportProjectSupervisorError(
@@ -134,7 +134,7 @@ export async function reconcileProjectSupervisor(
         }
         await addProjectToRunning(projectId);
       } else if (isAttached) {
-        await stopLifecycleWorker(config, projectId);
+        await stopLifecycleWorker(projectId);
         await removeProjectFromRunning(projectId);
       }
     } catch (error) {

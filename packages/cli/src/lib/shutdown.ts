@@ -83,7 +83,7 @@ export function installShutdownHandlers(ctx: ShutdownContext): void {
 
         // Stop lifecycle workers after sessions are killed
         try {
-          await stopLifecycleWorker(shutdownConfig, ctx.projectId);
+          await stopLifecycleWorker(ctx.projectId);
         } catch {
           // Best-effort
         }
