@@ -31,7 +31,11 @@ const originalSlackWebhookUrl = process.env["SLACK_WEBHOOK_URL"];
 const tempDirs: string[] = [];
 
 afterEach(() => {
-  process.env["HOME"] = originalHome;
+  if (originalHome === undefined) {
+    delete process.env["HOME"];
+  } else {
+    process.env["HOME"] = originalHome;
+  }
   if (originalStagingPath === undefined) {
     delete process.env["AO_STAGING_CONFIG_PATH"];
   } else {
