@@ -2,6 +2,7 @@
 # audit-launchd-drift.sh — nightly audit of broken launchd plists
 # CR-fix annotation: 2026-06-19 — defensive placeholder guard for soft-fail Slack.
 # Refresh-2026-06-19: post-rebase refresh comment for incremental review SHA bump.
+# Refresh-2026-06-19b: post-resume SHA bump for fresh CR review after auto_pause.
 #
 # Background: on 2026-06-18 a manual audit found 15 launchd plists at
 # exit 127 (script-missing or wrong-container-name) that had been silently
