@@ -255,9 +255,14 @@ function withKeepAliveShell(command: string): string {
   return `${command.replace(/\n+$/, "")}\n${KEEP_ALIVE_SHELL}`;
 }
 
-function writeLaunchScript(command: string): string {
+/** Single-quote a value for safe export in a bash env file. */
+function shellQuoteValue(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+function writeLaunchScript(command: string, envFilePrefix = ""): string {
   const scriptPath = join(tmpdir(), `ao-launch-${randomUUID()}.sh`);
-  const content = `#!/usr/bin/env bash\nrm -- "$0" 2>/dev/null || true\n${withKeepAliveShell(command)}\n`;
+  const content = `#!/usr/bin/env bash\nrm -- "$0" 2>/dev/null || true\n${envFilePrefix}${withKeepAliveShell(command)}\n`;
   writeFileSync(scriptPath, content, { encoding: "utf-8", mode: 0o700 });
   return `bash ${shellEscape(scriptPath)}`;
 }
@@ -403,11 +408,32 @@ export function create(): Runtime {
       // Mirrors the proven pattern in scripts/launchd-launcher.sh.
       const bashrcEnv = await loadBashrcEnv();
       // Explicit per-session config.environment takes precedence over bashrc.
-      const mergedEnv = { ...bashrcEnv, ...(config.environment ?? {}) };
+      // config.environment vars are small (caller-controlled) — safe as -e args.
+      // bashrc vars can be 100-300 entries; passing them all as -e args exceeds
+      // tmux's per-line arg buffer and causes the session to hang (bd-l5ty-overflow).
+      // Instead, write bashrc vars to a temp env file and source it in the shell.
+      const configEnv = config.environment ?? {};
       const envArgs: string[] = [];
-      for (const [key, value] of Object.entries(mergedEnv)) {
+      for (const [key, value] of Object.entries(configEnv)) {
         if (value === "") continue;
         envArgs.push("-e", `${key}=${value}`);
+      }
+
+      // Write bashrc env to a sourced file when non-empty to avoid overflow.
+      let bashrcEnvFilePrefix = "";
+      // Exclude bashrc keys that are overridden by config.environment so the
+      // explicit value (in -e args) is not shadowed when the env file is sourced.
+      const bashrcEntries = Object.entries(bashrcEnv).filter(
+        ([k, v]) => v !== "" && !(k in configEnv),
+      );
+      if (bashrcEntries.length > 0) {
+        const envFilePath = join(tmpdir(), `ao-bashrc-${sessionName}.sh`);
+        const lines = bashrcEntries.map(([k, v]) => `export ${k}=${shellQuoteValue(v)}`);
+        writeFileSync(envFilePath, lines.join("\n") + "\n", {
+          encoding: "utf-8",
+          mode: 0o600,
+        });
+        bashrcEnvFilePrefix = `. ${shellEscape(envFilePath)}\n`;
       }
 
       // Start the launch command as the pane's initial command instead of
@@ -417,7 +443,9 @@ export function create(): Runtime {
       // tail is appended in both code paths — see KEEP_ALIVE_SHELL.
       const launchCmd = config.launchCommand;
       const shellCommand =
-        launchCmd.length > 200 ? writeLaunchScript(launchCmd) : withKeepAliveShell(launchCmd);
+        launchCmd.length > 200
+          ? writeLaunchScript(launchCmd, bashrcEnvFilePrefix)
+          : `${bashrcEnvFilePrefix}${withKeepAliveShell(launchCmd)}`;
 
       // Try creating the session first. If tmux reports a duplicate session name,
       // kill the stale session and retry. This avoids destroying a live session

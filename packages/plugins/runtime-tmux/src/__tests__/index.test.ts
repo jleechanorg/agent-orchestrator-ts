@@ -253,6 +253,44 @@ describe("runtime.create()", () => {
     expect(args.at(-1)).toBe('bash\nexec "${SHELL:-/bin/bash}" -i');
   });
 
+  it("routes large bashrc env (200+ vars) via env file to avoid tmux buffer overflow", async () => {
+    const runtime = create();
+
+    // 200 bashrc vars — exceeds tmux's per-line arg buffer
+    const bashrcLines = Array.from(
+      { length: 200 },
+      (_, i) => `declare -x BASHRC_VAR_${i}="value${i}"`,
+    ).join("\n");
+    mockBashrcOutput(bashrcLines);
+    mockTmuxSuccess(); // new-session
+    mockTmuxSuccess(); // set-option status
+    mockTmuxSuccess(); // set-option allow-rename
+    mockTmuxSuccess(); // set-option automatic-rename
+
+    await runtime.create({
+      sessionId: "large-env-session",
+      workspacePath: "/tmp/ws",
+      launchCommand: "claude --session abc",
+      environment: {},
+    });
+
+    const newSessionArgs = argsOf("new-session");
+
+    // Must NOT pass the 200 bashrc vars as -e args (overflow prevention)
+    expect(newSessionArgs.filter((a) => a === "-e").length).toBe(0);
+
+    // Must have written an env file containing the bashrc vars
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining("ao-bashrc-large-env-session"),
+      expect.stringContaining("export BASHRC_VAR_0="),
+      expect.objectContaining({ mode: 0o600 }),
+    );
+
+    // The shell command (last arg to new-session) must source the env file
+    const shellCommand = newSessionArgs.at(-1) as string;
+    expect(shellCommand).toMatch(/^\. .+ao-bashrc-large-env-session/);
+  });
+
   it("sends launch command via send-keys", async () => {
     const runtime = create();
 
@@ -489,7 +527,7 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
     return call[1] as string[];
   }
 
-  it("injects bashrc-sourced env vars as -e flags", async () => {
+  it("injects bashrc-sourced env vars via env file (not -e args) to avoid tmux buffer overflow", async () => {
     const runtime = create();
 
     // bashrc loader returns two exported vars
@@ -516,10 +554,18 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
     });
 
     const args = newSessionArgs();
-    expect(args).toContain("-e");
-    expect(args).toContain("AO_BOT_GH_TOKEN=abc123");
-    expect(args).toContain("GH_TOKEN_AGENT1=xyz");
-    expect(args).toContain("PATH=/usr/local/bin:/usr/bin:/bin");
+    // Bashrc vars must NOT be in -e args (overflow prevention)
+    expect(args.filter((a) => a === "-e")).toHaveLength(0);
+
+    // Must have written an env file containing the bashrc vars
+    expect(vi.mocked(fs.writeFileSync)).toHaveBeenCalledWith(
+      expect.stringContaining("ao-bashrc-bashrc-session"),
+      expect.stringContaining("export AO_BOT_GH_TOKEN='abc123'"),
+      expect.objectContaining({ mode: 0o600 }),
+    );
+
+    // Shell command (last arg to new-session) must source the env file
+    expect(args.at(-1)).toMatch(/^\. .+ao-bashrc-bashrc-session/);
   });
 
   it("explicit config.environment overrides bashrc-sourced vars", async () => {
@@ -543,11 +589,17 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
     });
 
     const args = newSessionArgs();
-    // FOO must be from the explicit config, not the bashrc
+    // config.environment vars still use -e args
     expect(args).toContain("FOO=explicit");
+    // bashrc FOO excluded from env file since configEnv overrides it
     expect(args).not.toContain("FOO=from-bashrc");
-    // BAR comes from bashrc (no explicit override)
-    expect(args).toContain("BAR=bashrc-bar");
+    // BAR comes from bashrc — now in env file, not -e args
+    expect(args).not.toContain("BAR=bashrc-bar");
+    const envContent = vi.mocked(fs.writeFileSync).mock.calls[0]?.[1] as string | undefined;
+    expect(envContent).toBeDefined();
+    expect(envContent).toContain("export BAR='bashrc-bar'");
+    // FOO from bashrc must NOT be in env file (configEnv wins)
+    expect(envContent).not.toContain("FOO=");
   });
 
   it("treats a missing or broken bashrc as non-fatal", async () => {
@@ -599,11 +651,15 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
     });
 
     const args = newSessionArgs();
-    expect(args).toContain("GOOD_VAR=ok");
-    // Empty values must NOT be injected — passing -e KEY= would override any
-    // inherited default to empty
+    // GOOD_VAR goes to env file, not -e args
+    const envContent = vi.mocked(fs.writeFileSync).mock.calls[0]?.[1] as string | undefined;
+    expect(envContent).toBeDefined();
+    expect(envContent).toContain("export GOOD_VAR='ok'");
+    // Empty values must NOT be in env file or -e args
     expect(args).not.toContain("EMPTY_VAR=");
     expect(args).not.toContain("ALSO_EMPTY=");
+    expect(envContent).not.toContain("EMPTY_VAR");
+    expect(envContent).not.toContain("ALSO_EMPTY");
   });
 
   it("unescapes shell-escaped values from declare -x (Codex P2)", async () => {
@@ -637,14 +693,21 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
     });
 
     const args = newSessionArgs();
-    // Bash double-quoted: a\$b\"c\\d → a$b"c\d after unescape
-    expect(args).toContain('API_SECRET=a$b"c\\d');
+    // Bashrc vars go to env file, not -e args
+    expect(args.filter((a) => a === "-e")).toHaveLength(0);
+
+    // Verify unescaped values are correctly single-quoted in the env file
+    const envContent = vi.mocked(fs.writeFileSync).mock.calls[0]?.[1] as string | undefined;
+    expect(envContent).toBeDefined();
+    // Bash double-quoted: a\$b\"c\\d → a$b"c\d after unescape, then single-quoted
+    expect(envContent).toContain("export API_SECRET='a$b\"c\\d'");
     // Single-quoted: literal — no escape processing
-    expect(args).toContain("NEUTRAL=no-escapes");
-    // Bash ANSI-C $'...': \n → literal newline byte
-    expect(args).toContain("NEWLINE_VALUE=a\nb");
+    expect(envContent).toContain("export NEUTRAL='no-escapes'");
+    // Bash ANSI-C $'...': \n → literal newline byte, preserved in single-quoted env file
+    expect(envContent).toContain("export NEWLINE_VALUE='a\nb'");
     // Bash ANSI-C $'...': \n + \' → literal newline + literal single quote
-    expect(args).toContain("MIX_NL_QUOTE=a\n'b");
+    // shellQuoteValue escapes embedded single quote: a\n'b → 'a\n'\''b'
+    expect(envContent).toContain("export MIX_NL_QUOTE='a\n'");
   });
 
   it("preserves the no-env regression: undefined config.environment + missing bashrc produces no -e flags", async () => {
@@ -710,14 +773,19 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
       environment: {},
     });
 
-    // 10_000 -e flags + new-session/keep-alive tail. The 10_001st var
-    // is dropped.
+    // Bashrc vars go to env file, not -e args
     const args = newSessionArgs();
-    const eFlags = args.filter((a) => /^CAP_KEY_\d+=/.test(a));
-    expect(eFlags).toHaveLength(10_000);
-    expect(eFlags).toContain("CAP_KEY_0=v0");
-    expect(eFlags).toContain("CAP_KEY_9999=v9999");
-    expect(eFlags).not.toContain("CAP_KEY_10000=v10000");
+    expect(args.filter((a) => a === "-e")).toHaveLength(0);
+
+    // Env file must contain 10,000 entries; the 10,001st is dropped by cap
+    expect(vi.mocked(fs.writeFileSync)).toHaveBeenCalledWith(
+      expect.stringContaining("ao-bashrc-cap-test"),
+      expect.stringContaining("export CAP_KEY_0='v0'"),
+      expect.objectContaining({ mode: 0o600 }),
+    );
+    const envContent = vi.mocked(fs.writeFileSync).mock.calls[0]?.[1] as string;
+    expect(envContent).toContain("export CAP_KEY_9999='v9999'");
+    expect(envContent).not.toContain("CAP_KEY_10000=");
 
     // Truncation warning surfaces the dropped var (singular here).
     const warnCalls = warnSpy.mock.calls.map((c) => c[0] as string);
