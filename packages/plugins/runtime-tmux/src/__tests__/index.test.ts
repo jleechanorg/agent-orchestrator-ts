@@ -3,11 +3,9 @@ import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import type { RuntimeCreateConfig, RuntimeHandle } from "@jleechanorg/ao-core";
 
-// Mock node:child_process with custom promisify support
+// Mock node:child_process (tmux calls go through execFile)
 vi.mock("node:child_process", () => {
   const mockExecFile = vi.fn();
-  // promisify(execFile) checks for a custom promisify symbol. Set it so
-  // await execFileAsync(...) returns { stdout, stderr } properly.
   (mockExecFile as any)[Symbol.for("nodejs.util.promisify.custom")] = vi.fn();
   return { execFile: mockExecFile };
 });
@@ -44,24 +42,6 @@ function mockTmuxError(message: string) {
   mockExecFileCustom.mockRejectedValueOnce(new Error(message));
 }
 
-/** Queue a successful bashrc loader result (bd-l5ty). The bashrc loader
- * uses async execFile under the hood, so the mock target is the same as
- * tmux commands. */
-function mockBashrcOutput(stdout: string) {
-  mockExecFileCustom.mockResolvedValueOnce({ stdout, stderr: "" });
-}
-
-/** Queue a bashrc loader failure (bd-l5ty). */
-function mockBashrcError(message: string) {
-  mockExecFileCustom.mockRejectedValueOnce(new Error(message));
-}
-
-/** Queue a bashrc loader returning empty (no exports) — used by tests
- * that don't care about bashrc to avoid the unhandled async rejection
- * from the default mock fallback. */
-function mockBashrcEmpty() {
-  mockBashrcOutput("");
-}
 
 /** Find the call whose args begin with the given tmux subcommand. */
 function findCall(startsWith: string): unknown[] | undefined {
@@ -123,8 +103,7 @@ describe("runtime.create()", () => {
   it("calls new-session with correct args", async () => {
     const runtime = create();
 
-    // Happy path (no collision): 0: bashrc load, 1: new-session, 2: set-option status, 3: set-option allow-rename, 4: set-option automatic-rename
-    mockBashrcEmpty();
+    // Happy path (no collision): 0: new-session, 1: set-option status, 2: set-option allow-rename, 3: set-option automatic-rename
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -141,8 +120,8 @@ describe("runtime.create()", () => {
     expect(handle.runtimeName).toBe("tmux");
     expect(handle.data.workspacePath).toBe("/tmp/workspace");
 
-    // First tmux call: new-session — launch command has the keep-alive shell tail
-    // appended so the tmux session survives agent exit (issue #1756).
+    // First tmux call: new-session — preamble sources ~/.bashrc then runs launch command;
+    // keep-alive shell tail appended so the tmux session survives agent exit (issue #1756).
     expect(mockExecFileCustom).toHaveBeenCalledWith(
       "tmux",
       [
@@ -152,7 +131,7 @@ describe("runtime.create()", () => {
         "test-session",
         "-c",
         "/tmp/workspace",
-        'echo hello\nexec "${SHELL:-/bin/bash}" -i',
+        '. "${HOME}/.bashrc" 2>/dev/null || true\necho hello\nexec "${SHELL:-/bin/bash}" -i',
       ],
       expectedTmuxOptions,
     );
@@ -161,8 +140,7 @@ describe("runtime.create()", () => {
   it("kills stale session and retries when new-session reports duplicate", async () => {
     const runtime = create();
 
-    // 0: bashrc load, 1: new-session → duplicate error, 2: kill-session, 3: new-session (retry), 4: set-option, 5-6: allow-rename/automatic-rename
-    mockBashrcEmpty();
+    // 0: new-session → duplicate error, 1: kill-session, 2: new-session (retry), 3: set-option, 4-5: allow-rename/automatic-rename
     mockTmuxError("duplicate session: dup-session");
     mockTmuxSuccess(); // kill-session
     mockTmuxSuccess(); // new-session retry
@@ -178,9 +156,9 @@ describe("runtime.create()", () => {
     });
 
     expect(handle.id).toBe("dup-session");
-    // 7 calls: bashrc, new-session (fail), kill-session, new-session (retry), set-option status, allow-rename, automatic-rename
-    expect(mockExecFileCustom).toHaveBeenCalledTimes(7);
-    // Walk tmux calls in order; skip the leading bash call (binary is "bash").
+    // 6 calls: new-session (fail), kill-session, new-session (retry), set-option status, allow-rename, automatic-rename
+    expect(mockExecFileCustom).toHaveBeenCalledTimes(6);
+    // Walk tmux calls in order.
     const tmuxSubcommands = mockExecFileCustom.mock.calls
       .map((c) => c[0] === "tmux" ? (c[1] as string[])[0] : null)
       .filter((sub): sub is string => sub !== null);
@@ -192,8 +170,7 @@ describe("runtime.create()", () => {
   it("propagates non-duplicate new-session errors without killing existing session", async () => {
     const runtime = create();
 
-    // 0: bashrc load succeeds, 1: new-session fails (not duplicate)
-    mockBashrcEmpty();
+    // 0: new-session fails (not duplicate)
     mockTmuxError("permission denied");
 
     await expect(
@@ -205,15 +182,14 @@ describe("runtime.create()", () => {
       }),
     ).rejects.toThrow("permission denied");
 
-    // 2 calls: bashrc load + new-session — no kill-session issued
-    expect(mockExecFileCustom).toHaveBeenCalledTimes(2);
+    // 1 call: new-session — no kill-session issued
+    expect(mockExecFileCustom).toHaveBeenCalledTimes(1);
   });
 
   it("stores launchCommand in handle.data for restart capability (bd-tln)", async () => {
     const runtime = create();
 
-    // 0: bashrc load, 1: new-session, 2-4: set-option calls
-    mockBashrcEmpty();
+    // 0: new-session, 1-3: set-option calls
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -229,10 +205,9 @@ describe("runtime.create()", () => {
     expect(handle.data.launchCommand).toBe("claude --session abc");
   });
 
-  it("includes -e KEY=VALUE flags for environment variables", async () => {
+  it("injects config.environment vars as inline exports before the launch command", async () => {
     const runtime = create();
 
-    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -245,56 +220,16 @@ describe("runtime.create()", () => {
       environment: { AO_SESSION: "env-session", FOO: "bar" },
     });
 
-    // new-session call should contain -e flags
-    const args = argsOf("new-session");
-    expect(args).toContain("-e");
-    expect(args).toContain("AO_SESSION=env-session");
-    expect(args).toContain("FOO=bar");
-    expect(args.at(-1)).toBe('bash\nexec "${SHELL:-/bin/bash}" -i');
-  });
-
-  it("routes large bashrc env (200+ vars) via env file to avoid tmux buffer overflow", async () => {
-    const runtime = create();
-
-    // 200 bashrc vars — exceeds tmux's per-line arg buffer
-    const bashrcLines = Array.from(
-      { length: 200 },
-      (_, i) => `declare -x BASHRC_VAR_${i}="value${i}"`,
-    ).join("\n");
-    mockBashrcOutput(bashrcLines);
-    mockTmuxSuccess(); // new-session
-    mockTmuxSuccess(); // set-option status
-    mockTmuxSuccess(); // set-option allow-rename
-    mockTmuxSuccess(); // set-option automatic-rename
-
-    await runtime.create({
-      sessionId: "large-env-session",
-      workspacePath: "/tmp/ws",
-      launchCommand: "claude --session abc",
-      environment: {},
-    });
-
-    const newSessionArgs = argsOf("new-session");
-
-    // Must NOT pass the 200 bashrc vars as -e args (overflow prevention)
-    expect(newSessionArgs.filter((a) => a === "-e").length).toBe(0);
-
-    // Must have written an env file containing the bashrc vars
-    expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining("ao-bashrc-large-env-session"),
-      expect.stringContaining("export BASHRC_VAR_0="),
-      expect.objectContaining({ mode: 0o600 }),
-    );
-
-    // The shell command (last arg to new-session) must source the env file
-    const shellCommand = newSessionArgs.at(-1) as string;
-    expect(shellCommand).toMatch(/^\. .+ao-bashrc-large-env-session/);
+    const shellCmd = argsOf("new-session").at(-1) as string;
+    expect(shellCmd).toContain("export AO_SESSION='env-session'");
+    expect(shellCmd).toContain("export FOO='bar'");
+    expect(argsOf("new-session")).not.toContain("-e");
+    expect(shellCmd).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i\s*$/);
   });
 
   it("sends launch command via send-keys", async () => {
     const runtime = create();
 
-    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -307,8 +242,7 @@ describe("runtime.create()", () => {
       environment: {},
     });
 
-    // new-session passes the launch command as the pane's initial
-    // command, with the keep-alive shell tail appended.
+    // new-session passes preamble + launch command + keep-alive shell tail.
     expect(mockExecFileCustom).toHaveBeenCalledWith(
       "tmux",
       [
@@ -318,7 +252,7 @@ describe("runtime.create()", () => {
         "launch-test",
         "-c",
         "/tmp/ws",
-        'claude --session abc\nexec "${SHELL:-/bin/bash}" -i',
+        '. "${HOME}/.bashrc" 2>/dev/null || true\nclaude --session abc\nexec "${SHELL:-/bin/bash}" -i',
       ],
       expectedTmuxOptions,
     );
@@ -327,7 +261,6 @@ describe("runtime.create()", () => {
   it("appends an interactive shell tail so the tmux pane survives agent exit (regression for #1756)", async () => {
     const runtime = create();
 
-    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -349,7 +282,6 @@ describe("runtime.create()", () => {
     const runtime = create();
     const longCommand = "x".repeat(250);
 
-    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -392,8 +324,7 @@ describe("runtime.create()", () => {
   it("surfaces tmux set-option failures and cleans up", async () => {
     const runtime = create();
 
-    // 0: bashrc load, 1: new-session succeeds, 2: set-option fails, 3: kill-session (cleanup)
-    mockBashrcEmpty();
+    // 0: new-session succeeds, 1: set-option fails, 2: kill-session (cleanup)
     mockTmuxSuccess();
     mockTmuxError("set-option failed");
     mockTmuxSuccess();
@@ -444,7 +375,6 @@ describe("runtime.create()", () => {
   it("accepts valid session IDs with hyphens and underscores", async () => {
     const runtime = create();
 
-    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -463,7 +393,6 @@ describe("runtime.create()", () => {
   it("handles no environment (undefined)", async () => {
     const runtime = create();
 
-    mockBashrcEmpty();
     mockTmuxSuccess();
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -476,7 +405,7 @@ describe("runtime.create()", () => {
     };
     await runtime.create(noEnvConfig);
 
-    // The new-session call should not contain -e flags
+    // No -e flags; preamble sources ~/.bashrc
     expect(argsOf("new-session")).toEqual([
       "new-session",
       "-d",
@@ -484,14 +413,13 @@ describe("runtime.create()", () => {
       "no-env",
       "-c",
       "/tmp/ws",
-      'echo hi\nexec "${SHELL:-/bin/bash}" -i',
+      '. "${HOME}/.bashrc" 2>/dev/null || true\necho hi\nexec "${SHELL:-/bin/bash}" -i',
     ]);
   });
 
   it("sets allow-rename and automatic-rename to off on create", async () => {
     const runtime = create();
 
-    mockBashrcEmpty(); // bashrc load
     mockTmuxSuccess(); // new-session
     mockTmuxSuccess(); // set-option status off
     mockTmuxSuccess(); // set-option allow-rename off
@@ -517,64 +445,9 @@ describe("runtime.create()", () => {
   });
 });
 
-describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
-  /** Find the args of the new-session tmux call (skipping the bash call). */
-  function newSessionArgs(): string[] {
-    const call = mockExecFileCustom.mock.calls.find(
-      (c) => Array.isArray(c[1]) && c[1][0] === "new-session",
-    );
-    if (!call) throw new Error("no new-session call found in mockExecFileCustom");
-    return call[1] as string[];
-  }
-
-  it("injects bashrc-sourced env vars via env file (not -e args) to avoid tmux buffer overflow", async () => {
+describe("runtime.create() — direct bashrc source", () => {
+  it("shell command starts with bashrc source preamble", async () => {
     const runtime = create();
-
-    // bashrc loader returns two exported vars
-    mockBashrcOutput(
-      [
-        'declare -x AO_BOT_GH_TOKEN="abc123"',
-        "declare -x GH_TOKEN_AGENT1='xyz'",
-        "declare -x PATH=\"/usr/local/bin:/usr/bin:/bin\"", // PATH should also land
-        "declare -x UNRELATED_FUNC='() { echo hi; }'", // shell function — still parsed (we only filter for the env shape)
-      ].join("\n"),
-    );
-
-    // 4 tmux calls: new-session, set-option status, allow-rename, automatic-rename
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-
-    await runtime.create({
-      sessionId: "bashrc-session",
-      workspacePath: "/tmp/ws",
-      launchCommand: "echo",
-      environment: {},
-    });
-
-    const args = newSessionArgs();
-    // Bashrc vars must NOT be in -e args (overflow prevention)
-    expect(args.filter((a) => a === "-e")).toHaveLength(0);
-
-    // Must have written an env file containing the bashrc vars
-    expect(vi.mocked(fs.writeFileSync)).toHaveBeenCalledWith(
-      expect.stringContaining("ao-bashrc-bashrc-session"),
-      expect.stringContaining("export AO_BOT_GH_TOKEN='abc123'"),
-      expect.objectContaining({ mode: 0o600 }),
-    );
-
-    // Shell command (last arg to new-session) must source the env file
-    expect(args.at(-1)).toMatch(/^\. .+ao-bashrc-bashrc-session/);
-  });
-
-  it("explicit config.environment overrides bashrc-sourced vars", async () => {
-    const runtime = create();
-
-    mockBashrcOutput([
-      'declare -x FOO="from-bashrc"',
-      'declare -x BAR="bashrc-bar"',
-    ].join("\n"));
 
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -582,221 +455,89 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
     mockTmuxSuccess();
 
     await runtime.create({
-      sessionId: "override-session",
-      workspacePath: "/tmp/ws",
-      launchCommand: "echo",
-      environment: { FOO: "explicit" },
-    });
-
-    const args = newSessionArgs();
-    // config.environment vars still use -e args
-    expect(args).toContain("FOO=explicit");
-    // bashrc FOO excluded from env file since configEnv overrides it
-    expect(args).not.toContain("FOO=from-bashrc");
-    // BAR comes from bashrc — now in env file, not -e args
-    expect(args).not.toContain("BAR=bashrc-bar");
-    const envContent = vi.mocked(fs.writeFileSync).mock.calls[0]?.[1] as string | undefined;
-    expect(envContent).toBeDefined();
-    expect(envContent).toContain("export BAR='bashrc-bar'");
-    // FOO from bashrc must NOT be in env file (configEnv wins)
-    expect(envContent).not.toContain("FOO=");
-  });
-
-  it("treats a missing or broken bashrc as non-fatal", async () => {
-    const runtime = create();
-
-    // bashrc loader throws (e.g. ~/.bashrc missing, bash not on PATH)
-    mockBashrcError("spawn bash ENOENT");
-
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-
-    // Should not throw — fall back to whatever config.environment provides
-    const handle = await runtime.create({
-      sessionId: "no-bashrc",
-      workspacePath: "/tmp/ws",
-      launchCommand: "echo",
-      environment: { EXPLICIT_ONLY: "yes" },
-    });
-
-    expect(handle.id).toBe("no-bashrc");
-
-    const args = newSessionArgs();
-    expect(args).toContain("EXPLICIT_ONLY=yes");
-  });
-
-  it("skips empty-valued bashrc exports to avoid overriding plist defaults", async () => {
-    const runtime = create();
-
-    mockBashrcOutput(
-      [
-        'declare -x EMPTY_VAR=""',
-        "declare -x GOOD_VAR='ok'",
-        "declare -x ALSO_EMPTY=", // unquoted empty
-      ].join("\n"),
-    );
-
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-
-    await runtime.create({
-      sessionId: "empty-skip",
-      workspacePath: "/tmp/ws",
-      launchCommand: "echo",
-      environment: {},
-    });
-
-    const args = newSessionArgs();
-    // GOOD_VAR goes to env file, not -e args
-    const envContent = vi.mocked(fs.writeFileSync).mock.calls[0]?.[1] as string | undefined;
-    expect(envContent).toBeDefined();
-    expect(envContent).toContain("export GOOD_VAR='ok'");
-    // Empty values must NOT be in env file or -e args
-    expect(args).not.toContain("EMPTY_VAR=");
-    expect(args).not.toContain("ALSO_EMPTY=");
-    expect(envContent).not.toContain("EMPTY_VAR");
-    expect(envContent).not.toContain("ALSO_EMPTY");
-  });
-
-  it("unescapes shell-escaped values from declare -x (Codex P2)", async () => {
-    const runtime = create();
-
-    // declare -x escapes $, ", \ inside double-quoted values. The parser
-    // must unescape them so the worker receives the original bytes.
-    mockBashrcOutput(
-      [
-        'declare -x API_SECRET="a\\$b\\"c\\\\d"', // bash escapes: a\$b\"c\\d
-        "declare -x NEUTRAL='no-escapes'",
-        "declare -x NEWLINE_VALUE=$'a\\nb'",
-        // Bash emits values containing BOTH a literal newline AND a literal
-        // single quote in the ANSI-C $'...' form with the single quote
-        // escaped as \'. e.g. a\n'b → $'a\n\'b' (verified with
-        // bash -ic on a real value with both bytes).
-        "declare -x MIX_NL_QUOTE=$'a\\n\\'b'",
-      ].join("\n"),
-    );
-
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-
-    await runtime.create({
-      sessionId: "escape-test",
-      workspacePath: "/tmp/ws",
-      launchCommand: "echo",
-      environment: {},
-    });
-
-    const args = newSessionArgs();
-    // Bashrc vars go to env file, not -e args
-    expect(args.filter((a) => a === "-e")).toHaveLength(0);
-
-    // Verify unescaped values are correctly single-quoted in the env file
-    const envContent = vi.mocked(fs.writeFileSync).mock.calls[0]?.[1] as string | undefined;
-    expect(envContent).toBeDefined();
-    // Bash double-quoted: a\$b\"c\\d → a$b"c\d after unescape, then single-quoted
-    expect(envContent).toContain("export API_SECRET='a$b\"c\\d'");
-    // Single-quoted: literal — no escape processing
-    expect(envContent).toContain("export NEUTRAL='no-escapes'");
-    // Bash ANSI-C $'...': \n → literal newline byte, preserved in single-quoted env file
-    expect(envContent).toContain("export NEWLINE_VALUE='a\nb'");
-    // Bash ANSI-C $'...': \n + \' → literal newline + literal single quote
-    // shellQuoteValue escapes embedded single quote: a\n'b → 'a\n'\''b'
-    expect(envContent).toContain("export MIX_NL_QUOTE='a\n'");
-  });
-
-  it("preserves the no-env regression: undefined config.environment + missing bashrc produces no -e flags", async () => {
-    const runtime = create();
-
-    // No bashrc mock set up — execFile rejects by default in the mock, so
-    // loadBashrcEnv() should treat that as a non-fatal empty result.
-    mockBashrcError("spawn bash ENOENT");
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-
-    const noEnvConfig: RuntimeCreateConfig = {
-      sessionId: "no-env",
+      sessionId: "preamble-test",
       workspacePath: "/tmp/ws",
       launchCommand: "echo hi",
-    };
-    await runtime.create(noEnvConfig);
-
-    // Find the new-session call (the only `new-session` arg in any of the
-    // mocked execFile invocations). The first call should be the bash
-    // loader (which rejected); the next is the new-session.
-    const newSessionCall = mockExecFileCustom.mock.calls.find(
-      (call) => Array.isArray(call[1]) && call[1][0] === "new-session",
-    );
-    expect(newSessionCall).toBeDefined();
-    const newSessionArgs = newSessionCall?.[1] as string[];
-    expect(newSessionArgs).toEqual([
-      "new-session",
-      "-d",
-      "-s",
-      "no-env",
-      "-c",
-      "/tmp/ws",
-      'echo hi\nexec "${SHELL:-/bin/bash}" -i',
-    ]);
-  });
-
-  it("truncates bashrc exports to MAX_BASHRC_VARS=10000 and warns with dropped var names", async () => {
-    const runtime = create();
-
-    // Build a bashrc dump with 10_001 lines so the cap fires. We use a
-    // small key prefix so the 10_000-var cap is the only thing limiting
-    // the resulting `-e` count.
-    const lines: string[] = [];
-    for (let i = 0; i < 10_001; i++) {
-      lines.push(`declare -x CAP_KEY_${i}="v${i}"`);
-    }
-    mockBashrcOutput(lines.join("\n"));
-    // 4 tmux calls
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-    mockTmuxSuccess();
-
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    await runtime.create({
-      sessionId: "cap-test",
-      workspacePath: "/tmp/ws",
-      launchCommand: "echo",
       environment: {},
     });
 
-    // Bashrc vars go to env file, not -e args
-    const args = newSessionArgs();
-    expect(args.filter((a) => a === "-e")).toHaveLength(0);
+    const shellCmd = argsOf("new-session").at(-1) as string;
+    expect(shellCmd).toMatch(/^\. "\$\{HOME\}\/\.bashrc" 2>\/dev\/null \|\| true\n/);
+    expect(shellCmd).toContain("echo hi");
+    expect(argsOf("new-session")).not.toContain("-e");
+  });
 
-    // Env file must contain 10,000 entries; the 10,001st is dropped by cap
-    expect(vi.mocked(fs.writeFileSync)).toHaveBeenCalledWith(
-      expect.stringContaining("ao-bashrc-cap-test"),
-      expect.stringContaining("export CAP_KEY_0='v0'"),
-      expect.objectContaining({ mode: 0o600 }),
-    );
-    const envContent = vi.mocked(fs.writeFileSync).mock.calls[0]?.[1] as string;
-    expect(envContent).toContain("export CAP_KEY_9999='v9999'");
-    expect(envContent).not.toContain("CAP_KEY_10000=");
+  it("config.environment vars appear as inline exports after the bashrc source", async () => {
+    const runtime = create();
 
-    // Truncation warning surfaces the dropped var (singular here).
-    const warnCalls = warnSpy.mock.calls.map((c) => c[0] as string);
-    expect(
-      warnCalls.some(
-        (msg) =>
-          msg.includes("dropped 1 var") && msg.includes("CAP_KEY_10000"),
-      ),
-    ).toBe(true);
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
 
-    warnSpy.mockRestore();
+    await runtime.create({
+      sessionId: "export-order",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: { MY_KEY: "my-value", OTHER: "other-val" },
+    });
+
+    const shellCmd = argsOf("new-session").at(-1) as string;
+    // bashrc source comes first
+    expect(shellCmd).toMatch(/^\. "\$\{HOME\}\/\.bashrc" 2>\/dev\/null \|\| true\n/);
+    // inline exports follow
+    expect(shellCmd).toContain("export MY_KEY='my-value'");
+    expect(shellCmd).toContain("export OTHER='other-val'");
+    // no -e flags
+    expect(argsOf("new-session")).not.toContain("-e");
+    // keep-alive tail last
+    expect(shellCmd).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i\s*$/);
+  });
+
+  it("skips empty-valued config.environment entries in inline exports", async () => {
+    const runtime = create();
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "skip-empty",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: { GOOD: "val", EMPTY: "" },
+    });
+
+    const shellCmd = argsOf("new-session").at(-1) as string;
+    expect(shellCmd).toContain("export GOOD='val'");
+    expect(shellCmd).not.toContain("EMPTY=");
+    expect(argsOf("new-session")).not.toContain("-e");
+  });
+
+  it("launch script includes bashrc source preamble for long commands (>200 chars)", async () => {
+    const runtime = create();
+    const longCommand = "y".repeat(250);
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "long-direct-source",
+      workspacePath: "/tmp/ws",
+      launchCommand: longCommand,
+      environment: {},
+    });
+
+    const writeCall = (fs.writeFileSync as unknown as { mock: { calls: unknown[][] } }).mock
+      .calls[0];
+    const scriptBody = writeCall[1] as string;
+    expect(scriptBody).toMatch(/\. "\$\{HOME\}\/\.bashrc" 2>\/dev\/null \|\| true/);
+    expect(scriptBody).toContain(longCommand);
+    expect(scriptBody).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);
+    expect(argsOf("new-session")).not.toContain("-e");
   });
 });
 
