@@ -995,62 +995,78 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
  * for the envSource field and bootstrap from the merged list. applyEnvSource
  * uses per-call snapshots so we don't duplicate or re-source already-applied
  * vars — we only add what the overlay's extra files contribute.
+ *
+ * Shape policy: this bootstrap runs BEFORE validateConfig(), but it must NOT
+ * have side effects on a config that validation will later reject. The schema
+ * requires envSource to be `z.array(z.string())`; if the raw value is anything
+ * else (string, null, missing → undefined default, etc.), skip bootstrap and
+ * let validation throw. A raw string envSource is no longer normalized to an
+ * array here — that pre-validation side effect could source arbitrary shell
+ * init files from a config that the schema will reject.
  */
 function bootstrapEnvSourceForLoad(
   primaryParsed: unknown,
   overlayPath: string | null,
 ): void {
   if (_envBootstrapDone) return;
-  let effective: string[];
+  const primaryEnvSourceList: unknown =
+    typeof primaryParsed === "object" && primaryParsed !== null
+      ? readRawEnvSourceList(primaryParsed as Record<string, unknown>)
+      : undefined;
+  let overlayEnvSourceList: unknown;
   if (overlayPath) {
-    // Parse the overlay raw (no env expansion) so we can read its envSource
-    // before the overlay's ${VAR} expansion happens. Only the envSource list
-    // itself is consumed here — never the expanded secrets.
     const overlayRaw = readFileSync(overlayPath, "utf-8");
     const overlayParsed = parseYaml(overlayRaw);
-    const primaryEnvSource =
-      typeof primaryParsed === "object" && primaryParsed !== null
-        ? readEnvSourceList(primaryParsed as Record<string, unknown>)
-        : undefined;
-    const overlayEnvSource =
-      typeof overlayParsed === "object" && overlayParsed !== null
-        ? readEnvSourceList(overlayParsed as Record<string, unknown>)
-        : undefined;
-    effective = overlayEnvSource ?? primaryEnvSource ?? ["~/.bashrc"];
-  } else {
-    effective =
-      (typeof primaryParsed === "object" && primaryParsed !== null
-        ? readEnvSourceList(primaryParsed as Record<string, unknown>)
-        : undefined) ?? ["~/.bashrc"];
+    if (typeof overlayParsed === "object" && overlayParsed !== null) {
+      overlayEnvSourceList = readRawEnvSourceList(
+        overlayParsed as Record<string, unknown>,
+      );
+    }
   }
-  assertTrustedEnvSource(effective);
-  applyEnvSource(effective);
+  // Overlay wins on conflict (matches the deep-merge semantics used elsewhere).
+  // If the chosen list is not a string array (e.g. a raw string from an
+  // invalid config), skip bootstrap — validation will reject and we MUST NOT
+  // have sourced any files before that throw.
+  const rawChosen = overlayEnvSourceList ?? primaryEnvSourceList;
+  if (rawChosen === undefined) {
+    // No envSource declared anywhere → use schema default `["~/.bashrc"]`.
+    // The default is also what validation will accept.
+    assertTrustedEnvSource(["~/.bashrc"]);
+    applyEnvSource(["~/.bashrc"]);
+    _envBootstrapDone = true;
+    return;
+  }
+  if (!Array.isArray(rawChosen)) {
+    // Mis-shaped envSource (e.g. a string). Validation will reject; no
+    // bootstrap side effect, no process.env pollution.
+    return;
+  }
+  const stringList = rawChosen.filter((v): v is string => typeof v === "string");
+  if (stringList.length === 0) {
+    return;
+  }
+  assertTrustedEnvSource(stringList);
+  applyEnvSource(stringList);
   _envBootstrapDone = true;
 }
 
-function readEnvSourceList(obj: Record<string, unknown>): string[] | undefined {
+/**
+ * Read the raw envSource field as a list, without normalizing a single string
+ * into an array. Returns undefined if the field is missing; returns the raw
+ * value (which may be a string, an array, or something else invalid) if
+ * present — callers decide whether to trust it.
+ */
+function readRawEnvSourceList(
+  obj: Record<string, unknown>,
+): unknown {
   const defaultsObj = obj["defaults"];
   const defaultsEnvSource =
     typeof defaultsObj === "object" && defaultsObj !== null
       ? (defaultsObj as Record<string, unknown>)["envSource"]
       : undefined;
   const globalEnvSource = obj["envSource"];
-  // Prefer defaults.envSource (per-project override), fall back to top-level envSource.
-  // The unexpanded value may be a list of paths or a single string — normalize to array.
-  const raw = defaultsEnvSource ?? globalEnvSource;
-  return normalizeEnvSourceList(raw);
-}
-
-function normalizeEnvSourceList(
-  raw: unknown,
-): string[] | undefined {
-  if (Array.isArray(raw)) {
-    return raw.filter((v): v is string => typeof v === "string");
-  }
-  if (typeof raw === "string") {
-    return [raw];
-  }
-  return undefined;
+  // Prefer defaults.envSource (per-project override), fall back to top-level.
+  return defaultsEnvSource ?? globalEnvSource;
 }
 
 /** Load config and return both config and resolved path */

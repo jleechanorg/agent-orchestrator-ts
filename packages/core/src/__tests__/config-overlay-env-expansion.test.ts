@@ -39,6 +39,7 @@ const originalProdPath = process.env["AO_PROD_CONFIG_PATH"];
 const originalConfigPath = process.env["AO_CONFIG_PATH"];
 const originalSlackWebhookUrl = process.env["SLACK_WEBHOOK_URL"];
 const originalSlackWebhookUrlFromZsh = process.env["SLACK_WEBHOOK_URL_FROM_ZSH"];
+const originalSlackWebhookUrlLeaked = process.env["SLACK_WEBHOOK_URL_LEAKED"];
 const tempDirs: string[] = [];
 
 beforeEach(() => {
@@ -79,6 +80,11 @@ afterEach(() => {
   } else {
     process.env["SLACK_WEBHOOK_URL_FROM_ZSH"] = originalSlackWebhookUrlFromZsh;
   }
+  if (originalSlackWebhookUrlLeaked === undefined) {
+    delete process.env["SLACK_WEBHOOK_URL_LEAKED"];
+  } else {
+    process.env["SLACK_WEBHOOK_URL_LEAKED"] = originalSlackWebhookUrlLeaked;
+  }
   process.chdir(originalCwd);
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -108,6 +114,11 @@ notifiers:
   slack:
     plugin: slack
     webhookUrl: "\${SLACK_WEBHOOK_URL_FROM_ZSH:-https://hooks.slack.com/services/PLACEHOLDER}"
+`;
+
+const REPO_LOCAL_OVERLAY_WITH_INVALID_STRING_ENVSOURCE = `
+defaults:
+  envSource: "~/.zshrc"
 `;
 
 describe("loadConfig: repo-local overlay env expansion (PR #715)", () => {
@@ -285,5 +296,50 @@ describe("loadConfig: repo-local overlay env expansion (PR #715)", () => {
     );
     expect(slackWebhookUrl).not.toContain("PLACEHOLDER");
     expect(slackWebhookUrl).not.toMatch(/\$\{/);
+  });
+
+  it("does not source env files when envSource has invalid (string) shape", () => {
+    // Regression for Skeptic gate-8b / pre-validation side-effect concern:
+    // bootstrapEnvSourceForLoad() runs BEFORE validateConfig(), so if it
+    // normalized a raw string envSource into an array and called applyEnvSource,
+    // a config that validation will reject would still pollute process.env.
+    //
+    // The fix: skip bootstrap if envSource is not a string array. Validation
+    // still throws, but no side effect on process.env.
+    const home = mkdtempSync(join(tmpdir(), "ao-overlay-invalid-shape-home-"));
+    const work = mkdtempSync(join(tmpdir(), "ao-overlay-invalid-shape-work-"));
+    tempDirs.push(home, work);
+
+    // Write a fake ~/.zshrc that exports a sentinel — if bootstrap side-effects,
+    // the sentinel will leak into process.env before validateConfig throws.
+    writeFileSync(
+      join(home, ".zshrc"),
+      `export SLACK_WEBHOOK_URL_LEAKED="https://hooks.slack.com/services/LEAKED/abc/123"\n`,
+      "utf-8",
+    );
+
+    mkdirSync(join(home, ".hermes"), { recursive: true });
+    writeFileSync(
+      join(home, ".hermes", "agent-orchestrator.yaml"),
+      MANAGED_CONFIG,
+      "utf-8",
+    );
+    writeFileSync(
+      join(work, "agent-orchestrator.yaml"),
+      REPO_LOCAL_OVERLAY_WITH_INVALID_STRING_ENVSOURCE,
+      "utf-8",
+    );
+
+    process.env["HOME"] = home;
+    delete process.env["AO_STAGING_CONFIG_PATH"];
+    delete process.env["AO_PROD_CONFIG_PATH"];
+    delete process.env["AO_CONFIG_PATH"];
+    delete process.env["SLACK_WEBHOOK_URL_LEAKED"];
+    process.chdir(work);
+
+    // loadConfig MUST throw (validateConfig rejects non-array envSource), and
+    // the throw must NOT have side-effected process.env with the sentinel.
+    expect(() => loadConfig()).toThrow();
+    expect(process.env["SLACK_WEBHOOK_URL_LEAKED"]).toBeUndefined();
   });
 });
