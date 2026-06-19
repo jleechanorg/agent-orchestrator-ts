@@ -32,18 +32,6 @@ import { generateSessionPrefix, expandHome } from "./paths.js";
 let _envBootstrapDone = false;
 
 /**
- * Bootstrap env vars from configured shell init files — runs exactly once per process.
- * Prefer defaults.envSource if set (per-project override), fall back to global.
- */
-function bootstrapEnvSource(config: OrchestratorConfig): void {
-  if (_envBootstrapDone) return;
-  const effective = config.defaults?.envSource ?? config.envSource;
-  assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
-  applyEnvSource(effective);
-  _envBootstrapDone = true;
-}
-
-/**
  * Test-only: reset the envSource bootstrap flag so the next loadConfig call
  * re-bootstraps from process.env + configured envSource files. Production
  * callers MUST NOT use this — the once-per-process invariant is intentional.
@@ -999,24 +987,6 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
   config.configPath = path;
 
   return config;
-}
-
-/**
- * Bootstrap envSource from the parsed (not yet expanded) primary config so
- * that envSource-sourced vars are available BEFORE expandEnvVars runs. This
- * is the no-overlay path.
- */
-function bootstrapEnvSourceFromParsed(parsed: unknown): void {
-  if (_envBootstrapDone) return;
-  if (typeof parsed !== "object" || parsed === null) {
-    bootstrapEnvSource({} as OrchestratorConfig);
-    return;
-  }
-  const obj = parsed as Record<string, unknown>;
-  const effective = readEnvSourceList(obj) ?? ["~/.bashrc"];
-  assertTrustedEnvSource(effective);
-  applyEnvSource(effective);
-  _envBootstrapDone = true;
 }
 
 /**
