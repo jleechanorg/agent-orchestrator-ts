@@ -1009,25 +1009,34 @@ function bootstrapEnvSourceForLoad(
   overlayPath: string | null,
 ): void {
   if (_envBootstrapDone) return;
-  const primaryEnvSourceList: unknown =
+  // Faithfully simulate the final merged config to pick envSource. The actual
+  // merge (mergeConfigOverlay) deep-merges primary with overlay using the
+  // same deepMerge() semantics: top-level keys overlay-wins-on-conflict, plain
+  // objects recurse. Using `overlay ?? primary` here would skip the deep-merge
+  // and pick the wrong envSource for a config where primary has
+  // `defaults.envSource` and overlay has top-level `envSource` — the merged
+  // config keeps BOTH branches and readRawEnvSourceList returns
+  // `defaults.envSource ?? envSource` (defaults wins). Simulating that
+  // correctly here is what the merged-view code path requires.
+  const primaryObj =
     typeof primaryParsed === "object" && primaryParsed !== null
-      ? readRawEnvSourceList(primaryParsed as Record<string, unknown>)
-      : undefined;
-  let overlayEnvSourceList: unknown;
+      ? (primaryParsed as Record<string, unknown>)
+      : null;
+  let overlayObj: Record<string, unknown> | null = null;
   if (overlayPath) {
     const overlayRaw = readFileSync(overlayPath, "utf-8");
     const overlayParsed = parseYaml(overlayRaw);
     if (typeof overlayParsed === "object" && overlayParsed !== null) {
-      overlayEnvSourceList = readRawEnvSourceList(
-        overlayParsed as Record<string, unknown>,
-      );
+      overlayObj = overlayParsed as Record<string, unknown>;
     }
   }
-  // Overlay wins on conflict (matches the deep-merge semantics used elsewhere).
-  // If the chosen list is not a string array (e.g. a raw string from an
-  // invalid config), skip bootstrap — validation will reject and we MUST NOT
-  // have sourced any files before that throw.
-  const rawChosen = overlayEnvSourceList ?? primaryEnvSourceList;
+  const mergedView: Record<string, unknown> | null =
+    primaryObj && overlayObj
+      ? deepMerge(primaryObj, overlayObj)
+      : (primaryObj ?? overlayObj);
+  const rawChosen = mergedView
+    ? readRawEnvSourceList(mergedView)
+    : undefined;
   if (rawChosen === undefined) {
     // No envSource declared anywhere → use schema default `["~/.bashrc"]`.
     // The default is also what validation will accept.

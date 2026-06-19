@@ -99,6 +99,16 @@ projects: {}
 notifiers: {}
 `;
 
+const MANAGED_CONFIG_WITH_DEFAULTS_ENVSOURCE = `
+defaults:
+  envSource:
+    - "~/.bashrc"
+  runtime: tmux
+  agent: claude-code
+projects: {}
+notifiers: {}
+`;
+
 const REPO_LOCAL_OVERLAY_WITH_UNEXPANDED_TEMPLATE = `
 notifiers:
   slack:
@@ -126,6 +136,15 @@ defaults:
   envSource:
     - "~/.zshrc"
     - 123
+`;
+
+const REPO_LOCAL_OVERLAY_WITH_TOPLEVEL_ENVSOURCE = `
+envSource:
+  - "~/.zshrc"
+notifiers:
+  slack:
+    plugin: slack
+    webhookUrl: "\${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/PLACEHOLDER}"
 `;
 
 describe("loadConfig: repo-local overlay env expansion (PR #715)", () => {
@@ -394,5 +413,81 @@ describe("loadConfig: repo-local overlay env expansion (PR #715)", () => {
 
     expect(() => loadConfig()).toThrow();
     expect(process.env["SLACK_WEBHOOK_URL_LEAKED"]).toBeUndefined();
+  });
+
+  it("prefers primary defaults.envSource over overlay top-level envSource (Skeptic gate-8b precedence)", () => {
+    // Skeptic gate-8b: bootstrapEnvSourceForLoad() previously used
+    // `overlayEnvSourceList ?? primaryEnvSourceList` which picked the
+    // overlay's top-level envSource when present — but the actual
+    // deep-merge keeps BOTH branches and readRawEnvSourceList returns
+    // `defaults.envSource ?? envSource` (defaults wins). The bootstrap
+    // must simulate that, not shortcut to "overlay wins".
+    //
+    // Scenario: primary has defaults.envSource: [~/.bashrc] (defines
+    // SLACK_WEBHOOK_URL). Overlay has top-level envSource: [~/.zshrc]
+    // (defines a DIFFERENT env var, no SLACK). The final merged config
+    // must use ~/.bashrc, and SLACK_WEBHOOK_URL must be sourced.
+    const home = mkdtempSync(
+      join(tmpdir(), "ao-overlay-precedence-home-"),
+    );
+    const work = mkdtempSync(
+      join(tmpdir(), "ao-overlay-precedence-work-"),
+    );
+    tempDirs.push(home, work);
+
+    // Primary's envSource (defaults.envSource) — ~/.bashrc defines
+    // SLACK_WEBHOOK_URL. This is the envSource the merged config uses.
+    writeFileSync(
+      join(home, ".bashrc"),
+      `export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/FROM_BASHRC/abc/123"\n`,
+      "utf-8",
+    );
+
+    // Overlay's envSource (top-level envSource) — ~/.zshrc defines a
+    // different sentinel that the final merged config should NOT source.
+    writeFileSync(
+      join(home, ".zshrc"),
+      `export SLACK_WEBHOOK_URL_FROM_ZSH="https://hooks.slack.com/services/SHOULD_NOT_LEAK/xyz/789"\n`,
+      "utf-8",
+    );
+
+    // Primary config: defaults.envSource: [~/.bashrc].
+    mkdirSync(join(home, ".hermes"), { recursive: true });
+    writeFileSync(
+      join(home, ".hermes", "agent-orchestrator.yaml"),
+      MANAGED_CONFIG_WITH_DEFAULTS_ENVSOURCE,
+      "utf-8",
+    );
+
+    // Overlay: top-level envSource: [~/.zshrc] (should be IGNORED by the
+    // bootstrap because the merged config's defaults.envSource wins).
+    writeFileSync(
+      join(work, "agent-orchestrator.yaml"),
+      REPO_LOCAL_OVERLAY_WITH_TOPLEVEL_ENVSOURCE,
+      "utf-8",
+    );
+
+    process.env["HOME"] = home;
+    delete process.env["AO_STAGING_CONFIG_PATH"];
+    delete process.env["AO_PROD_CONFIG_PATH"];
+    delete process.env["AO_CONFIG_PATH"];
+    delete process.env["SLACK_WEBHOOK_URL"];
+    delete process.env["SLACK_WEBHOOK_URL_FROM_ZSH"];
+    process.chdir(work);
+
+    const config = loadConfig();
+    const notifiers = config.notifiers as Record<string, Record<string, unknown>>;
+    const slackWebhookUrl = notifiers.slack?.webhookUrl as string;
+
+    // ~/.bashrc was sourced (primary defaults.envSource), so SLACK_WEBHOOK_URL
+    // is set and the overlay's ${SLACK_WEBHOOK_URL:-...} template expands to
+    // the bashrc value — NOT the PLACEHOLDER fallback. The overlay's top-level
+    // envSource (zshrc) must NOT be used: SLACK_WEBHOOK_URL_FROM_ZSH should
+    // remain undefined.
+    expect(slackWebhookUrl).toBe(
+      "https://hooks.slack.com/services/FROM_BASHRC/abc/123",
+    );
+    expect(slackWebhookUrl).not.toContain("PLACEHOLDER");
+    expect(process.env["SLACK_WEBHOOK_URL_FROM_ZSH"]).toBeUndefined();
   });
 });
