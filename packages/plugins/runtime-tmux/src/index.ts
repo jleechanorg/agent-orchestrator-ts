@@ -108,17 +108,20 @@ function shellQuoteValue(value: string): string {
 }
 
 /**
- * Write `command` to a self-deleting temp script and return the shell
- * invocation string.  Using `bash -i` ensures ~/.bashrc is sourced on
- * startup — including sections guarded by `case $- in *i*)` — so API
- * keys and other secrets exported only in interactive shells are available
- * to the worker (bd-l5ty).
+ * Write `command` to a self-deleting temp script and return both the script
+ * path and the shell invocation string.  Using `bash -i` ensures ~/.bashrc
+ * is sourced on startup — including sections guarded by `case $- in *i*)` —
+ * so API keys and other secrets exported only in interactive shells are
+ * available to the worker (bd-l5ty).
+ *
+ * Callers are responsible for unlinking `scriptPath` if the process that
+ * would execute `rm -- "$0"` never starts (e.g. tmux new-session fails).
  */
-function writeLaunchScript(command: string): string {
+function writeLaunchScript(command: string): { scriptPath: string; shellCommand: string } {
   const scriptPath = join(tmpdir(), `ao-launch-${randomUUID()}.sh`);
   const content = `#!/usr/bin/env bash\nrm -- "$0" 2>/dev/null || true\n${withKeepAliveShell(command)}\n`;
   writeFileSync(scriptPath, content, { encoding: "utf-8", mode: 0o700 });
-  return `bash -i ${shellEscape(scriptPath)}`;
+  return { scriptPath, shellCommand: `bash -i ${shellEscape(scriptPath)}` };
 }
 
 /**
@@ -278,7 +281,7 @@ export function create(): Runtime {
       // and corrupt the launch path — the script approach sidesteps that.
       const launchCmd = config.launchCommand;
       const fullCmd = `${preamble}\n${launchCmd}`;
-      const shellCommand = writeLaunchScript(fullCmd);
+      const { scriptPath, shellCommand } = writeLaunchScript(fullCmd);
 
       // Try creating the session first. If tmux reports a duplicate session name,
       // kill the stale session and retry. This avoids destroying a live session
@@ -294,20 +297,31 @@ export function create(): Runtime {
           shellCommand,
         );
       try {
-        await createSession();
-      } catch (createErr: unknown) {
-        const errMsg = createErr instanceof Error ? createErr.message : String(createErr);
-        // tmux reports "duplicate session: <name>" when a session with that name exists.
-        if (!errMsg.includes("duplicate session")) {
-          throw createErr;
-        }
-        // Stale session collision — kill the old one and retry.
         try {
-          await tmux("kill-session", "-t", sessionName);
-        } catch {
-          // Ignore if session disappeared between check and kill.
+          await createSession();
+        } catch (createErr: unknown) {
+          const errMsg = createErr instanceof Error ? createErr.message : String(createErr);
+          // tmux reports "duplicate session: <name>" when a session with that name exists.
+          if (!errMsg.includes("duplicate session")) {
+            throw createErr;
+          }
+          // Stale session collision — kill the old one and retry.
+          try {
+            await tmux("kill-session", "-t", sessionName);
+          } catch {
+            // Ignore if session disappeared between check and kill.
+          }
+          await createSession();
         }
-        await createSession();
+      } catch (err) {
+        // tmux failed before the script could start — rm -- "$0" will never run,
+        // so unlink the launch script explicitly to avoid leaving secrets on disk.
+        try {
+          unlinkSync(scriptPath);
+        } catch {
+          // Already gone or never written — ignore.
+        }
+        throw err;
       }
 
       // Hide the tmux status bar — sessions are embedded in the web terminal,

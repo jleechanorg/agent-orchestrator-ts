@@ -191,12 +191,19 @@ describe("runtime.create()", () => {
         sessionId: "fail-session",
         workspacePath: "/tmp/workspace",
         launchCommand: "echo hello",
-        environment: {},
+        environment: { SECRET_KEY: "mysecret" },
       }),
     ).rejects.toThrow("permission denied");
 
     // 1 call: new-session — no kill-session issued
     expect(mockExecFileCustom).toHaveBeenCalledTimes(1);
+
+    // Launch script must be unlinked — rm -- "$0" never ran because tmux failed
+    // before starting the script; secret values from environment must not linger on disk.
+    const os = await import("node:os");
+    expect(fs.unlinkSync).toHaveBeenCalledWith(
+      expect.stringMatching(new RegExp(`${os.tmpdir().replace(/\//g, "\\/")}.*ao-launch.*\\.sh`)),
+    );
   });
 
   it("stores launchCommand in handle.data for restart capability (bd-tln)", async () => {
