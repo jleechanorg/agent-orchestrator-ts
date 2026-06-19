@@ -265,15 +265,16 @@ export function create(): Runtime {
         .join("\n");
       const preamble = `. "\${HOME}/.bashrc" 2>/dev/null || true${configExports ? "\n" + configExports : ""}`;
 
-      // Start the launch command as the pane's initial command instead of
-      // typing into a live shell. A dashboard attach can trigger terminal
-      // device responses; if those race with tmux send-keys, they become
-      // literal shell input and corrupt the launch path. The keep-alive
-      // tail is appended in both code paths — see KEEP_ALIVE_SHELL.
+      // Start the launch command via a bash -i launch script so that
+      // .bashrc files guarded by interactivity checks (e.g.
+      // `case $- in *i*) ;; *) return ;; esac`) still source their
+      // exported secrets into the worker environment (bd-l5ty).
+      // A dashboard attach can trigger terminal device responses; if
+      // those race with tmux send-keys, they become literal shell input
+      // and corrupt the launch path — the script approach sidesteps that.
       const launchCmd = config.launchCommand;
       const fullCmd = `${preamble}\n${launchCmd}`;
-      const shellCommand =
-        fullCmd.length > 200 ? writeLaunchScript(fullCmd) : withKeepAliveShell(fullCmd);
+      const shellCommand = writeLaunchScript(fullCmd);
 
       // Try creating the session first. If tmux reports a duplicate session name,
       // kill the stale session and retry. This avoids destroying a live session

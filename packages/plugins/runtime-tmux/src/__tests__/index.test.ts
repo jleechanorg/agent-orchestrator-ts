@@ -57,6 +57,16 @@ function argsOf(startsWith: string): string[] {
   return call[1] as string[];
 }
 
+/** Content of the ao-launch-*.sh script written by writeLaunchScript(). */
+function getScriptContent(): string {
+  const writeCalls = (fs.writeFileSync as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+  const launchCall = writeCalls.find(
+    (c) => typeof c[0] === "string" && (c[0] as string).includes("ao-launch-"),
+  );
+  if (!launchCall) throw new Error("no launch script write found");
+  return launchCall[1] as string;
+}
+
 /** Create a RuntimeHandle for testing (bd-tln: includes launchCommand). */
 function makeHandle(id: string, createdAt?: number, launchCommand?: string): RuntimeHandle {
   return {
@@ -120,8 +130,8 @@ describe("runtime.create()", () => {
     expect(handle.runtimeName).toBe("tmux");
     expect(handle.data.workspacePath).toBe("/tmp/workspace");
 
-    // First tmux call: new-session — preamble sources ~/.bashrc then runs launch command;
-    // keep-alive shell tail appended so the tmux session survives agent exit (issue #1756).
+    // First tmux call: new-session — invokes a bash -i launch script so
+    // guarded .bashrc files (case $- in *i*) guards) still load secrets.
     expect(mockExecFileCustom).toHaveBeenCalledWith(
       "tmux",
       [
@@ -131,10 +141,13 @@ describe("runtime.create()", () => {
         "test-session",
         "-c",
         "/tmp/workspace",
-        '. "${HOME}/.bashrc" 2>/dev/null || true\necho hello\nexec "${SHELL:-/bin/bash}" -i',
+        expect.stringMatching(/^bash -i '.*ao-launch-test-uuid-1234\.sh'$/),
       ],
       expectedTmuxOptions,
     );
+    const scriptBody = getScriptContent();
+    expect(scriptBody).toContain("echo hello");
+    expect(scriptBody).toMatch(/\. "\$\{HOME\}\/\.bashrc" 2>\/dev\/null \|\| true/);
   });
 
   it("kills stale session and retries when new-session reports duplicate", async () => {
@@ -220,11 +233,11 @@ describe("runtime.create()", () => {
       environment: { AO_SESSION: "env-session", FOO: "bar" },
     });
 
-    const shellCmd = argsOf("new-session").at(-1) as string;
-    expect(shellCmd).toContain("export AO_SESSION='env-session'");
-    expect(shellCmd).toContain("export FOO='bar'");
+    const scriptBody = getScriptContent();
+    expect(scriptBody).toContain("export AO_SESSION='env-session'");
+    expect(scriptBody).toContain("export FOO='bar'");
     expect(argsOf("new-session")).not.toContain("-e");
-    expect(shellCmd).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i\s*$/);
+    expect(scriptBody).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);
   });
 
   it("sends launch command via send-keys", async () => {
@@ -242,7 +255,8 @@ describe("runtime.create()", () => {
       environment: {},
     });
 
-    // new-session passes preamble + launch command + keep-alive shell tail.
+    // new-session passes a bash -i launch script; script contains preamble +
+    // launch command + keep-alive shell tail.
     expect(mockExecFileCustom).toHaveBeenCalledWith(
       "tmux",
       [
@@ -252,10 +266,12 @@ describe("runtime.create()", () => {
         "launch-test",
         "-c",
         "/tmp/ws",
-        '. "${HOME}/.bashrc" 2>/dev/null || true\nclaude --session abc\nexec "${SHELL:-/bin/bash}" -i',
+        expect.stringMatching(/^bash -i '.*ao-launch-test-uuid-1234\.sh'$/),
       ],
       expectedTmuxOptions,
     );
+    const scriptBody = getScriptContent();
+    expect(scriptBody).toContain("claude --session abc");
   });
 
   it("appends an interactive shell tail so the tmux pane survives agent exit (regression for #1756)", async () => {
@@ -274,8 +290,10 @@ describe("runtime.create()", () => {
     });
 
     const finalArg = argsOf("new-session").at(-1)!;
-    expect(finalArg).toContain("claude --session abc");
-    expect(finalArg).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i\s*$/);
+    expect(finalArg).toMatch(/^bash -i '.*ao-launch-.+\.sh'$/);
+    const scriptBody = getScriptContent();
+    expect(scriptBody).toContain("claude --session abc");
+    expect(scriptBody).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);
   });
 
   it("keeps the keep-alive tail in the temp script for long launch commands", async () => {
@@ -300,11 +318,10 @@ describe("runtime.create()", () => {
       { encoding: "utf-8", mode: 0o700 },
     );
 
-    // The script body includes the interactive shell tail too — without it
+    // The script body includes the interactive shell tail — without it
     // long-command sessions would still nuke tmux on agent exit (#1756).
-    const writeCall = (fs.writeFileSync as unknown as { mock: { calls: unknown[][] } }).mock
-      .calls[0];
-    expect(writeCall[1]).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);
+    const scriptBody = getScriptContent();
+    expect(scriptBody).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);
 
     expect(mockExecFileCustom).toHaveBeenCalledWith(
       "tmux",
@@ -315,7 +332,7 @@ describe("runtime.create()", () => {
         "launch-long",
         "-c",
         "/tmp/ws",
-        expect.stringContaining("bash "),
+        expect.stringMatching(/^bash -i '.*ao-launch-test-uuid-1234\.sh'$/),
       ],
       expectedTmuxOptions,
     );
@@ -405,7 +422,7 @@ describe("runtime.create()", () => {
     };
     await runtime.create(noEnvConfig);
 
-    // No -e flags; preamble sources ~/.bashrc
+    // No -e flags; launches via bash -i script (preamble + command inside script)
     expect(argsOf("new-session")).toEqual([
       "new-session",
       "-d",
@@ -413,8 +430,11 @@ describe("runtime.create()", () => {
       "no-env",
       "-c",
       "/tmp/ws",
-      '. "${HOME}/.bashrc" 2>/dev/null || true\necho hi\nexec "${SHELL:-/bin/bash}" -i',
+      expect.stringMatching(/^bash -i '.*ao-launch-test-uuid-1234\.sh'$/),
     ]);
+    const scriptBody = getScriptContent();
+    expect(scriptBody).toContain("echo hi");
+    expect(scriptBody).toMatch(/\. "\$\{HOME\}\/\.bashrc" 2>\/dev\/null \|\| true/);
   });
 
   it("sets allow-rename and automatic-rename to off on create", async () => {
@@ -446,7 +466,7 @@ describe("runtime.create()", () => {
 });
 
 describe("runtime.create() — direct bashrc source", () => {
-  it("shell command starts with bashrc source preamble", async () => {
+  it("launch script contains bashrc source preamble", async () => {
     const runtime = create();
 
     mockTmuxSuccess();
@@ -462,8 +482,10 @@ describe("runtime.create() — direct bashrc source", () => {
     });
 
     const shellCmd = argsOf("new-session").at(-1) as string;
-    expect(shellCmd).toMatch(/^\. "\$\{HOME\}\/\.bashrc" 2>\/dev\/null \|\| true\n/);
-    expect(shellCmd).toContain("echo hi");
+    expect(shellCmd).toMatch(/^bash -i '.*ao-launch-.+\.sh'$/);
+    const scriptBody = getScriptContent();
+    expect(scriptBody).toMatch(/\. "\$\{HOME\}\/\.bashrc" 2>\/dev\/null \|\| true/);
+    expect(scriptBody).toContain("echo hi");
     expect(argsOf("new-session")).not.toContain("-e");
   });
 
@@ -482,16 +504,16 @@ describe("runtime.create() — direct bashrc source", () => {
       environment: { MY_KEY: "my-value", OTHER: "other-val" },
     });
 
-    const shellCmd = argsOf("new-session").at(-1) as string;
+    const scriptBody = getScriptContent();
     // bashrc source comes first
-    expect(shellCmd).toMatch(/^\. "\$\{HOME\}\/\.bashrc" 2>\/dev\/null \|\| true\n/);
+    expect(scriptBody).toMatch(/\. "\$\{HOME\}\/\.bashrc" 2>\/dev\/null \|\| true/);
     // inline exports follow
-    expect(shellCmd).toContain("export MY_KEY='my-value'");
-    expect(shellCmd).toContain("export OTHER='other-val'");
+    expect(scriptBody).toContain("export MY_KEY='my-value'");
+    expect(scriptBody).toContain("export OTHER='other-val'");
     // no -e flags
     expect(argsOf("new-session")).not.toContain("-e");
-    // keep-alive tail last
-    expect(shellCmd).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i\s*$/);
+    // keep-alive tail in script
+    expect(scriptBody).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);
   });
 
   it("skips empty-valued config.environment entries in inline exports", async () => {
@@ -509,9 +531,9 @@ describe("runtime.create() — direct bashrc source", () => {
       environment: { GOOD: "val", EMPTY: "" },
     });
 
-    const shellCmd = argsOf("new-session").at(-1) as string;
-    expect(shellCmd).toContain("export GOOD='val'");
-    expect(shellCmd).not.toContain("EMPTY=");
+    const scriptBody = getScriptContent();
+    expect(scriptBody).toContain("export GOOD='val'");
+    expect(scriptBody).not.toContain("EMPTY=");
     expect(argsOf("new-session")).not.toContain("-e");
   });
 
@@ -535,16 +557,17 @@ describe("runtime.create() — direct bashrc source", () => {
       },
     });
 
-    const shellCmd = argsOf("new-session").at(-1) as string;
-    expect(shellCmd).toContain("export VALID_KEY='ok'");
-    expect(shellCmd).not.toContain("INVALID KEY");
-    expect(shellCmd).not.toContain("1STARTS_WITH_NUM");
-    expect(shellCmd).not.toContain("rm -rf");
+    const scriptBody = getScriptContent();
+    expect(scriptBody).toContain("export VALID_KEY='ok'");
+    expect(scriptBody).not.toContain("INVALID KEY");
+    expect(scriptBody).not.toContain("1STARTS_WITH_NUM");
+    expect(scriptBody).not.toContain("rm -rf");
   });
 
-  it("launch script uses bash -i so interactive .bashrc guards don't block secrets", async () => {
+  it("all sessions use bash -i so interactive .bashrc guards don't block secrets", async () => {
     const runtime = create();
-    const longCommand = "y".repeat(250);
+    // Use a SHORT command to prove bash -i is universal, not just for long commands.
+    const shortCommand = "claude --session abc";
 
     mockTmuxSuccess();
     mockTmuxSuccess();
@@ -552,25 +575,23 @@ describe("runtime.create() — direct bashrc source", () => {
     mockTmuxSuccess();
 
     await runtime.create({
-      sessionId: "long-direct-source",
+      sessionId: "short-bash-i",
       workspacePath: "/tmp/ws",
-      launchCommand: longCommand,
+      launchCommand: shortCommand,
       environment: {},
     });
 
-    // The tmux new-session command uses bash -i so .bashrc is sourced with
+    // Every session — short or long — uses bash -i so .bashrc is sourced with
     // interactive semantics — guards like `case $- in *i*) ;; *) return ;; esac`
     // won't prevent secrets from loading (bd-l5ty).
     const shellCmd = argsOf("new-session").at(-1) as string;
     expect(shellCmd).toMatch(/^bash -i '.*ao-launch-.+\.sh'$/);
 
-    const writeCall = (fs.writeFileSync as unknown as { mock: { calls: unknown[][] } }).mock
-      .calls[0];
-    const scriptBody = writeCall[1] as string;
-    // Script body still has the explicit .bashrc source (belt-and-suspenders),
-    // plus the preamble config.environment exports and the keep-alive tail.
+    const scriptBody = getScriptContent();
+    // Script body has the explicit .bashrc source (belt-and-suspenders),
+    // plus the launch command and the keep-alive tail.
     expect(scriptBody).toMatch(/\. "\$\{HOME\}\/\.bashrc" 2>\/dev\/null \|\| true/);
-    expect(scriptBody).toContain(longCommand);
+    expect(scriptBody).toContain(shortCommand);
     expect(scriptBody).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);
     expect(argsOf("new-session")).not.toContain("-e");
   });
