@@ -868,7 +868,10 @@ function mergeConfigOverlay(
   overlayPath: string,
 ): unknown {
   const overlayRaw = readFileSync(overlayPath, "utf-8");
-  const overlay = parseYaml(overlayRaw);
+  // Expand env vars in the overlay BEFORE merging — otherwise ${VAR} literals in
+  // a repo-local overlay win on deep-merge and bypass the primary config's
+  // expansion. bd-feedback-2026-06-19-notif-slack-placeholder
+  const overlay = expandEnvVars(parseYaml(overlayRaw));
 
   if (typeof base !== "object" || base === null) {
     return overlay;
