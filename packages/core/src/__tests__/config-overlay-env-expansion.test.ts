@@ -19,12 +19,15 @@ import { _resetEnvBootstrapForTesting, loadConfig } from "../config.js";
 //    matching the behavior the primary config already had via loadConfig's
 //    earlier expandEnvVars call.
 //
-// 2. EnvSource bootstrap order: bootstrapEnvSource now runs BEFORE
-//    expandEnvVars so that vars sourced from the trusted default `~/.bashrc`
-//    (or the configured envSource files) are in process.env before the
-//    overlay expansion happens. Without this, a daemon launched via launchd
-//    (which does not inherit ~/.bashrc) freezes ${SLACK_WEBHOOK_URL} to its
-//    :- fallback and the sourced value never replaces the frozen string.
+// 2. EnvSource bootstrap order + overlay-override: bootstrapEnvSource now runs
+//    BEFORE expandEnvVars, using the MERGED view of envSource (primary
+//    deep-merged with overlay). This means a repo-local overlay can override
+//    `defaults.envSource` (e.g. switch from ~/.bashrc to ~/.zshrc) and the
+//    overlay's own ${VAR} templates will see vars sourced from the overridden
+//    envSource, not from the primary config's envSource. Without this, a
+//    daemon launched via launchd (which does not inherit shell init files)
+//    freezes ${SLACK_WEBHOOK_URL} to its :- fallback and the sourced value
+//    never replaces the frozen string.
 //
 // bd-feedback-2026-06-19-notif-slack-placeholder
 // See PR #715: https://github.com/jleechanorg/agent-orchestrator/pull/715
@@ -89,6 +92,16 @@ notifiers:
   slack:
     plugin: slack
     webhookUrl: "\${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/PLACEHOLDER}"
+`;
+
+const REPO_LOCAL_OVERLAY_WITH_OVERRIDE_ENVSOURCE = `
+defaults:
+  envSource:
+    - "~/.zshrc"
+notifiers:
+  slack:
+    plugin: slack
+    webhookUrl: "\${SLACK_WEBHOOK_URL_FROM_ZSH:-https://hooks.slack.com/services/PLACEHOLDER}"
 `;
 
 describe("loadConfig: repo-local overlay env expansion (PR #715)", () => {
@@ -213,6 +226,56 @@ describe("loadConfig: repo-local overlay env expansion (PR #715)", () => {
     // the overlay freezes PLACEHOLDER and the sourced value is never applied.
     expect(slackWebhookUrl).toBe(
       "https://hooks.slack.com/services/FROM_BASHRC/abc/123",
+    );
+    expect(slackWebhookUrl).not.toContain("PLACEHOLDER");
+    expect(slackWebhookUrl).not.toMatch(/\$\{/);
+  });
+
+  it("honors repo-local overlay-defined envSource (re-bootstrap after merge)", () => {
+    const home = mkdtempSync(join(tmpdir(), "ao-overlay-override-envsource-home-"));
+    const work = mkdtempSync(join(tmpdir(), "ao-overlay-override-envsource-work-"));
+    tempDirs.push(home, work);
+
+    // The primary config will source ~/.bashrc by default (no SLACK_* vars
+    // there). The repo-local overlay overrides envSource to ~/.zshrc, which
+    // DOES define SLACK_WEBHOOK_URL_FROM_ZSH. After the merge, the merged
+    // envSource is [~/.zshrc], so re-bootstrapping from the merged config
+    // must source ~/.zshrc and populate the var before the overlay's
+    // ${SLACK_WEBHOOK_URL_FROM_ZSH:-...} fallback freezes.
+    writeFileSync(join(home, ".bashrc"), "# primary bashrc — no SLACK vars here\n", "utf-8");
+    writeFileSync(
+      join(home, ".zshrc"),
+      `export SLACK_WEBHOOK_URL_FROM_ZSH="https://hooks.slack.com/services/FROM_ZSHRC/xyz/789"\n`,
+      "utf-8",
+    );
+
+    mkdirSync(join(home, ".hermes"), { recursive: true });
+    writeFileSync(
+      join(home, ".hermes", "agent-orchestrator.yaml"),
+      MANAGED_CONFIG,
+      "utf-8",
+    );
+    writeFileSync(
+      join(work, "agent-orchestrator.yaml"),
+      REPO_LOCAL_OVERLAY_WITH_OVERRIDE_ENVSOURCE,
+      "utf-8",
+    );
+
+    process.env["HOME"] = home;
+    delete process.env["AO_STAGING_CONFIG_PATH"];
+    delete process.env["AO_PROD_CONFIG_PATH"];
+    delete process.env["AO_CONFIG_PATH"];
+    delete process.env["SLACK_WEBHOOK_URL_FROM_ZSH"];
+    process.chdir(work);
+
+    const config = loadConfig();
+    const notifiers = config.notifiers as Record<string, Record<string, unknown>>;
+    const slackWebhookUrl = notifiers.slack?.webhookUrl as string;
+
+    // The merged envSource [~/.zshrc] must be honored, so SLACK_WEBHOOK_URL_FROM_ZSH
+    // is sourced from ~/.zshrc and the overlay's ${VAR} expands to the real URL.
+    expect(slackWebhookUrl).toBe(
+      "https://hooks.slack.com/services/FROM_ZSHRC/xyz/789",
     );
     expect(slackWebhookUrl).not.toContain("PLACEHOLDER");
     expect(slackWebhookUrl).not.toMatch(/\$\{/);

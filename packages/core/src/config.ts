@@ -973,23 +973,24 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
 
-  // bd-feedback-2026-06-19-notif-slack-placeholder (CodeRabbit P2 / Skeptic gate-8a):
-  // Bootstrap envSource from the parsed (not yet expanded) config so that vars
-  // sourced from `~/.bashrc` (or whatever the configured envSource files are)
-  // are in process.env BEFORE we expand ${VAR} templates in the primary config
-  // and in any repo-local overlay. Without this, a daemon installed via
-  // launchd (which does not inherit ~/.bashrc) freezes ${SLACK_WEBHOOK_URL}
-  // to its :- fallback at overlay-merge time, and the envSource-sourced value
-  // never replaces the frozen string later.
-  bootstrapEnvSourceFromParsed(parsed);
-
-  const expanded = expandEnvVars(parsed);
-
   // Config overlay: when the primary config is a managed config (staging/prod),
   // search for a repo-local config and deep-merge it on top. Repo-local wins
   // for overlapping keys — this makes per-repo project overrides work even when
   // a managed config shadows the walk-up search.
   const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
+
+  // bd-feedback-2026-06-19-notif-slack-placeholder (Skeptic gate-8a / -8c):
+  // Bootstrap envSource from the MERGED view of envSource (primary deep-merged
+  // with overlay if present) BEFORE we expand ${VAR} templates anywhere. An
+  // overlay may override `defaults.envSource` (e.g. to switch from ~/.bashrc
+  // to ~/.zshrc) and the overlay's own ${VAR} templates need vars sourced from
+  // that overridden envSource, not from the primary config's envSource. Without
+  // this, a daemon installed via launchd freezes ${SLACK_WEBHOOK_URL} to its
+  // :- fallback at overlay-merge time and the sourced value never replaces it.
+  bootstrapEnvSourceForLoad(parsed, overlayPath);
+
+  const expanded = expandEnvVars(parsed);
+
   const merged = overlayPath ? mergeConfigOverlay(expanded, overlayPath) : expanded;
 
   const config = validateConfig(merged);
@@ -1001,13 +1002,9 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
 }
 
 /**
- * Bootstrap envSource from the parsed (not yet expanded) config so that
- * envSource-sourced vars are available BEFORE expandEnvVars runs. Reads the
- * raw envSource fields from the parsed object directly — these are lists of
- * paths that don't typically need env expansion themselves.
- *
- * Must be paired with the same logic in `bootstrapEnvSource` (post-validation)
- * to handle any re-bootstrap needed after the config is fully expanded.
+ * Bootstrap envSource from the parsed (not yet expanded) primary config so
+ * that envSource-sourced vars are available BEFORE expandEnvVars runs. This
+ * is the no-overlay path.
  */
 function bootstrapEnvSourceFromParsed(parsed: unknown): void {
   if (_envBootstrapDone) return;
@@ -1016,6 +1013,52 @@ function bootstrapEnvSourceFromParsed(parsed: unknown): void {
     return;
   }
   const obj = parsed as Record<string, unknown>;
+  const effective = readEnvSourceList(obj) ?? ["~/.bashrc"];
+  assertTrustedEnvSource(effective);
+  applyEnvSource(effective);
+  _envBootstrapDone = true;
+}
+
+/**
+ * Bootstrap envSource for the loadConfig / loadConfigWithPath path. When an
+ * overlay exists, simulate the deep-merge's overlay-wins-on-conflict semantics
+ * for the envSource field and bootstrap from the merged list. applyEnvSource
+ * uses per-call snapshots so we don't duplicate or re-source already-applied
+ * vars — we only add what the overlay's extra files contribute.
+ */
+function bootstrapEnvSourceForLoad(
+  primaryParsed: unknown,
+  overlayPath: string | null,
+): void {
+  if (_envBootstrapDone) return;
+  let effective: string[];
+  if (overlayPath) {
+    // Parse the overlay raw (no env expansion) so we can read its envSource
+    // before the overlay's ${VAR} expansion happens. Only the envSource list
+    // itself is consumed here — never the expanded secrets.
+    const overlayRaw = readFileSync(overlayPath, "utf-8");
+    const overlayParsed = parseYaml(overlayRaw);
+    const primaryEnvSource =
+      typeof primaryParsed === "object" && primaryParsed !== null
+        ? readEnvSourceList(primaryParsed as Record<string, unknown>)
+        : undefined;
+    const overlayEnvSource =
+      typeof overlayParsed === "object" && overlayParsed !== null
+        ? readEnvSourceList(overlayParsed as Record<string, unknown>)
+        : undefined;
+    effective = overlayEnvSource ?? primaryEnvSource ?? ["~/.bashrc"];
+  } else {
+    effective =
+      (typeof primaryParsed === "object" && primaryParsed !== null
+        ? readEnvSourceList(primaryParsed as Record<string, unknown>)
+        : undefined) ?? ["~/.bashrc"];
+  }
+  assertTrustedEnvSource(effective);
+  applyEnvSource(effective);
+  _envBootstrapDone = true;
+}
+
+function readEnvSourceList(obj: Record<string, unknown>): string[] | undefined {
   const defaultsObj = obj["defaults"];
   const defaultsEnvSource =
     typeof defaultsObj === "object" && defaultsObj !== null
@@ -1025,10 +1068,7 @@ function bootstrapEnvSourceFromParsed(parsed: unknown): void {
   // Prefer defaults.envSource (per-project override), fall back to top-level envSource.
   // The unexpanded value may be a list of paths or a single string — normalize to array.
   const raw = defaultsEnvSource ?? globalEnvSource;
-  const effective = normalizeEnvSourceList(raw) ?? ["~/.bashrc"];
-  assertTrustedEnvSource(effective);
-  applyEnvSource(effective);
-  _envBootstrapDone = true;
+  return normalizeEnvSourceList(raw);
 }
 
 function normalizeEnvSourceList(
@@ -1057,12 +1097,14 @@ export function loadConfigWithPath(configPath?: string): {
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
 
-  // Same pre-expansion bootstrap as loadConfig — see comment there.
-  bootstrapEnvSourceFromParsed(parsed);
+  // Config overlay: same as loadConfig — see comment there.
+  const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
+
+  // Same merged-view bootstrap as loadConfig — see comment there.
+  bootstrapEnvSourceForLoad(parsed, overlayPath);
 
   const expanded = expandEnvVars(parsed);
 
-  const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
   const merged = overlayPath ? mergeConfigOverlay(expanded, overlayPath) : expanded;
 
   const config = validateConfig(merged);
