@@ -257,7 +257,7 @@ export function create(): Runtime {
       //      AFTER the source so they win over bashrc values.
       const configEnv = config.environment ?? {};
       const configExports = Object.entries(configEnv)
-        .filter(([, v]) => v !== "")
+        .filter(([k, v]) => v !== "" && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k))
         .map(([k, v]) => `export ${k}=${shellQuoteValue(v)}`)
         .join("\n");
       const preamble = `. "\${HOME}/.bashrc" 2>/dev/null || true${configExports ? "\n" + configExports : ""}`;

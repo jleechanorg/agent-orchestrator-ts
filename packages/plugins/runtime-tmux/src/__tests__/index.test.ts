@@ -515,6 +515,33 @@ describe("runtime.create() — direct bashrc source", () => {
     expect(argsOf("new-session")).not.toContain("-e");
   });
 
+  it("silently skips malformed config.environment keys to prevent shell injection", async () => {
+    const runtime = create();
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "safe-key-test",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: {
+        VALID_KEY: "ok",
+        "INVALID KEY": "bad",
+        "1STARTS_WITH_NUM": "bad",
+        "FOO; rm -rf /": "injection",
+      },
+    });
+
+    const shellCmd = argsOf("new-session").at(-1) as string;
+    expect(shellCmd).toContain("export VALID_KEY='ok'");
+    expect(shellCmd).not.toContain("INVALID KEY");
+    expect(shellCmd).not.toContain("1STARTS_WITH_NUM");
+    expect(shellCmd).not.toContain("rm -rf");
+  });
+
   it("launch script includes bashrc source preamble for long commands (>200 chars)", async () => {
     const runtime = create();
     const longCommand = "y".repeat(250);
