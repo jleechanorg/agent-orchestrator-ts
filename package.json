@@ -37,7 +37,7 @@
     "format:check": "prettier --check .",
     "typecheck": "pnpm --filter @jleechanorg/ao-core typecheck && pnpm --filter @jleechanorg/ao-autonomous-harness typecheck && pnpm -r --filter '!@jleechanorg/ao-core' --filter '!@jleechanorg/ao-autonomous-harness' typecheck",
     "test": "pnpm run test:shell && pnpm run test:evidence-gate-patterns && pnpm -r --filter '!@jleechanorg/ao-web' test",
-    "test:shell": "bash tests/unit/test-doctor-expand-home.sh && bash tests/unit/test-lw-watchdog-state.sh && bash tests/unit/test-lw-watchdog-config-parse.sh && bash tests/unit/test-run-daily.sh",
+    "test:shell": "bash tests/unit/test-doctor-expand-home.sh && bash tests/unit/test-lw-watchdog-state.sh && bash tests/unit/test-lw-watchdog-config-parse.sh && bash tests/unit/test-run-daily.sh && bash tests/unit/test-audit-launchd-drift.sh",
     "test:evidence-gate-patterns": "bash scripts/test-evidence-gate-patterns.sh",
     "test:integration": "pnpm --filter @jleechanorg/ao-integration-tests test:integration",
     "clean": "pnpm -r clean",

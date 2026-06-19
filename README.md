@@ -328,6 +328,52 @@ This includes both:
 
 Use this doc as the source of truth for dashboards, scripts, and status reporting.
 
+## Operational Scripts
+
+### `scripts/audit-launchd-drift.sh` — nightly launchd plist drift audit
+
+Structural backstop against the 2026-06-18 incident: 15 LaunchAgents were at
+exit 127 (script-missing / wrong container name) and silently retrying for
+weeks before a manual audit surfaced them. See [jleechanorg/agent-orchestrator#709](https://github.com/jleechanorg/agent-orchestrator/issues/709).
+
+| What it does | When it runs | Where it alerts |
+|---|---|---|
+| `launchctl list \| awk '$0 ~ /- +127 +/'` collects labels at exit 127; on non-empty list, posts a single Slack alert to `$HERMES_OPS_SLACK_CHANNEL` and exits 1; on empty list prints `no drift detected` and exits 0 | Nightly at 02:00 via `launchd/ai.hermes.launchd-drift-audit.plist.template` | `$HERMES_OPS_SLACK_CHANNEL` (umbrella fallback) with `$OPENCLAW_STAGING_SLACK_BOT_TOKEN` / `$SLACK_BOT_TOKEN` token |
+
+**Install:**
+
+```bash
+# Recommended: setup-launchd.sh substitutes all placeholders + writes the plist
+# with restrictive permissions + bootstraps it. See scripts/setup-launchd.sh
+# `launchd-drift-audit` mode for the canonical render path.
+bash scripts/setup-launchd.sh launchd-drift-audit
+
+# Manual render path — mirror setup-launchd.sh exactly so the plist never ships
+# with an unresolved placeholder. install(1) sets mode 0600 so the Slack token
+# is not world-readable on the local filesystem:
+REPO_ROOT="$(pwd)"
+install -m 0600 /dev/null ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
+sed -e "s|__HOME__|$HOME|g" \
+    -e "s|__REPO_ROOT__|$REPO_ROOT|g" \
+    -e "s|__HERMES_OPS_SLACK_CHANNEL__|${HERMES_OPS_SLACK_CHANNEL:-}|g" \
+    -e "s|__SLACK_BOT_TOKEN__|${SLACK_BOT_TOKEN:-}|g" \
+    -e "s|__OPENCLAW_STAGING_SLACK_BOT_TOKEN__|${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-}|g" \
+    -e "s|__SLACK_USER_TOKEN__|${SLACK_USER_TOKEN:-}|g" \
+  launchd/ai.hermes.launchd-drift-audit.plist.template \
+  > ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
+launchctl bootstrap gui/$(id -u) \
+  ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
+```
+
+**Interpreting an alert:** the alert body lists the labels at exit 127. For each:
+
+1. `launchctl print gui/$(id -u)/<label>` to see the last error.
+2. Find the referenced script: `find ~/.hermes/.claude/worktrees ~/.hermes/.worktrees -name "<script>"`.
+3. Restore from the worktree backup or regenerate the plist from its `*.plist.template` per [`~/.claude/skills/launchd-plist-template/SKILL.md`](https://github.com/jleechanorg/agent-orchestrator/blob/main/launchd/).
+4. `launchctl kickstart -k gui/$(id -u)/<label>` to restart, then `launchctl list | grep <label>` should show PID + exit 0 within a few seconds.
+
+**Tests:** `tests/unit/test-audit-launchd-drift.sh` (23 assertions across 5 cases: empty drift → exit 0 + no Slack; non-empty drift → exit 1 + exactly one Slack post with correct channel/token; launchctl list failure → exit 2 (not masked as clean); Slack `{"ok":false}` response → exit 1 + WARN; plist template validates via `plutil -lint` (macOS) or structural checks (Linux) with no hardcoded user paths, plus scheduled cadence `Hour=2 Minute=0` assertion).
+
 ## Documentation
 
 | Doc                                      | What it covers                                               |

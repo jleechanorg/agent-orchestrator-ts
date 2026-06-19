@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  ai.hermes.launchd-drift-audit — nightly structural backstop for plist drift
+
+  Detects LaunchAgents at exit 127 (script-missing / wrong container name)
+  and posts a single Slack alert to $HERMES_OPS_SLACK_CHANNEL. Cadence: nightly
+  at 02:00 local.
+
+  INSTALLATION (per ~/.claude/skills/launchd-plist-template/SKILL.md):
+    bash scripts/setup-launchd.sh launchd-drift-audit
+  or (manual; mirrors scripts/setup-launchd.sh launchd-drift-audit):
+    # Substitute required placeholders and render. setup-launchd.sh does this
+    # with escape_sed; the manual sed below uses empty defaults per the
+    # PR #615 umbrella pattern (empty > wrong).
+    # NOTE: placeholders use double-underscore syntax (not the more common
+    # at-sign form) — at-sign placeholders tripped at least one plist
+    # validator downstream of plutil even though plutil itself accepted
+    # them; the double-underscore form has no special meaning in any
+    # XML/JSON parser.
+    tmp_plist="$(mktemp)"
+    sed -e "s|__HOME__|${HOME}|g" \
+        -e "s|__REPO_ROOT__|$(pwd)|g" \
+        -e "s|__HERMES_OPS_SLACK_CHANNEL__|${HERMES_OPS_SLACK_CHANNEL:-}|g" \
+        -e "s|__OPENCLAW_STAGING_SLACK_BOT_TOKEN__|${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_BOT_TOKEN:-}}|g" \
+        -e "s|__SLACK_BOT_TOKEN__|${SLACK_BOT_TOKEN:-}|g" \
+        -e "s|__SLACK_USER_TOKEN__|${SLACK_USER_TOKEN:-}|g" \
+        launchd/ai.hermes.launchd-drift-audit.plist.template > "$tmp_plist"
+    install -m 600 "$tmp_plist" ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
+    rm -f "$tmp_plist"
+    launchctl bootstrap gui/$(id -u) \
+      ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
+
+  Reference: jleechanorg/agent-orchestrator #709
+             feedback_2026-06-18_launchd_plist_drift
+-->
+<dict>
+  <key>Label</key>
+  <string>ai.hermes.launchd-drift-audit</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO_ROOT__/scripts/audit-launchd-drift.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO_ROOT__</string>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>2</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/.hermes/logs/launchd-drift-audit.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__HOME__/.hermes/logs/launchd-drift-audit.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>__HOME__</string>
+    <key>PATH</key>
+    <string>__HOME__/.bun/bin:__HOME__/.local/bin:__HOME__/bin:__HOME__/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <!-- Source of truth per PR #615 umbrella pattern. The audit script
+         (scripts/audit-launchd-drift.sh) reads this env var directly; if it
+         is empty the script fails soft (skips Slack, still prints drift).
+         NEVER hardcode a channel ID here — render-time substitution only. -->
+    <key>HERMES_OPS_SLACK_CHANNEL</key>
+    <string>__HERMES_OPS_SLACK_CHANNEL__</string>
+    <!-- Slack tokens for alert posting. setup-launchd.sh substitutes
+         __SLACK_BOT_TOKEN__ etc. from the rendered config. Empty default is
+         the umbrella pattern (PR #615): the audit script resolves tokens
+         from env (bashrc / plist) with empty-fallback, never a redacted
+         sentinel. -->
+    <key>OPENCLAW_STAGING_SLACK_BOT_TOKEN</key>
+    <string>__OPENCLAW_STAGING_SLACK_BOT_TOKEN__</string>
+    <key>SLACK_BOT_TOKEN</key>
+    <string>__SLACK_BOT_TOKEN__</string>
+    <key>SLACK_USER_TOKEN</key>
+    <string>__SLACK_USER_TOKEN__</string>
+  </dict>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+</dict>
+</plist>
