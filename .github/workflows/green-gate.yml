@@ -214,7 +214,13 @@ jobs:
           # Accept fresh approval comment even after CHANGES_REQUESTED if the
           # comment is newer (CR_APPROVE_AT > LATEST_CR_AT guard above ensures
           # stale approvals don't override a newer CHANGES_REQUESTED).
-          if [ "$LATEST_CR" = "APPROVED" ] || { [ "$CR_APPROVE_COMMENT" = "APPROVED" ] && [ "$CR_STATUS" = "success" ]; }; then
+          # Third path: CR ran and found no issues (status=success) and there
+          # are no active blocking reviews (LATEST_CR=none, meaning all prior
+          # CHANGES_REQUESTED reviews were explicitly dismissed). This handles
+          # the case where CR posts only a commit status for trivial diffs.
+          if [ "$LATEST_CR" = "APPROVED" ] || \
+             { [ "$CR_APPROVE_COMMENT" = "APPROVED" ] && [ "$CR_STATUS" = "success" ]; } || \
+             { [ "$LATEST_CR" = "none" ] && [ "$CR_STATUS" = "success" ]; }; then
             GATE3="PASS"
           else
             GATE3="FAIL"
