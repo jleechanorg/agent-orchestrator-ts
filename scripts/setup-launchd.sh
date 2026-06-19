@@ -603,13 +603,16 @@ install_launchd_drift_audit_plist() {
   [ -z "$slack_user_token" ] && slack_user_token="__SET_BY_SETUP_LAUNCHD__"
   [ -z "$hermes_ops_channel" ] && hermes_ops_channel="__SET_BY_SETUP_LAUNCHD__"
 
+  # NOTE: ai.hermes.launchd-drift-audit.plist.template uses __VAR__ placeholders
+  # (not @VAR@) because at least one downstream plist validator rejected the
+  # @ form even though plutil itself accepted it. Other templates in this repo
+  # still use @VAR@; only this one diverges.
   sed \
-    -e "s|@HOME@|$(escape_sed "$HOME")|g" \
-    -e "s|@REPO_ROOT@|$(escape_sed "$REPO_ROOT")|g" \
-    -e "s|@HERMES_OPS_SLACK_CHANNEL@|$(escape_sed "$hermes_ops_channel")|g" \
-    -e "s|@SLACK_BOT_TOKEN@|$(escape_sed "$slack_bot_token")|g" \
-    -e "s|@OPENCLAW_STAGING_SLACK_BOT_TOKEN@|$(escape_sed "$slack_bot_token")|g" \
-    -e "s|@SLACK_USER_TOKEN@|$(escape_sed "$slack_user_token")|g" \
+    -e "s|__HOME__|$(escape_sed "$HOME")|g" \
+    -e "s|__HERMES_OPS_SLACK_CHANNEL__|$(escape_sed "$hermes_ops_channel")|g" \
+    -e "s|__SLACK_BOT_TOKEN__|$(escape_sed "$slack_bot_token")|g" \
+    -e "s|__OPENCLAW_STAGING_SLACK_BOT_TOKEN__|$(escape_sed "$slack_bot_token")|g" \
+    -e "s|__SLACK_USER_TOKEN__|$(escape_sed "$slack_user_token")|g" \
     "$template" > "$tmp_plist"
 
   plutil -lint "$tmp_plist" >/dev/null

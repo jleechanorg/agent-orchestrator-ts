@@ -11,15 +11,20 @@
   INSTALLATION (per ~/.claude/skills/launchd-plist-template/SKILL.md):
     bash scripts/setup-launchd.sh launchd-drift-audit
   or (manual; mirrors scripts/setup-launchd.sh launchd-drift-audit):
-    # Substitute ALL placeholders (HOME, REPO_ROOT, channel, tokens).
+    # Substitute ALL placeholders (HOME, channel, tokens).
     # setup-launchd.sh does this with escape_sed; the manual sed below uses
     # empty defaults per the PR #615 umbrella pattern (empty > wrong).
-    REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
-    sed -e "s|@HOME@|$HOME|g" \
-        -e "s|@HERMES_OPS_SLACK_CHANNEL@|${HERMES_OPS_SLACK_CHANNEL:-}|g" \
-        -e "s|@SLACK_BOT_TOKEN@|${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_BOT_TOKEN:-}}|g" \
-        -e "s|@OPENCLAW_STAGING_SLACK_BOT_TOKEN@|${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_BOT_TOKEN:-}}|g" \
-        -e "s|@SLACK_USER_TOKEN@|${SLACK_USER_TOKEN:-}|g" \
+    # NOTE: placeholders use double-underscore syntax (not the more common
+    # at-sign form) — at-sign placeholders tripped at least one plist
+    # validator downstream of plutil even though plutil itself accepted
+    # them; the double-underscore form has no special meaning in any
+    # XML/JSON parser and matches the __SET_BY_SETUP_LAUNCHD__ sentinel
+    # pattern in scripts/setup-launchd.sh.
+    sed -e "s|__HOME__|${HOME}|g" \
+        -e "s|__HERMES_OPS_SLACK_CHANNEL__|${HERMES_OPS_SLACK_CHANNEL:-}|g" \
+        -e "s|__SLACK_BOT_TOKEN__|${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_BOT_TOKEN:-}}|g" \
+        -e "s|__OPENCLAW_STAGING_SLACK_BOT_TOKEN__|${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-${SLACK_BOT_TOKEN:-}}|g" \
+        -e "s|__SLACK_USER_TOKEN__|${SLACK_USER_TOKEN:-}|g" \
         launchd/ai.hermes.launchd-drift-audit.plist.template \
         > ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
     launchctl bootstrap gui/$(id -u) \
@@ -34,8 +39,8 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>@HOME@/.hermes/scripts/launchd-env-wrapper.sh</string>
-    <string>@HOME@/.hermes/scripts/audit-launchd-drift.sh</string>
+    <string>__HOME__/.hermes/scripts/launchd-env-wrapper.sh</string>
+    <string>__HOME__/.hermes/scripts/audit-launchd-drift.sh</string>
   </array>
 
   <key>StartCalendarInterval</key>
@@ -50,34 +55,34 @@
   <false/>
 
   <key>StandardOutPath</key>
-  <string>@HOME@/.hermes/logs/launchd-drift-audit.out.log</string>
+  <string>__HOME__/.hermes/logs/launchd-drift-audit.out.log</string>
 
   <key>StandardErrorPath</key>
-  <string>@HOME@/.hermes/logs/launchd-drift-audit.err.log</string>
+  <string>__HOME__/.hermes/logs/launchd-drift-audit.err.log</string>
 
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
-    <string>@HOME@</string>
+    <string>__HOME__</string>
     <key>PATH</key>
-    <string>@HOME@/.bun/bin:@HOME@/.local/bin:@HOME@/bin:@HOME@/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <string>__HOME__/.bun/bin:__HOME__/.local/bin:__HOME__/bin:__HOME__/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <!-- Source of truth per PR #615 umbrella pattern. launchd-env-wrapper.sh
          reads this and merges with .bashrc defaults; the script falls back to
          it if HERMES_OPS_SLACK_CHANNEL is empty. NEVER hardcode a channel ID
-         or token here — render-time substitution only. -->
+         here — render-time substitution only. -->
     <key>HERMES_OPS_SLACK_CHANNEL</key>
-    <string>@HERMES_OPS_SLACK_CHANNEL@</string>
+    <string>__HERMES_OPS_SLACK_CHANNEL__</string>
     <!-- Slack tokens for alert posting. setup-launchd.sh substitutes
-         @SLACK_BOT_TOKEN@ etc. from the rendered config. Empty default is
+         __SLACK_BOT_TOKEN__ etc. from the rendered config. Empty default is
          the umbrella pattern (PR #615): the audit script resolves tokens
          from env (bashrc / plist) with empty-fallback, never a redacted
          sentinel. -->
     <key>OPENCLAW_STAGING_SLACK_BOT_TOKEN</key>
-    <string>@OPENCLAW_STAGING_SLACK_BOT_TOKEN@</string>
+    <string>__OPENCLAW_STAGING_SLACK_BOT_TOKEN__</string>
     <key>SLACK_BOT_TOKEN</key>
-    <string>@SLACK_BOT_TOKEN@</string>
+    <string>__SLACK_BOT_TOKEN__</string>
     <key>SLACK_USER_TOKEN</key>
-    <string>@SLACK_USER_TOKEN@</string>
+    <string>__SLACK_USER_TOKEN__</string>
   </dict>
 
   <key>ProcessType</key>

@@ -178,7 +178,7 @@ else
   LINT_EXIT=$?
   assert_eq "plutil -lint exit 0" "$LINT_EXIT" "0"
   assert_contains "plutil OK message" "$LINT_OUT" "OK"
-  # No hardcoded /Users/jleechan paths — only @HOME@ placeholders.
+  # No hardcoded /Users/jleechan paths — only __HOME__ placeholders.
   if grep -q "/Users/jleechan" "$PLIST_TEMPLATE"; then
     printf "  FAIL  template contains hardcoded /Users/jleechan path\n"
     FAIL=$((FAIL + 1))
@@ -186,7 +186,16 @@ else
     printf "  PASS  template has no hardcoded /Users/jleechan path\n"
     PASS=$((PASS + 1))
   fi
-  assert_contains "template uses @HOME@ placeholder" "$(cat "$PLIST_TEMPLATE")" "@HOME@"
+  assert_contains "template uses __HOME__ placeholder" "$(cat "$PLIST_TEMPLATE")" "__HOME__"
+  # @VAR@ syntax is forbidden in this template (defensive: @ tripped at least
+  # one downstream validator even though plutil accepted it).
+  if grep -qE '@[A-Z_]+@' "$PLIST_TEMPLATE"; then
+    printf "  FAIL  template still contains @VAR@ placeholder syntax\n"
+    FAIL=$((FAIL + 1))
+  else
+    printf "  PASS  template uses __VAR__ syntax (no @VAR@)\n"
+    PASS=$((PASS + 1))
+  fi
 fi
 
 echo ""
