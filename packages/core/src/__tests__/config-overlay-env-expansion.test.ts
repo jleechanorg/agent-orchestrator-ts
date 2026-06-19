@@ -121,6 +121,13 @@ defaults:
   envSource: "~/.zshrc"
 `;
 
+const REPO_LOCAL_OVERLAY_WITH_INVALID_MIXED_ARRAY_ENVSOURCE = `
+defaults:
+  envSource:
+    - "~/.zshrc"
+    - 123
+`;
+
 describe("loadConfig: repo-local overlay env expansion (PR #715)", () => {
   it("expands ${SLACK_WEBHOOK_URL:-...} in repo-local overlay before merging", () => {
     const home = mkdtempSync(join(tmpdir(), "ao-overlay-env-home-"));
@@ -339,6 +346,52 @@ describe("loadConfig: repo-local overlay env expansion (PR #715)", () => {
 
     // loadConfig MUST throw (validateConfig rejects non-array envSource), and
     // the throw must NOT have side-effected process.env with the sentinel.
+    expect(() => loadConfig()).toThrow();
+    expect(process.env["SLACK_WEBHOOK_URL_LEAKED"]).toBeUndefined();
+  });
+
+  it("does not source env files when envSource array contains non-string entries", () => {
+    // Skeptic gate-8b follow-up: the previous shape-policy fix used .filter()
+    // to drop non-string entries. That sources the valid entries from a
+    // config that validation will later reject for the non-string entry.
+    // The fix: require EVERY entry to be a string; if not, skip bootstrap
+    // entirely (validation will reject; no process.env pollution).
+    const home = mkdtempSync(
+      join(tmpdir(), "ao-overlay-mixed-array-home-"),
+    );
+    const work = mkdtempSync(
+      join(tmpdir(), "ao-overlay-mixed-array-work-"),
+    );
+    tempDirs.push(home, work);
+
+    // Fake ~/.zshrc that exports a sentinel — if bootstrap side-effects,
+    // the sentinel will leak into process.env before validateConfig throws
+    // on the integer entry in the envSource array.
+    writeFileSync(
+      join(home, ".zshrc"),
+      `export SLACK_WEBHOOK_URL_LEAKED="https://hooks.slack.com/services/LEAKED_MIXED/abc/123"\n`,
+      "utf-8",
+    );
+
+    mkdirSync(join(home, ".hermes"), { recursive: true });
+    writeFileSync(
+      join(home, ".hermes", "agent-orchestrator.yaml"),
+      MANAGED_CONFIG,
+      "utf-8",
+    );
+    writeFileSync(
+      join(work, "agent-orchestrator.yaml"),
+      REPO_LOCAL_OVERLAY_WITH_INVALID_MIXED_ARRAY_ENVSOURCE,
+      "utf-8",
+    );
+
+    process.env["HOME"] = home;
+    delete process.env["AO_STAGING_CONFIG_PATH"];
+    delete process.env["AO_PROD_CONFIG_PATH"];
+    delete process.env["AO_CONFIG_PATH"];
+    delete process.env["SLACK_WEBHOOK_URL_LEAKED"];
+    process.chdir(work);
+
     expect(() => loadConfig()).toThrow();
     expect(process.env["SLACK_WEBHOOK_URL_LEAKED"]).toBeUndefined();
   });

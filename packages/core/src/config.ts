@@ -1041,12 +1041,14 @@ function bootstrapEnvSourceForLoad(
     // bootstrap side effect, no process.env pollution.
     return;
   }
-  const stringList = rawChosen.filter((v): v is string => typeof v === "string");
-  if (stringList.length === 0) {
+  // Every entry must be a string — do NOT filter valid entries out of a
+  // mixed-type array. If any entry is not a string, validation will reject
+  // the whole array and we must not source any files before that throw.
+  if (!rawChosen.every((v): v is string => typeof v === "string")) {
     return;
   }
-  assertTrustedEnvSource(stringList);
-  applyEnvSource(stringList);
+  assertTrustedEnvSource(rawChosen);
+  applyEnvSource(rawChosen);
   _envBootstrapDone = true;
 }
 
