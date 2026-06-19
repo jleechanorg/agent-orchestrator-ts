@@ -38,6 +38,7 @@ const originalStagingPath = process.env["AO_STAGING_CONFIG_PATH"];
 const originalProdPath = process.env["AO_PROD_CONFIG_PATH"];
 const originalConfigPath = process.env["AO_CONFIG_PATH"];
 const originalSlackWebhookUrl = process.env["SLACK_WEBHOOK_URL"];
+const originalSlackWebhookUrlFromZsh = process.env["SLACK_WEBHOOK_URL_FROM_ZSH"];
 const tempDirs: string[] = [];
 
 beforeEach(() => {
@@ -72,6 +73,11 @@ afterEach(() => {
     delete process.env["SLACK_WEBHOOK_URL"];
   } else {
     process.env["SLACK_WEBHOOK_URL"] = originalSlackWebhookUrl;
+  }
+  if (originalSlackWebhookUrlFromZsh === undefined) {
+    delete process.env["SLACK_WEBHOOK_URL_FROM_ZSH"];
+  } else {
+    process.env["SLACK_WEBHOOK_URL_FROM_ZSH"] = originalSlackWebhookUrlFromZsh;
   }
   process.chdir(originalCwd);
   for (const dir of tempDirs.splice(0)) {
