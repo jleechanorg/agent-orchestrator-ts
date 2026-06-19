@@ -1923,7 +1923,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
               // transparently use `git push origin HEAD:${pr.branch}` or set
               // push.default=upstream in your personal git config.
               // NOTE: Do not set push.default here — it writes to the shared .git/config
-              // and would change push behavior for all worktrees in this repo. (bd-push-fix)
+              // (the git-common-dir shared by all worktrees in this repo) and would
+              // change push behavior for every worktree/branch in the repo. The
+              // regression test at test/index.test.ts:1275-1280 enforces this constraint.
               await git(
                 ["config", `branch.${sessionBranch}.pushRemote`, remoteName],
                 workspacePath,
