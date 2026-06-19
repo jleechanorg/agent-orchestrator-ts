@@ -343,12 +343,22 @@ weeks before a manual audit surfaced them. See [jleechanorg/agent-orchestrator#7
 **Install:**
 
 ```bash
-# Render the template (substitute @HOME@, @REPO_ROOT@, + Slack channel) and bootstrap:
+# Recommended: setup-launchd.sh substitutes all placeholders + writes the plist
+# with restrictive permissions + bootstraps it. See scripts/setup-launchd.sh
+# `launchd-drift-audit` mode for the canonical render path.
 bash scripts/setup-launchd.sh launchd-drift-audit
-# or manually:
-REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
-sed -e "s|@HOME@|$HOME|g" -e "s|@REPO_ROOT@|$REPO_ROOT|g" \
-  -e "s|@HERMES_OPS_SLACK_CHANNEL@|$HERMES_OPS_SLACK_CHANNEL|g" \
+
+# Manual render path — mirror setup-launchd.sh exactly so the plist never ships
+# with an unresolved placeholder. install(1) sets mode 0600 so the Slack token
+# is not world-readable on the local filesystem:
+REPO_ROOT="$(pwd)"
+install -m 0600 /dev/null ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
+sed -e "s|__HOME__|$HOME|g" \
+    -e "s|__REPO_ROOT__|$REPO_ROOT|g" \
+    -e "s|__HERMES_OPS_SLACK_CHANNEL__|${HERMES_OPS_SLACK_CHANNEL:-}|g" \
+    -e "s|__SLACK_BOT_TOKEN__|${SLACK_BOT_TOKEN:-}|g" \
+    -e "s|__OPENCLAW_STAGING_SLACK_BOT_TOKEN__|${OPENCLAW_STAGING_SLACK_BOT_TOKEN:-}|g" \
+    -e "s|__SLACK_USER_TOKEN__|${SLACK_USER_TOKEN:-}|g" \
   launchd/ai.hermes.launchd-drift-audit.plist.template \
   > ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
 launchctl bootstrap gui/$(id -u) \
@@ -362,7 +372,7 @@ launchctl bootstrap gui/$(id -u) \
 3. Restore from the worktree backup or regenerate the plist from its `*.plist.template` per [`~/.claude/skills/launchd-plist-template/SKILL.md`](https://github.com/jleechanorg/agent-orchestrator/blob/main/launchd/).
 4. `launchctl kickstart -k gui/$(id -u)/<label>` to restart, then `launchctl list | grep <label>` should show PID + exit 0 within a few seconds.
 
-**Tests:** `tests/unit/test-audit-launchd-drift.sh` (13 assertions: empty drift → exit 0 + no Slack; non-empty drift → exit 1 + Slack post + correct channel/token; plist template validates via `plutil -lint`).
+**Tests:** `tests/unit/test-audit-launchd-drift.sh` (23 assertions across 5 cases: empty drift → exit 0 + no Slack; non-empty drift → exit 1 + exactly one Slack post with correct channel/token; launchctl list failure → exit 2 (not masked as clean); Slack `{"ok":false}` response → exit 1 + WARN; plist template validates via `plutil -lint` (macOS) or structural checks (Linux) with no hardcoded user paths, plus scheduled cadence `Hour=2 Minute=0` assertion).
 
 ## Documentation
 

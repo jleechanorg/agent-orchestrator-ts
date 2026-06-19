@@ -126,6 +126,10 @@ assert_contains "stdout lists drifting plist com.orphan.service" "$STDOUT2" "com
 assert_contains "curl was invoked with chat.postMessage" "$CURL2" "https://slack.com/api/chat.postMessage"
 assert_contains "curl Authorization header carries token" "$CURL2" "Bearer xoxb-test-token"
 assert_contains "curl payload targets HERMES_OPS_SLACK_CHANNEL" "$CURL2" "C0OPSCHNL"
+# Goals verification: "Alert $HERMES_OPS_SLACK_CHANNEL exactly once per drift run."
+# Assert exactly one Slack post (not zero, not many) when drift is detected.
+CURL_POST_COUNT="$(echo "$CURL2" | grep -c chat.postMessage || true)"
+assert_eq "exactly one Slack post per drift run" "$CURL_POST_COUNT" "1"
 rm -rf "$FBIN2"
 
 echo ""
@@ -194,6 +198,29 @@ else
   fi
   assert_contains "template uses __HOME__ placeholder" "$(cat "$PLIST_TEMPLATE")" "__HOME__"
   assert_contains "template uses __REPO_ROOT__ placeholder" "$(cat "$PLIST_TEMPLATE")" "__REPO_ROOT__"
+  # Goals verification: "Detect launchctl list entries with status=127 within one
+  # nightly cadence." The plist must declare StartCalendarInterval Hour=2
+  # Minute=0 to satisfy the "nightly" goal.
+  PLIST_BODY="$(cat "$PLIST_TEMPLATE")"
+  assert_contains "plist schedules nightly cadence (Hour=2)" "$PLIST_BODY" "<key>Hour</key>"
+  assert_contains "plist schedules nightly cadence (Minute=0)" "$PLIST_BODY" "<key>Minute</key>"
+  # Plist cadence values: Hour=2, Minute=0 — match the regex to confirm both
+  # <integer>2</integer> and <integer>0</integer> appear inside the
+  # StartCalendarInterval dict (Hour/Minute keys, in order).
+  HOUR_VAL="$(printf '%s' "$PLIST_BODY" | python3 -c '
+import re, sys
+b = sys.stdin.read()
+m = re.search(r"<key>Hour</key>\s*<integer>(\d+)</integer>", b)
+print(m.group(1) if m else "")
+')"
+  MIN_VAL="$(printf '%s' "$PLIST_BODY" | python3 -c '
+import re, sys
+b = sys.stdin.read()
+m = re.search(r"<key>Minute</key>\s*<integer>(\d+)</integer>", b)
+print(m.group(1) if m else "")
+')"
+  assert_eq "plist StartCalendarInterval Hour is 2" "$HOUR_VAL" "2"
+  assert_eq "plist StartCalendarInterval Minute is 0" "$MIN_VAL" "0"
   # @VAR@ syntax is forbidden in this template (defensive: @ tripped at least
   # one downstream validator even though plutil accepted it).
   if grep -qE '@[A-Z_]+@' "$PLIST_TEMPLATE"; then
