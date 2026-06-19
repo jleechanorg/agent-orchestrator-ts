@@ -280,15 +280,19 @@ describe("runtime.create()", () => {
     expect(newSessionArgs.filter((a) => a === "-e").length).toBe(0);
 
     // Must have written an env file containing the bashrc vars
+    // Path uses randomUUID (not sessionId) to defeat symlink attacks (CodeRabbit P2).
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining("ao-bashrc-large-env-session"),
+      expect.stringContaining("ao-bashrc-test-uuid-1234"),
       expect.stringContaining("export BASHRC_VAR_0="),
-      expect.objectContaining({ mode: 0o600 }),
+      expect.objectContaining({ mode: 0o600, flag: "wx" }),
     );
 
     // The shell command (last arg to new-session) must source the env file
+    // AND unlink it immediately after (no secret lingers in /tmp).
     const shellCommand = newSessionArgs.at(-1) as string;
-    expect(shellCommand).toMatch(/^\. .+ao-bashrc-large-env-session/);
+    expect(shellCommand).toMatch(
+      /^\. '[^']*ao-bashrc-test-uuid-1234\.sh';\s*rm -f '[^']*ao-bashrc-test-uuid-1234\.sh'/,
+    );
   });
 
   it("sends launch command via send-keys", async () => {
@@ -557,15 +561,20 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
     // Bashrc vars must NOT be in -e args (overflow prevention)
     expect(args.filter((a) => a === "-e")).toHaveLength(0);
 
-    // Must have written an env file containing the bashrc vars
+    // Must have written an env file containing the bashrc vars.
+    // Path uses randomUUID (CodeRabbit P2 fix) so an attacker cannot
+    // pre-create a symlink at a predictable path.
     expect(vi.mocked(fs.writeFileSync)).toHaveBeenCalledWith(
-      expect.stringContaining("ao-bashrc-bashrc-session"),
+      expect.stringContaining("ao-bashrc-test-uuid-1234"),
       expect.stringContaining("export AO_BOT_GH_TOKEN='abc123'"),
-      expect.objectContaining({ mode: 0o600 }),
+      expect.objectContaining({ mode: 0o600, flag: "wx" }),
     );
 
     // Shell command (last arg to new-session) must source the env file
-    expect(args.at(-1)).toMatch(/^\. .+ao-bashrc-bashrc-session/);
+    // and unlink it immediately after — secrets do not linger in /tmp.
+    expect(args.at(-1)).toMatch(
+      /^\. '[^']*ao-bashrc-test-uuid-1234\.sh';\s*rm -f '[^']*ao-bashrc-test-uuid-1234\.sh'/,
+    );
   });
 
   it("explicit config.environment overrides bashrc-sourced vars", async () => {
@@ -779,9 +788,9 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
 
     // Env file must contain 10,000 entries; the 10,001st is dropped by cap
     expect(vi.mocked(fs.writeFileSync)).toHaveBeenCalledWith(
-      expect.stringContaining("ao-bashrc-cap-test"),
+      expect.stringContaining("ao-bashrc-test-uuid-1234"),
       expect.stringContaining("export CAP_KEY_0='v0'"),
-      expect.objectContaining({ mode: 0o600 }),
+      expect.objectContaining({ mode: 0o600, flag: "wx" }),
     );
     const envContent = vi.mocked(fs.writeFileSync).mock.calls[0]?.[1] as string;
     expect(envContent).toContain("export CAP_KEY_9999='v9999'");
@@ -797,6 +806,63 @@ describe("runtime.create() — bashrc env injection (bd-l5ty)", () => {
     ).toBe(true);
 
     warnSpy.mockRestore();
+  });
+
+  it("uses a random per-session env file path with exclusive creation (CodeRabbit P2)", async () => {
+    // Security regression guard: the env file path MUST be derived from
+    // randomUUID (not the sessionId) so an attacker on a shared host
+    // cannot pre-create /tmp/ao-bashrc-<guessable-sessionId>.sh as a
+    // symlink and capture/redirect the bashrc secret dump.
+    // See CodeRabbit P2 review on PR #714.
+    const runtime = create();
+
+    mockBashrcOutput(['declare -x SECRET="hunter2"'].join("\n"));
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "predictable-session-id",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo",
+      environment: {},
+    });
+
+    const writeCalls = vi.mocked(fs.writeFileSync).mock.calls;
+    // Find the env file write (not the launch script write).
+    const envWrite = writeCalls.find(
+      (c) =>
+        typeof c[0] === "string" &&
+        (c[0] as string).includes("ao-bashrc-") &&
+        typeof c[1] === "string" &&
+        (c[1] as string).startsWith("export SECRET="),
+    );
+    expect(envWrite).toBeDefined();
+
+    // Path must NOT embed the sessionId — that would be a guessable target.
+    const envPath = envWrite![0] as string;
+    expect(envPath).not.toContain("predictable-session-id");
+
+    // Path must use the random UUID from node:crypto mock (test-uuid-1234).
+    expect(envPath).toMatch(/\/ao-bashrc-test-uuid-1234\.sh$/);
+
+    // Exclusive creation (O_CREAT|O_EXCL) prevents symlink-following writes.
+    expect(envWrite![2]).toEqual(
+      expect.objectContaining({ mode: 0o600, flag: "wx" }),
+    );
+
+    // The shell command sources the file AND removes it — secrets do not
+    // linger in /tmp after the worker has its env.
+    const shellCommand = newSessionArgs().at(-1) as string;
+    expect(shellCommand).toContain(". ");
+    expect(shellCommand).toContain("rm -f ");
+    // Source and unlink must reference the SAME path.
+    const sourceMatch = shellCommand.match(/\. (\S+);/);
+    const unlinkMatch = shellCommand.match(/rm -f (\S+)/);
+    expect(sourceMatch).not.toBeNull();
+    expect(unlinkMatch).not.toBeNull();
+    expect(sourceMatch![1]).toBe(unlinkMatch![1]);
   });
 });
 

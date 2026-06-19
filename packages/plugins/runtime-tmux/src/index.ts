@@ -427,13 +427,25 @@ export function create(): Runtime {
         ([k, v]) => v !== "" && !(k in configEnv),
       );
       if (bashrcEntries.length > 0) {
-        const envFilePath = join(tmpdir(), `ao-bashrc-${sessionName}.sh`);
+        // Random UUID per session prevents symlink attacks at a predictable
+        // path (CodeRabbit P2 — see PR #714 review). `flag: "wx"` makes
+        // writeFileSync exclusive (O_CREAT|O_EXCL) — refuses to follow or
+        // overwrite a pre-existing file or symlink, so another local process
+        // cannot pre-create the path and capture/redirect the env dump.
+        // The file is unlinked immediately after sourcing (see prefix below)
+        // so secrets do not linger in /tmp.
+        const envFilePath = join(tmpdir(), `ao-bashrc-${randomUUID()}.sh`);
         const lines = bashrcEntries.map(([k, v]) => `export ${k}=${shellQuoteValue(v)}`);
         writeFileSync(envFilePath, lines.join("\n") + "\n", {
           encoding: "utf-8",
           mode: 0o600,
+          flag: "wx",
         });
-        bashrcEnvFilePrefix = `. ${shellEscape(envFilePath)}\n`;
+        // Source then unlink so the file is gone before any other process can
+        // read it. `;` (not `&&`) ensures cleanup happens even if the source
+        // command exits non-zero (the env vars are still set in the shell).
+        bashrcEnvFilePrefix =
+          `. ${shellEscape(envFilePath)}; rm -f ${shellEscape(envFilePath)}\n`;
       }
 
       // Start the launch command as the pane's initial command instead of
