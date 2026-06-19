@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # audit-launchd-drift.sh — nightly audit of broken launchd plists
+# CR-fix annotation: 2026-06-19 — defensive placeholder guard for soft-fail Slack.
 #
 # Background: on 2026-06-18 a manual audit found 15 launchd plists at
 # exit 127 (script-missing or wrong-container-name) that had been silently
