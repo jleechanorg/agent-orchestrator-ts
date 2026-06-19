@@ -595,6 +595,39 @@ describe("runtime.create() — direct bashrc source", () => {
     expect(scriptBody).toMatch(/exec "\$\{SHELL:-\/bin\/bash\}" -i/);
     expect(argsOf("new-session")).not.toContain("-e");
   });
+
+  it("overflow regression: 200+ config.environment entries produce no -e args", async () => {
+    const runtime = create();
+
+    // Construct 243 env entries — same cardinality as the real macOS bashrc
+    // that triggered the pre-fix tmux buffer overflow (243 vars × 2 args = 486
+    // extra -e args → per-line buffer overflow → 60s hang). The old code passed
+    // ALL config.environment entries as -e KEY=VAL args to tmux new-session.
+    const manyEnv = Object.fromEntries(
+      Array.from({ length: 243 }, (_, i) => [`VAR_${i}`, `value_${i}`])
+    );
+
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+    mockTmuxSuccess();
+
+    await runtime.create({
+      sessionId: "overflow-test",
+      workspacePath: "/tmp/ws",
+      launchCommand: "echo test",
+      environment: manyEnv,
+    });
+
+    // Critical: no -e args regardless of env cardinality.
+    expect(argsOf("new-session")).not.toContain("-e");
+    // All commands go through bash -i launch script.
+    expect(argsOf("new-session").at(-1)).toMatch(/^bash -i '.*ao-launch-.+\.sh'$/);
+    // All 243 env vars are inline exports in the script body.
+    const scriptBody = getScriptContent();
+    expect(scriptBody).toContain("export VAR_0='value_0'");
+    expect(scriptBody).toContain("export VAR_242='value_242'");
+  });
 });
 
 describe("runtime.destroy()", () => {
