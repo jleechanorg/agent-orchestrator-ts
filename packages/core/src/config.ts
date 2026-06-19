@@ -43,6 +43,15 @@ function bootstrapEnvSource(config: OrchestratorConfig): void {
   _envBootstrapDone = true;
 }
 
+/**
+ * Test-only: reset the envSource bootstrap flag so the next loadConfig call
+ * re-bootstraps from process.env + configured envSource files. Production
+ * callers MUST NOT use this — the once-per-process invariant is intentional.
+ */
+export function _resetEnvBootstrapForTesting(): void {
+  _envBootstrapDone = false;
+}
+
 function inferScmPlugin(project: {
   repo?: string;
   scm?: Record<string, unknown>;
@@ -963,6 +972,17 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
 
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
+
+  // bd-feedback-2026-06-19-notif-slack-placeholder (CodeRabbit P2 / Skeptic gate-8a):
+  // Bootstrap envSource from the parsed (not yet expanded) config so that vars
+  // sourced from `~/.bashrc` (or whatever the configured envSource files are)
+  // are in process.env BEFORE we expand ${VAR} templates in the primary config
+  // and in any repo-local overlay. Without this, a daemon installed via
+  // launchd (which does not inherit ~/.bashrc) freezes ${SLACK_WEBHOOK_URL}
+  // to its :- fallback at overlay-merge time, and the envSource-sourced value
+  // never replaces the frozen string later.
+  bootstrapEnvSourceFromParsed(parsed);
+
   const expanded = expandEnvVars(parsed);
 
   // Config overlay: when the primary config is a managed config (staging/prod),
@@ -977,10 +997,50 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
   // Set the config path in the config object for hash generation
   config.configPath = path;
 
-  // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
-  bootstrapEnvSource(config);
-
   return config;
+}
+
+/**
+ * Bootstrap envSource from the parsed (not yet expanded) config so that
+ * envSource-sourced vars are available BEFORE expandEnvVars runs. Reads the
+ * raw envSource fields from the parsed object directly — these are lists of
+ * paths that don't typically need env expansion themselves.
+ *
+ * Must be paired with the same logic in `bootstrapEnvSource` (post-validation)
+ * to handle any re-bootstrap needed after the config is fully expanded.
+ */
+function bootstrapEnvSourceFromParsed(parsed: unknown): void {
+  if (_envBootstrapDone) return;
+  if (typeof parsed !== "object" || parsed === null) {
+    bootstrapEnvSource({} as OrchestratorConfig);
+    return;
+  }
+  const obj = parsed as Record<string, unknown>;
+  const defaultsObj = obj["defaults"];
+  const defaultsEnvSource =
+    typeof defaultsObj === "object" && defaultsObj !== null
+      ? (defaultsObj as Record<string, unknown>)["envSource"]
+      : undefined;
+  const globalEnvSource = obj["envSource"];
+  // Prefer defaults.envSource (per-project override), fall back to top-level envSource.
+  // The unexpanded value may be a list of paths or a single string — normalize to array.
+  const raw = defaultsEnvSource ?? globalEnvSource;
+  const effective = normalizeEnvSourceList(raw) ?? ["~/.bashrc"];
+  assertTrustedEnvSource(effective);
+  applyEnvSource(effective);
+  _envBootstrapDone = true;
+}
+
+function normalizeEnvSourceList(
+  raw: unknown,
+): string[] | undefined {
+  if (Array.isArray(raw)) {
+    return raw.filter((v): v is string => typeof v === "string");
+  }
+  if (typeof raw === "string") {
+    return [raw];
+  }
+  return undefined;
 }
 
 /** Load config and return both config and resolved path */
@@ -996,6 +1056,10 @@ export function loadConfigWithPath(configPath?: string): {
 
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
+
+  // Same pre-expansion bootstrap as loadConfig — see comment there.
+  bootstrapEnvSourceFromParsed(parsed);
+
   const expanded = expandEnvVars(parsed);
 
   const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
@@ -1005,9 +1069,6 @@ export function loadConfigWithPath(configPath?: string): {
 
   // Set the config path in the config object for hash generation
   config.configPath = path;
-
-  // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
-  bootstrapEnvSource(config);
 
   return { config, path };
 }
