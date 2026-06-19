@@ -270,7 +270,7 @@ export function create(): Runtime {
       const launchCmd = config.launchCommand;
       const fullCmd = `${preamble}\n${launchCmd}`;
       const shellCommand =
-        launchCmd.length > 200 ? writeLaunchScript(fullCmd) : withKeepAliveShell(fullCmd);
+        fullCmd.length > 200 ? writeLaunchScript(fullCmd) : withKeepAliveShell(fullCmd);
 
       // Try creating the session first. If tmux reports a duplicate session name,
       // kill the stale session and retry. This avoids destroying a live session
