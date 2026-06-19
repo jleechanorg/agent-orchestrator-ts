@@ -69,3 +69,44 @@ When CR posts CHANGES_REQUESTED and the worker is dead, spawn a fresh worker wit
 - Zero-touch rate: 70% → 85% (after bd-pfx + bd-rfr)
 - Zero-touch rate: 85% → 95% (after bd-wht + bd-mpr reduce review friction)
 - Agent context efficiency: measurable reduction in "exploring wrong package" patterns (after bd-arc)
+
+## 2026-06-18 Update — babysit-not-a-driver systemic gap (bd-snx3)
+
+A 5-whys investigation of [worldarchitect.ai #7618](https://github.com/jleechanorg/worldarchitect.ai/pull/7618) (rate-limit centralization) revealed a systemic harness gap that pre-dates and out-scopes the original 4 initiatives. The pattern recurred in **6+ PRs over the last 2 weeks**: PRs #7618, #7276, #7558, #7586, BQ wiring, #7420, wa-2246.
+
+### Symptom
+
+Babysit cron posts "Blocked: Green Gate failing" status updates and sends generic "keep working" nudges to workers. The same CI failure persists for 15+ ticks (4+ hours) with zero progress. Workers go idle between pushes; PRs reach stale-by-CI states with human intervention required.
+
+### Root cause (5-whys)
+
+| # | Why | Answer |
+|---|-----|--------|
+| 1 | Why is the PR not making progress? | Same CI gate failing, no fixes landing |
+| 2 | Why is no fix landing? | Worker is doing one partial fix per push, then waiting for CI |
+| 3 | Why one fix per push? | Worker reads the first remaining failure, fixes that, then waits |
+| 4 | Why wait? | Worker treats "CI pending" as idle state, not parallel-fix time |
+| 5 | Why is babysit not breaking the loop? | Babysit's success metric is "status posted," not "failure fixed" — generic nudges do not extract failure text into actionable instructions |
+
+**Conclusion:** the failure class is *silent degradation + missing validation*. Babysit was designed to observe and report, not to drive. Generic "keep going" messages are the wrong shape — workers that have already tried and failed need exact file:line + specific patch.
+
+### Fix landed (this PR)
+
+| Layer | File | Change |
+|---|---|---|
+| Global rule | `~/.claude/CLAUDE.md` | New section "PR driver loop contract — fix-all before push" — after every push, enumerate ALL gate failures and fix ALL in one local pass |
+| Skill (shipped) | `skills/babysit/SKILL.md` (+ `bin/`, `tests/`) | 7-state classifier, 60-s watch loop with TUI auto-remediation and stderr `[NOTIFY]` on state transitions; DRIVER mode CI-gate extraction and `ao send` are **planned** (see SKILL.md §DRIVER) |
+| Skill (shipped) | `skills/pr-driver-protocol/SKILL.md` | New 5-step loop: ENUMERATE → CLASSIFY → FIX-ALL → VERIFY → PUSH |
+
+**Shipment:** both skills live in this repo's `skills/` directory, so `bash scripts/setup.sh` (which calls `scripts/install-repo-skills.sh`) symlinks them into `~/.claude/skills/` on a fresh checkout. The same files are also kept in the author's user-scope `~/.claude/skills/` for active-session use. The global `~/.claude/CLAUDE.md` rule is **not** in source control (it is per-user configuration); the doc update in this repo is the durable surface pointing at it.
+
+### Why this is "harness" not "core code"
+
+The fix lives in **user-scope harness files** (`~/.claude/CLAUDE.md`, `~/.claude/skills/`) plus **two new skills shipped in `skills/`** plus one **doc update** in this repo. No `packages/core/`, `packages/cli/`, or `packages/plugins/` code is changed. This is the lowest-risk harness layer — a `bash scripts/setup.sh` user or a new agent context will pick it up via the existing user-scope symlinks (`scripts/install-repo-skills.sh` symlinks any `skills/*/` in this repo into `~/.claude/skills/` and `~/.codex/skills/`).
+
+### Evidence
+
+- Investigation: 2026-06-18 /harness 5-whys, see `~/roadmap/nextsteps-2026-06-18-babysit-driver-harness.md`
+- Memory pointers: [[pr-driver-loop-contract]] (worker-side), [[babysit-not-a-driver]] (observer-side)
+- Bead: `bd-snx3`
+- Pattern recurrence: PRs #7618, #7276, #7558, #7586, BQ wiring, #7420, wa-2246 (6+ PRs in 2 weeks)

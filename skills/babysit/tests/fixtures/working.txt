@@ -1,0 +1,4 @@
+  ✻ Germinating… (0m 14s · thought for 2s · ↓ 0 tokens · esc to interrupt)
+  Reading packages/core/src/skeptic-cron-local.ts
+  ⣾ Running...
+  Bash(git show e1f11d0033) (ctrl+o to expand)
