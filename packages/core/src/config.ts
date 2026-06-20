@@ -32,15 +32,12 @@ import { generateSessionPrefix, expandHome } from "./paths.js";
 let _envBootstrapDone = false;
 
 /**
- * Bootstrap env vars from configured shell init files — runs exactly once per process.
- * Prefer defaults.envSource if set (per-project override), fall back to global.
+ * Test-only: reset the envSource bootstrap flag so the next loadConfig call
+ * re-bootstraps from process.env + configured envSource files. Production
+ * callers MUST NOT use this — the once-per-process invariant is intentional.
  */
-function bootstrapEnvSource(config: OrchestratorConfig): void {
-  if (_envBootstrapDone) return;
-  const effective = config.defaults?.envSource ?? config.envSource;
-  assertTrustedEnvSource(effective ?? ["~/.bashrc"]);
-  applyEnvSource(effective);
-  _envBootstrapDone = true;
+export function _resetEnvBootstrapForTesting(): void {
+  _envBootstrapDone = false;
 }
 
 function inferScmPlugin(project: {
@@ -868,7 +865,10 @@ function mergeConfigOverlay(
   overlayPath: string,
 ): unknown {
   const overlayRaw = readFileSync(overlayPath, "utf-8");
-  const overlay = parseYaml(overlayRaw);
+  // Expand env vars in the overlay BEFORE merging — otherwise ${VAR} literals in
+  // a repo-local overlay win on deep-merge and bypass the primary config's
+  // expansion. bd-feedback-2026-06-19-notif-slack-placeholder
+  const overlay = expandEnvVars(parseYaml(overlayRaw));
 
   if (typeof base !== "object" || base === null) {
     return overlay;
@@ -960,13 +960,25 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
 
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
-  const expanded = expandEnvVars(parsed);
 
   // Config overlay: when the primary config is a managed config (staging/prod),
   // search for a repo-local config and deep-merge it on top. Repo-local wins
   // for overlapping keys — this makes per-repo project overrides work even when
   // a managed config shadows the walk-up search.
   const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
+
+  // bd-feedback-2026-06-19-notif-slack-placeholder (Skeptic gate-8a / -8c):
+  // Bootstrap envSource from the MERGED view of envSource (primary deep-merged
+  // with overlay if present) BEFORE we expand ${VAR} templates anywhere. An
+  // overlay may override `defaults.envSource` (e.g. to switch from ~/.bashrc
+  // to ~/.zshrc) and the overlay's own ${VAR} templates need vars sourced from
+  // that overridden envSource, not from the primary config's envSource. Without
+  // this, a daemon installed via launchd freezes ${SLACK_WEBHOOK_URL} to its
+  // :- fallback at overlay-merge time and the sourced value never replaces it.
+  bootstrapEnvSourceForLoad(parsed, overlayPath);
+
+  const expanded = expandEnvVars(parsed);
+
   const merged = overlayPath ? mergeConfigOverlay(expanded, overlayPath) : expanded;
 
   const config = validateConfig(merged);
@@ -974,10 +986,98 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
   // Set the config path in the config object for hash generation
   config.configPath = path;
 
-  // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
-  bootstrapEnvSource(config);
-
   return config;
+}
+
+/**
+ * Bootstrap envSource for the loadConfig / loadConfigWithPath path. When an
+ * overlay exists, simulate the deep-merge's overlay-wins-on-conflict semantics
+ * for the envSource field and bootstrap from the merged list. applyEnvSource
+ * uses per-call snapshots so we don't duplicate or re-source already-applied
+ * vars — we only add what the overlay's extra files contribute.
+ *
+ * Shape policy: this bootstrap runs BEFORE validateConfig(), but it must NOT
+ * have side effects on a config that validation will later reject. The schema
+ * requires envSource to be `z.array(z.string())`; if the raw value is anything
+ * else (string, null, missing → undefined default, etc.), skip bootstrap and
+ * let validation throw. A raw string envSource is no longer normalized to an
+ * array here — that pre-validation side effect could source arbitrary shell
+ * init files from a config that the schema will reject.
+ */
+function bootstrapEnvSourceForLoad(
+  primaryParsed: unknown,
+  overlayPath: string | null,
+): void {
+  if (_envBootstrapDone) return;
+  // Faithfully simulate the final merged config to pick envSource. The actual
+  // merge (mergeConfigOverlay) deep-merges primary with overlay using the
+  // same deepMerge() semantics: top-level keys overlay-wins-on-conflict, plain
+  // objects recurse. Using `overlay ?? primary` here would skip the deep-merge
+  // and pick the wrong envSource for a config where primary has
+  // `defaults.envSource` and overlay has top-level `envSource` — the merged
+  // config keeps BOTH branches and readRawEnvSourceList returns
+  // `defaults.envSource ?? envSource` (defaults wins). Simulating that
+  // correctly here is what the merged-view code path requires.
+  const primaryObj =
+    typeof primaryParsed === "object" && primaryParsed !== null
+      ? (primaryParsed as Record<string, unknown>)
+      : null;
+  let overlayObj: Record<string, unknown> | null = null;
+  if (overlayPath) {
+    const overlayRaw = readFileSync(overlayPath, "utf-8");
+    const overlayParsed = parseYaml(overlayRaw);
+    if (typeof overlayParsed === "object" && overlayParsed !== null) {
+      overlayObj = overlayParsed as Record<string, unknown>;
+    }
+  }
+  const mergedView: Record<string, unknown> | null =
+    primaryObj && overlayObj
+      ? deepMerge(primaryObj, overlayObj)
+      : (primaryObj ?? overlayObj);
+  const rawChosen = mergedView
+    ? readRawEnvSourceList(mergedView)
+    : undefined;
+  if (rawChosen === undefined) {
+    // No envSource declared anywhere → use schema default `["~/.bashrc"]`.
+    // The default is also what validation will accept.
+    assertTrustedEnvSource(["~/.bashrc"]);
+    applyEnvSource(["~/.bashrc"]);
+    _envBootstrapDone = true;
+    return;
+  }
+  if (!Array.isArray(rawChosen)) {
+    // Mis-shaped envSource (e.g. a string). Validation will reject; no
+    // bootstrap side effect, no process.env pollution.
+    return;
+  }
+  // Every entry must be a string — do NOT filter valid entries out of a
+  // mixed-type array. If any entry is not a string, validation will reject
+  // the whole array and we must not source any files before that throw.
+  if (!rawChosen.every((v): v is string => typeof v === "string")) {
+    return;
+  }
+  assertTrustedEnvSource(rawChosen);
+  applyEnvSource(rawChosen);
+  _envBootstrapDone = true;
+}
+
+/**
+ * Read the raw envSource field as a list, without normalizing a single string
+ * into an array. Returns undefined if the field is missing; returns the raw
+ * value (which may be a string, an array, or something else invalid) if
+ * present — callers decide whether to trust it.
+ */
+function readRawEnvSourceList(
+  obj: Record<string, unknown>,
+): unknown {
+  const defaultsObj = obj["defaults"];
+  const defaultsEnvSource =
+    typeof defaultsObj === "object" && defaultsObj !== null
+      ? (defaultsObj as Record<string, unknown>)["envSource"]
+      : undefined;
+  const globalEnvSource = obj["envSource"];
+  // Prefer defaults.envSource (per-project override), fall back to top-level.
+  return defaultsEnvSource ?? globalEnvSource;
 }
 
 /** Load config and return both config and resolved path */
@@ -993,18 +1093,21 @@ export function loadConfigWithPath(configPath?: string): {
 
   const raw = readFileSync(path, "utf-8");
   const parsed = parseYaml(raw);
+
+  // Config overlay: same as loadConfig — see comment there.
+  const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
+
+  // Same merged-view bootstrap as loadConfig — see comment there.
+  bootstrapEnvSourceForLoad(parsed, overlayPath);
+
   const expanded = expandEnvVars(parsed);
 
-  const overlayPath = configPath ? null : findRepoLocalConfigOverlay(path);
   const merged = overlayPath ? mergeConfigOverlay(expanded, overlayPath) : expanded;
 
   const config = validateConfig(merged);
 
   // Set the config path in the config object for hash generation
   config.configPath = path;
-
-  // bd-g884: bootstrap API-key env vars from configured shell init files (once per process)
-  bootstrapEnvSource(config);
 
   return { config, path };
 }
