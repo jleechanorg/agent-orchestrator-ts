@@ -78,6 +78,8 @@ describe("ai.agento.health-guardian.sh — HERMES_WD_LOG default (PR #716)", () 
     expect(content).toMatch(
       /HERMES_WD_LOG="\$\{HERMES_WD_LOG:-\$HOME\/Library\/Logs\/hermes-watchdog\.log\}"/,
     );
-    expect(content).not.toMatch(/^HERMES_WD_LOG=["']?\/tmp\/hermes-watchdog\.log/);
+    expect(content).not.toMatch(
+      /^\s*HERMES_WD_LOG=["']?\/tmp\/hermes-watchdog\.log["']?\s*$/m,
+    );
   });
 });
