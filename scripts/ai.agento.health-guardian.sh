@@ -187,7 +187,11 @@ fi
 
 # --- Check 2: hermes-watchdog also alive (cross-watchdog) ---
 # Use log freshness as the source of truth, not launchd state.
-HERMES_WD_LOG="/tmp/hermes-watchdog.log"
+# NOTE: hermes-watchdog writes to ~/Library/Logs/hermes-watchdog.log (macOS
+# default for launchd StandardOutPath), NOT /tmp. The old /tmp path never
+# existed, so this check always reported "stale or missing" — a false-positive
+# alert that fired hourly. Honor an explicit override for non-default setups.
+HERMES_WD_LOG="${HERMES_WD_LOG:-$HOME/Library/Logs/hermes-watchdog.log}"
 HERMES_FRESH=0
 if [ -f "$HERMES_WD_LOG" ]; then
   hlog_mtime=$(stat -f %m "$HERMES_WD_LOG" 2>/dev/null || echo 0)
