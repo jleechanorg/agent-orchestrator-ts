@@ -181,7 +181,7 @@ check_running_json_present() {
 # --- Check 6: Tier 1 + Tier 2 + cross-watchdog all present ---
 check_watchdog_chain() {
   local missing=0
-  for label in ai.agento.health ai.agento.health-guardian ai.hermes-watchdog; do
+  for label in ai.agento.health ai.agento.health-guardian ai.hermes.watchdog; do
     if ! launchctl print "gui/$(id -u)/$label" 2>/dev/null | grep -q "type = LaunchAgent"; then
       warn "watchdog plist $label not registered with launchd"
       missing=$((missing + 1))
