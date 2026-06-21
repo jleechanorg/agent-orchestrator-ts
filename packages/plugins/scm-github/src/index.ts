@@ -1925,7 +1925,8 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
               // NOTE: Do not set push.default here — it writes to the shared .git/config
               // (the git-common-dir shared by all worktrees in this repo) and would
               // change push behavior for every worktree/branch in the repo. The
-              // regression test at test/index.test.ts:1275-1280 enforces this constraint.
+              // "should not set push.default in checkoutPR fallback" regression test in
+              // test/index.test.ts enforces this constraint.
               await git(
                 ["config", `branch.${sessionBranch}.pushRemote`, remoteName],
                 workspacePath,
