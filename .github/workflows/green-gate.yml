@@ -88,14 +88,11 @@ jobs:
               ELAPSED=$((ELAPSED + INTERVAL))
             fi
 
-            CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-              --paginate \
+            CHECK_RUNS_FAILED=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
               --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
-            CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-              --paginate \
+            CHECK_RUNS_PENDING=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
               --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
-            TOTAL_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-              --paginate \
+            TOTAL_CHECKS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
               --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)")] | length' 2>/dev/null || echo "0")
 
             echo "  [${ELAPSED}s] total=${TOTAL_CHECKS}, pending=${CHECK_RUNS_PENDING}, failed=${CHECK_RUNS_FAILED}"
@@ -111,14 +108,11 @@ jobs:
           fi
 
           # Final state after wait
-          CHECK_RUNS_FAILED=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --paginate \
+          CHECK_RUNS_FAILED=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
             --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
-          CHECK_RUNS_PENDING=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --paginate \
+          CHECK_RUNS_PENDING=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
             --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
-          TOTAL_CHECKS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-            --paginate \
+          TOTAL_CHECKS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
             --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)")] | length' 2>/dev/null || echo "0")
 
           CI_STATUS_JSON=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
