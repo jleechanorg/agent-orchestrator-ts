@@ -88,12 +88,17 @@ jobs:
               ELAPSED=$((ELAPSED + INTERVAL))
             fi
 
-            CHECK_RUNS_FAILED=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
-              --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
-            CHECK_RUNS_PENDING=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
-              --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
-            TOTAL_CHECKS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
-              --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)")] | length' 2>/dev/null || echo "0")
+            CHECK_RUNS_FAILED=0; CHECK_RUNS_PENDING=0; TOTAL_CHECKS=0
+            for ci_job in "Lint" "Typecheck" "Test" "Test%20%28Web%29"; do
+              run=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?check_name=${ci_job}&per_page=1" \
+                --jq '.check_runs[0] // null' 2>/dev/null || echo "null")
+              if [ -z "$run" ] || [ "$run" = "null" ]; then continue; fi
+              TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+              run_status=$(echo "$run" | jq -r '.status')
+              run_conclusion=$(echo "$run" | jq -r '.conclusion // "null"')
+              [ "$run_status" != "completed" ] && CHECK_RUNS_PENDING=$((CHECK_RUNS_PENDING + 1))
+              case "$run_conclusion" in success|skipped|neutral|cancelled|null) ;; *) CHECK_RUNS_FAILED=$((CHECK_RUNS_FAILED + 1)) ;; esac
+            done
 
             echo "  [${ELAPSED}s] total=${TOTAL_CHECKS}, pending=${CHECK_RUNS_PENDING}, failed=${CHECK_RUNS_FAILED}"
 
@@ -108,12 +113,17 @@ jobs:
           fi
 
           # Final state after wait
-          CHECK_RUNS_FAILED=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
-            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .conclusion != null and .conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral" and .conclusion != "cancelled")] | length' 2>/dev/null || echo "__API_ERROR__")
-          CHECK_RUNS_PENDING=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
-            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select((.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)") and .status != "completed")] | length' 2>/dev/null || echo "__API_ERROR__")
-          TOTAL_CHECKS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
-            --jq '[.check_runs | group_by(.name) | .[] | sort_by(.started_at) | reverse | .[0] | select(.name == "Lint" or .name == "Typecheck" or .name == "Test" or .name == "Test (Web)")] | length' 2>/dev/null || echo "0")
+          CHECK_RUNS_FAILED=0; CHECK_RUNS_PENDING=0; TOTAL_CHECKS=0
+          for ci_job in "Lint" "Typecheck" "Test" "Test%20%28Web%29"; do
+            run=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?check_name=${ci_job}&per_page=1" \
+              --jq '.check_runs[0] // null' 2>/dev/null || echo "null")
+            if [ -z "$run" ] || [ "$run" = "null" ]; then continue; fi
+            TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+            run_status=$(echo "$run" | jq -r '.status')
+            run_conclusion=$(echo "$run" | jq -r '.conclusion // "null"')
+            [ "$run_status" != "completed" ] && CHECK_RUNS_PENDING=$((CHECK_RUNS_PENDING + 1))
+            case "$run_conclusion" in success|skipped|neutral|cancelled|null) ;; *) CHECK_RUNS_FAILED=$((CHECK_RUNS_FAILED + 1)) ;; esac
+          done
 
           CI_STATUS_JSON=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/status \
             --jq '{state: .state, total: .total_count}' 2>/dev/null || echo '{"state":"error","total":0}')
