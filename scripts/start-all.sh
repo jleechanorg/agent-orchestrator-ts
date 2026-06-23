@@ -116,7 +116,24 @@ is_lifecycle_worker_running() {
   local project="$1"
   local escaped_project
   escaped_project="$(printf '%s' "$project" | sed 's/[][().*^$+?{}|\\]/\\&/g')"
-  pgrep -f "lifecycle-worker[[:space:]].*${escaped_project}([[:space:]]|$)" > /dev/null 2>&1
+  if pgrep -f "(lifecycle-worker|start)[[:space:]].*${escaped_project}([[:space:]]|$)" > /dev/null 2>&1; then
+    return 0
+  fi
+
+  # Check running.json if daemon is alive and project is in projects list
+  local running_json="$HOME/.agent-orchestrator/running.json"
+  if [ -f "$running_json" ]; then
+    local pid
+    pid=$(python3 -c "import json; print(json.load(open('$running_json')).get('pid', ''))" 2>/dev/null || true)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      # Daemon is running. Check if project is in projects array.
+      if python3 -c "import json, sys; sys.exit(0 if '$project' in json.load(open('$running_json')).get('projects', []) else 1)" 2>/dev/null; then
+        return 0
+      fi
+    fi
+  fi
+
+  return 1
 }
 
 # Default to NO stop-first in automation loops.

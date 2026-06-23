@@ -3,7 +3,7 @@
 #
 # Replaces: start-all.sh (launcher) + lw-watchdog.sh (monitor) + their plists.
 # Called every 5 min by launchd ai.agento.health.
-# Ensures lifecycle-workers are running for all configured projects.
+# Ensures ao start <project> (in-process polling) is running for all configured projects.
 # Idempotent — safe to run at any time.
 
 set -uo pipefail
@@ -165,7 +165,7 @@ if [ "$BRANCH" != "main" ]; then
     fi
 fi
 
-# ── Ensure lifecycle-worker for each project ─────────────────────────────────
+# ── Ensure ao start <project> (in-process polling) for each project ─────────
 FAILURES=0
 STARTED=0
 
@@ -190,37 +190,73 @@ else
     AO_MATCH="$(command -v ao 2>/dev/null || true)"
 fi
 
-for project in $PROJECTS; do
-    escaped_project="$(escape_ere "$project")"
-    # Scope liveness check to this install's binary — a worker from another
-    # install (different binary path) should NOT prevent starting our own.
-    if [ -n "$AO_MATCH" ]; then
-        matching=$(pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" 2>/dev/null || true)
-        own_worker=false
-        for pid in $matching; do
-            CMD=$(ps -p "$pid" -o args= 2>/dev/null) || continue
-            if command_matches_ao_binary "$CMD" "$AO_MATCH"; then own_worker=true; break; fi
-        done
-        if [ "$own_worker" = "true" ]; then continue; fi
+# Build a regex alternation of all configured project names so the liveness
+# check accepts any of them as a valid orchestrator. Post-PR #712, a single
+# `ao start <one-project>` orchestrator manages polling for ALL projects in
+# the config — calling `ao start <other-project>` while one is already running
+# fails with "AO is already running".
+PROJECT_ALT=""
+for p in $PROJECTS; do
+    ep="$(escape_ere "$p")"
+    if [ -z "$PROJECT_ALT" ]; then
+        PROJECT_ALT="$ep"
     else
-        # No binary path — fall back to unscoped pgrep (legacy behavior)
-        if pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" > /dev/null 2>&1; then
-            continue
+        PROJECT_ALT="$PROJECT_ALT|$ep"
+    fi
+done
+
+# Anchor project — used to launch `ao start <anchor>` if no orchestrator is
+# running. We accept ANY `ao start <one-of-our-projects>` as evidence of a
+# healthy orchestrator, not just the anchor.
+ANCHOR_PROJECT="$(echo "$PROJECTS" | awk '{print $1}')"
+
+orchestrator_alive=false
+# Match `start <project>` in the cmdline. The orchestrator process is launched
+# as `node <dist>/index.js start <project>` (the `ao` binary is just a node
+# wrapper script), so we match the bare `start <project>` substring rather
+# than the literal `ao start` which only appears in the global-symlink wrapper.
+if [ -n "$AO_MATCH" ]; then
+    matching=$(pgrep -f "start[[:space:]]($PROJECT_ALT)([[:space:]]|$)" 2>/dev/null || true)
+    for pid in $matching; do
+        CMD=$(ps -p "$pid" -o args= 2>/dev/null) || continue
+        if command_matches_ao_binary "$CMD" "$AO_MATCH"; then orchestrator_alive=true; break; fi
+    done
+else
+    # No binary path — fall back to unscoped pgrep (legacy behavior)
+    if pgrep -f "start[[:space:]]($PROJECT_ALT)([[:space:]]|$)" > /dev/null 2>&1; then
+        orchestrator_alive=true
+    fi
+fi
+
+if [ "$orchestrator_alive" = "true" ]; then
+    log "OK: orchestrator already running (single in-process polling for all projects)"
+else
+    # Clean up stale running.json if its PID is dead. `ao start` refuses to
+    # start a new orchestrator when ~/.agent-orchestrator/running.json names
+    # a PID that is no longer alive ("AO is already running" then exits).
+    RUNNING_JSON="${HOME}/.agent-orchestrator/running.json"
+    if [ -f "$RUNNING_JSON" ]; then
+        STALE_PID=$(grep -o '"pid":[[:space:]]*[0-9]*' "$RUNNING_JSON" 2>/dev/null | grep -o '[0-9]*' | head -1 || true)
+        if [ -n "$STALE_PID" ] && ! kill -0 "$STALE_PID" 2>/dev/null; then
+            log "CLEANUP: removing stale running.json (dead PID $STALE_PID)"
+            rm -f "$RUNNING_JSON"
         fi
     fi
 
-    log "START: $project worker missing, starting... (cmd=${AO_LAUNCH[*]})"
-    AO_CONFIG_PATH="$CONFIG_PATH" nohup "${AO_LAUNCH[@]}" lifecycle-worker "$project" >> "$LOG_FILE" 2>&1 &
+    log "START: orchestrator missing, starting... (cmd=${AO_LAUNCH[*]} start $ANCHOR_PROJECT --no-dashboard --no-open)"
+    # bd-#667: --no-open suppresses the dashboard browser open even if the
+    # config or env prefers it. Belt-and-suspenders: the ai.agento.health
+    # launchd plist also exports AO_NO_OPEN_BROWSER=1.
+    AO_CONFIG_PATH="$CONFIG_PATH" nohup "${AO_LAUNCH[@]}" start "$ANCHOR_PROJECT" --no-dashboard --no-open >> "$LOG_FILE" 2>&1 &
     disown
     STARTED=$((STARTED + 1))
 
     # Retry pgrep up to 5 times (1s apart) to handle slow process startup and
-    # "already running" cases where the new ao process exits immediately but the
-    # existing worker is still visible.
+    # "already running" cases where the new orchestrator exits immediately.
     started_ok=false
     for _attempt in 1 2 3 4 5; do
         sleep 1
-        started_pids=$(pgrep -f "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)" 2>/dev/null || true)
+        started_pids=$(pgrep -f "start[[:space:]]($PROJECT_ALT)([[:space:]]|$)" 2>/dev/null || true)
         for spid in $started_pids; do
             SCMD=$(ps -p "$spid" -o args= 2>/dev/null) || continue
             if [ -n "$AO_MATCH" ]; then
@@ -231,20 +267,24 @@ for project in $PROJECTS; do
         done
     done
     if [ "$started_ok" = "true" ]; then
-        log "OK: $project worker started"
+        log "OK: orchestrator started"
     else
-        log "FAIL: $project worker failed to start"
+        log "FAIL: orchestrator failed to start"
         FAILURES=$((FAILURES + 1))
     fi
-done
+fi
 
-# Wafer endpoint canary — run once after the full project loop so it
-# probes every iteration regardless of whether individual workers were already
-# running (the in-loop probe was skipped when workers were healthy).
+# Wafer endpoint canary — run once after the orchestrator check so it
+# probes every iteration regardless of whether the orchestrator was already
+# running (the in-loop probe was skipped when orchestrator was healthy).
 probe_wafer_endpoint
 
-# ── Kill orphans (lifecycle-worker PIDs not matching any project) ─────────────
-ALL_PIDS=$(pgrep -f "lifecycle-worker" 2>/dev/null) || true
+# ── Kill orphan orchestrators (ao start PIDs not matching any project) ───────
+# bd-#667 / PR #712: orphan sweep now matches `ao start <project>` instead of
+# the deleted `lifecycle-worker` subprocess. We accept ANY configured project
+# as a valid anchor — only kill orchestrators that aren't anchored to any of
+# our configured projects.
+ALL_PIDS=$(pgrep -f "ao start" 2>/dev/null) || true
 KILLED=0
 
 for pid in $ALL_PIDS; do
@@ -253,19 +293,12 @@ for pid in $ALL_PIDS; do
     if [ -n "$AO_MATCH" ]; then
         command_matches_ao_binary "$CMD" "$AO_MATCH" || continue
     fi
-    MATCHED=false
-    for project in $PROJECTS; do
-        escaped_project="$(escape_ere "$project")"
-        if echo "$CMD" | grep -qE "lifecycle-worker[[:space:]]${escaped_project}([[:space:]]|$)"; then
-            MATCHED=true
-            break
-        fi
-    done
-    if [ "$MATCHED" = "false" ]; then
-        log "KILL: orphan PID $pid: $CMD"
-        kill "$pid" 2>/dev/null || true
-        KILLED=$((KILLED + 1))
+    if echo "$CMD" | grep -qE "start[[:space:]]($PROJECT_ALT)([[:space:]]|$)"; then
+        continue  # anchored to one of our projects — keep it
     fi
+    log "KILL: orphan orchestrator PID $pid: $CMD"
+    kill "$pid" 2>/dev/null || true
+    KILLED=$((KILLED + 1))
 done
 
 # ── Re-bootstrap own launchd service if deregistered ─────────────────────────

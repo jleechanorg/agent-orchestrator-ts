@@ -204,9 +204,9 @@ fi
 if [ "$HERMES_FRESH" -eq 0 ]; then
   alert_count=$((alert_count + 1))
   alert_lines="${alert_lines}\n:warning: ai.hermes-watchdog log stale or missing"
-  launchctl kickstart -kp "gui/$(id -u)/ai.hermes-watchdog" 2>/dev/null \
-    && log "kickstart attempted for ai.hermes-watchdog" \
-    || log "kickstart FAILED for ai.hermes-watchdog"
+  launchctl kickstart -kp "gui/$(id -u)/ai.hermes.watchdog" 2>/dev/null \
+    && log "kickstart attempted for ai.hermes.watchdog" \
+    || log "kickstart FAILED for ai.hermes.watchdog"
 fi
 
 # --- Check 4: lifecycle-worker process count sanity (catches "running but broken") ---

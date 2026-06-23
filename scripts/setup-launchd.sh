@@ -255,7 +255,7 @@ install_lifecycle_plist() {
   # for the next StartInterval (5 min). Workers killed above will be respawned by
   # launchd with the fresh plist env; start-all.sh's skip-healthy logic won't
   # trigger since the workers are freshly launched.
-  launchctl kickstart -k "gui/$(id -u)/$label"
+  launchctl kickstart -k "gui/$(id -u)/$label" || true
 
   # Post-install verification: confirm env vars propagated from shell profile
   if [ -x "$REPO_ROOT/scripts/test-launchd-env.sh" ]; then
@@ -466,7 +466,7 @@ install_health_plist() {
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$(id -u)" "$plist_path"
   launchctl enable "gui/$(id -u)/$label" >/dev/null 2>&1 || true
-  launchctl kickstart -k "gui/$(id -u)/$label"
+  launchctl kickstart -k "gui/$(id -u)/$label" || true
 
   # Post-install verification: confirm env vars propagated from shell profile
   if [ -x "$REPO_ROOT/scripts/test-launchd-env.sh" ]; then
@@ -546,7 +546,7 @@ install_health_guardian_plist() {
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$(id -u)" "$plist_path"
   launchctl enable "gui/$(id -u)/$label" >/dev/null 2>&1 || true
-  launchctl kickstart -k "gui/$(id -u)/$label"
+  launchctl kickstart -k "gui/$(id -u)/$label" || true
 
   echo "Installed launchd: $plist_path"
 }
