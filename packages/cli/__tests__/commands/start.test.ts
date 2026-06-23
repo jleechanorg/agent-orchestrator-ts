@@ -310,6 +310,7 @@ beforeEach(() => {
   mockSessionManager.kill.mockReset();
   mockIsHumanCaller.mockReset();
   mockIsHumanCaller.mockReturnValue(true);
+  mockRegister.mockReset();
   mockPromptSelect.mockReset();
   mockIsAlreadyRunning.mockReset();
   mockIsAlreadyRunning.mockReturnValue(null);
@@ -1021,6 +1022,8 @@ describe("start command — browser open waits for port", () => {
   it("registers running.json even when both dashboard and orchestrator are disabled", async () => {
     mockConfigRef.current = makeConfig({ "my-app": makeProject() });
 
+    // mockRegister is reset in beforeEach; mockClear is defensive in case the
+    // test file ever runs in a mode that disables global restoreAllMocks.
     mockRegister.mockClear();
     await program.parseAsync([
       "node",
