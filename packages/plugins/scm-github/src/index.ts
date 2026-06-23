@@ -1922,6 +1922,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
               // `git push` still requires the local and upstream names to match; to push
               // transparently use `git push origin HEAD:${pr.branch}` or set
               // push.default=upstream in your personal git config.
+              // NOTE: Do not set push.default here — it writes to the shared .git/config
+              // (the git-common-dir shared by all worktrees in this repo) and would
+              // change push behavior for every worktree/branch in the repo. The
+              // "should not set push.default in checkoutPR fallback" regression test in
+              // test/index.test.ts enforces this constraint.
               await git(
                 ["config", `branch.${sessionBranch}.pushRemote`, remoteName],
                 workspacePath,
