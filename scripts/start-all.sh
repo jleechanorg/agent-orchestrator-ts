@@ -127,7 +127,17 @@ is_lifecycle_worker_running() {
     pid=$(python3 -c "import json; print(json.load(open('$running_json')).get('pid', ''))" 2>/dev/null || true)
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
       # Daemon is running. Check if project is in projects array.
-      if python3 -c "import json, sys; sys.exit(0 if '$project' in json.load(open('$running_json')).get('projects', []) else 1)" 2>/dev/null; then
+      # Use heredoc + argv to avoid interpolating $project into python source
+      # (shell-quoting injection: a project name containing a single quote would
+      # break the python invocation and could allow command injection).
+      if python3 - "$project" "$running_json" <<'PYEOF' 2>/dev/null; then
+import json, sys
+try:
+    cfg = json.load(open(sys.argv[2]))
+except (OSError, ValueError):
+    sys.exit(1)
+sys.exit(0 if sys.argv[1] in (cfg.get("projects") or []) else 1)
+PYEOF
         return 0
       fi
     fi
