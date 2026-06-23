@@ -969,6 +969,57 @@ describe("start command — browser open waits for port", () => {
       "my-app",
     );
   });
+
+  // Regression guard for the recurring "localhost:3000 keeps reopening" complaint:
+  // ao-health.sh invokes `ao start $project --no-dashboard --no-open` every 5 min.
+  // The --no-open flag MUST suppress waitForPortAndOpen even when the orchestrator
+  // session is started and config would otherwise allow browser open.
+  it("--no-open suppresses waitForPortAndOpen even with dashboard enabled and config.openBrowser true", async () => {
+    mockConfigRef.current = makeConfig({
+      "my-app": makeProject({ openBrowser: true }),
+    });
+
+    // Mock findWebDir so dashboard is "available"
+    const { findWebDir } = await import("../../src/lib/web-dir.js");
+    vi.mocked(findWebDir).mockReturnValue(tmpDir);
+    writeFileSync(join(tmpDir, "package.json"), "{}");
+
+    mockSessionManager.get.mockResolvedValue(null);
+    mockSessionManager.spawnOrchestrator.mockResolvedValue({ id: "app-orchestrator" });
+
+    await program.parseAsync(["node", "test", "start", "--no-open"]);
+
+    // CRITICAL: even with config.openBrowser=true and dashboard enabled,
+    // --no-open must suppress the browser auto-open.
+    expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
+  });
+
+  it("AO_NO_OPEN_BROWSER=1 env suppresses waitForPortAndOpen with config.openBrowser true", async () => {
+    mockConfigRef.current = makeConfig({
+      "my-app": makeProject({ openBrowser: true }),
+    });
+
+    const { findWebDir } = await import("../../src/lib/web-dir.js");
+    vi.mocked(findWebDir).mockReturnValue(tmpDir);
+    writeFileSync(join(tmpDir, "package.json"), "{}");
+
+    mockSessionManager.get.mockResolvedValue(null);
+    mockSessionManager.spawnOrchestrator.mockResolvedValue({ id: "app-orchestrator" });
+
+    const prev = process.env["AO_NO_OPEN_BROWSER"];
+    process.env["AO_NO_OPEN_BROWSER"] = "1";
+    try {
+      await program.parseAsync(["node", "test", "start"]);
+    } finally {
+      if (prev === undefined) {
+        delete process.env["AO_NO_OPEN_BROWSER"];
+      } else {
+        process.env["AO_NO_OPEN_BROWSER"] = prev;
+      }
+    }
+
+    expect(mockWaitForPortAndOpen).not.toHaveBeenCalled();
+  });
 });
 
 describe("start command — orchestrator session strategy display", () => {

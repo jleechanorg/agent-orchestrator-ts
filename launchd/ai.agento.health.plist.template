@@ -89,6 +89,13 @@
          env var; skeptic-reviewer.ts uses it to resolve the ao binary. -->
     <key>AO_CLI_PATH</key>
     <string>@REPO_ROOT@/packages/cli/dist/index.js</string>
+    <!-- Belt-and-suspenders: even if a future ao-health.sh change forgets to
+         pass --no-open when calling `ao start`, this env var forces
+         shouldOpenBrowser() to return false. PR-level guard for the recurring
+         "localhost:3000 keeps reopening" complaint. See memory:
+         feedback_2026-06-22_ao_health_no_open_regression. -->
+    <key>AO_NO_OPEN_BROWSER</key>
+    <string>1</string>
   </dict>
 
   <key>StandardOutPath</key>

@@ -135,11 +135,16 @@ vi.mock("@jleechanorg/ao-core", async (importOriginal) => {
       return actual.findConfigFile(startDir);
     },
     loadConfig: (path?: string) => {
-      if (path && path === mockConfigRef.current?.["configPath"]) {
-        return mockConfigRef.current;
-      }
+      // Always return the test-owned mock config when set. Without this,
+      // start.ts calling loadConfig with staging/prod paths or any path that
+      // does not byte-match mockConfigRef.current.configPath falls through to
+      // actual.loadConfig(path), which parses the on-disk YAML via the zod
+      // schema and STRIPS fields like openBrowser that the test just added
+      // in-memory. Symptom: shouldOpenBrowser sees config.openBrowser=undefined
+      // even though the test wrote cfg.openBrowser=true.
+      if (mockConfigRef.current) return mockConfigRef.current;
       if (path) return actual.loadConfig(path);
-      return mockConfigRef.current;
+      return actual.loadConfig();
     },
     findPidByPort: mockFindPidByPort,
     killProcessTree: mockKillProcessTree,
@@ -242,6 +247,13 @@ beforeEach(() => {
   process.env["AO_PROD_CONFIG_PATH"] = join(tmpDir, ".openclaw_prod", "agent-orchestrator.yaml");
   originalAoGlobalConfig = process.env["AO_GLOBAL_CONFIG"];
   process.env["AO_GLOBAL_CONFIG"] = join(tmpDir, "global-agent-orchestrator.yaml");
+  // Clear AO_NO_OPEN_BROWSER so it does not leak from the shell environment
+  // (e.g. launchd plist AO_NO_OPEN_BROWSER=1). Without this, tests that rely
+  // on config.openBrowser=true (without an explicit CLI flag) would falsely
+  // see shouldOpenBrowser=false because the env-belt fires before config.
+  // Tests that need AO_NO_OPEN_BROWSER set explicitly restore it via the
+  // saved-and-restored pattern at the call site (see test 5).
+  delete process.env["AO_NO_OPEN_BROWSER"];
 
   program = new Command();
   program.exitOverride();
