@@ -884,6 +884,23 @@ async function runStartup(
     }
   }
 
+  // ── Register in running.json BEFORE "Startup complete" ──
+  // Writing the state file after every subprocess succeeds and before the
+  // success banner guarantees that anything observing the banner can also
+  // see a live running.json. The previous ordering (register AFTER runStartup
+  // returns) left a window where a parent shell exit, an unhandled rejection
+  // in the keepAlive timer, or a downstream error path could print "Startup
+  // complete" yet leave running.json absent — which then caused every
+  // `ao spawn` to fail with "AO is not running — lifecycle polling is inactive"
+  // even though the orchestrator tmux session was alive (Slack bd-#667 followup).
+  await register({
+    pid: process.pid,
+    configPath: config.configPath,
+    port,
+    startedAt: new Date().toISOString(),
+    projects: Object.keys(config.projects),
+  });
+
   // Print summary
   console.log(chalk.bold.green("\n✓ Startup complete\n"));
   recordActivityEvent({
@@ -1299,16 +1316,11 @@ export function registerStart(program: Command): void {
             }
           }
 
-          const actualPort = await runStartup(config, projectId, project, opts);
-
-          // ── Register in running.json (Step 10) ──
-          await register({
-            pid: process.pid,
-            configPath: config.configPath,
-            port: actualPort,
-            startedAt: new Date().toISOString(),
-            projects: Object.keys(config.projects),
-          });
+          // runStartup now writes running.json BEFORE printing "Startup
+          // complete" (see comment at the register call inside runStartup).
+          // We no longer register here — doing so would race with the
+          // keepAlive timer and could overwrite a freshly-written entry.
+          await runStartup(config, projectId, project, opts);
         } catch (err) {
           if (err instanceof Error) {
             console.error(chalk.red("\nError:"), err.message);

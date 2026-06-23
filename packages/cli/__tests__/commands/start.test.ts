@@ -310,6 +310,7 @@ beforeEach(() => {
   mockSessionManager.kill.mockReset();
   mockIsHumanCaller.mockReset();
   mockIsHumanCaller.mockReturnValue(true);
+  mockRegister.mockReset();
   mockPromptSelect.mockReset();
   mockIsAlreadyRunning.mockReset();
   mockIsAlreadyRunning.mockReturnValue(null);
@@ -968,6 +969,72 @@ describe("start command — browser open waits for port", () => {
       expect.objectContaining({ configPath: expect.any(String) }),
       "my-app",
     );
+  });
+
+  // Regression for the Slack bd-#667 followup: `ao start <project> --no-dashboard --no-open`
+  // (the launchd-ao-health.sh invocation) used to print "✓ Startup complete" and then
+  // leave ~/.agent-orchestrator/running.json absent whenever the parent shell exited
+  // in the small window between runStartup returning and the post-runStartup register
+  // call. Every subsequent `ao spawn` then failed with "AO is not running — lifecycle
+  // polling is inactive" even though the orchestrator tmux session was alive. The fix
+  // moves register() INSIDE runStartup, immediately before the "Startup complete"
+  // banner, so anything observing the banner can also observe a live running.json.
+  it("registers running.json before printing 'Startup complete' with --no-dashboard --no-open", async () => {
+    mockConfigRef.current = makeConfig({ "my-app": makeProject() });
+
+    mockSessionManager.get.mockResolvedValue(null);
+    mockSessionManager.spawnOrchestrator.mockResolvedValue({ id: "app-orchestrator" });
+
+    // Capture the order: register must be called BEFORE the "Startup complete" log line.
+    const callOrder: string[] = [];
+    mockRegister.mockImplementation(async () => {
+      callOrder.push("register");
+    });
+    vi.mocked(console.log).mockImplementation((...args: unknown[]) => {
+      const line = args.map(String).join(" ");
+      if (line.includes("Startup complete")) callOrder.push("startup-complete");
+    });
+
+    await program.parseAsync(["node", "test", "start", "--no-dashboard", "--no-open"]);
+
+    expect(mockRegister).toHaveBeenCalledTimes(1);
+    const regCall = mockRegister.mock.calls[0]?.[0];
+    expect(regCall).toMatchObject({
+      pid: process.pid,
+      configPath: expect.any(String),
+      port: expect.any(Number),
+      projects: expect.arrayContaining(["my-app"]),
+    });
+    expect(regCall?.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    // The critical invariant: running.json was written BEFORE the success banner.
+    const regIdx = callOrder.indexOf("register");
+    const bannerIdx = callOrder.indexOf("startup-complete");
+    expect(regIdx).toBeGreaterThanOrEqual(0);
+    expect(bannerIdx).toBeGreaterThanOrEqual(0);
+    expect(regIdx).toBeLessThan(bannerIdx);
+  });
+
+  // Regression: even with --no-orchestrator --no-dashboard (no lifecycle worker at all),
+  // running.json MUST still be written so subsequent `ao spawn` calls can find a running
+  // instance. Before the fix, the post-runStartup register call could be skipped when
+  // any of the runStartup internals threw or the parent shell closed early.
+  it("registers running.json even when both dashboard and orchestrator are disabled", async () => {
+    mockConfigRef.current = makeConfig({ "my-app": makeProject() });
+
+    // mockRegister is reset in beforeEach; mockClear is defensive in case the
+    // test file ever runs in a mode that disables global restoreAllMocks.
+    mockRegister.mockClear();
+    await program.parseAsync([
+      "node",
+      "test",
+      "start",
+      "--no-dashboard",
+      "--no-orchestrator",
+    ]);
+
+    expect(mockRegister).toHaveBeenCalledTimes(1);
+    expect(mockRegister.mock.calls[0]?.[0]?.projects).toEqual(["my-app"]);
   });
 
   // Regression guard for the recurring "localhost:3000 keeps reopening" complaint:

@@ -48,7 +48,7 @@ If config is not enough, implement a plugin using an existing slot:
 - `notifier` — notifications (Slack, Discord, openclaw, webhook, etc.)
 - `workspace` — how worktrees are set up (worktree, docker-volume, etc.)
 
-Use an existing plugin package as a template. Publish as `@composio/ao-plugin-<slot>-<name>`.
+Use an existing plugin package as a template. Publish as `@jleechanorg/ao-plugin-<slot>-<name>` (fork scope). Upstream uses `@aoagents/`; the `ComposioHQ/composio` org now mirrors `agentwrapper/agent-orchestrator`.
 
 ### 4. Make a New Plugin Type (new plugin slot)
 If none of the existing slots fit, propose and implement a new plugin slot in `plugin-registry.ts`.
@@ -96,7 +96,7 @@ roadmap/               # Design docs and decision records — first-class, commi
 
 ## Fork Isolation — Mandatory for All Changes
 
-This is a fork of `ComposioHQ/agent-orchestrator`. Every code change must prioritize isolation from upstream to avoid merge conflicts.
+This is a fork of `agentwrapper/agent-orchestrator`. (The `ComposioHQ/agent-orchestrator` repo mirrors `agentwrapper/agent-orchestrator`; the canonical upstream org is now `agentwrapper`.) Every code change must prioritize isolation from upstream to avoid merge conflicts.
 
 ### Before modifying any `packages/core/src/` file:
 
@@ -269,9 +269,9 @@ If a worker looks inactive but `pr-rescue-status.sh` returns **1** with “check
 
 ## PR Target — CRITICAL SAFETY RULE
 
-**NEVER open a PR against `ComposioHQ/agent-orchestrator` (upstream) without explicit approval from jleechan.**
+**NEVER open a PR against `agentwrapper/agent-orchestrator` (upstream) without explicit approval from jleechan.** (The `ComposioHQ/agent-orchestrator` repo is a mirror; the canonical upstream org is `agentwrapper`.)
 
-Before running `gh pr create`, verify the `--repo` target or the default remote. If it resolves to `ComposioHQ/agent-orchestrator`, stop and ask for approval before proceeding. The correct default target is always `jleechanorg/agent-orchestrator`.
+Before running `gh pr create`, verify the `--repo` target or the default remote. If it resolves to `agentwrapper/agent-orchestrator` (or `ComposioHQ/agent-orchestrator` mirror), stop and ask for approval before proceeding. The correct default target is always `jleechanorg/agent-orchestrator`.
 
 ## Bulk PR Merging
 
@@ -287,7 +287,7 @@ When merging multiple PRs, use the `/bulk-merge` workflow (`.claude/commands/bul
 
 | Repo | Location | Purpose |
 |------|----------|---------|
-| **ComposioHQ upstream** | `~/projects_reference/agent-orchestrator-mirror` | Clean mirror of `ComposioHQ/agent-orchestrator`. Sync with `git fetch upstream && git reset --hard upstream/main`. Use for checking upstream behavior before writing fork code. |
+| **agentwrapper upstream** | `~/projects_reference/agent-orchestrator-mirror` | Clean mirror of `agentwrapper/agent-orchestrator` (formerly `ComposioHQ/agent-orchestrator`; that repo now mirrors agentwrapper). Sync with `git fetch upstream && git reset --hard upstream/main`. Use for checking upstream behavior before writing fork code. |
 | **This fork** | `~/projects_reference/agent-orchestrator` | `jleechanorg/agent-orchestrator` — independent fork with openclaw, MCP mail, custom plugins |
 
 Before writing code that changes core behavior, **check the mirror first** to see if upstream already supports it. Many features (notifier plugins, reactions, config wiring) already work via config — no code change needed.
@@ -295,7 +295,7 @@ Before writing code that changes core behavior, **check the mirror first** to se
 ## PR Checklist
 
 Before opening a PR, verify:
-- [ ] PR target is `jleechanorg/agent-orchestrator` (not ComposioHQ upstream)
+- [ ] PR target is `jleechanorg/agent-orchestrator` (not `agentwrapper` upstream — formerly ComposioHQ)
 - [ ] All existing tests pass
 - [ ] New behavior has new tests (TDD)
 - [ ] Config-first hierarchy followed (AGENTS.md §Development Hierarchy)
