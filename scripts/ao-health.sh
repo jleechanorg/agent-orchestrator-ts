@@ -8,50 +8,19 @@
 
 set -uo pipefail
 
-# Escape a string for use in an ERE (extended regular expression).
-escape_ere() { printf '%s' "$1" | sed 's/[][().*^$+?{}|\\]/\\&/g'; }
-
-# Resolve symlinks — matches setup-launchd.sh behavior so that a worker
-# launched via a symlinked binary (e.g. /Users/.../bin/ao -> pnpm shim)
-# is correctly recognized by the health job.
-resolve_path() {
-  python3 - "$1" <<'PY' 2>/dev/null || printf '%s\n' "$1"
-import os
-import sys
-
-print(os.path.realpath(sys.argv[1]))
-PY
-}
-
-# Check whether a process command line matches this install's AO binary,
-# accounting for symlinks and /private prefix on macOS.
-# Also resolves the CMD binary itself so that two different symlinks to the
-# same real file (e.g. /Users/.../bin/ao -> .nvm/.../bin/ao -> dist/index.js)
-# are correctly recognised as the same binary.
-command_matches_ao_binary() {
-  local cmd="$1"
-  local ao_bin="$2"
-  local ao_real cmd_bin cmd_real
-  ao_real="$(resolve_path "$ao_bin")"
-  local ao_alt="${ao_bin#/private}"
-  local ao_real_alt="${ao_real#/private}"
-  if [[ "$cmd" == *"$ao_bin"* || "$cmd" == *"$ao_alt"* || "$cmd" == *"$ao_real"* || "$cmd" == *"$ao_real_alt"* ]]; then
-    return 0
-  fi
-  cmd_bin=$(echo "$cmd" | grep -oE '(/[^ ]+/ao)( |$)' | head -1 | xargs 2>/dev/null || true)
-  if [ -n "$cmd_bin" ]; then
-    cmd_real="$(resolve_path "$cmd_bin")"
-    [ "$cmd_real" = "$ao_real" ] && return 0
-  fi
-  return 1
-}
-
 # ── Config ──────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 LOCK_DIR="/tmp/ao-health.lock"
 LOG_FILE="${AO_LOG_DIR:-$HOME/.openclaw/logs}/ao-health.log"
 STALE_LOCK_SECS=600  # 10 minutes
+
+# Pure helpers (testable in isolation — see scripts/test-ao-health.sh).
+# shellcheck source=./lib/ao-health-helpers.sh
+source "$SCRIPT_DIR/lib/ao-health-helpers.sh" 2>/dev/null || {
+    echo "FATAL: cannot source $SCRIPT_DIR/lib/ao-health-helpers.sh" >&2
+    exit 1
+}
 
 # ── Lock (mkdir-based, auto-reap stale) ──────────────────────────────────────
 if mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -195,15 +164,7 @@ fi
 # `ao start <one-project>` orchestrator manages polling for ALL projects in
 # the config — calling `ao start <other-project>` while one is already running
 # fails with "AO is already running".
-PROJECT_ALT=""
-for p in $PROJECTS; do
-    ep="$(escape_ere "$p")"
-    if [ -z "$PROJECT_ALT" ]; then
-        PROJECT_ALT="$ep"
-    else
-        PROJECT_ALT="$PROJECT_ALT|$ep"
-    fi
-done
+PROJECT_ALT="$(build_project_alt "$PROJECTS")"
 
 # Anchor project — used to launch `ao start <anchor>` if no orchestrator is
 # running. We accept ANY `ao start <one-of-our-projects>` as evidence of a
@@ -235,12 +196,10 @@ else
     # start a new orchestrator when ~/.agent-orchestrator/running.json names
     # a PID that is no longer alive ("AO is already running" then exits).
     RUNNING_JSON="${HOME}/.agent-orchestrator/running.json"
-    if [ -f "$RUNNING_JSON" ]; then
+    if should_clean_stale_running_json "$RUNNING_JSON"; then
         STALE_PID=$(grep -o '"pid":[[:space:]]*[0-9]*' "$RUNNING_JSON" 2>/dev/null | grep -o '[0-9]*' | head -1 || true)
-        if [ -n "$STALE_PID" ] && ! kill -0 "$STALE_PID" 2>/dev/null; then
-            log "CLEANUP: removing stale running.json (dead PID $STALE_PID)"
-            rm -f "$RUNNING_JSON"
-        fi
+        log "CLEANUP: removing stale running.json (dead PID $STALE_PID)"
+        rm -f "$RUNNING_JSON"
     fi
 
     log "START: orchestrator missing, starting... (cmd=${AO_LAUNCH[*]} start $ANCHOR_PROJECT --no-dashboard --no-open)"
@@ -280,11 +239,18 @@ fi
 probe_wafer_endpoint
 
 # ── Kill orphan orchestrators (ao start PIDs not matching any project) ───────
-# bd-#667 / PR #712: orphan sweep now matches `ao start <project>` instead of
-# the deleted `lifecycle-worker` subprocess. We accept ANY configured project
-# as a valid anchor — only kill orchestrators that aren't anchored to any of
-# our configured projects.
-ALL_PIDS=$(pgrep -f "ao start" 2>/dev/null) || true
+# bd-#667 / PR #712: orphan sweep now matches `start <project>` (any cmdline
+# shape) instead of the deleted `lifecycle-worker` subprocess. We accept ANY
+# configured project as a valid anchor — only kill orchestrators that aren't
+# anchored to any of our configured projects.
+#
+# Use the same robust `start[[:space:]]...` pattern as the liveness check above
+# (matches both `ao start <project>` and `node <dist>/index.js start <project>`)
+# but WITHOUT the PROJECT_ALT restriction — the inner grep below filters
+# anchored vs orphan. The previous `pgrep -f "ao start"` only matched the
+# global-symlink wrapper, leaving `node <dist>/index.js start <project>`
+# orphans un-swept.
+ALL_PIDS=$(pgrep -f "$(orchestrator_orphan_sweep_pattern)" 2>/dev/null) || true
 KILLED=0
 
 for pid in $ALL_PIDS; do
