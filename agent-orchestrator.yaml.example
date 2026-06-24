@@ -157,6 +157,20 @@ projects:
     # autoMerge:
     #   enabled: false
 
+  # WorldArchitect.AI (Python/Flask game backend) — historically capped at 5
+  # concurrent sessions, which throttled /green sweeps when many PRs were open.
+  # Bump to 20 to match the global default. Cap is the per-project hard limit;
+  # the global DEFAULT_MAX_ACTIVE_SESSIONS in spawn-queue.ts is also 20.
+  worldarchitect:
+    name: worldarchitect.ai
+    repo: jleechanorg/worldarchitect.ai
+    path: ~/projects/worldarchitect.ai
+    defaultBranch: main
+    sessionPrefix: wa
+    spawnQueue:
+      enabled: true
+      maxActiveSessions: 20
+
   # Fork: jleechanorg/agent-orchestrator — builtin manager evolve loop (bd-elcfg).
   # Mirror under projects.agent-orchestrator in ~/.openclaw/agent-orchestrator.yaml when self-hosting.
   # Template: see projects.jleechanclaw.evolveLoop in the same file for a fuller scope list (e.g. antig-dispatch).
