@@ -267,3 +267,51 @@ describe("llm-eval-shared propagation test", () => {
     }
   });
 });
+
+describe("isAuthError fallback patterns", () => {
+  it("treats Claude 'Not logged in · Please run /login' as auth failure", async () => {
+    const { isAuthError } = await import("../../src/lib/llm-eval-shared.js");
+    expect(isAuthError("Not logged in · Please run /login")).toBe(true);
+    expect(isAuthError("not logged in")).toBe(true);
+    expect(isAuthError("please run /login first")).toBe(true);
+  });
+
+  it("treats Codex-style quota/review-limit messages as auth failure", async () => {
+    const { isAuthError } = await import("../../src/lib/llm-eval-shared.js");
+    expect(isAuthError("You have reached your Codex usage limits for code reviews.")).toBe(true);
+    expect(isAuthError("Review limit reached")).toBe(true);
+    expect(isAuthError("rate limit reached")).toBe(true);
+  });
+
+  it("still matches existing 401/403/unauthorized/forbidden patterns", async () => {
+    const { isAuthError } = await import("../../src/lib/llm-eval-shared.js");
+    expect(isAuthError("401 Unauthorized")).toBe(true);
+    expect(isAuthError("403 Forbidden")).toBe(true);
+    expect(isAuthError("Authentication required: unauthorized")).toBe(true);
+    expect(isAuthError("Access denied: forbidden")).toBe(true);
+  });
+
+  it("does not match unrelated error strings", async () => {
+    const { isAuthError } = await import("../../src/lib/llm-eval-shared.js");
+    expect(isAuthError("Network timeout")).toBe(false);
+    expect(isAuthError("Invalid prompt: missing VERDICT line")).toBe(false);
+    expect(isAuthError("Server error 500")).toBe(false);
+  });
+});
+
+describe("isUnavailable fallback patterns", () => {
+  it("treats Codex CLI config-load errors as unavailable", async () => {
+    const { isUnavailable } = await import("../../src/lib/llm-eval-shared.js");
+    expect(isUnavailable("Error loading config.toml: unknown variant default")).toBe(true);
+  });
+
+  it("treats Claude 'Not logged in' as unavailable (falls through to next model)", async () => {
+    const { isUnavailable } = await import("../../src/lib/llm-eval-shared.js");
+    expect(isUnavailable("Not logged in · Please run /login")).toBe(true);
+  });
+
+  it("treats Codex-style quota messages as unavailable", async () => {
+    const { isUnavailable } = await import("../../src/lib/llm-eval-shared.js");
+    expect(isUnavailable("Codex CLI: usage limits reached")).toBe(true);
+  });
+});

@@ -62,17 +62,38 @@ export function isUnavailable(errMsg: string, errCode?: string): boolean {
     lower.includes("rate limit") ||
     lower.includes("rate_limit") ||
     lower.includes("resource_exhausted") ||
-    lower.includes("insufficient_quota")
+    lower.includes("insufficient_quota") ||
+    // Codex CLI exits with "Error loading config.toml" or similar local config errors
+    // before it even talks to the API. These are binary-broken and should fall through.
+    lower.includes("error loading config") ||
+    // Provider "Not logged in" / OAuth-missing cases — share credentials, so fall through.
+    lower.includes("not logged in") ||
+    lower.includes("please run /login") ||
+    // Codex GitHub App / Codex CLI quota messages — share billing, fall through.
+    lower.includes("usage limits") ||
+    lower.includes("rate limit reached") ||
+    lower.includes("review limit reached")
   );
 }
 
 /** True when msg indicates an auth failure that is global to all binaries. */
 export function isAuthError(msg: string): boolean {
+  const lower = msg.toLowerCase();
   return (
     /\b401\b/i.test(msg) ||
     /\b403\b/i.test(msg) ||
-    msg.toLowerCase().includes("unauthorized") ||
-    msg.toLowerCase().includes("forbidden")
+    lower.includes("unauthorized") ||
+    lower.includes("forbidden") ||
+    // Claude CLI emits "Not logged in · Please run /login" when OAuth is missing.
+    // Treat as global auth failure so all binaries sharing the same credential
+    // store can be skipped together instead of returning a misleading infra error.
+    lower.includes("not logged in") ||
+    lower.includes("please run /login") ||
+    // Codex-style quota/rate-limit messages share a single billing account.
+    // Treated as auth-ish so the chain continues cleanly to the next provider.
+    lower.includes("usage limits") ||
+    lower.includes("rate limit reached") ||
+    lower.includes("review limit reached")
   );
 }
 
