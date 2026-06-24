@@ -222,17 +222,25 @@ describe("llmEval — explicit model=gemini", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("fails closed when gemini omits a verdict with model=gemini", async () => {
+  it("falls through to next model when gemini omits a verdict with model=gemini", async () => {
+    // gemini runs successfully but produces no VERDICT line — per #725 the chain
+    // no longer hard-fails on missing VERDICT; it should try the next model
+    // (minimax → agy → codex → claude) instead.
     fetchSpy.mockResolvedValue({
       ok: true,
       json: async () => ({
         candidates: [{ content: { parts: [{ text: "Gemini analysis with no verdict" }] } }],
       }),
     } as Response);
+    // codex succeeds so the chain has a clean place to land after fall-through.
+    mockResolveCodexBinary.mockResolvedValue("/usr/local/bin/codex");
+    mockExecFileSync.mockReturnValue(PASS_VERDICT);
 
     const result = await llmEval("evaluate this", { model: "gemini" });
-    expect(result).toContain("VERDICT: FAIL");
-    expect(result).toContain("gemini:");
-    expect(result).toContain("missing VERDICT");
+    expect(result).toBe(PASS_VERDICT);
+    expect(fetchSpy).toHaveBeenCalled();
+    // codex (execFileSync) must have been called — that's the whole point of
+    // the fall-through contract from PR #725.
+    expect(mockExecFileSync).toHaveBeenCalled();
   });
 });

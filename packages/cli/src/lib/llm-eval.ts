@@ -13,7 +13,8 @@
  *   claude --dangerously-skip-permissions --print  (secondary — Claude Code OAuth, no proxy; prompt via stdin)
  *
  * The evaluated output must contain VERDICT: PASS or VERDICT: FAIL.
- * Missing VERDICT = fail-closed FAIL.
+ * If the chain exhausts all models without a verdict, returns
+ * "VERDICT: FAIL — infra: ..." with diagnostic detail.
  */
 
 import { type LlmEvalResult, isUnavailable } from "./llm-eval-shared.js";
@@ -42,6 +43,21 @@ export { tryMinimaxPrint };
  *
  * Pass a string[] to define an explicit ordered chain (e.g. ["minimax", "codex"]).
  * cursor is accepted for CLI compatibility but excluded: cursor-agent blocks on Workspace Trust.
+ *
+ * Chain semantics (post-#725):
+ * - First model to produce a valid VERDICT line wins.
+ * - ANY error (ENOENT, 401, 403, 429, quota exhausted, OAuth missing, real crash,
+ *   missing VERDICT line) falls through to the next model. We no longer hard-fail
+ *   on "model ran but didn't produce VERDICT" — that's a per-model prompt-format
+ *   mismatch, not necessarily a prompt-template defect, so we try the next model.
+ * - If 2 consecutive models produce the same outcome signature
+ *   (same error string OR same "unavailable:<model>" result), the chain stops
+ *   early. Two same-signature outcomes in a row is strong evidence of a
+ *   systemic issue (broken prompt template, shared credential expired, etc.)
+ *   and continuing would waste latency.
+ * - If the chain exhausts all models without a verdict, returns
+ *   "VERDICT: FAIL — infra: All LLM tools exhausted. ..." with the most
+ *   informative error captured during the run.
  */
 export type ChainModel = "codex" | "claude" | "gemini" | "minimax" | "agy";
 
@@ -53,9 +69,6 @@ export async function llmEval(
   if (model === ("cursor" as unknown)) {
     model = "codex";
   }
-
-  const isMissingVerdict = (err?: string) =>
-    err !== undefined && /missing VERDICT/i.test(err);
 
   const DEFAULT_CHAIN: ChainModel[] = ["codex", "claude", "gemini", "minimax", "agy"];
 
@@ -89,6 +102,16 @@ export async function llmEval(
   }
 
   let lastError = "";
+  // Dedup state: if N consecutive models produce the same outcome signature,
+  // assume a systemic issue (broken prompt template, all-creds-expired, etc.)
+  // and stop early to avoid wasting latency on the remaining models.
+  // The signature covers "real error" (error:<msg>), "missing VERDICT"
+  // (normalized to "missing_verdict" across models), and "tool unavailable"
+  // (unavailable:<model>) cases.
+  // Threshold of 3 = allows 2 attempts before declaring a systemic issue.
+  let lastSig: string | undefined = undefined;
+  let sameSigCount = 0;
+  const DEDUP_THRESHOLD = 3;
 
   for (const evalModel of ordered) {
     let result: LlmEvalResult;
@@ -115,24 +138,42 @@ export async function llmEval(
 
     if (result.validVerdict) return result.output;
 
-    if (isMissingVerdict(result.error)) {
-      return `VERDICT: FAIL — ${evalModel}: ${result.error}`;
+    // Build signature for dedup. Normalize "missing VERDICT" outcomes to a
+    // stable signature so two consecutive models each producing missing
+    // VERDICT (with different model names in the message) are recognized
+    // as the same systemic issue (prompt-template vs. model mismatch).
+    // Other errors keep their literal string as the signature.
+    const sig =
+      result.error !== undefined
+        ? /missing VERDICT/i.test(result.error)
+          ? "missing_verdict"
+          : `error:${result.error}`
+        : `unavailable:${evalModel}`;
+
+    if (sig === lastSig) {
+      sameSigCount++;
+    } else {
+      sameSigCount = 1;
+      lastSig = sig;
     }
 
-    if (result.error) {
+    if (sameSigCount >= DEDUP_THRESHOLD) {
+      // Stop early — same outcome from N consecutive models likely means
+      // a systemic issue (e.g. prompt template broken for all models,
+      // shared credential expired, all binaries installed but produce
+      // identical crash). Continuing would waste latency for no gain.
+      return `VERDICT: FAIL — infra: ${sameSigCount} consecutive models returned same outcome (${sig}). Stopped early. Tried: ${ordered.join(" → ")}. Last error: ${lastError || sig}`;
+    }
+
+    if (result.error !== undefined) {
       lastError = result.error;
-      // Infra failure — continue to next model in chain
-      continue;
-    }
-
-    // Tool unavailable (ENOENT / 401 / 403 / 429) — try next model
-    // Only set "not available" if we haven't recorded an error yet.
-    // Infra errors (set above) are preserved since they're more informative
-    // (tool IS installed but something went wrong); "not available" is a
-    // fallback when no infra error has been encountered in the chain.
-    if (!lastError) {
+    } else if (!lastError) {
       lastError = `${evalModel}: not available`;
     }
+    // Continue to next model — chain tries every binary regardless of
+    // error type. Missing VERDICT no longer hard-fails; that's the
+    // prompt-template-vs-model mismatch signal, which we now treat as
+    // "try a different model that might follow the template better".
   }
 
   // All models exhausted
