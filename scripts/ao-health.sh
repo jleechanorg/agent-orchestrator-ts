@@ -12,7 +12,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 LOCK_DIR="/tmp/ao-health.lock"
-LOG_FILE="${AO_LOG_DIR:-$HOME/.openclaw/logs}/ao-health.log"
+LOG_FILE="${AO_LOG_DIR:-$HOME/.hermes/logs}/ao-health.log"
 STALE_LOCK_SECS=600  # 10 minutes
 
 # Pure helpers (testable in isolation — see scripts/test-ao-health.sh).

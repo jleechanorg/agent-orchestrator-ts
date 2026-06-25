@@ -106,7 +106,7 @@ if [ -z "$PROJECTS" ]; then
 fi
 
 SELECTED="${@:-$PROJECTS}"
-LOG_DIR="${AO_LOG_DIR:-${HOME}/.openclaw/logs}"
+LOG_DIR="${AO_LOG_DIR:-${HOME}/.hermes/logs}"
 mkdir -p "$LOG_DIR"
 START_DASHBOARD="${AO_START_DASHBOARD:-0}"
 REPLACE_EXISTING="${AO_START_REPLACE_EXISTING:-0}"

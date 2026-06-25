@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/launchd-service-state.sh"
 
-LOG_DIR="$HOME/.openclaw/logs"
+LOG_DIR="${AO_LOG_DIR:-$HOME/.hermes/logs}"
 LOG_FILE="$LOG_DIR/lw-watchdog.log"
 mkdir -p "$LOG_DIR"
 

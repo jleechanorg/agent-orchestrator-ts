@@ -6,7 +6,7 @@ PROJECT="${PROJECT:-agent-orchestrator}"
 TOP_N="${TOP_N:-5}"
 TMUX_SESSION_BUDGET="${TMUX_SESSION_BUDGET:-20}"
 SPAWN_MISSING="${SPAWN_MISSING:-1}"
-LIFECYCLE_LOG="${LIFECYCLE_LOG:-$HOME/.openclaw/logs/ao-lifecycle-${PROJECT}.log}"
+LIFECYCLE_LOG="${LIFECYCLE_LOG:-$HOME/.hermes/logs/ao-lifecycle-${PROJECT}.log}"
 
 if ! [[ "$TOP_N" =~ ^[0-9]+$ ]] || [ "$TOP_N" -le 0 ]; then
   echo "TOP_N must be a positive integer" >&2
