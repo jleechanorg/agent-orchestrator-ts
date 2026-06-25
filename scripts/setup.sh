@@ -289,15 +289,9 @@ if [ -f "$BOOTSTRAP_SCRIPT" ]; then
   bash "$BOOTSTRAP_SCRIPT"
 fi
 
-# ─── Fork-specific extended setup ───────────────────────────────────────────
-
-EXTENDED_SCRIPT="$REPO_ROOT/scripts/setup-extended.sh"
-CONFIG_FILE="${AO_CONFIG_PATH:-$(ao_staging_config_path)}"
-if [ -f "$EXTENDED_SCRIPT" ] && [ -f "$CONFIG_FILE" ]; then
-  AO_CONFIG_PATH="$CONFIG_FILE" bash "$EXTENDED_SCRIPT"
-elif [ -f "$EXTENDED_SCRIPT" ]; then
-  echo "  Skipping extended setup (no config at $CONFIG_FILE — run 'ao start' to create one)"
-fi
+# Fork-specific extended setup is now OPT-IN. Upstream agentwrapper/agent-orchestrator
+# does not auto-register GitHub webhooks; the fork no longer does either.
+# See scripts/fork/register-webhooks.sh for explicit webhook setup.
 
 echo ""
 echo "What's next:"
@@ -311,4 +305,8 @@ echo ""
 echo "  Want to add more projects later?"
 echo ""
 echo "    ao start ~/path/to/another-repo"
+echo ""
+echo "  Want GitHub webhooks (push/PR events without polling)?"
+echo ""
+echo "    bash scripts/fork/register-webhooks.sh   # opt-in; requires Tailscale"
 echo ""
