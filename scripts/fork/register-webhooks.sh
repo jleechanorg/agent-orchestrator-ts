@@ -74,11 +74,27 @@ if [ "$TS_STATUS" != "Running" ]; then
   exit 1
 fi
 
-FUNNEL_URL=$(tailscale funnel status 2>/dev/null \
-  | grep -E "^${WEBHOOK_PORT}\b" \
-  | awk '{print $3}' \
-  | sed 's|/+$||' \
-  || true)
+# Parse the Funnel URL for port $WEBHOOK_PORT.
+# Tailscale's `funnel status` output is URL-led (e.g.
+#   https://host.tailnet.ts.net/
+#   |--> https://host.tailnet.ts.net:443 (Funnel on)
+#   |    --> "https://host.tailnet.ts.net:3030" (Funnel on)
+# ), not port-led, so we grep for the JSON serve-config instead and
+# extract the Funnel host:port mapping. Falls back to human-readable parsing
+# if the JSON is unavailable.
+FUNNEL_URL=""
+SERVE_JSON=$(tailscale status --json 2>/dev/null || true)
+if [ -n "$SERVE_JSON" ]; then
+  # Funnel exposes TCP via `PeerAPI`; the ServeConfig holds the port-to-URL map.
+  # tailscale status --json includes `CertDomains[0]` which is the Tailnet hostname.
+  # The Funnel URL is https://${CertDomains[0]}:${WEBHOOK_PORT}
+  HOSTNAME=$(printf '%s' "$SERVE_JSON" \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('CertDomains') or [''])[0])" 2>/dev/null \
+    || true)
+  if [ -n "$HOSTNAME" ]; then
+    FUNNEL_URL="https://${HOSTNAME}:${WEBHOOK_PORT}"
+  fi
+fi
 
 if [ -z "$FUNNEL_URL" ]; then
   echo "ERROR: Tailscale is running but Funnel is not open on port $WEBHOOK_PORT."
@@ -185,9 +201,14 @@ for project_id, proj_cfg in (cfg.get('projects') or {}).items():
             body = json.loads(body_text)
         except Exception:
             body = {'message': body_text[:200]}
+        # GitHub wraps the actual reason in `errors[].message`. The top-level
+        # `message` is usually just "Validation Failed" for 422s, so check both.
         msg = body.get('message', 'unknown error')
+        errs = body.get('errors') or []
+        detail_msgs = [str(err.get('message', '')) for err in errs if isinstance(err, dict)]
+        combined_msg = (msg + ' ' + ' '.join(detail_msgs)).lower()
 
-        if e.code == 422 and 'already exists' in msg.lower():
+        if e.code == 422 and 'already exists' in combined_msg:
             print(f"  ~ {repo}: already exists (skipping)")
             already_exists += 1
         elif e.code == 404:
