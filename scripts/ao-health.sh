@@ -44,55 +44,13 @@ source "$REPO_ROOT/scripts/lib/ao-config-topology.sh" 2>/dev/null || {
     log "FATAL: cannot source ao-config-topology.sh"; exit 1
 }
 
-# ── Wafer endpoint canary probe ────────────────────────────────────────────────
-# Probes the wafer API to verify auth is valid, not just that the process runs.
-# Distinguishes three states: (a) reachable + auth valid, (b) auth expired/bad,
-# (c) endpoint unreachable.
-probe_wafer_endpoint() {
-  local api_key="${WAFER_API_KEY:-}"
-
-  if [ -z "$api_key" ]; then
-    return 0
-  fi
-
-  local resp http_code hdr_file
-  hdr_file=$(mktemp "${TMPDIR:-/tmp}/ao-health-hdr.XXXXXX")
-  printf 'Authorization: Bearer %s' "$api_key" > "$hdr_file"
-  resp=$(curl -s -w "\n%{http_code}" \
-    --max-time 15 \
-    -H @"$hdr_file" \
-    "https://pass.wafer.ai/v1/models" 2>/dev/null || true)
-  rm -f "$hdr_file"
-
-  http_code=$(printf '%s' "$resp" | tail -1)
-
-  case "$http_code" in
-    200) log "OK: wafer endpoint auth valid" ;;
-    401|403) log "WARN: wafer auth invalid/expired (HTTP $http_code)" ;;
-    000) log "WARN: wafer endpoint unreachable (curl timeout/DNS)" ;;
-    *) log "WARN: wafer endpoint returned HTTP $http_code" ;;
-  esac
-  return 0
-}
-
 # ── Discover projects ────────────────────────────────────────────────────────
 CONFIG_PATH=$(ao_find_config_path) || { log "FATAL: no config found"; exit 1; }
 
-# Pre-load WAFER_API_KEY from the same sources AO workers use:
-# 1. Shell environment (set via launchd wrapper or parent shell)
-# 2. envSource (default: ~/.bashrc — mirrors AO bootstrapEnvSource)
-# 3. YAML config plugins section (fallback for explicit config-only setups)
-if [ -z "${WAFER_API_KEY:-}" ]; then
-  WAFER_API_KEY=$(bash --noprofile --norc -c 'source ~/.bashrc 2>/dev/null; printf "%s" "${WAFER_API_KEY:-}"' 2>/dev/null || true)
-fi
-if [ -z "${WAFER_API_KEY:-}" ]; then
-  WAFER_API_KEY=$(python3 - "$CONFIG_PATH" <<'PYEOF' 2>/dev/null
-import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1])) or {}
-print(cfg.get('plugins', {}).get('WAFER_API_KEY', ''))
-PYEOF
-)
-fi
+# NOTE: Wafer endpoint canary probe (and WAFER_API_KEY pre-load) removed
+# 2026-06-25 — we do not use the wafer provider, so the per-tick
+# `WARN: wafer auth invalid/expired (HTTP 401)` log line was pure noise.
+# If wafer is ever re-enabled, re-introduce probe_wafer_endpoint() here.
 
 PROJECTS=$(python3 - "$CONFIG_PATH" <<'PYEOF' 2>/dev/null
 import sys
@@ -232,11 +190,6 @@ else
         FAILURES=$((FAILURES + 1))
     fi
 fi
-
-# Wafer endpoint canary — run once after the orchestrator check so it
-# probes every iteration regardless of whether the orchestrator was already
-# running (the in-loop probe was skipped when orchestrator was healthy).
-probe_wafer_endpoint
 
 # ── Kill orphan orchestrators (ao start PIDs not matching any project) ───────
 # bd-#667 / PR #712: orphan sweep now matches `start <project>` (any cmdline
