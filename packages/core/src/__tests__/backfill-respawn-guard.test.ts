@@ -105,12 +105,15 @@ describe("backfill respawn cap", () => {
     writeArchivedPr("app-1", 654);
     writeArchivedPr("app-2", 654);
     writeArchivedPr("app-3", 654);
-    writeArchivedPr("app-4", 123);
+    writeArchivedPr("app-4", 654);
+    writeArchivedPr("app-5", 654);
+    writeArchivedPr("app-6", 654);
+    writeArchivedPr("app-7", 123);
 
     const capped = getPrNumbersAtRespawnCap(getSessionsDir(configPath, tmpDir));
-    expect(capped.get(654)).toBe(3);
+    expect(capped.get(654)).toBe(6);
     expect(capped.has(123)).toBe(false);
-    expect(BACKFILL_MAX_RESPAWNS_PER_PR).toBe(3);
+    expect(BACKFILL_MAX_RESPAWNS_PER_PR).toBe(6);
   });
 
   it("tracks one-time Slack escalation markers per PR", () => {

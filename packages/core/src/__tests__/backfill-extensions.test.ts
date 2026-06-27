@@ -1110,7 +1110,7 @@ describe("backfillUncoveredPRs respawn guard", () => {
 
     const archiveDir = join(sessionsDir, "archive");
     mkdirSync(archiveDir, { recursive: true });
-    for (const id of ["app-97", "app-98", "app-99"]) {
+    for (const id of ["app-94", "app-95", "app-96", "app-97", "app-98", "app-99"]) {
       writeFileSync(
         join(archiveDir, `${id}_2026-06-08T12-00-00-000Z`),
         "status=killed\npr=https://github.com/org/repo/pull/654\n",
@@ -1130,7 +1130,7 @@ describe("backfillUncoveredPRs respawn guard", () => {
       expect.objectContaining({
         type: "reaction.escalated",
         message: expect.stringContaining("PR #654"),
-        data: expect.objectContaining({ prNumber: 654, respawnCount: 3 }),
+        data: expect.objectContaining({ prNumber: 654, respawnCount: 6 }),
       }),
       "urgent",
     );
@@ -1154,7 +1154,7 @@ describe("backfillUncoveredPRs respawn guard", () => {
     writeOrchestratorSeed(sessionsDir, "status=active\nbackfillRespawnNotified_654=true\n");
     const archiveDir = join(sessionsDir, "archive");
     mkdirSync(archiveDir, { recursive: true });
-    for (const id of ["app-97", "app-98", "app-99"]) {
+    for (const id of ["app-94", "app-95", "app-96", "app-97", "app-98", "app-99"]) {
       writeFileSync(
         join(archiveDir, `${id}_2026-06-08T12-00-00-000Z`),
         "status=killed\npr=https://github.com/org/repo/pull/654\n",

@@ -19,7 +19,7 @@ import { parsePrFromUrl } from "./utils/pr.js";
 import type { ProjectConfig } from "./types.js";
 
 /** Max backfill respawns per open PR before requiring human intervention. */
-export const BACKFILL_MAX_RESPAWNS_PER_PR = 3;
+export const BACKFILL_MAX_RESPAWNS_PER_PR = 6;
 
 const BACKFILL_RESPAWN_NOTIFIED_PREFIX = "backfillRespawnNotified_";
 
