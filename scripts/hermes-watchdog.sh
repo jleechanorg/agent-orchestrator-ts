@@ -148,7 +148,7 @@ check_gateway() {
 
 check_ao_health() {
   # ai.agento.health is StartInterval=300 (5 min); 2x = 600s window.
-  if ! is_interval_job_fresh "ai.agento.health" "$HOME/.hermes/logs/ao-health.log" 600; then
+  if ! is_interval_job_fresh "ai.agento.health" "${AO_LOG_DIR:-$HOME/.hermes/logs}/ao-health.log" 600; then
     fail_count=$((fail_count + 1))
     alert_lines="${alert_lines}\n:warning: ai.agento.health watchdog plist stale (no recent run)"
   fi
