@@ -10,14 +10,14 @@ import type { DefaultPlugins, ProjectConfig } from "../types.js";
 /**
  * mini-default-smoke — minimal default-path smoke test.
  *
- * Goal: exercise the default agent-resolution pipeline without invoking
- * any CLI binary or LLM. If this test passes, the canonical fallback chain
+ * Goal: exercise the default agent-resolution pipeline without invoking any CLI
+ * binary or LLM. If this test passes, the canonical fallback chain
  * (`defaults.*` → `project.*` → `role.*`) is intact for both worker and
  * orchestrator sessions.
  *
- * Why a separate file: keeps the smoke surface tiny and obviously named,
- * so any future regression in the default path points reviewers straight
- * here instead of into a 1.4k-line combined suite.
+ * Why a separate file: keeps the smoke surface tiny and obviously named, so any
+ * future regression in the default path points reviewers straight here instead
+ * of into a 1.4k-line combined suite.
  */
 
 const baseProject: ProjectConfig = {
@@ -41,11 +41,7 @@ const baseDefaults: DefaultPlugins = {
 
 describe("mini-default-smoke: worker path", () => {
   it("falls back to defaults.agent when project has no worker override", () => {
-    const sel = resolveAgentSelection({
-      role: "worker",
-      project: baseProject,
-      defaults: baseDefaults,
-    });
+    const sel = resolveAgentSelection({ role: "worker", project: baseProject, defaults: baseDefaults });
     expect(sel.agentName).toBe("claude-code");
     expect(sel.role).toBe("worker");
   });
@@ -91,11 +87,7 @@ describe("mini-default-smoke: worker path", () => {
 
 describe("mini-default-smoke: orchestrator path", () => {
   it("falls back to defaults.agent when project has no orchestrator override", () => {
-    const sel = resolveAgentSelection({
-      role: "orchestrator",
-      project: baseProject,
-      defaults: baseDefaults,
-    });
+    const sel = resolveAgentSelection({ role: "orchestrator", project: baseProject, defaults: baseDefaults });
     expect(sel.agentName).toBe("claude-code");
     expect(sel.role).toBe("orchestrator");
   });
@@ -113,10 +105,7 @@ describe("mini-default-smoke: orchestrator path", () => {
     const sel = resolveAgentSelection({
       role: "orchestrator",
       project: baseProject,
-      defaults: {
-        ...baseDefaults,
-        agentConfig: { orchestratorModel: "opus-orch" },
-      },
+      defaults: { ...baseDefaults, agentConfig: { orchestratorModel: "opus-orch" } },
     });
     expect(sel.model).toBe("opus-orch");
     expect(sel.agentConfig.model).toBe("opus-orch");
@@ -125,10 +114,7 @@ describe("mini-default-smoke: orchestrator path", () => {
 
 describe("mini-default-smoke: model resolution (no CLI invocation)", () => {
   it("modelByCli lookup is pure and case-insensitive", () => {
-    const out = lookupCliModelDefaults(
-      { "Claude-Code": { model: "sonnet" } },
-      "claude-code",
-    );
+    const out = lookupCliModelDefaults({ "Claude-Code": { model: "sonnet" } }, "claude-code");
     expect(out.model).toBe("sonnet");
   });
 
@@ -136,10 +122,7 @@ describe("mini-default-smoke: model resolution (no CLI invocation)", () => {
     const sel = resolveAgentSelection({
       role: "worker",
       project: baseProject,
-      defaults: {
-        ...baseDefaults,
-        modelByCli: { "claude-code": { model: "smoke-worker-model" } },
-      },
+      defaults: { ...baseDefaults, modelByCli: { "claude-code": { model: "smoke-worker-model" } } },
     });
     expect(sel.model).toBe("smoke-worker-model");
     expect(sel.agentConfig.model).toBe("smoke-worker-model");
@@ -151,9 +134,7 @@ describe("mini-default-smoke: model resolution (no CLI invocation)", () => {
       project: baseProject,
       defaults: {
         ...baseDefaults,
-        modelByCli: {
-          "claude-code": { model: "worker-fallback", orchestratorModel: "smoke-orch-model" },
-        },
+        modelByCli: { "claude-code": { model: "worker-fallback", orchestratorModel: "smoke-orch-model" } },
       },
     });
     expect(sel.model).toBe("smoke-orch-model");
@@ -172,9 +153,7 @@ describe("mini-default-smoke: model resolution (no CLI invocation)", () => {
 
 describe("mini-default-smoke: session role resolution", () => {
   it("treats exact project orchestrator id as orchestrator", () => {
-    expect(
-      resolveSessionRole("demo-orchestrator", undefined, "demo", ["demo"]),
-    ).toBe("orchestrator");
+    expect(resolveSessionRole("demo-orchestrator", undefined, "demo", ["demo"])).toBe("orchestrator");
   });
 
   it("treats any other id as worker", () => {
