@@ -194,13 +194,420 @@ check_watchdog_chain() {
   fi
 }
 
+# --- Check 7: ai.agento.health-guardian log presence and freshness ---
+# Root cause: ai.agento.health-guardian plist may be loaded but its
+# StandardOutPath / StandardErrorPath point to a dir that does not exist
+# (e.g. /Users/jleechan/.openclaw/logs) — launchd silently drops output
+# and the watchdog becomes inert.
+check_health_guardian_log_present() {
+  local log="$HOME/.openclaw/logs/ao-health-guardian.log"
+  local err_log="$HOME/.openclaw/logs/ao-health-guardian.err.log"
+  if [ ! -d "$(dirname "$log")" ]; then
+    fail "log directory $(dirname "$log") missing — ai.agento.health-guardian will be inert"
+    return
+  fi
+  if [ ! -f "$log" ]; then
+    fail "ai.agento.health-guardian log missing at $log — service may be inert"
+    return
+  fi
+  # Freshness: log should have been written within the last 30 minutes
+  local mtime now_diff
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    mtime=$(stat -f %m "$log" 2>/dev/null || echo 0)
+  else
+    mtime=$(stat -c %Y "$log" 2>/dev/null || echo 0)
+  fi
+  now_diff=$(( $(date +%s) - mtime ))
+  if [ "$now_diff" -gt 1800 ]; then
+    warn "ai.agento.health-guardian log is stale (${now_diff}s old) at $log"
+  else
+    pass "ai.agento.health-guardian log is fresh (${now_diff}s old) at $log"
+  fi
+  if [ -f "$err_log" ]; then
+    local err_size
+    err_size=$(wc -c < "$err_log" 2>/dev/null || echo 0)
+    if [ "$err_size" -gt 0 ]; then
+      warn "ai.agento.health-guardian error log is non-empty (${err_size} bytes) at $err_log"
+    fi
+  fi
+}
+
+# --- Check 8: launchd plist log paths resolve to existing directories ---
+# Root cause: ai.hermes.* plists sometimes reference /Users/jleechan/.hermes/logs
+# while other agents reference /Users/jleechan/.openclaw/logs — when the
+# referenced dir does not exist launchd silently drops stdout/stderr.
+check_log_path_consistency() {
+  local plist_dir="$HOME/Library/LaunchAgents"
+  local missing_dir=0
+  local plist
+  for plist in "$plist_dir"/ai.hermes.*.plist "$plist_dir"/ai.agento.*.plist; do
+    [ -f "$plist" ] || continue
+    local label log_dir
+    label=$(basename "$plist" .plist)
+    # Find StandardOutPath / StandardErrorPath entries
+    log_dir=$(grep -A1 -E 'Standard(Out|Error)Path' "$plist" 2>/dev/null \
+              | grep -E '<string>' \
+              | sed -E 's:.*<string>(.*)</string>.*:\1:' \
+              | xargs -I{} dirname {} 2>/dev/null \
+              | sort -u)
+    for d in $log_dir; do
+      if [ -n "$d" ] && [ ! -d "$d" ]; then
+        fail "plist $label references missing log dir $d (StandardOutPath/StandardErrorPath)"
+        missing_dir=$((missing_dir + 1))
+      fi
+    done
+  done
+  if [ "$missing_dir" -eq 0 ]; then
+    pass "all launchd plist log paths resolve to existing directories"
+  fi
+}
+
+# --- Check 9: ao binary pnpm wrapper resolves to source tree ---
+# Root cause: when `ao` resolves to a pnpm shell wrapper that itself
+# invokes a symlinked dist under /Users/jleechan/Library/pnpm/..., the
+# dist md5 match check above will see a mismatch if the wrapper picks
+# the wrong target. We verify the symlink chain ends inside $REPO_ROOT.
+check_pnpm_wrapper_resolution() {
+  local cli_bin="${AO_BIN_PATH:-$(command -v ao 2>/dev/null || true)}"
+  if [ -z "$cli_bin" ]; then
+    warn "no ao binary found (set \$AO_BIN_PATH or ensure 'ao' is on PATH) — skipping pnpm resolution check"
+    return
+  fi
+  # Walk symlinks up to 10 levels deep. Relative `readlink` output must
+  # be resolved against the directory of the symlink we just dereferenced
+  # — NOT the cwd or the relative text itself. Capture `dirname` BEFORE
+  # reassigning `target` so the link's own directory anchors resolution
+  # (Greptile P1: relative symlinks were resolved against the doctor
+  # process cwd, false-warning on valid /usr/local/bin/ao -> ../pnpm/ao).
+  local target="$cli_bin" i=0
+  while [ -L "$target" ] && [ "$i" -lt 10 ]; do
+    local link_dir next
+    link_dir=$(dirname "$target")
+    next=$(readlink "$target")
+    case "$next" in
+      /*) target="$next" ;;
+      *)  target="$link_dir/$next" ;;
+    esac
+    i=$((i + 1))
+  done
+  if [ -f "$target" ]; then
+    # Normalize via cd+pwd so path-boundary check isn't fooled by
+    # `..` segments. Use PREFIX match (`== $repo || == $repo/*`) instead of
+    # substring match, otherwise a sibling directory like
+    # `/Users/me/agent-orchestrator-old/bin/ao` would match
+    # `*$REPO_ROOT*` and false-PASS (Greptile P1 followup: Path boundary
+    # missing).
+    local normalized_target normalized_repo
+    normalized_target="$(cd "$(dirname "$target")" 2>/dev/null && pwd)/$(basename "$target")"
+    normalized_repo="$(cd "$REPO_ROOT" 2>/dev/null && pwd)"
+    if [[ -n "$normalized_repo" && ( "$normalized_target" == "$normalized_repo" || "$normalized_target" == "$normalized_repo"/* ) ]]; then
+      pass "ao binary resolves to source tree ($normalized_target)"
+    else
+      warn "ao binary does NOT resolve to source tree — resolved to $normalized_target (REPO_ROOT=$REPO_ROOT). Workers may run stale code"
+    fi
+  else
+    warn "could not resolve ao binary symlink chain (started at $cli_bin) — skipping"
+  fi
+}
+
+# --- Check 10: main-repo guard bypass is configured ---
+# Root cause: ao start refuses to run on the agent-orchestrator repo
+# itself (the main repo). If the health watchdog's ANCHOR_PROJECT env
+# or config is not set to a non-main project, the watchdog will crash
+# on every iteration and never bring the orchestrator back online.
+check_main_repo_guard_bypass() {
+  local cfg="$HERMES_STAGING_CONFIG"
+  if [ ! -f "$cfg" ]; then
+    warn "staging config not found at $cfg — skipping main-repo guard check"
+    return
+  fi
+  # The actual signal that the STARTUP PATH honors:
+  #   `scripts/ao-health.sh:130` computes `ANCHOR_PROJECT="$(echo "$PROJECTS"
+  #   | awk '{print $1}')"` — the first project name in the staging config's
+  #   `projects:` map. That name is then passed to `ao start $ANCHOR_PROJECT`
+  #   on line 167. The start command resolves that name to a PATH (via the
+  #   project's `path:` field or config-dir default) and the main-repo guard
+  #   at packages/cli/src/commands/start.ts:745 rejects when the resolved
+  #   path equals or is under the main repo.
+  #
+  # Heuristic only: the project's NAME may not match "agent-orchestrator"
+  # while its PATH still points at the main repo (Greptile P1 round-8:
+  # Project path unchecked). Use the project's `path:` field when present,
+  # and fall back to comparing the project NAME to the repo basename.
+  local first_project first_path
+  first_project=$(awk '
+    BEGIN { in_projects=0 }
+    /^projects:[[:space:]]*$/ { in_projects=1; next }
+    in_projects && /^[^[:space:]]/ { in_projects=0 }
+    in_projects && /^  [a-zA-Z][a-zA-Z0-9_-]*:[[:space:]]*(#.*)?$/ {
+      match($0, /[a-zA-Z][a-zA-Z0-9_-]*/)
+      if (RSTART > 0) {
+        print substr($0, RSTART, RLENGTH)
+        exit
+      }
+    }
+  ' "$cfg")
+  if [ -z "$first_project" ]; then
+    warn "no projects configured in $cfg — health watchdog has nothing to launch"
+    return
+  fi
+  # Extract the first project's `path:` field, if present. Strip
+  # surrounding quotes (`path: "/foo"` is valid YAML) so the normalization
+  # step below resolves to a real directory (Greptile P1 round-9: Quoted
+  # paths pass incorrectly).
+  first_path=$(awk -v proj="$first_project" '
+    BEGIN { in_proj=0; depth=0 }
+    # Match the project key at exactly 2-space indent
+    $0 ~ "^  " proj ":[[:space:]]*(#.*)?$" { in_proj=1; next }
+    in_proj && /^[ \t]*path:[[:space:]]*/ {
+      match($0, /path:[[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+)/)
+      if (RSTART > 0) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/^path:[[:space:]]+/, "", s)
+        # Strip surrounding quotes
+        sub(/^["'"'"']/, "", s)
+        sub(/["'"'"']$/, "", s)
+        print s
+        exit
+      }
+    }
+    # Leave the project block when we hit a shallower key
+    in_proj && /^[^[:space:]]/ { in_proj=0 }
+  ' "$cfg")
+  local main_repo_basename
+  main_repo_basename=$(basename "$REPO_ROOT")
+  # If the project has an explicit path, use it; otherwise fall back to name.
+  if [ -n "$first_path" ]; then
+    # Resolve relative path against the config dir
+    case "$first_path" in
+      /*) ;;
+      *)  first_path="$(cd "$(dirname "$cfg")" && pwd)/$first_path" ;;
+    esac
+    # Normalize via cd+pwd
+    if [ -d "$first_path" ]; then
+      first_path="$(cd "$first_path" && pwd)"
+    fi
+    local normalized_main
+    normalized_main="$(cd "$REPO_ROOT" 2>/dev/null && pwd)"
+    if [[ "$first_path" == "$normalized_main" || "$first_path" == "$normalized_main"/* ]]; then
+      warn "first project '$first_project' path '$first_path' is under main repo — watchdog will crash on start"
+    else
+      pass "main-repo guard bypass OK: project '$first_project' path '$first_path' is outside main repo"
+    fi
+  elif [ "$first_project" = "agent-orchestrator" ] || [ "$first_project" = "$main_repo_basename" ]; then
+    warn "first project in $cfg is '$first_project' — likely the main repo. health watchdog will crash on start. Add a non-main project as the FIRST entry in projects: or set --allow-main-repo in the plist."
+  else
+    pass "main-repo guard bypass OK: anchor project '$first_project' is not the main repo (no explicit path set; uses config-dir default)"
+  fi
+}
+
+# --- Check 11: ai.hermes.staging launchd agent is enabled ---
+# Root cause: staging agent can be silently disabled via `launchctl disable`
+# after an auth/cert error. The plist is loaded but launchd refuses to
+# start the process. Gate slips past `launchctl print` checks.
+check_hermes_staging_launchd_state() {
+  local label="ai.hermes.staging"
+  if ! launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
+    warn "launchd label $label not registered — skipping enable check"
+    return
+  fi
+  # launchctl print-disabled shows disabled agents. Output uses an
+  # INDENTED `"label" => true` form (e.g. `  "ai.hermes.staging" => true`),
+  # so anchor on the quoted arrow form rather than a leading non-space char
+  # (Greptile P1: previous `^[^[:space:]].*$label` regex silently missed the
+  # indented lines and reported a disabled agent as enabled).
+  local disabled_state
+  disabled_state=$(launchctl print-disabled "gui/$(id -u)" 2>/dev/null \
+    | grep -E "^[[:space:]]*\"?$label\"?[[:space:]]*=>[[:space:]]*true" \
+    || true)
+  if [ -n "$disabled_state" ]; then
+    fail "launchd label $label is DISABLED — re-enable with: launchctl enable gui/\$(id -u)/$label"
+    return
+  fi
+  # Check the run state — should not be "not running" indefinitely if no LastExit
+  local state_line
+  state_line=$(launchctl print "gui/$(id -u)/$label" 2>/dev/null | grep -E "^\s*state\s*=" | head -1 || true)
+  if [ -n "$state_line" ]; then
+    pass "launchd label $label is enabled (${state_line##*= })"
+  else
+    warn "could not read launchd state for $label"
+  fi
+}
+
+# --- Check 12: ai.hermes.watchdog plist exists on disk ---
+# Root cause: ai.hermes.watchdog plist may be loaded into launchd but the
+# on-disk file is missing — making it impossible to inspect or modify.
+check_hermes_watchdog_plist_on_disk() {
+  local plist="$HOME/Library/LaunchAgents/ai.hermes.watchdog.plist"
+  if [ ! -f "$plist" ]; then
+    fail "ai.hermes.watchdog plist missing on disk at $plist — watchdog chain gap"
+    return
+  fi
+  if ! plutil -lint "$plist" >/dev/null 2>&1; then
+    fail "ai.hermes.watchdog plist at $plist fails plutil lint — syntax error"
+    return
+  fi
+  pass "ai.hermes.watchdog plist present and valid at $plist"
+}
+
+# --- Check 13: staging-gateway listening port responds ---
+# Root cause: ai.hermes.staging may be enabled but its gateway component
+# may crash on Slack MCP init, leaving the API port unbound. Workers
+# then fail health checks silently.
+check_staging_gateway_health() {
+  # Use the canonical staging config (HERMES_STAGING_CONFIG, defaults to
+  # ~/.hermes/agent-orchestrator.yaml) — the rest of the doctor reads from
+  # it, so the gateway port check must too. Previously this hardcoded
+  # ~/.hermes/config.staging.yaml which would either miss the configured
+  # port (false 8644 probe) or skip the YAML parse entirely (Greptile P1).
+  # Scope the port lookup to a `staging:` / `gateway:` / `staging-gateway:`
+  # block so an unrelated plugin/project `port:` setting doesn't override
+  # it (Greptile P1 followup: Port lookup unscoped).
+  local staging_cfg="$HERMES_STAGING_CONFIG"
+  local port=8644  # default staging port per ~/.hermes/agent-orchestrator.yaml
+  if [ -f "$staging_cfg" ]; then
+    port=$(awk '
+      BEGIN { in_scope=0 }
+      # Enter the staging / gateway / staging-gateway block
+      /^[ \t]*(staging|gateway|staging-gateway):[ \t]*$/ { in_scope=1; next }
+      # Or inline flow: staging: { port: 8644 } — DO NOT clear in_scope on
+      # the SAME line that set it (Greptile P1 followup: Inline port skipped).
+      /^[ \t]*(staging|gateway|staging-gateway):[ \t]*\{/ { in_scope=1 }
+      # Leave the block on a shallower-indented key — but NOT the inline
+      # flow opener line (already handled above).
+      in_scope && /^[^[:space:]]/ && $0 !~ /^[ \t]*(staging|gateway|staging-gateway):[ \t]*\{/ { in_scope=0 }
+      # Read port: / listen_port: inside the scope
+      in_scope && /port:[ \t]*[0-9]+/ {
+        line = $0
+        if (match(line, /port:[ \t]*[0-9]+/)) {
+          s = substr(line, RSTART, RLENGTH)
+          sub(/^port:[ \t]*/, "", s)
+          print s
+          exit
+        }
+      }
+      in_scope && /listen_port:[ \t]*[0-9]+/ {
+        line = $0
+        if (match(line, /listen_port:[ \t]*[0-9]+/)) {
+          s = substr(line, RSTART, RLENGTH)
+          sub(/^listen_port:[ \t]*/, "", s)
+          print s
+          exit
+        }
+      }
+    ' "$staging_cfg")
+    port="${port:-8644}"
+  fi
+  # Probe the port via lsof
+  if lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | grep -q LISTEN; then
+    pass "staging-gateway port $port is listening"
+  else
+    warn "staging-gateway port $port is NOT listening — gateway may have crashed (check ~/.hermes/logs/staging-gateway.err.log)"
+  fi
+}
+
+# --- Check 14: defaults.agent references resolve to a registered plugin ---
+# Root cause: agent-orchestrator.yaml may set defaults.agent: minimax
+# (or wafer / claude) but the plugin package may not be installed.
+# Workers then fail at spawn time with cryptic "plugin not found" errors.
+check_default_agent_undefined_refs() {
+  local cfg="$HERMES_STAGING_CONFIG"
+  if [ ! -f "$cfg" ]; then
+    warn "staging config not found at $cfg — skipping default-agent check"
+    return
+  fi
+  local default_agent
+  # Parse defaults.agent in two forms:
+  #   (a) block style:
+  #         defaults:
+  #           agent: minimax
+  #   (b) inline YAML flow style:
+  #         defaults: {agent: minimax}
+  # Earlier versions only matched (a), leaving `default_agent` empty for
+  # inline configs and silently skipping the missing-plugin failure the
+  # check was added to catch (Greptile P2: Inline Defaults Are Skipped).
+  # Also reset `in_defaults` when we hit a new top-level key, otherwise a
+  # later `agent:` under a different section leaks in (CodeRabbit prompt).
+  # Accept QUOTED agent names (`agent: "minimax"` / `agent: 'minimax'`)
+  # which are valid YAML — the bare `[a-zA-Z0-9_-]+` regex would skip them
+  # and falsely warn "no defaults.agent configured" (Greptile P1 followup:
+  # Quoted agents skip checks).
+  default_agent=$(awk '
+    BEGIN { in_defaults=0 }
+    # Multi-line defaults block opener
+    /^[ \t]*defaults:[ \t]*$/ { in_defaults=1; next }
+    # Inline flow opener: defaults: {agent: ...}
+    /^[ \t]*defaults:[ \t]*\{/ {
+      in_defaults=1
+      line = $0
+      # Match `agent:` followed by either a quoted string ("minimax" or
+      # '\''minimax'\'') OR a bare word ([a-zA-Z0-9_-]+). The full value
+      # must be captured so the trailing `sub()` can strip `}` cleanly.
+      if (match(line, /agent:[ \t]*(["'"'"'][a-zA-Z0-9_-]+["'"'"']|[a-zA-Z0-9_-]+)/)) {
+        s = substr(line, RSTART, RLENGTH)
+        sub(/.*agent:[ \t]+/, "", s)
+        sub(/[ \t,}]*$/, "", s)
+        # Strip surrounding quotes if present (idempotent on unquoted)
+        sub(/^["'"'"']/, "", s)
+        sub(/["'"'"']$/, "", s)
+        print s
+        exit
+      }
+      next
+    }
+    # Reset when leaving the defaults block
+    in_defaults && /^[^[:space:]]/ { in_defaults=0 }
+    # Block-style `agent:` line under defaults — accept quoted or unquoted
+    in_defaults && /^[ \t]*agent:[ \t]*(["'"'"']|[a-zA-Z0-9_-])/ {
+      # POSIX awk: use match()+substr() (gawk array extension is not portable)
+      match($0, /[ \t][ \t]*agent:[ \t]*(["'"'"'][a-zA-Z0-9_-]+["'"'"']|[a-zA-Z0-9_-]+)/)
+      if (RSTART > 0) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/.*agent:[ \t]+/, "", s)
+        sub(/[ \t#]*$/, "", s)
+        # Strip surrounding quotes if present (idempotent on unquoted)
+        sub(/^["'"'"']/, "", s)
+        sub(/["'"'"']$/, "", s)
+        print s
+        exit
+      }
+    }
+  ' "$cfg")
+  if [ -z "$default_agent" ]; then
+    warn "no defaults.agent configured in $cfg — skipping plugin resolution check"
+    return
+  fi
+  local plugin_pkg
+  case "$default_agent" in
+    claude|claude-code) plugin_pkg="@jleechanorg/ao-plugin-agent-claude-code" ;;
+    minimax)            plugin_pkg="@jleechanorg/ao-plugin-agent-minimax" ;;
+    wafer)              plugin_pkg="@jleechanorg/ao-plugin-agent-wafer" ;;
+    codex)              plugin_pkg="@jleechanorg/ao-plugin-agent-codex" ;;
+    opencode)           plugin_pkg="@jleechanorg/ao-plugin-agent-opencode" ;;
+    *)
+      warn "unknown default agent '$default_agent' in $cfg — cannot verify plugin"
+      return
+      ;;
+  esac
+  # Check the plugin is installed in the pnpm global store
+  local pnpm_home="${PNPM_HOME:-$HOME/Library/pnpm}"
+  if [ -d "$pnpm_home/global/5/node_modules/$plugin_pkg" ]; then
+    pass "default agent '$default_agent' resolves to installed plugin $plugin_pkg"
+  elif find "$REPO_ROOT/packages/plugins" -maxdepth 1 -type d -name "*${default_agent}*" 2>/dev/null | grep -q .; then
+    pass "default agent '$default_agent' resolves to source-tree plugin (workspace)"
+  else
+    fail "default agent '$default_agent' references plugin $plugin_pkg which is NOT installed"
+  fi
+}
+
 # --- Main ---
 main() {
-  echo "=== ao-doctor-v2 (2026-06-10 fragility audit) ==="
+  echo "=== ao-doctor-v2 (2026-06-10 fragility audit + 2026-06-28 followup) ==="
   if [ "${DOCTOR_CI_MODE:-0}" = "1" ]; then
     echo "(CI mode: skipping local-state-only checks — staging-config, gh-token,"
-    echo " dist-md5, running.json, watchdog chain — to keep the gate focused on"
-    echo " source-tree structural regressions like the 2026-06-10 bd-rgk0 class.)"
+    echo " dist-md5, running.json, watchdog chain, log paths, pnpm resolution,"
+    echo " launchd state, plist disk, gateway health, default-agent refs,"
+    echo " to keep the gate focused on source-tree structural regressions.)"
     check_skeptic_age_filter_order
   else
     check_scm_config_in_staging
@@ -209,6 +616,14 @@ main() {
     check_dist_md5_match
     check_running_json_present
     check_watchdog_chain
+    check_health_guardian_log_present
+    check_log_path_consistency
+    check_pnpm_wrapper_resolution
+    check_main_repo_guard_bypass
+    check_hermes_staging_launchd_state
+    check_hermes_watchdog_plist_on_disk
+    check_staging_gateway_health
+    check_default_agent_undefined_refs
   fi
   echo "=== summary: $PASS_COUNT pass, $WARN_COUNT warn, $FAIL_COUNT fail ==="
   # Exit 1 if any FAIL so this script is CI-gateable
