@@ -142,7 +142,11 @@ export function clearPrRespawnCapNotified(
 ): void {
   const sessionsDir = getSessionsDir(configPath, project.path);
   const orchestratorId = getOrchestratorSessionId(project);
-  if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
+  const raw = readMetadataRaw(sessionsDir, orchestratorId);
+  if (!raw) return;
+  // No-op when the marker is already absent — avoids an atomic metadata
+  // rewrite on every backfill cycle for PRs that were never escalated.
+  if (raw[backfillRespawnNotifiedKey(prNumber)] === undefined) return;
   updateMetadata(sessionsDir, orchestratorId, {
     [backfillRespawnNotifiedKey(prNumber)]: "",
   });
