@@ -351,16 +351,22 @@ check_main_repo_guard_bypass() {
     warn "no projects configured in $cfg — health watchdog has nothing to launch"
     return
   fi
-  # Extract the first project's `path:` field, if present
+  # Extract the first project's `path:` field, if present. Strip
+  # surrounding quotes (`path: "/foo"` is valid YAML) so the normalization
+  # step below resolves to a real directory (Greptile P1 round-9: Quoted
+  # paths pass incorrectly).
   first_path=$(awk -v proj="$first_project" '
     BEGIN { in_proj=0; depth=0 }
     # Match the project key at exactly 2-space indent
     $0 ~ "^  " proj ":[[:space:]]*(#.*)?$" { in_proj=1; next }
     in_proj && /^[ \t]*path:[[:space:]]*/ {
-      match($0, /path:[[:space:]]+[^[:space:]]+/)
+      match($0, /path:[[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+)/)
       if (RSTART > 0) {
         s = substr($0, RSTART, RLENGTH)
         sub(/^path:[[:space:]]+/, "", s)
+        # Strip surrounding quotes
+        sub(/^["'"'"']/, "", s)
+        sub(/["'"'"']$/, "", s)
         print s
         exit
       }
