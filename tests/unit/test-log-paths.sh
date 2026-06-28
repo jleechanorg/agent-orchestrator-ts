@@ -134,12 +134,12 @@ echo "=== GREEN: fixed version (checks after fix) ==="
 run_check "ao-health.sh should use hermes/logs" "scripts/ao-health.sh" "AO_LOG_DIR"
 run_check "health-guardian.sh should use hermes/logs" "scripts/ai.agento.health-guardian.sh" "AO_LOG_DIR"
 run_check "start-all.sh should use hermes/logs" "scripts/start-all.sh" "AO_LOG_DIR"
-run_check "ensure-top-pr-coverage.sh should use hermes/logs" "scripts/ensure-top-pr-coverage.sh" "\.hermes/logs"
-run_check "check-pr-worker-coverage.sh should use hermes/logs" "scripts/check-pr-worker-coverage.sh" "\.hermes/logs"
+run_check "ensure-top-pr-coverage.sh should use hermes/logs" "scripts/ensure-top-pr-coverage.sh" "AO_LOG_DIR"
+run_check "check-pr-worker-coverage.sh should use hermes/logs" "scripts/check-pr-worker-coverage.sh" "AO_LOG_DIR"
 run_check "hermes-watchdog.sh should use hermes/logs" "scripts/hermes-watchdog.sh" "AO_LOG_DIR"
 run_check "lw-watchdog.sh should use hermes/logs" "scripts/lw-watchdog.sh" "AO_LOG_DIR"
 run_check "setup-antigravity-launchd.sh should use hermes/logs" "scripts/setup-antigravity-launchd.sh" "AO_LOG_DIR"
-run_check "setup-extended.sh should use hermes/logs" "scripts/setup-extended.sh" "\.hermes/logs"
+run_check "setup-extended.sh should use hermes/logs" "scripts/setup-extended.sh" "AO_LOG_DIR"
 run_setup_launchd_check "setup-launchd.sh should use hermes/logs" "scripts/setup-launchd.sh"
 run_bootstrap_check "bootstrap-openclaw-config.sh should set up hermes logs" "scripts/bootstrap-openclaw-config.sh"
 
@@ -194,6 +194,47 @@ else
 fi
 
 rm -rf "$CUSTOM_LOG_DIR" "$CUSTOM_LOG_DIR_PROD"
+
+# SCRIPT RUNTIME VERIFICATION (Goal 6 check)
+CUSTOM_SCRIPT_LOG_DIR="/tmp/custom_script_logs_$(date +%s)"
+mkdir -p "$CUSTOM_SCRIPT_LOG_DIR"
+
+echo "Running scripts with custom AO_LOG_DIR to verify runtime logging redirect..."
+
+# 1. Run ao-health.sh
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" bash scripts/ao-health.sh >/dev/null 2>&1 || true
+if [ -f "$CUSTOM_SCRIPT_LOG_DIR/ao-health.log" ]; then
+  printf "  PASS  ao-health.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  ao-health.sh respects custom AO_LOG_DIR at runtime\n        Missing ao-health.log in custom log dir!\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 2. Run ai.agento.health-guardian.sh
+# We remove the custom directory first to verify it gets recreated
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" bash scripts/ai.agento.health-guardian.sh >/dev/null 2>&1 || true
+if [ -d "$CUSTOM_SCRIPT_LOG_DIR" ]; then
+  printf "  PASS  health-guardian.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  health-guardian.sh respects custom AO_LOG_DIR at runtime\n        Custom log directory was not created!\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 3. Run start-all.sh
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" bash scripts/start-all.sh >/dev/null 2>&1 || true
+if [ -d "$CUSTOM_SCRIPT_LOG_DIR" ]; then
+  printf "  PASS  start-all.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  start-all.sh respects custom AO_LOG_DIR at runtime\n        Custom log directory was not created!\n"
+  FAIL=$((FAIL+1))
+fi
+
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
 
 # Clean up mock environment
 rm -rf "$MOCK_HOME"
