@@ -291,13 +291,16 @@ check_pnpm_wrapper_resolution() {
     i=$((i + 1))
   done
   if [ -f "$target" ]; then
-    # Normalize via cd+pwd so the REPO_ROOT substring check isn't fooled by
-    # a path like `/Users/.../agent-orchestrator/../bin/ao` that contains
-    # REPO_ROOT as a substring of an un-normalized path (Greptile P1
-    # followup: Normalize symlink target).
-    local normalized_target
+    # Normalize via cd+pwd so path-boundary check isn't fooled by
+    # `..` segments. Use PREFIX match (`== $repo || == $repo/*`) instead of
+    # substring match, otherwise a sibling directory like
+    # `/Users/me/agent-orchestrator-old/bin/ao` would match
+    # `*$REPO_ROOT*` and false-PASS (Greptile P1 followup: Path boundary
+    # missing).
+    local normalized_target normalized_repo
     normalized_target="$(cd "$(dirname "$target")" 2>/dev/null && pwd)/$(basename "$target")"
-    if [[ "$normalized_target" == *"$REPO_ROOT"* ]]; then
+    normalized_repo="$(cd "$REPO_ROOT" 2>/dev/null && pwd)"
+    if [[ -n "$normalized_repo" && ( "$normalized_target" == "$normalized_repo" || "$normalized_target" == "$normalized_repo"/* ) ]]; then
       pass "ao binary resolves to source tree ($normalized_target)"
     else
       warn "ao binary does NOT resolve to source tree — resolved to $normalized_target (REPO_ROOT=$REPO_ROOT). Workers may run stale code"
@@ -318,22 +321,60 @@ check_main_repo_guard_bypass() {
     warn "staging config not found at $cfg — skipping main-repo guard check"
     return
   fi
-  # Check if AO_ALLOW_MAIN_REPO=1 is exported in plist
+  # Check if AO_ALLOW_MAIN_REPO is exported in plist AND set to a truthy
+  # value. Merely mentioning the env var isn't enough — `AO_ALLOW_MAIN_REPO=0`
+  # / `AO_ALLOW_MAIN_REPO=false` / empty must NOT count as configured
+  # (Greptile P1 followup: Bypass value ignored).
   local allow_plist="$HOME/Library/LaunchAgents/ai.agento.health.plist"
   local allow_set=0
-  if [ -f "$allow_plist" ] && grep -q "AO_ALLOW_MAIN_REPO" "$allow_plist"; then
-    allow_set=1
+  if [ -f "$allow_plist" ]; then
+    # Extract the value of <key>AO_ALLOW_MAIN_REPO</key>:
+    # <string>1</string> (or <true/>). Match the value with awk so we can
+    # handle both <string>1</string> and <true/> forms portably.
+    local allow_value
+    allow_value=$(awk '
+      /<key>AO_ALLOW_MAIN_REPO<\/key>/ { found=1; next }
+      found && /<string>/ {
+        # extract value between <string> and </string>
+        match($0, /<string>[^<]*<\/string>/)
+        if (RSTART > 0) {
+          s = substr($0, RSTART, RLENGTH)
+          sub(/^<string>/, "", s)
+          sub(/<\/string>$/, "", s)
+          print s
+          exit
+        }
+      }
+      found && /<true\/>/ { print "true"; exit }
+      found && /<false\/>/ { print "false"; exit }
+    ' "$allow_plist")
+    case "$allow_value" in
+      1|true|TRUE|yes|YES) allow_set=1 ;;
+    esac
   fi
-  # Check if AO_HEALTH_ANCHOR_PROJECT is set (overrides the default first
-  # project). The plist is the only meaningful source of truth here —
-  # scripts/ao-health.sh ALWAYS derives `ANCHOR_PROJECT` from the first
-  # configured project (even on the main repo), so grepping the script
-  # source for the symbol produces a false positive on every default
-  # install. Removing that fallback is Greptile P1 (Source Text Becomes
+  # Same treatment for AO_HEALTH_ANCHOR_PROJECT — extract the value, not
+  # just presence. Plist source of truth (Greptile P1: Source Text Becomes
   # Configuration).
   local anchor_set=0
-  if [ -f "$allow_plist" ] && grep -q "AO_HEALTH_ANCHOR_PROJECT" "$allow_plist"; then
-    anchor_set=1
+  if [ -f "$allow_plist" ]; then
+    local anchor_value
+    anchor_value=$(awk '
+      /<key>AO_HEALTH_ANCHOR_PROJECT<\/key>/ { found=1; next }
+      found && /<string>/ {
+        match($0, /<string>[^<]*<\/string>/)
+        if (RSTART > 0) {
+          s = substr($0, RSTART, RLENGTH)
+          sub(/^<string>/, "", s)
+          sub(/<\/string>$/, "", s)
+          print s
+          exit
+        }
+      }
+    ' "$allow_plist")
+    # Anchor is meaningful when the project name is non-empty
+    if [ -n "$anchor_value" ]; then
+      anchor_set=1
+    fi
   fi
   if [ "$allow_set" -eq 1 ] || [ "$anchor_set" -eq 1 ]; then
     pass "main-repo guard bypass configured (AO_ALLOW_MAIN_REPO=$allow_set, ANCHOR=$anchor_set)"
@@ -401,17 +442,40 @@ check_staging_gateway_health() {
   # it, so the gateway port check must too. Previously this hardcoded
   # ~/.hermes/config.staging.yaml which would either miss the configured
   # port (false 8644 probe) or skip the YAML parse entirely (Greptile P1).
+  # Scope the port lookup to a `staging:` / `gateway:` / `staging-gateway:`
+  # block so an unrelated plugin/project `port:` setting doesn't override
+  # it (Greptile P1 followup: Port lookup unscoped).
   local staging_cfg="$HERMES_STAGING_CONFIG"
   local port=8644  # default staging port per ~/.hermes/agent-orchestrator.yaml
   if [ -f "$staging_cfg" ]; then
-    # Use awk (BSD-portable) instead of sed+BRE because \t is not portable
-    port=$(grep -E "port:|listen_port:" "$staging_cfg" 2>/dev/null \
-           | head -1 \
-           | awk '{
-             for (i=1; i<=NF; i++) {
-               if ($i ~ /^[0-9]+$/) { print $i; exit }
-             }
-           }')
+    port=$(awk '
+      BEGIN { in_scope=0 }
+      # Enter the staging / gateway / staging-gateway block
+      /^[ \t]*(staging|gateway|staging-gateway):[ \t]*$/ { in_scope=1; next }
+      # Or inline flow: staging: { port: 8644 }
+      /^[ \t]*(staging|gateway|staging-gateway):[ \t]*\{/ { in_scope=1 }
+      # Leave the block on a shallower-indented key
+      in_scope && /^[^[:space:]]/ { in_scope=0 }
+      # Read port: / listen_port: inside the scope
+      in_scope && /port:[ \t]*[0-9]+/ {
+        line = $0
+        if (match(line, /port:[ \t]*[0-9]+/)) {
+          s = substr(line, RSTART, RLENGTH)
+          sub(/^port:[ \t]*/, "", s)
+          print s
+          exit
+        }
+      }
+      in_scope && /listen_port:[ \t]*[0-9]+/ {
+        line = $0
+        if (match(line, /listen_port:[ \t]*[0-9]+/)) {
+          s = substr(line, RSTART, RLENGTH)
+          sub(/^listen_port:[ \t]*/, "", s)
+          print s
+          exit
+        }
+      }
+    ' "$staging_cfg")
     port="${port:-8644}"
   fi
   # Probe the port via lsof

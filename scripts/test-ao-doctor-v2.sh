@@ -375,6 +375,73 @@ COLUMN0=$(echo '"ai.hermes.staging" => true' | grep -E '^[[:space:]]+"ai.hermes.
 if [ -z "$COLUMN0" ]; then ok "column-0 disabled form correctly rejected"
 else fail "column-0 disabled form incorrectly matched"; fi
 
+# 7f. Path-boundary check must reject sibling directories that share a
+# REPO_ROOT prefix (Greptile P1 followup: Path boundary missing).
+# Substring `*$REPO_ROOT*` would match `/Users/me/agent-orchestrator-old/bin/ao`
+# against REPO_ROOT `/Users/me/agent-orchestrator` and false-PASS.
+# Use string-only path comparisons (no cd) to keep this test portable
+# across machines where the example path doesn't exist.
+REPO="/Users/me/agent-orchestrator"
+RESOLVED_SIBLING="/Users/me/agent-orchestrator-old/bin/ao"
+RESOLVED_INSIDE="$REPO/bin/ao"
+if [[ "$RESOLVED_SIBLING" == "$REPO" || "$RESOLVED_SIBLING" == "$REPO"/* ]]; then
+  fail "sibling dir with shared prefix should NOT pass path-boundary check"
+else
+  ok "sibling dir with shared prefix correctly rejected"
+fi
+if [[ "$RESOLVED_INSIDE" == "$REPO" || "$RESOLVED_INSIDE" == "$REPO"/* ]]; then
+  ok "source-tree binary correctly passes path-boundary check"
+else
+  fail "source-tree binary incorrectly rejected"
+fi
+
+# 7g. AO_ALLOW_MAIN_REPO=0 / false must NOT count as enabled bypass
+# (Greptile P1 followup: Bypass value ignored). We can't easily mock the
+# plist parsing helper, so verify the helper logic standalone.
+is_truthy() {
+  case "$1" in
+    1|true|TRUE|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+if is_truthy "0"; then fail "AO_ALLOW_MAIN_REPO=0 incorrectly truthy"
+else ok "AO_ALLOW_MAIN_REPO=0 correctly rejected as falsy"; fi
+if is_truthy "false"; then fail "AO_ALLOW_MAIN_REPO=false incorrectly truthy"
+else ok "AO_ALLOW_MAIN_REPO=false correctly rejected as falsy"; fi
+if is_truthy "1"; then ok "AO_ALLOW_MAIN_REPO=1 correctly truthy"
+else fail "AO_ALLOW_MAIN_REPO=1 incorrectly rejected"; fi
+if is_truthy "true"; then ok "AO_ALLOW_MAIN_REPO=true correctly truthy"
+else fail "AO_ALLOW_MAIN_REPO=true incorrectly rejected"; fi
+
+# 7h. Staging port lookup must be scoped to the staging/gateway block,
+# not take the first `port:` line anywhere in the YAML (Greptile P1
+# followup: Port lookup unscoped).
+PORT_FIXTURE="$(mktemp)"
+cat > "$PORT_FIXTURE" <<'YAML'
+projects:
+  some-other-project:
+    scm: github
+    port: 1234
+staging:
+  port: 8644
+YAML
+SCOPED_PORT=$(awk '
+  BEGIN { in_scope=0 }
+  /^[ \t]*(staging|gateway|staging-gateway):[ \t]*$/ { in_scope=1; next }
+  in_scope && /^[^[:space:]]/ { in_scope=0 }
+  in_scope && /port:[ \t]*[0-9]+/ {
+    line = $0
+    if (match(line, /port:[ \t]*[0-9]+/)) {
+      s = substr(line, RSTART, RLENGTH)
+      sub(/^port:[ \t]*/, "", s)
+      print s
+      exit
+    }
+  }
+' "$PORT_FIXTURE")
+assert_eq "staging port lookup scoped to staging block" "8644" "$SCOPED_PORT"
+rm -f "$PORT_FIXTURE"
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "=== summary: $PASSED pass, $FAILED fail ==="
