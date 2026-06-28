@@ -129,10 +129,18 @@ is_interval_job_fresh() {
     return 1
   fi
   local log_mtime now age
-  # Cross-platform stat: macOS uses `stat -f %m`, Linux uses `stat -c %Y`.
-  # Without the fallback, hermes-watchdog.sh reports false-positive "log stale"
-  # alerts on Linux runners (PR #728 regression).
-  log_mtime=$(stat -f %m "$log_path" 2>/dev/null || stat -c %Y "$log_path" 2>/dev/null || echo 0)
+  # Cross-platform mtime probe. Prefer `date -r FILE +%s` which works on both
+  # macOS BSD date and GNU date. If unavailable, fall back to platform-specific
+  # stat. Without this fallback, hermes-watchdog.sh reports false-positive
+  # "log stale" alerts on Linux runners when `stat -f %m` is silently accepted
+  # by GNU stat but returns garbage from the file-system mode (PR #728).
+  if command -v date >/dev/null 2>&1 && date -r "$log_path" +%s >/dev/null 2>&1; then
+    log_mtime=$(date -r "$log_path" +%s 2>/dev/null || echo 0)
+  elif stat -f %m "$log_path" >/dev/null 2>&1; then
+    log_mtime=$(stat -f %m "$log_path" 2>/dev/null || echo 0)
+  else
+    log_mtime=$(stat -c %Y "$log_path" 2>/dev/null || echo 0)
+  fi
   now=$(date +%s)
   age=$((now - log_mtime))
   if [ "$age" -lt "$max_age" ]; then
