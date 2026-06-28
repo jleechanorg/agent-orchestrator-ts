@@ -31,7 +31,7 @@ LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 # not ~/.openclaw/logs/ (legacy directory). The previous default caused
 # launchd to auto-create ~/.openclaw/logs/ on every watchdog tick, which
 # resurrected the entire ~/.openclaw/ tree even after `mv ~/.openclaw ~/.bak`.
-BASE_LOG_DIR="$HOME/.hermes/logs"
+BASE_LOG_DIR="${AO_LOG_DIR:-$HOME/.hermes/logs}"
 BASE_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 action_script="${1:-all}"

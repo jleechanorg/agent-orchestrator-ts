@@ -172,6 +172,23 @@ else
   FAIL=$((FAIL+1))
 fi
 
+# Assert that AO_LOG_DIR environment variable is respected when bootstrapping
+CUSTOM_LOG_DIR="/tmp/custom_logs_$(date +%s)"
+CUSTOM_LOG_DIR_PROD="${CUSTOM_LOG_DIR}_prod"
+
+echo "Executing bootstrap-openclaw-config.sh with custom AO_LOG_DIR..."
+HOME="$MOCK_HOME" AO_LOG_DIR="$CUSTOM_LOG_DIR" AO_LOG_DIR_PROD="$CUSTOM_LOG_DIR_PROD" bash scripts/bootstrap-openclaw-config.sh --force >/dev/null 2>&1
+
+if [ -d "$CUSTOM_LOG_DIR" ] && [ -d "$CUSTOM_LOG_DIR_PROD" ]; then
+  printf "  PASS  launchd/config bootstrap respects custom AO_LOG_DIR\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  launchd/config bootstrap respects custom AO_LOG_DIR\n        Did not find custom log directory!\n"
+  FAIL=$((FAIL+1))
+fi
+
+rm -rf "$CUSTOM_LOG_DIR" "$CUSTOM_LOG_DIR_PROD"
+
 # Clean up mock environment
 rm -rf "$MOCK_HOME"
 

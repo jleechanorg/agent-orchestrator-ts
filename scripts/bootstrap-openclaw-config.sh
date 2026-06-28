@@ -48,7 +48,7 @@ done
 STAGING_CONFIG="$(ao_staging_config_path)"
 PRODUCTION_CONFIG="$(ao_production_config_path)"
 mkdir -p "$(dirname "$STAGING_CONFIG")" "$(dirname "$PRODUCTION_CONFIG")"
-mkdir -p "${HOME}/.hermes/logs" "${HOME}/.hermes_prod/logs"
+mkdir -p "${AO_LOG_DIR:-$HOME/.hermes/logs}" "${AO_LOG_DIR_PROD:-$HOME/.hermes_prod/logs}"
 
 if [ -f "$STAGING_CONFIG" ]; then
   if [ "$FORCE" = true ]; then
