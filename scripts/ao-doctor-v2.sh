@@ -321,64 +321,43 @@ check_main_repo_guard_bypass() {
     warn "staging config not found at $cfg — skipping main-repo guard check"
     return
   fi
-  # Check the signals that the STARTUP PATH actually honors:
-  #   (1) --allow-main-repo flag in the plist's ProgramArguments
-  #   (2) AO_MAIN_REPO env var (legacy bd-cj5s)
-  #   (3) AO_HEALTH_ANCHOR_PROJECT pointing at a non-main project
-  # AO_ALLOW_MAIN_REPO is NOT a real bypass signal — the start command
-  # uses the CLI flag, not that env var (Greptile P1 followup: Bypass
-  # signal ignored).
-  local allow_plist="$HOME/Library/LaunchAgents/ai.agento.health.plist"
-  local flag_set=0 ao_main_repo_set=0 anchor_set=0
-  if [ -f "$allow_plist" ]; then
-    # (1) Check ProgramArguments for --allow-main-repo
-    if grep -q -- "--allow-main-repo" "$allow_plist"; then
-      flag_set=1
-    fi
-    # (2) Check <key>AO_MAIN_REPO</key><string>1</string> (legacy)
-    local ao_main_repo_value
-    ao_main_repo_value=$(awk '
-      /<key>AO_MAIN_REPO<\/key>/ { found=1; next }
-      found && /<string>/ {
-        match($0, /<string>[^<]*<\/string>/)
-        if (RSTART > 0) {
-          s = substr($0, RSTART, RLENGTH)
-          sub(/^<string>/, "", s)
-          sub(/<\/string>$/, "", s)
-          print s
-          exit
-        }
+  # The actual signal that the STARTUP PATH honors:
+  #   `scripts/ao-health.sh:130` computes `ANCHOR_PROJECT="$(echo "$PROJECTS"
+  #   | awk '{print $1}')"` — the first project name in the staging config's
+  #   `projects:` map. That name is then passed to `ao start $ANCHOR_PROJECT`
+  #   on line 167. If that first project resolves to the main repo (the
+  #   agent-orchestrator fork itself), the start command hits the main-repo
+  #   guard and crashes.
+  #
+  # Plist values like `AO_HEALTH_ANCHOR_PROJECT` and `AO_ALLOW_MAIN_REPO` are
+  # NOT read by ao-health.sh when it picks the anchor. The check must verify
+  # the actually-used signal: the first project in the staging config.
+  # (Greptile P1 round-6: Bypass check misfires.)
+  local first_project
+  first_project=$(awk '
+    BEGIN { in_projects=0 }
+    /^projects:[[:space:]]*$/ { in_projects=1; next }
+    in_projects && /^[^[:space:]]/ { in_projects=0 }
+    in_projects && /^  [a-zA-Z][a-zA-Z0-9_-]*:[[:space:]]*(#.*)?$/ {
+      # Extract the first key name
+      match($0, /[a-zA-Z][a-zA-Z0-9_-]*/)
+      if (RSTART > 0) {
+        print substr($0, RSTART, RLENGTH)
+        exit
       }
-      found && /<true\/>/ { print "true"; exit }
-      found && /<false\/>/ { print "false"; exit }
-    ' "$allow_plist")
-    case "$ao_main_repo_value" in
-      1|true|TRUE|yes|YES) ao_main_repo_set=1 ;;
-    esac
-    # (3) Check AO_HEALTH_ANCHOR_PROJECT — non-empty means a non-default
-    # anchor project is configured, which avoids the main-repo crash.
-    local anchor_value
-    anchor_value=$(awk '
-      /<key>AO_HEALTH_ANCHOR_PROJECT<\/key>/ { found=1; next }
-      found && /<string>/ {
-        match($0, /<string>[^<]*<\/string>/)
-        if (RSTART > 0) {
-          s = substr($0, RSTART, RLENGTH)
-          sub(/^<string>/, "", s)
-          sub(/<\/string>$/, "", s)
-          print s
-          exit
-        }
-      }
-    ' "$allow_plist")
-    if [ -n "$anchor_value" ]; then
-      anchor_set=1
-    fi
+    }
+  ' "$cfg")
+  if [ -z "$first_project" ]; then
+    warn "no projects configured in $cfg — health watchdog has nothing to launch"
+    return
   fi
-  if [ "$flag_set" -eq 1 ] || [ "$ao_main_repo_set" -eq 1 ] || [ "$anchor_set" -eq 1 ]; then
-    pass "main-repo guard bypass configured (--allow-main-repo=$flag_set, AO_MAIN_REPO=$ao_main_repo_set, ANCHOR=$anchor_set)"
+  # Heuristic: the main repo's project is conventionally the literal name
+  # `agent-orchestrator` (matches the GitHub repo name). A non-main project
+  # anchor (e.g. `worldarchitect.ai`, `dark-factory`) is the safe case.
+  if [ "$first_project" = "agent-orchestrator" ] || [ "$first_project" = "${HERMES_MAIN_PROJECT_NAME:-}" ]; then
+    warn "first project in $cfg is '$first_project' — likely the main repo. health watchdog will crash on start. Add a non-main project as the FIRST entry in projects: or set --allow-main-repo in the plist."
   else
-    warn "main-repo guard bypass NOT configured — health watchdog will crash on main repo (see 2026-06-28 incident). Pass --allow-main-repo or set AO_MAIN_REPO=1 in the plist."
+    pass "main-repo guard bypass OK: anchor project '$first_project' is not the main repo"
   fi
 }
 
