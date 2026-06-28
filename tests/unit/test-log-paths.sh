@@ -54,9 +54,12 @@ run_setup_launchd_xfail() {
 
 run_bootstrap_check() {
   local label="$1" file="$2"
-  # bootstrap-openclaw-config.sh creates staging dirs, but must also ensure .hermes/logs and .hermes_prod/logs
+  # bootstrap-openclaw-config.sh must ensure .hermes/logs and must NOT contain .openclaw/logs
   if ! grep -q "\.hermes/logs" "$file" || ! grep -q "\.hermes_prod/logs" "$file"; then
     printf "  FAIL  %s\n        Missing .hermes/logs initialization in %s\n" "$label" "$file"
+    FAIL=$((FAIL+1))
+  elif grep -q "\.openclaw/logs" "$file"; then
+    printf "  FAIL  %s\n        Found unexpected legacy '.openclaw/logs' reference in %s\n" "$label" "$file"
     FAIL=$((FAIL+1))
   else
     printf "  PASS  %s\n" "$label"
@@ -66,8 +69,8 @@ run_bootstrap_check() {
 
 run_bootstrap_xfail() {
   local label="$1" file="$2"
-  if ! grep -q "\.hermes/logs" "$file" || ! grep -q "\.hermes_prod/logs" "$file"; then
-    printf "  XFAIL %s\n        Found expected legacy setup (missing .hermes/logs) in %s\n" "$label" "$file"
+  if ! grep -q "\.hermes/logs" "$file" || ! grep -q "\.hermes_prod/logs" "$file" || grep -q "\.openclaw/logs" "$file"; then
+    printf "  XFAIL %s\n        Found expected legacy setup in %s\n" "$label" "$file"
     XFAIL=$((XFAIL+1))
   else
     printf "  PASS  %s (bug fixed)\n" "$label"
