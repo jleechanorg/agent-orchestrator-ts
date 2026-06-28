@@ -273,14 +273,20 @@ check_pnpm_wrapper_resolution() {
     warn "no ao binary found (set \$AO_BIN_PATH or ensure 'ao' is on PATH) — skipping pnpm resolution check"
     return
   fi
-  # Walk symlinks up to 10 levels deep
+  # Walk symlinks up to 10 levels deep. Relative `readlink` output must
+  # be resolved against the directory of the symlink we just dereferenced
+  # — NOT the cwd or the relative text itself. Capture `dirname` BEFORE
+  # reassigning `target` so the link's own directory anchors resolution
+  # (Greptile P1: relative symlinks were resolved against the doctor
+  # process cwd, false-warning on valid /usr/local/bin/ao -> ../pnpm/ao).
   local target="$cli_bin" i=0
   while [ -L "$target" ] && [ "$i" -lt 10 ]; do
-    target=$(readlink "$target")
-    # If relative, resolve against the symlink's directory
-    case "$target" in
-      /*) ;;
-      *)  target="$(dirname "$target")/$target" ;;
+    local link_dir next
+    link_dir=$(dirname "$target")
+    next=$(readlink "$target")
+    case "$next" in
+      /*) target="$next" ;;
+      *)  target="$link_dir/$next" ;;
     esac
     i=$((i + 1))
   done
@@ -310,13 +316,15 @@ check_main_repo_guard_bypass() {
   if [ -f "$allow_plist" ] && grep -q "AO_ALLOW_MAIN_REPO" "$allow_plist"; then
     allow_set=1
   fi
-  # Check if AO_HEALTH_ANCHOR_PROJECT is set (overrides the default first project)
+  # Check if AO_HEALTH_ANCHOR_PROJECT is set (overrides the default first
+  # project). The plist is the only meaningful source of truth here —
+  # scripts/ao-health.sh ALWAYS derives `ANCHOR_PROJECT` from the first
+  # configured project (even on the main repo), so grepping the script
+  # source for the symbol produces a false positive on every default
+  # install. Removing that fallback is Greptile P1 (Source Text Becomes
+  # Configuration).
   local anchor_set=0
   if [ -f "$allow_plist" ] && grep -q "AO_HEALTH_ANCHOR_PROJECT" "$allow_plist"; then
-    anchor_set=1
-  fi
-  # Check if anchor projects filter skips main repo in scripts/ao-health.sh
-  if grep -qE "ANCHOR_PROJECT|anchor_project" "$REPO_ROOT/scripts/ao-health.sh" 2>/dev/null; then
     anchor_set=1
   fi
   if [ "$allow_set" -eq 1 ] || [ "$anchor_set" -eq 1 ]; then
@@ -336,9 +344,15 @@ check_hermes_staging_launchd_state() {
     warn "launchd label $label not registered — skipping enable check"
     return
   fi
-  # launchctl print-disabled shows disabled agents
+  # launchctl print-disabled shows disabled agents. Output uses an
+  # INDENTED `"label" => true` form (e.g. `  "ai.hermes.staging" => true`),
+  # so anchor on the quoted arrow form rather than a leading non-space char
+  # (Greptile P1: previous `^[^[:space:]].*$label` regex silently missed the
+  # indented lines and reported a disabled agent as enabled).
   local disabled_state
-  disabled_state=$(launchctl print-disabled "gui/$(id -u)" 2>/dev/null | grep -E "^[^[:space:]].*$label" || true)
+  disabled_state=$(launchctl print-disabled "gui/$(id -u)" 2>/dev/null \
+    | grep -E "^[[:space:]]*\"?$label\"?[[:space:]]*=>[[:space:]]*true" \
+    || true)
   if [ -n "$disabled_state" ]; then
     fail "launchd label $label is DISABLED — re-enable with: launchctl enable gui/\$(id -u)/$label"
     return
@@ -374,8 +388,13 @@ check_hermes_watchdog_plist_on_disk() {
 # may crash on Slack MCP init, leaving the API port unbound. Workers
 # then fail health checks silently.
 check_staging_gateway_health() {
-  local staging_cfg="$HOME/.hermes/config.staging.yaml"
-  local port=8644  # default staging port per ~/.hermes/config.staging.yaml
+  # Use the canonical staging config (HERMES_STAGING_CONFIG, defaults to
+  # ~/.hermes/agent-orchestrator.yaml) — the rest of the doctor reads from
+  # it, so the gateway port check must too. Previously this hardcoded
+  # ~/.hermes/config.staging.yaml which would either miss the configured
+  # port (false 8644 probe) or skip the YAML parse entirely (Greptile P1).
+  local staging_cfg="$HERMES_STAGING_CONFIG"
+  local port=8644  # default staging port per ~/.hermes/agent-orchestrator.yaml
   if [ -f "$staging_cfg" ]; then
     # Use awk (BSD-portable) instead of sed+BRE because \t is not portable
     port=$(grep -E "port:|listen_port:" "$staging_cfg" 2>/dev/null \
@@ -406,14 +425,44 @@ check_default_agent_undefined_refs() {
     return
   fi
   local default_agent
+  # Parse defaults.agent in two forms:
+  #   (a) block style:
+  #         defaults:
+  #           agent: minimax
+  #   (b) inline YAML flow style:
+  #         defaults: {agent: minimax}
+  # Earlier versions only matched (a), leaving `default_agent` empty for
+  # inline configs and silently skipping the missing-plugin failure the
+  # check was added to catch (Greptile P2: Inline Defaults Are Skipped).
+  # Also reset `in_defaults` when we hit a new top-level key, otherwise a
+  # later `agent:` under a different section leaks in (CodeRabbit prompt).
   default_agent=$(awk '
+    BEGIN { in_defaults=0 }
+    # Multi-line defaults block opener
     /^[ \t]*defaults:[ \t]*$/ { in_defaults=1; next }
-    in_defaults && /^[ \t]*agent:[ \t]*([a-zA-Z0-9_-]+)/ {
+    # Inline flow opener: defaults: {agent: ...}
+    /^[ \t]*defaults:[ \t]*\{/ {
+      in_defaults=1
+      line = $0
+      if (match(line, /agent:[ \t]*[a-zA-Z0-9_-]+/)) {
+        s = substr(line, RSTART, RLENGTH)
+        sub(/.*agent:[ \t]+/, "", s)
+        sub(/[ \t,}]*$/, "", s)
+        print s
+        exit
+      }
+      next
+    }
+    # Reset when leaving the defaults block
+    in_defaults && /^[^[:space:]]/ { in_defaults=0 }
+    # Block-style `agent:` line under defaults
+    in_defaults && /^[ \t]*agent:[ \t]*[a-zA-Z0-9_-]+/ {
       # POSIX awk: use match()+substr() (gawk array extension is not portable)
       match($0, /[ \t][ \t]*agent:[ \t]*[a-zA-Z0-9_-]+/)
       if (RSTART > 0) {
         s = substr($0, RSTART, RLENGTH)
         sub(/.*agent:[ \t]+/, "", s)
+        sub(/[ \t#]*$/, "", s)
         print s
         exit
       }
