@@ -249,9 +249,12 @@ export async function backfillUncoveredPRs(
       for (const pr of openPRs) {
         if (pr.isDraft) continue;
         if (coveredPRs.has(pr.number) || coveredBranches.has(pr.branch)) {
-          if (respawnCapCounts.has(pr.number)) {
-            clearPrRespawnCapNotified(configPath, project, pr.number);
-          }
+          // Covered PRs are not eligible for escalation here, but a stale
+          // backfillRespawnNotified_<pr> marker from a previous (lower) cap
+          // would suppress a future escalation once the active session
+          // archives and the PR returns to uncovered + at-cap. Clear it now
+          // so the future escalation can fire.
+          clearPrRespawnCapNotified(configPath, project, pr.number);
           continue;
         }
         const respawnCount = respawnCapCounts.get(pr.number);
