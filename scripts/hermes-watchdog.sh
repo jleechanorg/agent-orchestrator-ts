@@ -129,7 +129,10 @@ is_interval_job_fresh() {
     return 1
   fi
   local log_mtime now age
-  log_mtime=$(stat -f %m "$log_path" 2>/dev/null || echo 0)
+  # Cross-platform stat: macOS uses `stat -f %m`, Linux uses `stat -c %Y`.
+  # Without the fallback, hermes-watchdog.sh reports false-positive "log stale"
+  # alerts on Linux runners (PR #728 regression).
+  log_mtime=$(stat -f %m "$log_path" 2>/dev/null || stat -c %Y "$log_path" 2>/dev/null || echo 0)
   now=$(date +%s)
   age=$((now - log_mtime))
   if [ "$age" -lt "$max_age" ]; then
