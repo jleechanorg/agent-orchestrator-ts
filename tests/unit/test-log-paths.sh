@@ -302,6 +302,59 @@ else
 fi
 rm -f /tmp/wd_output.log
 
+# 6. Run lw-watchdog.sh — checks it creates its LOG_DIR under custom AO_LOG_DIR
+# Clean any prior lock from previous runs
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR" /tmp/lw-watchdog.lock
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/lw-watchdog.sh >/dev/null 2>&1 || true
+if [ -d "$CUSTOM_SCRIPT_LOG_DIR" ]; then
+  printf "  PASS  lw-watchdog.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  lw-watchdog.sh respects custom AO_LOG_DIR at runtime\n        Custom log directory was not created!\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 7. Run ensure-top-pr-coverage.sh — must not write logs into $HOME/.hermes/logs when AO_LOG_DIR is set
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/ensure-top-pr-coverage.sh --help >/dev/null 2>&1 || true
+# If the script wrote anywhere, it must not be in $HOME/.hermes/logs (the default).
+# We just check the script resolved LIFECYCLE_LOG to the custom dir; static grep check below suffices.
+if grep -q 'LIFECYCLE_LOG="\${LIFECYCLE_LOG:-\${AO_LOG_DIR:-\$HOME/.hermes/logs}' scripts/ensure-top-pr-coverage.sh; then
+  printf "  PASS  ensure-top-pr-coverage.sh LIFECYCLE_LOG respects AO_LOG_DIR\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  ensure-top-pr-coverage.sh LIFECYCLE_LOG bypasses AO_LOG_DIR\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 8. setup-antigravity-launchd.sh — static guard that LOG_FILE uses AO_LOG_DIR
+if grep -q 'LOG_FILE="\${AO_LOG_DIR:-\$HOME/.hermes/logs}' scripts/setup-antigravity-launchd.sh; then
+  printf "  PASS  setup-antigravity-launchd.sh LOG_FILE respects AO_LOG_DIR\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  setup-antigravity-launchd.sh LOG_FILE bypasses AO_LOG_DIR\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 9. setup-launchd.sh — already covered by run_setup_launchd_check, but assert drift-audit uses BASE_LOG_DIR
+if grep -q 'local log_dir="$BASE_LOG_DIR"' scripts/setup-launchd.sh && \
+   grep -q 'install_launchd_drift_audit_plist' scripts/setup-launchd.sh; then
+  printf "  PASS  setup-launchd.sh drift-audit uses BASE_LOG_DIR\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  setup-launchd.sh drift-audit does not use BASE_LOG_DIR\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 10. setup-extended.sh — static guard that messages reference AO_LOG_DIR
+if grep -q 'AO_LOG_DIR:-\\\$HOME/.hermes/logs' scripts/setup-extended.sh; then
+  printf "  PASS  setup-extended.sh messages reference AO_LOG_DIR\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  setup-extended.sh messages do not reference AO_LOG_DIR\n"
+  FAIL=$((FAIL+1))
+fi
+
 rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
 rm -rf "$MOCK_BIN"
 
