@@ -321,21 +321,25 @@ check_main_repo_guard_bypass() {
     warn "staging config not found at $cfg — skipping main-repo guard check"
     return
   fi
-  # Check if AO_ALLOW_MAIN_REPO is exported in plist AND set to a truthy
-  # value. Merely mentioning the env var isn't enough — `AO_ALLOW_MAIN_REPO=0`
-  # / `AO_ALLOW_MAIN_REPO=false` / empty must NOT count as configured
-  # (Greptile P1 followup: Bypass value ignored).
+  # Check the signals that the STARTUP PATH actually honors:
+  #   (1) --allow-main-repo flag in the plist's ProgramArguments
+  #   (2) AO_MAIN_REPO env var (legacy bd-cj5s)
+  #   (3) AO_HEALTH_ANCHOR_PROJECT pointing at a non-main project
+  # AO_ALLOW_MAIN_REPO is NOT a real bypass signal — the start command
+  # uses the CLI flag, not that env var (Greptile P1 followup: Bypass
+  # signal ignored).
   local allow_plist="$HOME/Library/LaunchAgents/ai.agento.health.plist"
-  local allow_set=0
+  local flag_set=0 ao_main_repo_set=0 anchor_set=0
   if [ -f "$allow_plist" ]; then
-    # Extract the value of <key>AO_ALLOW_MAIN_REPO</key>:
-    # <string>1</string> (or <true/>). Match the value with awk so we can
-    # handle both <string>1</string> and <true/> forms portably.
-    local allow_value
-    allow_value=$(awk '
-      /<key>AO_ALLOW_MAIN_REPO<\/key>/ { found=1; next }
+    # (1) Check ProgramArguments for --allow-main-repo
+    if grep -q -- "--allow-main-repo" "$allow_plist"; then
+      flag_set=1
+    fi
+    # (2) Check <key>AO_MAIN_REPO</key><string>1</string> (legacy)
+    local ao_main_repo_value
+    ao_main_repo_value=$(awk '
+      /<key>AO_MAIN_REPO<\/key>/ { found=1; next }
       found && /<string>/ {
-        # extract value between <string> and </string>
         match($0, /<string>[^<]*<\/string>/)
         if (RSTART > 0) {
           s = substr($0, RSTART, RLENGTH)
@@ -348,15 +352,11 @@ check_main_repo_guard_bypass() {
       found && /<true\/>/ { print "true"; exit }
       found && /<false\/>/ { print "false"; exit }
     ' "$allow_plist")
-    case "$allow_value" in
-      1|true|TRUE|yes|YES) allow_set=1 ;;
+    case "$ao_main_repo_value" in
+      1|true|TRUE|yes|YES) ao_main_repo_set=1 ;;
     esac
-  fi
-  # Same treatment for AO_HEALTH_ANCHOR_PROJECT — extract the value, not
-  # just presence. Plist source of truth (Greptile P1: Source Text Becomes
-  # Configuration).
-  local anchor_set=0
-  if [ -f "$allow_plist" ]; then
+    # (3) Check AO_HEALTH_ANCHOR_PROJECT — non-empty means a non-default
+    # anchor project is configured, which avoids the main-repo crash.
     local anchor_value
     anchor_value=$(awk '
       /<key>AO_HEALTH_ANCHOR_PROJECT<\/key>/ { found=1; next }
@@ -371,15 +371,14 @@ check_main_repo_guard_bypass() {
         }
       }
     ' "$allow_plist")
-    # Anchor is meaningful when the project name is non-empty
     if [ -n "$anchor_value" ]; then
       anchor_set=1
     fi
   fi
-  if [ "$allow_set" -eq 1 ] || [ "$anchor_set" -eq 1 ]; then
-    pass "main-repo guard bypass configured (AO_ALLOW_MAIN_REPO=$allow_set, ANCHOR=$anchor_set)"
+  if [ "$flag_set" -eq 1 ] || [ "$ao_main_repo_set" -eq 1 ] || [ "$anchor_set" -eq 1 ]; then
+    pass "main-repo guard bypass configured (--allow-main-repo=$flag_set, AO_MAIN_REPO=$ao_main_repo_set, ANCHOR=$anchor_set)"
   else
-    warn "main-repo guard bypass NOT configured — health watchdog will crash on main repo (see 2026-06-28 incident)"
+    warn "main-repo guard bypass NOT configured — health watchdog will crash on main repo (see 2026-06-28 incident). Pass --allow-main-repo or set AO_MAIN_REPO=1 in the plist."
   fi
 }
 
@@ -452,10 +451,12 @@ check_staging_gateway_health() {
       BEGIN { in_scope=0 }
       # Enter the staging / gateway / staging-gateway block
       /^[ \t]*(staging|gateway|staging-gateway):[ \t]*$/ { in_scope=1; next }
-      # Or inline flow: staging: { port: 8644 }
+      # Or inline flow: staging: { port: 8644 } — DO NOT clear in_scope on
+      # the SAME line that set it (Greptile P1 followup: Inline port skipped).
       /^[ \t]*(staging|gateway|staging-gateway):[ \t]*\{/ { in_scope=1 }
-      # Leave the block on a shallower-indented key
-      in_scope && /^[^[:space:]]/ { in_scope=0 }
+      # Leave the block on a shallower-indented key — but NOT the inline
+      # flow opener line (already handled above).
+      in_scope && /^[^[:space:]]/ && $0 !~ /^[ \t]*(staging|gateway|staging-gateway):[ \t]*\{/ { in_scope=0 }
       # Read port: / listen_port: inside the scope
       in_scope && /port:[ \t]*[0-9]+/ {
         line = $0

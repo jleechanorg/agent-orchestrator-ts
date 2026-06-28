@@ -428,7 +428,7 @@ YAML
 SCOPED_PORT=$(awk '
   BEGIN { in_scope=0 }
   /^[ \t]*(staging|gateway|staging-gateway):[ \t]*$/ { in_scope=1; next }
-  in_scope && /^[^[:space:]]/ { in_scope=0 }
+  in_scope && /^[^[:space:]]/ && $0 !~ /^[ \t]*(staging|gateway|staging-gateway):[ \t]*\{/ { in_scope=0 }
   in_scope && /port:[ \t]*[0-9]+/ {
     line = $0
     if (match(line, /port:[ \t]*[0-9]+/)) {
@@ -440,6 +440,35 @@ SCOPED_PORT=$(awk '
   }
 ' "$PORT_FIXTURE")
 assert_eq "staging port lookup scoped to staging block" "8644" "$SCOPED_PORT"
+rm -f "$PORT_FIXTURE"
+
+# 7h-inline. Inline flow `staging: { port: 8765 }` must also be parsed.
+# Earlier `in_scope && /^[^[:space:]]/` ran on the same line and cleared
+# in_scope before the port: extractor ran (Greptile P1 followup: Inline
+# port skipped).
+PORT_FIXTURE="$(mktemp)"
+cat > "$PORT_FIXTURE" <<'YAML'
+projects:
+  some-other-project:
+    port: 1234
+staging: { port: 8765 }
+YAML
+INLINE_PORT=$(awk '
+  BEGIN { in_scope=0 }
+  /^[ \t]*(staging|gateway|staging-gateway):[ \t]*$/ { in_scope=1; next }
+  /^[ \t]*(staging|gateway|staging-gateway):[ \t]*\{/ { in_scope=1 }
+  in_scope && /^[^[:space:]]/ && $0 !~ /^[ \t]*(staging|gateway|staging-gateway):[ \t]*\{/ { in_scope=0 }
+  in_scope && /port:[ \t]*[0-9]+/ {
+    line = $0
+    if (match(line, /port:[ \t]*[0-9]+/)) {
+      s = substr(line, RSTART, RLENGTH)
+      sub(/^port:[ \t]*/, "", s)
+      print s
+      exit
+    }
+  }
+' "$PORT_FIXTURE")
+assert_eq "inline staging port parsed correctly" "8765" "$INLINE_PORT"
 rm -f "$PORT_FIXTURE"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
