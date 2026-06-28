@@ -146,6 +146,36 @@ run_template_check "lw-watchdog template should use placeholder" "launchd/ai.age
 run_template_check "drift-audit template should use placeholder" "launchd/ai.hermes.launchd-drift-audit.plist.template"
 
 echo ""
+echo "=== RUNTIME VERIFICATION (Behavioral Proof) ==="
+MOCK_HOME="/tmp/mock_home_$(date +%s)"
+mkdir -p "$MOCK_HOME"
+
+echo "Executing bootstrap-openclaw-config.sh in mock environment..."
+# Running bootstrap script with mocked HOME
+HOME="$MOCK_HOME" bash scripts/bootstrap-openclaw-config.sh --force >/dev/null 2>&1
+
+# Assert that legacy openclaw/logs does not exist
+if [ -d "$MOCK_HOME/.openclaw/logs" ] || [ -d "$MOCK_HOME/.openclaw_prod/logs" ]; then
+  printf "  FAIL  launchd/config bootstrap does not recreate legacy .openclaw/logs\n        Found legacy log directory in mock home!\n"
+  FAIL=$((FAIL+1))
+else
+  printf "  PASS  launchd/config bootstrap does not recreate legacy .openclaw/logs\n"
+  PASS=$((PASS+1))
+fi
+
+# Assert that hermes/logs directory is created
+if [ -d "$MOCK_HOME/.hermes/logs" ]; then
+  printf "  PASS  launchd/config bootstrap initializes ~/.hermes/logs\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  launchd/config bootstrap initializes ~/.hermes/logs\n        Missing new log directory in mock home!\n"
+  FAIL=$((FAIL+1))
+fi
+
+# Clean up mock environment
+rm -rf "$MOCK_HOME"
+
+echo ""
 echo "Results: PASS=$PASS XFAIL=$XFAIL FAIL=$FAIL"
 
 if [[ $FAIL -eq 0 ]]; then
