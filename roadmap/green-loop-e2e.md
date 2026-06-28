@@ -98,7 +98,7 @@ NOTE: This is a **worker self-certification audit trail**, not GitHub thread res
 
 1. **Merge PR #129** (backfillAllPRs)
 2. **Restart lifecycle-worker** with new build
-3. **Observe backfill logs**: `grep "lifecycle.backfill" ~/.openclaw/logs/ao-lifecycle-agent-orchestrator.err.log`
+3. **Observe backfill logs**: `grep "lifecycle.backfill" ~/.hermes/logs/ao-lifecycle-agent-orchestrator.err.log`
 4. **Verify sessions spawn** for uncovered PRs
 5. **Watch one PR** progress through reactions: `changes_requested → send-to-agent → worker fixes → approved → auto-merge`
 6. **Confirm merge**: PR reaches 6-green, auto-merge fires, PR is merged
@@ -106,7 +106,7 @@ NOTE: This is a **worker self-certification audit trail**, not GitHub thread res
 ## Config Required
 
 ```yaml
-# In ~/.openclaw/agent-orchestrator.yaml
+# In ~/.hermes/agent-orchestrator.yaml
 projects:
   agent-orchestrator:
     backfillAllPRs: true  # Already set
