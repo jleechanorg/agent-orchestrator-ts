@@ -9,15 +9,11 @@ import type { DefaultPlugins, ProjectConfig } from "../types.js";
 
 /**
  * mini-default-smoke — minimal default-path smoke test.
- *
- * Goal: exercise the default agent-resolution pipeline without invoking any CLI
- * binary or LLM. If this test passes, the canonical fallback chain
+ * Exercises the default agent-resolution pipeline without invoking any CLI or LLM.
+ * If these tests pass, the canonical fallback chain
  * (`defaults.*` → `project.*` → `role.*`) is intact for both worker and
- * orchestrator sessions.
- *
- * Why a separate file: keeps the smoke surface tiny and obviously named, so any
- * future regression in the default path points reviewers straight here instead
- * of into a 1.4k-line combined suite.
+ * orchestrator sessions. Kept tiny and named so regressions in the default path
+ * point reviewers straight here instead of into a 1.4k-line combined suite.
  */
 
 const baseProject: ProjectConfig = {
@@ -50,6 +46,15 @@ describe("mini-default-smoke: worker path", () => {
     const sel = resolveAgentSelection({
       role: "worker",
       project: { ...baseProject, worker: { agent: "codex" } },
+      defaults: baseDefaults,
+    });
+    expect(sel.agentName).toBe("codex");
+  });
+
+  it("project.worker.agent beats shared project.agent for worker", () => {
+    const sel = resolveAgentSelection({
+      role: "worker",
+      project: { ...baseProject, agent: "wafer", worker: { agent: "codex" } },
       defaults: baseDefaults,
     });
     expect(sel.agentName).toBe("codex");
@@ -96,6 +101,15 @@ describe("mini-default-smoke: orchestrator path", () => {
     const sel = resolveAgentSelection({
       role: "orchestrator",
       project: { ...baseProject, orchestrator: { agent: "codex" } },
+      defaults: baseDefaults,
+    });
+    expect(sel.agentName).toBe("codex");
+  });
+
+  it("project.orchestrator.agent beats shared project.agent for orchestrator", () => {
+    const sel = resolveAgentSelection({
+      role: "orchestrator",
+      project: { ...baseProject, agent: "wafer", orchestrator: { agent: "codex" } },
       defaults: baseDefaults,
     });
     expect(sel.agentName).toBe("codex");
