@@ -346,6 +346,16 @@ check_dist_md5_match() {
   fi
   local resolved
   resolved=$(readlink "$cli_bin" 2>/dev/null || echo "$cli_bin")
+  if grep -q "node_modules/@jleechanorg/ao-cli/dist/index.js" "$resolved" 2>/dev/null; then
+    local wrapper_dir
+    wrapper_dir=$(dirname "$resolved")
+    local extracted_path
+    extracted_path=$(grep -oE '"[^"]*@jleechanorg/ao-cli/dist/index.js"' "$resolved" | head -1 | tr -d '"')
+    if [ -n "$extracted_path" ]; then
+      extracted_path="${extracted_path//\$basedir/$wrapper_dir}"
+      resolved="$extracted_path"
+    fi
+  fi
   if [ ! -f "$source_dist" ]; then
     warn "source dist not built at $source_dist — run 'pnpm build' first"
     return
