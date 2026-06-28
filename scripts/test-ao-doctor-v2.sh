@@ -259,7 +259,11 @@ else
 fi
 rm -f "$TMP_CFG"
 
-# 7b. Block-style defaults (must still work after the inline fix)
+# 7b. Block-style defaults (must still work after the inline fix).
+# Tighten the assertion to specifically look for the real parser-exercised
+# output ("default agent '...' resolves to ...") and exclude the
+# fallback "no defaults.agent configured" warning path that would mask a
+# regression where the parser silently fails (CodeRabbit round-7).
 TMP_CFG="$(mktemp)"
 cat > "$TMP_CFG" <<'YAML'
 defaults:
@@ -268,8 +272,10 @@ projects:
   test: {scm: github}
 YAML
 OUT=$(run_default_agent_check "$TMP_CFG")
-if echo "$OUT" | grep -qE "(FAIL|WARN|PASS).*agent"; then
+if echo "$OUT" | grep -qE "default agent 'claude-code' (resolves|references)"; then
   ok "block-style defaults: real parser exercised (output: $(echo "$OUT" | head -1))"
+elif echo "$OUT" | grep -qE "no defaults.agent configured"; then
+  fail "block-style defaults: real parser fell back to 'no defaults.agent' warning (got: $OUT)"
 else
   fail "block-style defaults: real parser did not exercise agent check (got: $OUT)"
 fi
