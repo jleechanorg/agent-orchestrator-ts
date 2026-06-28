@@ -290,10 +290,18 @@ check_pnpm_wrapper_resolution() {
     esac
     i=$((i + 1))
   done
-  if [ -f "$target" ] && [[ "$target" == *"$REPO_ROOT"* ]]; then
-    pass "ao binary resolves to source tree ($target)"
-  elif [ -f "$target" ]; then
-    warn "ao binary does NOT resolve to source tree — resolved to $target (REPO_ROOT=$REPO_ROOT). Workers may run stale code"
+  if [ -f "$target" ]; then
+    # Normalize via cd+pwd so the REPO_ROOT substring check isn't fooled by
+    # a path like `/Users/.../agent-orchestrator/../bin/ao` that contains
+    # REPO_ROOT as a substring of an un-normalized path (Greptile P1
+    # followup: Normalize symlink target).
+    local normalized_target
+    normalized_target="$(cd "$(dirname "$target")" 2>/dev/null && pwd)/$(basename "$target")"
+    if [[ "$normalized_target" == *"$REPO_ROOT"* ]]; then
+      pass "ao binary resolves to source tree ($normalized_target)"
+    else
+      warn "ao binary does NOT resolve to source tree — resolved to $normalized_target (REPO_ROOT=$REPO_ROOT). Workers may run stale code"
+    fi
   else
     warn "could not resolve ao binary symlink chain (started at $cli_bin) — skipping"
   fi
@@ -436,6 +444,10 @@ check_default_agent_undefined_refs() {
   # check was added to catch (Greptile P2: Inline Defaults Are Skipped).
   # Also reset `in_defaults` when we hit a new top-level key, otherwise a
   # later `agent:` under a different section leaks in (CodeRabbit prompt).
+  # Accept QUOTED agent names (`agent: "minimax"` / `agent: 'minimax'`)
+  # which are valid YAML — the bare `[a-zA-Z0-9_-]+` regex would skip them
+  # and falsely warn "no defaults.agent configured" (Greptile P1 followup:
+  # Quoted agents skip checks).
   default_agent=$(awk '
     BEGIN { in_defaults=0 }
     # Multi-line defaults block opener
@@ -444,10 +456,16 @@ check_default_agent_undefined_refs() {
     /^[ \t]*defaults:[ \t]*\{/ {
       in_defaults=1
       line = $0
-      if (match(line, /agent:[ \t]*[a-zA-Z0-9_-]+/)) {
+      # Match `agent:` followed by either a quoted string ("minimax" or
+      # '\''minimax'\'') OR a bare word ([a-zA-Z0-9_-]+). The full value
+      # must be captured so the trailing `sub()` can strip `}` cleanly.
+      if (match(line, /agent:[ \t]*(["'"'"'][a-zA-Z0-9_-]+["'"'"']|[a-zA-Z0-9_-]+)/)) {
         s = substr(line, RSTART, RLENGTH)
         sub(/.*agent:[ \t]+/, "", s)
         sub(/[ \t,}]*$/, "", s)
+        # Strip surrounding quotes if present (idempotent on unquoted)
+        sub(/^["'"'"']/, "", s)
+        sub(/["'"'"']$/, "", s)
         print s
         exit
       }
@@ -455,14 +473,17 @@ check_default_agent_undefined_refs() {
     }
     # Reset when leaving the defaults block
     in_defaults && /^[^[:space:]]/ { in_defaults=0 }
-    # Block-style `agent:` line under defaults
-    in_defaults && /^[ \t]*agent:[ \t]*[a-zA-Z0-9_-]+/ {
+    # Block-style `agent:` line under defaults — accept quoted or unquoted
+    in_defaults && /^[ \t]*agent:[ \t]*(["'"'"']|[a-zA-Z0-9_-])/ {
       # POSIX awk: use match()+substr() (gawk array extension is not portable)
-      match($0, /[ \t][ \t]*agent:[ \t]*[a-zA-Z0-9_-]+/)
+      match($0, /[ \t][ \t]*agent:[ \t]*(["'"'"'][a-zA-Z0-9_-]+["'"'"']|[a-zA-Z0-9_-]+)/)
       if (RSTART > 0) {
         s = substr($0, RSTART, RLENGTH)
         sub(/.*agent:[ \t]+/, "", s)
         sub(/[ \t#]*$/, "", s)
+        # Strip surrounding quotes if present (idempotent on unquoted)
+        sub(/^["'"'"']/, "", s)
+        sub(/["'"'"']$/, "", s)
         print s
         exit
       }

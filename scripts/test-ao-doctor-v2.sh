@@ -295,6 +295,40 @@ else
 fi
 rm -f "$TMP_CFG"
 
+# 7c-quoted. Quoted agent names like `agent: "minimax"` or `agent: 'minimax'`
+# must also be parsed correctly (Greptile P1 followup: Quoted agents skip
+# checks). Earlier regex `[a-zA-Z0-9_-]+` skipped quoted values and warned
+# "no defaults.agent configured" even when one was set.
+TMP_CFG="$(mktemp)"
+cat > "$TMP_CFG" <<'YAML'
+defaults:
+  agent: "claude-code"
+projects:
+  test: {scm: github}
+YAML
+OUT=$(run_default_agent_check "$TMP_CFG")
+if echo "$OUT" | grep -qE "(PASS|FAIL).*agent.*claude-code"; then
+  ok "double-quoted agent name parsed correctly"
+else
+  fail "double-quoted agent name NOT parsed (got: $OUT)"
+fi
+rm -f "$TMP_CFG"
+
+TMP_CFG="$(mktemp)"
+cat > "$TMP_CFG" <<'YAML'
+defaults:
+  agent: 'wafer'
+projects:
+  test: {scm: github}
+YAML
+OUT=$(run_default_agent_check "$TMP_CFG")
+if echo "$OUT" | grep -qE "(PASS|FAIL|WARN).*agent.*wafer"; then
+  ok "single-quoted agent name parsed correctly"
+else
+  fail "single-quoted agent name NOT parsed (got: $OUT)"
+fi
+rm -f "$TMP_CFG"
+
 # 7d. Relative symlink chain resolves through the link's directory, not
 # cwd (Greptile P1: Relative Symlinks Resolve Wrong). Note the resolver
 # keeps the `..` segment as-is; downstream consumers should normalize
