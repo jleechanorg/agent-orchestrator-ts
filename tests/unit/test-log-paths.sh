@@ -8,9 +8,12 @@ set -euo pipefail
 PASS=0; FAIL=0; XFAIL=0
 
 run_check() {
-  local label="$1" file="$2"
+  local label="$1" file="$2" expected="${3:-}"
   if grep -q "\.openclaw/logs" "$file"; then
     printf "  FAIL  %s\n        Found '.openclaw/logs' reference in %s\n" "$label" "$file"
+    FAIL=$((FAIL+1))
+  elif [ -n "$expected" ] && ! grep -E -q "$expected" "$file"; then
+    printf "  FAIL  %s\n        Missing expected log path pattern '%s' in %s\n" "$label" "$expected" "$file"
     FAIL=$((FAIL+1))
   else
     printf "  PASS  %s\n" "$label"
@@ -79,10 +82,13 @@ run_bootstrap_xfail() {
 }
 
 run_template_check() {
-  local label="$1" file="$2"
+  local label="$1" file="$2" expected="${3:-}"
   # Plist templates use XML string elements. Ensure no hardcoded StandardOutPath/StandardErrorPath string points to .openclaw/logs
   if grep -E -q "<string>[^<]*\.openclaw/logs[^<]*</string>" "$file"; then
     printf "  FAIL  %s\n        Found hardcoded legacy log path string in template: %s\n" "$label" "$file"
+    FAIL=$((FAIL+1))
+  elif [ -n "$expected" ] && ! grep -E -q "<string>[^<]*$expected[^<]*</string>" "$file"; then
+    printf "  FAIL  %s\n        Missing expected pattern '%s' in template: %s\n" "$label" "$expected" "$file"
     FAIL=$((FAIL+1))
   else
     printf "  PASS  %s\n" "$label"
@@ -125,25 +131,25 @@ run_template_check "drift-audit template uses placeholder" "launchd/ai.hermes.la
 
 echo ""
 echo "=== GREEN: fixed version (checks after fix) ==="
-run_check "ao-health.sh should use hermes/logs" "scripts/ao-health.sh"
-run_check "health-guardian.sh should use hermes/logs" "scripts/ai.agento.health-guardian.sh"
-run_check "start-all.sh should use hermes/logs" "scripts/start-all.sh"
-run_check "ensure-top-pr-coverage.sh should use hermes/logs" "scripts/ensure-top-pr-coverage.sh"
-run_check "check-pr-worker-coverage.sh should use hermes/logs" "scripts/check-pr-worker-coverage.sh"
-run_check "hermes-watchdog.sh should use hermes/logs" "scripts/hermes-watchdog.sh"
-run_check "lw-watchdog.sh should use hermes/logs" "scripts/lw-watchdog.sh"
-run_check "setup-antigravity-launchd.sh should use hermes/logs" "scripts/setup-antigravity-launchd.sh"
-run_check "setup-extended.sh should use hermes/logs" "scripts/setup-extended.sh"
+run_check "ao-health.sh should use hermes/logs" "scripts/ao-health.sh" "AO_LOG_DIR"
+run_check "health-guardian.sh should use hermes/logs" "scripts/ai.agento.health-guardian.sh" "AO_LOG_DIR"
+run_check "start-all.sh should use hermes/logs" "scripts/start-all.sh" "AO_LOG_DIR"
+run_check "ensure-top-pr-coverage.sh should use hermes/logs" "scripts/ensure-top-pr-coverage.sh" "\.hermes/logs"
+run_check "check-pr-worker-coverage.sh should use hermes/logs" "scripts/check-pr-worker-coverage.sh" "\.hermes/logs"
+run_check "hermes-watchdog.sh should use hermes/logs" "scripts/hermes-watchdog.sh" "AO_LOG_DIR"
+run_check "lw-watchdog.sh should use hermes/logs" "scripts/lw-watchdog.sh" "AO_LOG_DIR"
+run_check "setup-antigravity-launchd.sh should use hermes/logs" "scripts/setup-antigravity-launchd.sh" "AO_LOG_DIR"
+run_check "setup-extended.sh should use hermes/logs" "scripts/setup-extended.sh" "\.hermes/logs"
 run_setup_launchd_check "setup-launchd.sh should use hermes/logs" "scripts/setup-launchd.sh"
 run_bootstrap_check "bootstrap-openclaw-config.sh should set up hermes logs" "scripts/bootstrap-openclaw-config.sh"
 
-run_template_check "health-guardian template should use placeholder" "launchd/ai.agento.health-guardian.plist.template"
-run_template_check "health template should use placeholder" "launchd/ai.agento.health.plist.template"
-run_template_check "novel-daily template should use placeholder" "launchd/ai.agento.novel-daily.plist.template"
-run_template_check "antigravity-orch template should use placeholder" "launchd/ai.agento.antigravity-orch.plist.template"
-run_template_check "lifecycle-all template should use placeholder" "launchd/ai.agento.lifecycle-all.plist.template"
-run_template_check "lw-watchdog template should use placeholder" "launchd/ai.agento.lw-watchdog.plist.template"
-run_template_check "drift-audit template should use placeholder" "launchd/ai.hermes.launchd-drift-audit.plist.template"
+run_template_check "health-guardian template should use placeholder" "launchd/ai.agento.health-guardian.plist.template" "@LOG_FILE@"
+run_template_check "health template should use placeholder" "launchd/ai.agento.health.plist.template" "@LOG_FILE@"
+run_template_check "novel-daily template should use placeholder" "launchd/ai.agento.novel-daily.plist.template" "@LOG_FILE@"
+run_template_check "antigravity-orch template should use placeholder" "launchd/ai.agento.antigravity-orch.plist.template" "@LOG_FILE@"
+run_template_check "lifecycle-all template should use placeholder" "launchd/ai.agento.lifecycle-all.plist.template" "@LOG_FILE@"
+run_template_check "lw-watchdog template should use placeholder" "launchd/ai.agento.lw-watchdog.plist.template" "@LOG_FILE@"
+run_template_check "drift-audit template should use placeholder" "launchd/ai.hermes.launchd-drift-audit.plist.template" "__HOME__/\.hermes/logs"
 
 echo ""
 echo "=== RUNTIME VERIFICATION (Behavioral Proof) ==="
