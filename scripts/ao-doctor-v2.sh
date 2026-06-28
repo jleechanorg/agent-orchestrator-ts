@@ -325,21 +325,21 @@ check_main_repo_guard_bypass() {
   #   `scripts/ao-health.sh:130` computes `ANCHOR_PROJECT="$(echo "$PROJECTS"
   #   | awk '{print $1}')"` — the first project name in the staging config's
   #   `projects:` map. That name is then passed to `ao start $ANCHOR_PROJECT`
-  #   on line 167. If that first project resolves to the main repo (the
-  #   agent-orchestrator fork itself), the start command hits the main-repo
-  #   guard and crashes.
+  #   on line 167. The start command resolves that name to a PATH (via the
+  #   project's `path:` field or config-dir default) and the main-repo guard
+  #   at packages/cli/src/commands/start.ts:745 rejects when the resolved
+  #   path equals or is under the main repo.
   #
-  # Plist values like `AO_HEALTH_ANCHOR_PROJECT` and `AO_ALLOW_MAIN_REPO` are
-  # NOT read by ao-health.sh when it picks the anchor. The check must verify
-  # the actually-used signal: the first project in the staging config.
-  # (Greptile P1 round-6: Bypass check misfires.)
-  local first_project
+  # Heuristic only: the project's NAME may not match "agent-orchestrator"
+  # while its PATH still points at the main repo (Greptile P1 round-8:
+  # Project path unchecked). Use the project's `path:` field when present,
+  # and fall back to comparing the project NAME to the repo basename.
+  local first_project first_path
   first_project=$(awk '
     BEGIN { in_projects=0 }
     /^projects:[[:space:]]*$/ { in_projects=1; next }
     in_projects && /^[^[:space:]]/ { in_projects=0 }
     in_projects && /^  [a-zA-Z][a-zA-Z0-9_-]*:[[:space:]]*(#.*)?$/ {
-      # Extract the first key name
       match($0, /[a-zA-Z][a-zA-Z0-9_-]*/)
       if (RSTART > 0) {
         print substr($0, RSTART, RLENGTH)
@@ -351,13 +351,47 @@ check_main_repo_guard_bypass() {
     warn "no projects configured in $cfg — health watchdog has nothing to launch"
     return
   fi
-  # Heuristic: the main repo's project is conventionally the literal name
-  # `agent-orchestrator` (matches the GitHub repo name). A non-main project
-  # anchor (e.g. `worldarchitect.ai`, `dark-factory`) is the safe case.
-  if [ "$first_project" = "agent-orchestrator" ] || [ "$first_project" = "${HERMES_MAIN_PROJECT_NAME:-}" ]; then
+  # Extract the first project's `path:` field, if present
+  first_path=$(awk -v proj="$first_project" '
+    BEGIN { in_proj=0; depth=0 }
+    # Match the project key at exactly 2-space indent
+    $0 ~ "^  " proj ":[[:space:]]*(#.*)?$" { in_proj=1; next }
+    in_proj && /^[ \t]*path:[[:space:]]*/ {
+      match($0, /path:[[:space:]]+[^[:space:]]+/)
+      if (RSTART > 0) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/^path:[[:space:]]+/, "", s)
+        print s
+        exit
+      }
+    }
+    # Leave the project block when we hit a shallower key
+    in_proj && /^[^[:space:]]/ { in_proj=0 }
+  ' "$cfg")
+  local main_repo_basename
+  main_repo_basename=$(basename "$REPO_ROOT")
+  # If the project has an explicit path, use it; otherwise fall back to name.
+  if [ -n "$first_path" ]; then
+    # Resolve relative path against the config dir
+    case "$first_path" in
+      /*) ;;
+      *)  first_path="$(cd "$(dirname "$cfg")" && pwd)/$first_path" ;;
+    esac
+    # Normalize via cd+pwd
+    if [ -d "$first_path" ]; then
+      first_path="$(cd "$first_path" && pwd)"
+    fi
+    local normalized_main
+    normalized_main="$(cd "$REPO_ROOT" 2>/dev/null && pwd)"
+    if [[ "$first_path" == "$normalized_main" || "$first_path" == "$normalized_main"/* ]]; then
+      warn "first project '$first_project' path '$first_path' is under main repo — watchdog will crash on start"
+    else
+      pass "main-repo guard bypass OK: project '$first_project' path '$first_path' is outside main repo"
+    fi
+  elif [ "$first_project" = "agent-orchestrator" ] || [ "$first_project" = "$main_repo_basename" ]; then
     warn "first project in $cfg is '$first_project' — likely the main repo. health watchdog will crash on start. Add a non-main project as the FIRST entry in projects: or set --allow-main-repo in the plist."
   else
-    pass "main-repo guard bypass OK: anchor project '$first_project' is not the main repo"
+    pass "main-repo guard bypass OK: anchor project '$first_project' is not the main repo (no explicit path set; uses config-dir default)"
   fi
 }
 
