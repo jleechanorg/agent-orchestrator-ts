@@ -2,6 +2,7 @@
 # Unit test for routing AO logs to ~/.hermes/logs instead of ~/.openclaw/logs
 #
 # Run: bash tests/unit/test-log-paths.sh
+# CI:   wired into `pnpm run test:shell` (see package.json)
 
 set -euo pipefail
 
