@@ -8,12 +8,13 @@ import {
 import type { DefaultPlugins, ProjectConfig } from "../types.js";
 
 /**
- * mini-default-smoke — minimal default-path smoke test.
- * Exercises the default agent-resolution pipeline without invoking any CLI or LLM.
- * If these tests pass, the canonical fallback chain
- * (`defaults.*` → `project.*` → `role.*`) is intact for both worker and
- * orchestrator sessions. Kept tiny and named so regressions in the default path
- * point reviewers straight here instead of into a 1.4k-line combined suite.
+ * mini-default-smoke — minimal default-path smoke test. Exercises the default
+ * agent-resolution pipeline without invoking any CLI or LLM. If these tests
+ * pass, the canonical fallback chain (`defaults.*` → `project.*` → `role.*`)
+ * is intact for both worker and orchestrator sessions. Kept tiny and named so
+ * regressions in the default path point reviewers straight here instead of into
+ * a 1.4k-line combined suite. `ProjectConfig.defaultAgent` precedence is
+ * covered in `fork-reaction-agent-fallback.test.ts` (different code path).
  */
 
 const baseProject: ProjectConfig = {
@@ -31,6 +32,7 @@ const baseDefaults: DefaultPlugins = {
   runtime: "tmux",
   agent: "claude-code",
   workspace: "worktree",
+  lock: "area-lock",
   notifiers: [],
   agentConfig: { permissions: "default" },
 };
