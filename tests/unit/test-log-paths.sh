@@ -199,10 +199,41 @@ rm -rf "$CUSTOM_LOG_DIR" "$CUSTOM_LOG_DIR_PROD"
 CUSTOM_SCRIPT_LOG_DIR="/tmp/custom_script_logs_$(date +%s)"
 mkdir -p "$CUSTOM_SCRIPT_LOG_DIR"
 
+# Set up mock bin directory to override system commands at runtime
+MOCK_BIN="/tmp/mock_bin_$(date +%s)"
+mkdir -p "$MOCK_BIN"
+
+# 1. Mock gh
+cat <<'EOF' > "$MOCK_BIN/gh"
+#!/usr/bin/env bash
+echo '[{"number": 12345, "title": "some title", "headRefName": "some-branch", "createdAt": "2026-06-25T12:00:00Z"}]'
+EOF
+chmod +x "$MOCK_BIN/gh"
+
+# 2. Mock launchctl
+cat <<'EOF' > "$MOCK_BIN/launchctl"
+#!/usr/bin/env bash
+echo "type = LaunchAgent"
+EOF
+chmod +x "$MOCK_BIN/launchctl"
+
+# 3. Mock tmux
+cat <<'EOF' > "$MOCK_BIN/tmux"
+#!/usr/bin/env bash
+if [ "${1:-}" = "list-panes" ]; then
+  echo "12345"
+else
+  exit 0
+fi
+EOF
+chmod +x "$MOCK_BIN/tmux"
+
 echo "Running scripts with custom AO_LOG_DIR to verify runtime logging redirect..."
 
 # 1. Run ao-health.sh
-AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" bash scripts/ao-health.sh >/dev/null 2>&1 || true
+# Remove mock config file to force FATAL: no config found logging write
+rm -f "$MOCK_HOME/.hermes/agent-orchestrator.yaml"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/ao-health.sh >/dev/null 2>&1 || true
 if [ -f "$CUSTOM_SCRIPT_LOG_DIR/ao-health.log" ]; then
   printf "  PASS  ao-health.sh respects custom AO_LOG_DIR at runtime\n"
   PASS=$((PASS+1))
@@ -214,7 +245,7 @@ fi
 # 2. Run ai.agento.health-guardian.sh
 # We remove the custom directory first to verify it gets recreated
 rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
-AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" bash scripts/ai.agento.health-guardian.sh >/dev/null 2>&1 || true
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/ai.agento.health-guardian.sh >/dev/null 2>&1 || true
 if [ -d "$CUSTOM_SCRIPT_LOG_DIR" ]; then
   printf "  PASS  health-guardian.sh respects custom AO_LOG_DIR at runtime\n"
   PASS=$((PASS+1))
@@ -225,7 +256,7 @@ fi
 
 # 3. Run start-all.sh
 rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
-AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" bash scripts/start-all.sh >/dev/null 2>&1 || true
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/start-all.sh >/dev/null 2>&1 || true
 if [ -d "$CUSTOM_SCRIPT_LOG_DIR" ]; then
   printf "  PASS  start-all.sh respects custom AO_LOG_DIR at runtime\n"
   PASS=$((PASS+1))
@@ -234,7 +265,38 @@ else
   FAIL=$((FAIL+1))
 fi
 
+# 4. Run check-pr-worker-coverage.sh
+# Write a mock claim failure log entry into the custom log directory
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR" && mkdir -p "$CUSTOM_SCRIPT_LOG_DIR"
+echo '{"operation": "lifecycle.backfill.claim_failed", "data": {"prNumber": 12345, "error": "mocked claim error"}}' > "$CUSTOM_SCRIPT_LOG_DIR/ao-lifecycle-agent-orchestrator.log"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/check-pr-worker-coverage.sh >/tmp/cov_output.log 2>&1 || true
+if grep -q "mocked claim error" /tmp/cov_output.log; then
+  printf "  PASS  check-pr-worker-coverage.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  check-pr-worker-coverage.sh respects custom AO_LOG_DIR at runtime\n        Coverage script did not read claim log under custom AO_LOG_DIR!\n"
+  FAIL=$((FAIL+1))
+fi
+rm -f /tmp/cov_output.log
+
+# 5. Run hermes-watchdog.sh
+# Touch fresh logs for hermes-watchdog to find in the custom directory
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR" && mkdir -p "$CUSTOM_SCRIPT_LOG_DIR"
+mkdir -p "$MOCK_HOME/.hermes_prod/logs"
+touch "$MOCK_HOME/.hermes_prod/logs/gateway.log"
+touch "$CUSTOM_SCRIPT_LOG_DIR/ao-health.log"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/hermes-watchdog.sh >/tmp/wd_output.log 2>&1 || true
+if grep -q "all checks green" /tmp/wd_output.log; then
+  printf "  PASS  hermes-watchdog.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  hermes-watchdog.sh respects custom AO_LOG_DIR at runtime\n        Watchdog script did not find fresh logs under custom AO_LOG_DIR!\n"
+  FAIL=$((FAIL+1))
+fi
+rm -f /tmp/wd_output.log
+
 rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
+rm -rf "$MOCK_BIN"
 
 # Clean up mock environment
 rm -rf "$MOCK_HOME"
