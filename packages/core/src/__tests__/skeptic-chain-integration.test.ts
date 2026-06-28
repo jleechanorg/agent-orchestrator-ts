@@ -969,15 +969,17 @@ describe("skeptic chain integration", () => {
     }
 
     // RED: Pre-fix strict filter would have rejected this verdict because the
-    // request-id contains the trigger SHA but does not exactly match.
-    // The trigger at 19:57:32Z used `gate-{FULL_SHA}-{RUN_ID}-{ATTEMPT}`
-    // (OLD format from a still-running GHA workflow definition).
-    it("accepts a verdict whose request-id contains the full trigger SHA (OLD format)", () => {
-      const requestIdOld = `gate-${TRIGGER_SHA_FULL}-28333687751-1`;
+    // trigger request-id and verdict marker use DIFFERENT format generations.
+    // The trigger at 19:57:32Z used the NEW format (12-char SHA prefix); the
+    // verdict marker uses the OLD format (full 40-char SHA). The exact-match
+    // path returns false; only the SHA-substring fallback can satisfy this.
+    it("accepts an OLD-format verdict marker when the trigger request-id uses the NEW format", () => {
+      const verdictRequestIdOld = `gate-${TRIGGER_SHA_FULL}-28333687751-1`;
+      const triggerRequestIdNew = `gate-28333687751-1-733-${TRIGGER_SHA_12}`;
       const comments = [
         {
           id: 400,
-          body: tolerantPassBody(TRIGGER_SHA_FULL, requestIdOld),
+          body: tolerantPassBody(TRIGGER_SHA_FULL, verdictRequestIdOld),
           user: { login: "jleechan2015" },
           updatedAt: "2026-06-28T20:01:00Z",
         },
@@ -988,7 +990,7 @@ describe("skeptic chain integration", () => {
         "jleechan2015",
         TRIGGER_SHA_FULL,
         TRIGGER_UPDATED_LOCAL,
-        requestIdOld,
+        triggerRequestIdNew, // different from verdict marker
         "other-author",
       );
 
@@ -997,15 +999,15 @@ describe("skeptic chain integration", () => {
       expect(result!.body).toContain("VERDICT: PASS");
     });
 
-    // GREEN: New tolerant filter accepts verdicts whose request-id embeds
-    // the 12-char SHA prefix (current `skeptic-gate-reusable.yml` format
-    // `gate-{RUN_ID}-{ATTEMPT}-{PR_NUM}-{SHA:12}`).
-    it("accepts a verdict whose request-id contains the 12-char SHA prefix (NEW format)", () => {
-      const requestIdNew = `gate-28333687751-1-733-${TRIGGER_SHA_12}`;
+    // GREEN: Reverse direction — trigger is OLD, verdict marker is NEW.
+    // This is the format-drift scenario that stranded PR #732's PASS verdict.
+    it("accepts a NEW-format verdict marker when the trigger request-id uses the OLD format", () => {
+      const triggerRequestIdOld = `gate-${TRIGGER_SHA_FULL}-28333687751-1`;
+      const verdictRequestIdNew = `gate-28333687751-1-733-${TRIGGER_SHA_12}`;
       const comments = [
         {
           id: 401,
-          body: tolerantPassBody(TRIGGER_SHA_FULL, requestIdNew),
+          body: tolerantPassBody(TRIGGER_SHA_FULL, verdictRequestIdNew),
           user: { login: "jleechan2015" },
           updatedAt: "2026-06-28T20:01:00Z",
         },
@@ -1016,7 +1018,7 @@ describe("skeptic chain integration", () => {
         "jleechan2015",
         TRIGGER_SHA_FULL,
         TRIGGER_UPDATED_LOCAL,
-        requestIdNew,
+        triggerRequestIdOld, // different from verdict marker
         "other-author",
       );
 
