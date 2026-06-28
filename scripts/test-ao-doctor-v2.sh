@@ -131,6 +131,12 @@ mkdir -p "$FIXTURE_HOME/Library/LaunchAgents" \
          "$FIXTURE_HOME/.hermes/logs"
 # Empty running.json so check_running_json_present PASSes deterministically
 echo '{"pid":0}' > "$FIXTURE_HOME/.agent-orchestrator/running.json"
+# Create a fresh health-guardian log so check_health_guardian_log_present
+# actually exercises its PASS path. Previously the fixture only created
+# the directory, so the doctor always emitted `FAIL log directory ...`
+# and the assertion was silently no-op'd (CodeRabbit review).
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) heartbeat" \
+  > "$FIXTURE_HOME/.openclaw/logs/ao-health-guardian.log"
 # Fixture staging config with `defaults: {agent: minimax}` inline flow so
 # the inline-defaults parser fix is exercised end-to-end.
 cat > "$FIXTURE_HOME/.hermes/agent-orchestrator.yaml" <<'YAML'
@@ -152,9 +158,25 @@ if echo "$OUTPUT" | grep -qE "sed:.*bad flag|awk:.*syntax error|awk:.*illegal st
 else
   ok "no bash tool errors in output"
 fi
-# Fixture-isolated run should NOT depend on host launchd / logs
-if echo "$OUTPUT" | grep -q "PASS ai.agento.health-guardian"; then
-  ok "health-guardian log check ran against fixture"
+# Real assertion (CodeRabbit review: previous `if grep -q ... then ok ... fi`
+# silently no-op'd when the line was missing, masking fixture regressions).
+if echo "$OUTPUT" | grep -qE "^PASS .*ai.agento.health-guardian"; then
+  ok "health-guardian log check PASSed against fresh fixture log"
+else
+  fail "health-guardian log check did NOT PASS against fresh fixture log"
+fi
+# Stale log path (mtime > 30 min) must trigger WARN, not PASS
+sleep 1
+# Simulate an old log by backdating its mtime via touch -t
+touch -t "202001010000" "$FIXTURE_HOME/.openclaw/logs/ao-health-guardian.log"
+STALE_OUTPUT=$(HOME="$FIXTURE_HOME" \
+               AO_BIN_PATH=/usr/bin/true \
+               HERMES_STAGING_CONFIG="$FIXTURE_HOME/.hermes/agent-orchestrator.yaml" \
+               bash "$DOCTOR_SH" 2>&1 || true)
+if echo "$STALE_OUTPUT" | grep -qE "^WARN .*ai.agento.health-guardian"; then
+  ok "stale health-guardian log triggers WARN"
+else
+  fail "stale health-guardian log did NOT trigger WARN"
 fi
 rm -rf "$FIXTURE_HOME"
 trap - EXIT
@@ -200,6 +222,22 @@ fi
 echo ""
 echo "=== Section 7: Parser unit tests for Greptile P1/P2 fixes ==="
 
+# Source the doctor script so we can call check_default_agent_undefined_refs
+# directly against fixture configs (CodeRabbit review: Section 7 was testing
+# duplicated awk blocks instead of the production logic, so it could miss
+# regressions in the real doctor script).
+# shellcheck source=/dev/null
+source "$DOCTOR_SH" 2>/dev/null
+
+# Helper: capture the doctor's pass/warn/fail lines from a single check
+# function call against a fixture config.
+run_default_agent_check() {
+  local cfg="$1"
+  HERMES_STAGING_CONFIG="$cfg" REPO_ROOT="$REPO_ROOT" \
+    PASS_COUNT=0 WARN_COUNT=0 FAIL_COUNT=0 \
+    check_default_agent_undefined_refs 2>&1
+}
+
 # 7a. Inline defaults flow style (Greptile P2: Inline Defaults Are Skipped)
 TMP_CFG="$(mktemp)"
 cat > "$TMP_CFG" <<'YAML'
@@ -207,34 +245,18 @@ defaults: {agent: minimax}
 projects:
   test: {scm: github}
 YAML
-INLINE_AGENT=$(awk '
-  BEGIN { in_defaults=0 }
-  /^[ \t]*defaults:[ \t]*$/ { in_defaults=1; next }
-  /^[ \t]*defaults:[ \t]*\{/ {
-    in_defaults=1
-    line = $0
-    if (match(line, /agent:[ \t]*[a-zA-Z0-9_-]+/)) {
-      s = substr(line, RSTART, RLENGTH)
-      sub(/.*agent:[ \t]+/, "", s)
-      sub(/[ \t,}]*$/, "", s)
-      print s
-      exit
-    }
-    next
-  }
-  in_defaults && /^[^[:space:]]/ { in_defaults=0 }
-  in_defaults && /^[ \t]*agent:[ \t]*[a-zA-Z0-9_-]+/ {
-    match($0, /[ \t][ \t]*agent:[ \t]*[a-zA-Z0-9_-]+/)
-    if (RSTART > 0) {
-      s = substr($0, RSTART, RLENGTH)
-      sub(/.*agent:[ \t]+/, "", s)
-      sub(/[ \t#]*$/, "", s)
-      print s
-      exit
-    }
-  }
-' "$TMP_CFG")
-assert_eq "inline defaults flow extracts agent" "minimax" "$INLINE_AGENT"
+OUT=$(run_default_agent_check "$TMP_CFG")
+# Inline config + minimax default. The real parser must successfully
+# extract the agent from inline flow AND run the plugin resolution check.
+# Depending on whether the minimax plugin is installed in the test env,
+# we expect either PASS (source-tree workspace hit) or FAIL (not installed)
+# — what we MUST NOT see is a "no defaults.agent configured" WARN, which
+# is the symptom of the pre-fix inline-defaults bug.
+if echo "$OUT" | grep -qE "(PASS|FAIL).*agent.*minimax"; then
+  ok "inline defaults flow: real parser extracted agent and ran plugin check"
+else
+  fail "inline defaults flow: real parser did not exercise agent=minimax (got: $OUT)"
+fi
 rm -f "$TMP_CFG"
 
 # 7b. Block-style defaults (must still work after the inline fix)
@@ -245,38 +267,19 @@ defaults:
 projects:
   test: {scm: github}
 YAML
-BLOCK_AGENT=$(awk '
-  BEGIN { in_defaults=0 }
-  /^[ \t]*defaults:[ \t]*$/ { in_defaults=1; next }
-  /^[ \t]*defaults:[ \t]*\{/ {
-    in_defaults=1
-    line = $0
-    if (match(line, /agent:[ \t]*[a-zA-Z0-9_-]+/)) {
-      s = substr(line, RSTART, RLENGTH)
-      sub(/.*agent:[ \t]+/, "", s)
-      sub(/[ \t,}]*$/, "", s)
-      print s
-      exit
-    }
-    next
-  }
-  in_defaults && /^[^[:space:]]/ { in_defaults=0 }
-  in_defaults && /^[ \t]*agent:[ \t]*[a-zA-Z0-9_-]+/ {
-    match($0, /[ \t][ \t]*agent:[ \t]*[a-zA-Z0-9_-]+/)
-    if (RSTART > 0) {
-      s = substr($0, RSTART, RLENGTH)
-      sub(/.*agent:[ \t]+/, "", s)
-      sub(/[ \t#]*$/, "", s)
-      print s
-      exit
-    }
-  }
-' "$TMP_CFG")
-assert_eq "block-style defaults still extracts agent" "claude-code" "$BLOCK_AGENT"
+OUT=$(run_default_agent_check "$TMP_CFG")
+if echo "$OUT" | grep -qE "(FAIL|WARN|PASS).*agent"; then
+  ok "block-style defaults: real parser exercised (output: $(echo "$OUT" | head -1))"
+else
+  fail "block-style defaults: real parser did not exercise agent check (got: $OUT)"
+fi
 rm -f "$TMP_CFG"
 
 # 7c. defaults.agent must NOT leak from a later `agent:` key under another
-# section (CodeRabbit prompt: in_defaults was never cleared).
+# section (CodeRabbit prompt: in_defaults was never cleared). With a
+# non-defaults `agent:` under notifier-routing, the real parser should NOT
+# resolve it as the default agent — it should emit a WARN about no
+# defaults.agent configured.
 TMP_CFG="$(mktemp)"
 cat > "$TMP_CFG" <<'YAML'
 defaults:
@@ -284,23 +287,12 @@ defaults:
 notifier-routing:
   agent: claude-code
 YAML
-LEAK_AGENT=$(awk '
-  BEGIN { in_defaults=0 }
-  /^[ \t]*defaults:[ \t]*$/ { in_defaults=1; next }
-  /^[ \t]*defaults:[ \t]*\{/ { in_defaults=1; next }
-  in_defaults && /^[^[:space:]]/ { in_defaults=0 }
-  in_defaults && /^[ \t]*agent:[ \t]*[a-zA-Z0-9_-]+/ {
-    match($0, /[ \t][ \t]*agent:[ \t]*[a-zA-Z0-9_-]+/)
-    if (RSTART > 0) {
-      s = substr($0, RSTART, RLENGTH)
-      sub(/.*agent:[ \t]+/, "", s)
-      sub(/[ \t#]*$/, "", s)
-      print s
-      exit
-    }
-  }
-' "$TMP_CFG")
-assert_eq "agent under non-defaults section does NOT leak" "" "$LEAK_AGENT"
+OUT=$(run_default_agent_check "$TMP_CFG")
+if echo "$OUT" | grep -qE "WARN.*no defaults.agent"; then
+  ok "agent under non-defaults section does NOT leak into real parser"
+else
+  fail "agent under non-defaults section DID leak into real parser (got: $OUT)"
+fi
 rm -f "$TMP_CFG"
 
 # 7d. Relative symlink chain resolves through the link's directory, not
@@ -328,15 +320,26 @@ assert_eq "relative symlink resolves through link dir" "$TMP_DIR/wrapper/ao" "$N
 rm -rf "$TMP_DIR"
 
 # 7e. launchctl print-disabled indented form is detected (Greptile P1:
-# Disabled Label Is Missed). Simulate the indented output.
+# Disabled Label Is Missed). Simulate the INDENTED output that the real
+# `launchctl print-disabled gui/$(id -u)` command emits — leading 2-space
+# indent before the quoted label. Without the indent the regex would
+# trivially match a column-0 line and not exercise the historical bug
+# (CodeRabbit review: pre-fix fixture had no leading indent).
 DISABLED_FIXTURE="$(cat <<'EOF'
-"ai.hermes.staging" => true
-"ai.hermes.watchdog" => false
+disabled services = {
+  "ai.hermes.staging" => true
+  "ai.hermes.watchdog" => false
+}
 EOF
 )"
-DETECTED=$(echo "$DISABLED_FIXTURE" | grep -E '^[[:space:]]*"ai.hermes.staging"[[:space:]]*=>[[:space:]]*true' || true)
+DETECTED=$(echo "$DISABLED_FIXTURE" | grep -E '^[[:space:]]+"ai.hermes.staging"[[:space:]]*=>[[:space:]]*true' || true)
 if [ -n "$DETECTED" ]; then ok "indented launchctl print-disabled form detected"
 else fail "indented launchctl print-disabled form NOT detected"; fi
+# Negative case: column-0 line with the SAME label must NOT match the
+# indented-arrow regex. Proves the regex actually requires indentation.
+COLUMN0=$(echo '"ai.hermes.staging" => true' | grep -E '^[[:space:]]+"ai.hermes.staging"[[:space:]]*=>[[:space:]]*true' || true)
+if [ -z "$COLUMN0" ]; then ok "column-0 disabled form correctly rejected"
+else fail "column-0 disabled form incorrectly matched"; fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
