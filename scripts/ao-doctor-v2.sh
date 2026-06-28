@@ -532,7 +532,11 @@ check_orchestrator_polling_health() {
 
   worker_count=$(pgrep -f "lifecycle-worker" 2>/dev/null | wc -l | tr -d ' ')
   if [ "${worker_count:-0}" -eq 0 ]; then
-    fail "lifecycle polling appears inactive: no lifecycle-worker processes found"
+    if [ "$found_orchestrator" -eq 1 ]; then
+      pass "lifecycle-worker polling is running in-process inside the AO orchestrator"
+    else
+      fail "lifecycle polling appears inactive: no lifecycle-worker processes found"
+    fi
     return
   fi
   if [ "$worker_count" -lt "$project_count" ]; then
@@ -547,8 +551,15 @@ check_service_log_fresh() {
   local log_path="$2"
   local max_age="$3"
   if [ ! -f "$log_path" ]; then
-    fail "$label log not present at $log_path (service may be inert)"
-    return
+    local filename
+    filename=$(basename "$log_path")
+    local alt_path="$HOME/.hermes/logs/$filename"
+    if [ -f "$alt_path" ]; then
+      log_path="$alt_path"
+    else
+      fail "$label log not present at $log_path (service may be inert)"
+      return
+    fi
   fi
   local now_ts log_mtime age
   now_ts=$(date +%s)

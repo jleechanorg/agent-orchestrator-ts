@@ -14,7 +14,18 @@ escape_ere() { printf '%s' "$1" | sed 's/[][().*^$+?{}|\\]/\\&/g'; }
 # launched via a symlinked binary (e.g. /Users/.../bin/ao -> pnpm shim)
 # is correctly recognized by the health job.
 resolve_path() {
-  python3 - "$1" <<'PY' 2>/dev/null || printf '%s\n' "$1"
+  local p="$1"
+  if [ -f "$p" ] && grep -q "node_modules/@jleechanorg/ao-cli/dist/index.js" "$p" 2>/dev/null; then
+    local wrapper_dir
+    wrapper_dir=$(dirname "$p")
+    local extracted_path
+    extracted_path=$(grep -oE '"[^"]*@jleechanorg/ao-cli/dist/index.js"' "$p" | head -1 | tr -d '"')
+    if [ -n "$extracted_path" ]; then
+      extracted_path="${extracted_path//\$basedir/$wrapper_dir}"
+      p="$extracted_path"
+    fi
+  fi
+  python3 - "$p" <<'PY' 2>/dev/null || printf '%s\n' "$p"
 import os
 import sys
 
@@ -37,7 +48,7 @@ command_matches_ao_binary() {
   if [[ "$cmd" == *"$ao_bin"* || "$cmd" == *"$ao_alt"* || "$cmd" == *"$ao_real"* || "$cmd" == *"$ao_real_alt"* ]]; then
     return 0
   fi
-  cmd_bin=$(echo "$cmd" | grep -oE '(/[^ ]+/ao)( |$)' | head -1 | xargs 2>/dev/null || true)
+  cmd_bin=$(echo "$cmd" | grep -oE '(/[^ ]+(\.js|/ao))( |$)' | head -1 | xargs 2>/dev/null || true)
   if [ -n "$cmd_bin" ]; then
     cmd_real="$(resolve_path "$cmd_bin")"
     [ "$cmd_real" = "$ao_real" ] && return 0
