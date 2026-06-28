@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "AO_HOOK_EVENT_NAME='PreToolUse' '/Users/jleechan/project_agento/agent-orchestrator/.claude/metadata-updater.sh'",
+            "command": "AO_HOOK_EVENT_NAME='PreToolUse' bash .claude/metadata-updater.sh",
             "timeout": 5000
           }
         ]
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "AO_DATA_DIR='/Users/jleechan/.agent-orchestrator/953501c04ccc-agent-orches-8c5aaea1/sessions' AO_HOOK_EVENT_NAME='PostToolUse' '/Users/jleechan/project_agento/agent-orchestrator/.claude/metadata-updater.sh'",
+            "command": "AO_HOOK_EVENT_NAME='PostToolUse' bash .claude/metadata-updater.sh",
             "timeout": 5000
           }
         ]

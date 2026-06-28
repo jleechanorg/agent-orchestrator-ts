@@ -145,7 +145,7 @@ The fork isn't upstream-compatible — it's **operator-tuned**. Upstream is a ge
 
 **When this is right:** If operator priorities (skeptic, custom notifiers, evidence gates) dominate over feature parity with upstream.
 
-### Path B — Selective Go port (recommended)
+### Path B — Selective Go port (conservative alternative)
 
 **What it means:** Port the **daemon + storage + HTTP API layer** to Go, keeping the **TS fork** as the operator UI / plugin host / skeptic. The TS fork's CLI talks to a Go daemon over loopback HTTP — exactly upstream's architecture.
 

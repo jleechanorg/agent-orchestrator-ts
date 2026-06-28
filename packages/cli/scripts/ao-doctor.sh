@@ -609,15 +609,21 @@ run_ao_doctor_v2_checks() {
     v2_ci_mode="${AO_DOCTOR_V2_CI_MODE}"
   fi
 
-  if DOCTOR_CI_MODE="$v2_ci_mode" bash "$v2_script" >/tmp/ao-doctor-v2.out.$$ 2>&1; then
+  local v2_output
+  v2_output="$(mktemp "${TMPDIR:-/tmp}/ao-doctor-v2.out.XXXXXX")" || {
+    fail "unable to create temp file for ao-doctor-v2 output"
+    return
+  }
+
+  if DOCTOR_CI_MODE="$v2_ci_mode" bash "$v2_script" >"$v2_output" 2>&1; then
     pass "ao-doctor-v2 checks completed"
   else
-    fail "ao-doctor-v2 checks failed; see /tmp/ao-doctor-v2.out.$$"
+    fail "ao-doctor-v2 checks failed; see $v2_output"
     while IFS= read -r line; do
       warn "ao-doctor-v2: $line"
-    done < /tmp/ao-doctor-v2.out.$$
+    done < "$v2_output"
   fi
-  rm -f "/tmp/ao-doctor-v2.out.$$"
+  rm -f "$v2_output"
 }
 
 FIX_MODE=false

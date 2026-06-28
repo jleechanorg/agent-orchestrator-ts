@@ -25,7 +25,7 @@ This PR delivers the first three of five implementation phases:
 2. ✅ **Phase 2** — Add `ai.agento.health-guardian` Tier 2 watchdog
    (60-min cadence) to bound the maximum blindness window. Auto-rebootstraps
    the Tier 1 plist if deregistered. Cross-checks the hermes-watchdog.
-3. ✅ **Phase 3** — Add 8 critical unmonitored-signal checks via
+3. ✅ **Phase 3** — Add 9 critical unmonitored-signal checks via
    `scripts/ao-doctor-v2.sh`:
    - Staging config `scm:` field present (catches 2026-06-10 regression)
    - Skeptic-cron 24h age filter present (bd-rgk0 regression guard)
@@ -49,7 +49,7 @@ This PR delivers the first three of five implementation phases:
 | `scripts/hermes-watchdog.sh` | NEW | ~145 | Restored 30-line shim (per plist) — checks Tier 1 + cross-watchdog + disk + tmux; posts dedup'd Slack alerts to `C09GRLXF9GR`. Uses log mtime (not `state = running`) for interval-based launchd jobs. |
 | `scripts/ai.agento.health-guardian.sh` | NEW | ~165 | Tier 2 watchdog — checks Tier 1 log freshness, hermes-watchdog log freshness, and worker count. Auto-rebootstraps deregistered plists from `~/Library/LaunchAgents/` (live) or `launchd/*.template` (frozen) with in-place `sed` substitution. Posts to `C09GRLXF9GR`. |
 | `launchd/ai.agento.health-guardian.plist.template` | NEW | ~60 | plist template (60-min cadence) with `@REPO_ROOT@`, `@HOME@`, `@PATH@` placeholders. Substituted by `setup-launchd.sh` (or directly by the Tier 2 guardian). |
-| `scripts/ao-doctor-v2.sh` | NEW | ~190 | 8 new unmonitored-signal checks. Runs standalone (`bash scripts/ao-doctor-v2.sh`) or sourced. CI-gateable: exits 1 on any FAIL. Uses `$AO_BIN_PATH` / `which ao` (no hardcoded user paths). |
+| `scripts/ao-doctor-v2.sh` | NEW | ~190 | 9 new unmonitored-signal checks. Runs standalone (`bash scripts/ao-doctor-v2.sh`) or sourced. CI-gateable: exits 1 on any FAIL. Uses `$AO_BIN_PATH` / `which ao` (no hardcoded user paths). |
 
 ## Testing
 
@@ -70,7 +70,7 @@ launchctl print gui/$(id -u)/ai.hermes-watchdog | grep -E "state = |last exit"
 
 # doctor-v2 self-test
 bash scripts/ao-doctor-v2.sh
-# Expected: 7-9 pass, 0 warn, 1 fail (staging config scm: — see below)
+# Expected: 8 pass, 0 warn, 1 fail (if the staging config scm: regression is present — see below)
 ```
 
 **Red phase captured**: `bash scripts/ao-doctor-v2.sh` before this PR would have

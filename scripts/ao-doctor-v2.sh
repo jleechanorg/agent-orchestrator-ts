@@ -17,7 +17,7 @@ REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
 HERMES_STAGING_CONFIG="${HERMES_STAGING_CONFIG:-$HOME/.hermes/agent-orchestrator.yaml}"
-HERMES_PROD_CONFIG="${HERMES_PROD_CONFIG:-$HOME/.hermes_prod/agent-orchestrator.yaml}"
+HERMES_PROD_CONFIG="${HERMES_PROD_CONFIG:-$HERMES_HOME/agent-orchestrator.yaml}"
 AO_RUNNING_JSON="${HOME}/.agent-orchestrator/running.json"
 AO_HEALTH_LOG="${AO_HEALTH_LOG:-$HOME/.openclaw/logs/ao-health.log}"
 AO_HEALTH_GUARDIAN_LOG="${AO_HEALTH_GUARDIAN_LOG:-$HOME/.openclaw/logs/ao-health-guardian.log}"
@@ -75,7 +75,7 @@ running_json_is_old() {
     return 1
   fi
   now_mtime=$(date +%s)
-  age=$((now_mtime - $(stat -f %m "$running_json" 2>/dev/null || echo 0)))
+  age=$((now_mtime - $(stat -f %m "$running_json" 2>/dev/null || stat -c %Y "$running_json" 2>/dev/null || echo 0)))
   [ "$age" -gt "$AO_STALE_RUNNING_JSON_AGE" ]
 }
 
@@ -104,7 +104,7 @@ PY
   awk '
     /^projects:[[:space:]]*$/ { in_projects=1; next }
     in_projects && /^[^[:space:]]/ { in_projects=0 }
-    in_projects && /^[[:space:]]+[a-zA-Z0-9_.-]+:[[:space:]]*(#.*)?$/ { gsub(/^[[:space:]]+/, "", $0); gsub(/:[[:space:]]*(#.*)?$/, "", $0); print $0 }
+    in_projects && /^  [a-zA-Z0-9_.-]+:[[:space:]]*(#.*)?$/ { gsub(/^[[:space:]]+/, "", $0); gsub(/:[[:space:]]*(#.*)?$/, "", $0); print $0 }
   ' "$cfg"
 }
 
@@ -172,7 +172,7 @@ check_defaults_agent_minimax_or_absent() {
       print $0
       exit
     }
-  ' "$cfg")
+  ' "$cfg" | tr -d '"' | tr -d "'")
 
   if [ -z "$agent_value" ]; then
     pass "$label uses global default for defaults.agent (no explicit pin)"
@@ -222,7 +222,7 @@ PY
       /^defaults:/ { in_defaults=1; in_agent_config=0; next }
       in_defaults && /^[^[:space:]]/ { in_defaults=0; in_agent_config=0 }
       in_defaults && /^  agentConfig:/ { in_agent_config=1; next }
-      in_defaults && in_agent_config && /^[[:space:]]{6}model:[[:space:]]*/ {
+      in_defaults && in_agent_config && /^[[:space:]]{4}model:[[:space:]]*/ {
         sub(/^[[:space:]]*model:[[:space:]]*/, "", $0)
         sub(/#.*/, "", $0)
         gsub(/[[:space:]]+$/, "", $0)
@@ -231,7 +231,7 @@ PY
       }
       in_defaults && in_agent_config && /^  [^[:space:]]/ { in_agent_config=0 }
       in_defaults && in_agent_config && /^ [^[:space:]]/ { in_agent_config=0 }
-    ' "$cfg")"
+    ' "$cfg" | tr -d '"' | tr -d "'")"
   fi
 
   if [ -z "$model_value" ]; then
@@ -318,9 +318,9 @@ check_gh_token_not_redacted() {
 # Root cause: stale/invalid auth headers produce 401s for AO workers while other
 # checks still pass.
 check_minimax_key_not_redacted() {
-  local token="${MINIMAX_API_KEY:-${ANTHROPIC_API_KEY:-${ANTHROPIC_AUTH_TOKEN:-}}}"
+  local token="${MINIMAX_API_KEY:-}"
   if [ -z "$token" ]; then
-    warn "MINIMAX_API_KEY / ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN not set — AO minimax workers may get 401s"
+    warn "MINIMAX_API_KEY not set — AO minimax workers may get 401s"
     return
   fi
   case "$token" in
@@ -385,15 +385,19 @@ check_running_json_present() {
     return
   fi
   pass "running.json present at $running"
+  pid="$(running_json_pid "$running")"
+  if [ -z "$pid" ]; then
+    fail "running.json at $running does not contain a pid — cannot validate AO orchestrator liveness"
+    return
+  fi
   if is_running_json_stale "$running"; then
-    fail "running.json appears stale: pid=$(running_json_pid "$running") is not alive"
+    fail "running.json appears stale: pid=$pid is not alive"
     return
   fi
   if running_json_is_old "$running"; then
     warn "running.json is old (mtime > ${AO_STALE_RUNNING_JSON_AGE}s) — possible daemon drift"
   fi
-  if pid="$(running_json_pid "$running")"; then
-    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+  if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
       fail "running.json pid $pid is dead"
       return
     fi
@@ -417,7 +421,6 @@ check_running_json_present() {
         pass "running.json pid $pid is alive and tied to AO start process"
       fi
     fi
-  fi
 }
 
 # --- Check 5: AO session pressure and spawn backlog ---
@@ -504,8 +507,10 @@ check_orchestrator_polling_health() {
   local found_orchestrator=0
   local ao_binary="${AO_CLI_PATH:-$(command -v ao 2>/dev/null || true)}"
   for project in $cfg_projects; do
+    local escaped_project
+    escaped_project="$(escape_ere "$project")"
     local pids
-    pids="$(pgrep -f "start[[:space:]]${project}([[:space:]]|$)" 2>/dev/null || true)"
+    pids="$(pgrep -f "start[[:space:]]${escaped_project}([[:space:]]|$)" 2>/dev/null || true)"
     for pid in $pids; do
       local cmd
       cmd="$(ps -p "$pid" -o args= 2>/dev/null || true)"
@@ -563,7 +568,7 @@ check_service_log_fresh() {
   fi
   local now_ts log_mtime age
   now_ts=$(date +%s)
-  log_mtime=$(stat -f %m "$log_path" 2>/dev/null || echo 0)
+  log_mtime=$(stat -f %m "$log_path" 2>/dev/null || stat -c %Y "$log_path" 2>/dev/null || echo 0)
   age=$((now_ts - log_mtime))
   if [ "$age" -gt "$max_age" ]; then
     fail "$label has stale log activity (age=${age}s, max=${max_age}s): $log_path"
