@@ -992,6 +992,7 @@ describe("wholesome — structural source-code assertions", () => {
         execFileSync("git", ["init"], { cwd: tmpDir });
         execFileSync("git", ["config", "user.name", "Test User"], { cwd: tmpDir });
         execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: tmpDir });
+        execFileSync("git", ["config", "core.hooksPath", "/dev/null"], { cwd: tmpDir });
         
         // 2. Commit a dummy file to have HEAD
         writeFileSync(join(tmpDir, "dummy.txt"), "hello");
@@ -1034,6 +1035,7 @@ describe("wholesome — structural source-code assertions", () => {
         execFileSync("git", ["init"], { cwd: tmpDir });
         execFileSync("git", ["config", "user.name", "Test User"], { cwd: tmpDir });
         execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: tmpDir });
+        execFileSync("git", ["config", "core.hooksPath", "/dev/null"], { cwd: tmpDir });
         
         // 2. Commit a dummy file
         writeFileSync(join(tmpDir, "dummy.txt"), "hello");
@@ -1099,6 +1101,7 @@ describe("wholesome — structural source-code assertions", () => {
         }
         execFileSync("git", ["config", "user.name", "Test User"], { cwd: tmpDir });
         execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: tmpDir });
+        execFileSync("git", ["config", "core.hooksPath", "/dev/null"], { cwd: tmpDir });
         
         // 2. Commit a dummy file
         writeFileSync(join(tmpDir, "dummy.txt"), "hello");
