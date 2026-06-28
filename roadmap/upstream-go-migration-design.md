@@ -356,9 +356,9 @@ Per operator: **"maybe my skeptic agent can stay as tsx for now"**
 
 ### Medium-term (months 2-6 if Path B)
 
-7. Phase 1 — vendor Go daemon, expose HTTP API, prove TS CLI can call it.
-8. Phase 2 — migrate storage; run dual-write period.
-9. Phase 3 — port agent adapters one by one.
+8. Phase 1 — vendor Go daemon, expose HTTP API, prove TS CLI can call it.
+9. Phase 2 — migrate storage; run dual-write period.
+10. Phase 3 — port agent adapters one by one.
 
 ### Operator checkpoints
 
