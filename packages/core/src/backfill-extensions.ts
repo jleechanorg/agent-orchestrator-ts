@@ -255,7 +255,10 @@ export async function backfillUncoveredPRs(
           continue;
         }
         const respawnCount = respawnCapCounts.get(pr.number);
-        if (respawnCount === undefined) continue;
+        if (respawnCount === undefined) {
+          clearPrRespawnCapNotified(configPath, project, pr.number);
+          continue;
+        }
         await maybeEscalateRespawnCap(deps, params, pr, respawnCount);
       }
     }

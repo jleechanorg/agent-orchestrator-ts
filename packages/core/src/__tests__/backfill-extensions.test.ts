@@ -80,6 +80,7 @@ import {
   GLOBAL_PAUSE_UNTIL_KEY,
   GLOBAL_PAUSE_REASON_KEY,
 } from "../global-pause.js";
+import { readMetadataRaw } from "../metadata.js";
 
 function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
   return {
@@ -1167,6 +1168,32 @@ describe("backfillUncoveredPRs respawn guard", () => {
     expect(result).toBe(false);
     expect(notifyHuman).not.toHaveBeenCalled();
     expect(guardSessionManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it("clears stale respawn-notified markers when PR is below the current cap", async () => {
+    const pr = makePR({ number: 654, branch: "feat/skeptic-model-list" });
+    vi.mocked(guardSCM.listOpenPRs!).mockResolvedValue([pr]);
+
+    const sessionsDir = getSessionsDir(guardConfigPath, guardTmpDir);
+    writeOrchestratorSeed(sessionsDir, "status=active\nbackfillRespawnNotified_654=true\n");
+    const archiveDir = join(sessionsDir, "archive");
+    mkdirSync(archiveDir, { recursive: true });
+    // Write 3 archived sessions (below the cap of 6)
+    for (const id of ["app-97", "app-98", "app-99"]) {
+      writeFileSync(
+        join(archiveDir, `${id}_2026-06-08T12-00-00-000Z`),
+        "status=killed\npr=https://github.com/org/repo/pull/654\n",
+        "utf-8",
+      );
+    }
+
+    const result = await backfillUncoveredPRs(guardDeps, guardParams());
+
+    expect(result).toBe(true);
+    expect(guardSessionManager.spawn).toHaveBeenCalled();
+
+    const raw = readMetadataRaw(sessionsDir, "app-orchestrator");
+    expect(raw?.["backfillRespawnNotified_654"]).toBeUndefined();
   });
 });
 
