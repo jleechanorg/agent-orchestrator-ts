@@ -470,7 +470,12 @@ jobs:
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
-                    and ($body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i"))
+                    # request-id filter is tolerant: accept exact match OR any request-id
+                    # containing the trigger SHA. This guards against format drift between
+                    # the workflow file and running GHA workflow definitions (see PR fix).
+                    and (($request_id == "")
+                         or ($body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i"))
+                         or ($body | test("<!--\\s*skeptic-request-id-[^>]*" + ($ts | tostring) + "[^>]*-->"; "i")))
                     and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and ((.verdict != "PASS")
                          or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))))

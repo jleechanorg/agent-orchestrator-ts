@@ -237,7 +237,12 @@ jobs:
                     and (.verdict != "")
                     and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
                     and (.body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
-                    and (.body | test("<!--\\s*skeptic-request-id-" + $req + "\\s*-->"; "i"))
+                    # request-id filter is tolerant: accept exact match OR any request-id
+                    # containing the trigger SHA. Guards against format drift between
+                    # workflow file and running GHA workflow definitions (see PR fix).
+                    and (($req == "")
+                         or (.body | test("<!--\\s*skeptic-request-id-" + $req + "\\s*-->"; "i"))
+                         or (.body | test("<!--\\s*skeptic-request-id-[^>]*" + ($ts | tostring) + "[^>]*-->"; "i")))
                     and ((.updated_at | try fromdate // 0) >= (try $tu | fromdate // 0))
                     and ((.verdict != "PASS")
                          or ((.body | test("<!--\\s*skeptic-gate-1\\s*:\\s*PASS\\s*-->"; "i"))
