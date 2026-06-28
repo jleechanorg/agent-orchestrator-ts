@@ -559,7 +559,7 @@ install_launchd_drift_audit_plist() {
   local template="$TEMPLATE_DIR/ai.hermes.launchd-drift-audit.plist.template"
   local plist_path="$LAUNCH_AGENTS_DIR/ai.hermes.launchd-drift-audit.plist"
   local script="$REPO_ROOT/scripts/audit-launchd-drift.sh"
-  local log_dir="$HOME/.hermes/logs"
+  local log_dir="$BASE_LOG_DIR"
   local label="ai.hermes.launchd-drift-audit"
 
   if [ ! -f "$template" ]; then

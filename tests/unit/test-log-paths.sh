@@ -38,6 +38,13 @@ run_setup_launchd_check() {
   if grep -q 'BASE_LOG_DIR=.*\.openclaw/logs' "$file"; then
     printf "  FAIL  %s\n        Found legacy BASE_LOG_DIR assignment in %s\n" "$label" "$file"
     FAIL=$((FAIL+1))
+  elif awk '
+    /^install_.*_plist\(\)/ { in_fn=1; next }
+    in_fn && /^}/ { in_fn=0; next }
+    in_fn && /\.hermes\/logs/ { print FILENAME":"NR":"$0; bad=1 }
+  ' "$file" | grep -q .; then
+    printf "  FAIL  %s\n        install_*_plist() hardcodes .hermes/logs instead of BASE_LOG_DIR/AO_LOG_DIR\n" "$label"
+    FAIL=$((FAIL+1))
   else
     printf "  PASS  %s\n" "$label"
     PASS=$((PASS+1))
