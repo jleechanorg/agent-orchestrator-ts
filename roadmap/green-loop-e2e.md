@@ -106,7 +106,7 @@ NOTE: This is a **worker self-certification audit trail**, not GitHub thread res
 ## Config Required
 
 ```yaml
-# In ~/.hermes/agent-orchestrator.yaml
+# In ~/.openclaw/agent-orchestrator.yaml
 projects:
   agent-orchestrator:
     backfillAllPRs: true  # Already set
