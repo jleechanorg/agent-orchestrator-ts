@@ -731,6 +731,85 @@ describe("skeptic chain integration", () => {
       expect(result!.id).toBe(150);
     });
 
+    // -------------------------------------------------------------------------
+    // TDD RED phase — strict (pre-fix) `jqFilterMatch` REJECTS the same cases
+    // the new `tolerantFilterMatch` accepts. These tests prove the bug existed
+    // and that the new code is the actual fix, not a no-op.
+    //
+    // Trigger SHA: 09a36eeded5a9786705e255c55469558cc9aec0e (from PR #732 evidence)
+    // OLD format request-id: `gate-{FULL_SHA}-{RUN}-{ATTEMPT}` (PR #732 stranded verdict)
+    // NEW format request-id: `gate-{RUN}-{ATTEMPT}-{PR}-{SHA:12}` (current workflow)
+    // -------------------------------------------------------------------------
+    const RED_TRIGGER_SHA = "09a36eeded5a9786705e255c55469558cc9aec0e";
+    const RED_SHA_12 = RED_TRIGGER_SHA.slice(0, 12);
+    const RED_TRIGGER_UPDATED = "2026-06-28T19:57:32Z";
+
+    function redPassBody(sha: string, requestId: string): string {
+      return [
+        "<!-- skeptic-agent-verdict -->",
+        `<!-- skeptic-request-id-${requestId} -->`,
+        `<!-- skeptic-head-sha-${sha} -->`,
+        "<!-- skeptic-gate-1:PASS -->",
+        "<!-- skeptic-gate-2:PASS -->",
+        "<!-- skeptic-gate-3:PASS -->",
+        "<!-- skeptic-gate-4:PASS -->",
+        "<!-- skeptic-gate-5:PASS -->",
+        "<!-- skeptic-gate-6:PASS -->",
+        "<!-- skeptic-gate-7:PASS -->",
+        "<!-- skeptic-gate-8:PASS -->",
+        "VERDICT: PASS",
+        `<!-- skeptic-gate-trigger-${sha} -->`,
+      ].join("\n");
+    }
+
+    it("RED: strict jqFilterMatch REJECTS an OLD-format verdict when trigger uses the NEW format", () => {
+      const verdictRequestIdOld = `gate-${RED_TRIGGER_SHA}-28333687751-1`;
+      const triggerRequestIdNew = `gate-28333687751-1-733-${RED_SHA_12}`;
+      const comments = [
+        {
+          id: 500,
+          body: redPassBody(RED_TRIGGER_SHA, verdictRequestIdOld),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-06-28T20:01:00Z",
+        },
+      ];
+
+      const result = jqFilterMatch(
+        comments,
+        "jleechan2015",
+        RED_TRIGGER_SHA,
+        RED_TRIGGER_UPDATED,
+        triggerRequestIdNew,
+        "other-author",
+      );
+
+      expect(result).toBeNull(); // <-- RED: strict filter strands the verdict
+    });
+
+    it("RED: strict jqFilterMatch REJECTS a NEW-format verdict when trigger uses the OLD format", () => {
+      const triggerRequestIdOld = `gate-${RED_TRIGGER_SHA}-28333687751-1`;
+      const verdictRequestIdNew = `gate-28333687751-1-733-${RED_SHA_12}`;
+      const comments = [
+        {
+          id: 501,
+          body: redPassBody(RED_TRIGGER_SHA, verdictRequestIdNew),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-06-28T20:01:00Z",
+        },
+      ];
+
+      const result = jqFilterMatch(
+        comments,
+        "jleechan2015",
+        RED_TRIGGER_SHA,
+        RED_TRIGGER_UPDATED,
+        triggerRequestIdOld,
+        "other-author",
+      );
+
+      expect(result).toBeNull(); // <-- RED: strict filter strands the verdict
+    });
+
     it("matches SKIPPED fallback comments so the gate can fail closed on the explicit verdict", () => {
       const comments = [
         {
