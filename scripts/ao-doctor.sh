@@ -615,6 +615,29 @@ check_published_version() {
   pass "running ao version ($running_version) is at or ahead of published npm version ($published_version)"
 }
 
+run_ao_doctor_v2_checks() {
+  if [ ! -f "$SCRIPT_DIR/ao-doctor-v2.sh" ]; then
+    fail "ao-doctor-v2.sh is missing from scripts/. Keep this script with the repo and rerun."
+    return
+  fi
+
+  local v2_ci_mode
+  v2_ci_mode="${DOCTOR_CI_MODE:-0}"
+  if [ -n "${AO_DOCTOR_V2_CI_MODE:-}" ]; then
+    v2_ci_mode="${AO_DOCTOR_V2_CI_MODE}"
+  fi
+
+  if DOCTOR_CI_MODE="$v2_ci_mode" bash "$SCRIPT_DIR/ao-doctor-v2.sh" >/tmp/ao-doctor-v2.out.$$ 2>&1; then
+    pass "ao-doctor-v2 checks completed"
+  else
+    fail "ao-doctor-v2 checks failed; see /tmp/ao-doctor-v2.out.$$"
+    while IFS= read -r line; do
+      warn "ao-doctor-v2: $line"
+    done < /tmp/ao-doctor-v2.out.$$
+  fi
+  rm -f "/tmp/ao-doctor-v2.out.$$"
+}
+
 FIX_MODE=false
 
 # Guard: return early when sourced (e.g., for unit tests) - after functions are defined
@@ -663,6 +686,7 @@ check_install_layout
 check_runtime_sanity
 check_published_version
 check_lifecycle_workers
+run_ao_doctor_v2_checks
 
 printf '\nResults: %s PASS, %s WARN, %s FAIL, %s FIXED\n' "$PASS_COUNT" "$WARN_COUNT" "$FAIL_COUNT" "$FIX_COUNT"
 

@@ -72,7 +72,6 @@ port: 3000
 
 defaults:
   runtime: tmux
-  agent: claude-code
   workspace: worktree
   notifiers: [desktop]
 

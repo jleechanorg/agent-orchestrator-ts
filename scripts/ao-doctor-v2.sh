@@ -14,8 +14,19 @@
 set -u
 
 REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
 HERMES_STAGING_CONFIG="${HERMES_STAGING_CONFIG:-$HOME/.hermes/agent-orchestrator.yaml}"
+HERMES_PROD_CONFIG="${HERMES_PROD_CONFIG:-$HOME/.hermes_prod/agent-orchestrator.yaml}"
+AO_RUNNING_JSON="${HOME}/.agent-orchestrator/running.json"
+AO_HEALTH_LOG="${AO_HEALTH_LOG:-$HOME/.openclaw/logs/ao-health.log}"
+AO_HEALTH_GUARDIAN_LOG="${AO_HEALTH_GUARDIAN_LOG:-$HOME/.openclaw/logs/ao-health-guardian.log}"
+AI_HERMES_WATCHDOG_LOG="${HERMES_WD_LOG:-$HOME/Library/Logs/hermes-watchdog.log}"
+AO_HEALTH_LOG_MAX_AGE=600
+AO_HEALTH_GUARDIAN_MAX_AGE=4200
+AI_HERMES_WATCHDOG_MAX_AGE=900
+AO_STALE_RUNNING_JSON_AGE=21600
+AO_SESSION_HARD_CAP=20
 
 PASS_COUNT=0
 WARN_COUNT=0
@@ -24,6 +35,85 @@ FAIL_COUNT=0
 pass() { PASS_COUNT=$((PASS_COUNT + 1)); printf 'PASS %s\n' "$1"; }
 warn() { WARN_COUNT=$((WARN_COUNT + 1)); printf 'WARN %s\n' "$1"; }
 fail() { FAIL_COUNT=$((FAIL_COUNT + 1)); printf 'FAIL %s\n' "$1"; }
+
+# Optional helper library gives reliable process matching and stale-running.json checks.
+if [ -f "$SCRIPT_DIR/lib/ao-health-helpers.sh" ]; then
+  # shellcheck source=./lib/ao-health-helpers.sh
+  source "$SCRIPT_DIR/lib/ao-health-helpers.sh"
+fi
+
+running_json_pid() {
+  local running_json="$1"
+  if [ -f "$running_json" ]; then
+    grep -o '"pid":[[:space:]]*[0-9]*' "$running_json" 2>/dev/null | \
+      grep -o '[0-9]*' | head -1 || true
+  fi
+}
+
+is_running_json_stale() {
+  local running_json="$1"
+  if declare -f should_clean_stale_running_json >/dev/null 2>&1; then
+    if should_clean_stale_running_json "$running_json"; then
+      return 0
+    fi
+    return 1
+  fi
+
+  local pid
+  pid="$(running_json_pid "$running_json")"
+  [ -n "$pid" ] || return 1
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    return 1
+  fi
+  return 0
+}
+
+running_json_is_old() {
+  local running_json="$1"
+  local now_mtime age
+  if [ ! -f "$running_json" ]; then
+    return 1
+  fi
+  now_mtime=$(date +%s)
+  age=$((now_mtime - $(stat -f %m "$running_json" 2>/dev/null || echo 0)))
+  [ "$age" -gt "$AO_STALE_RUNNING_JSON_AGE" ]
+}
+
+project_list_from_config() {
+  local cfg="$1"
+  local projects=()
+  if [ ! -f "$cfg" ]; then
+    return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    local yaml_projects
+    yaml_projects=$(python3 - "$cfg" <<'PY' 2>/dev/null || true
+import yaml, sys
+cfg = yaml.safe_load(open(sys.argv[1])) or {}
+projects = cfg.get("projects") or {}
+for key in projects:
+    print(key)
+PY
+    )
+    if [ -n "$yaml_projects" ]; then
+      printf '%s\n' "$yaml_projects"
+      return
+    fi
+  fi
+
+  awk '
+    /^projects:[[:space:]]*$/ { in_projects=1; next }
+    in_projects && /^[^[:space:]]/ { in_projects=0 }
+    in_projects && /^[[:space:]]+[a-zA-Z0-9_.-]+:[[:space:]]*(#.*)?$/ { gsub(/^[[:space:]]+/, "", $0); gsub(/:[[:space:]]*(#.*)?$/, "", $0); print $0 }
+  ' "$cfg"
+}
+
+orchestrator_for_project_patterns() {
+  local project
+  for project in "$@"; do
+    printf 'start[[:space:]]%s([[:space:]]|$)\n' "$project"
+  done
+}
 
 # --- Check 1: staging config has scm: plugin: github for all projects ---
 # Root cause of 2026-06-10 incident: staging config lost scm: / skepticModel /
@@ -59,6 +149,95 @@ check_scm_config_in_staging() {
     warn "staging config $cfg has $scm_count 'scm:' entries but $project_count project(s) — some projects will be silently skipped"
   else
     pass "staging config $cfg has scm: for all $project_count project(s)"
+  fi
+}
+
+check_defaults_agent_minimax_or_absent() {
+  local cfg="$1"
+  local label="$2"
+
+  if [ ! -f "$cfg" ]; then
+    warn "$label config missing at $cfg — skipping repo default-agent guard"
+    return
+  fi
+
+  local agent_value
+  agent_value=$(awk '
+    /^defaults:/ { in_defaults=1; next }
+    in_defaults && /^[^[:space:]]/ { in_defaults=0 }
+    in_defaults && /^[[:space:]]+agent:[[:space:]]*/ {
+      sub(/^[[:space:]]*agent:[[:space:]]*/, "", $0)
+      sub(/#.*/, "", $0)
+      gsub(/[[:space:]]+$/, "", $0)
+      print $0
+      exit
+    }
+  ' "$cfg")
+
+  if [ -z "$agent_value" ]; then
+    pass "$label uses global default for defaults.agent (no explicit pin)"
+    return
+  fi
+
+  if [ "$agent_value" = "minimax" ]; then
+    pass "$label defaults.agent is explicitly set to minimax"
+  else
+    fail "$label defaults.agent is '$agent_value' in $cfg; remove repo-level pin or set to minimax"
+  fi
+}
+
+check_defaults_agent_config_model_absent_or_global() {
+  local cfg="$1"
+  local label="$2"
+
+  if [ ! -f "$cfg" ]; then
+    warn "$label config missing at $cfg — skipping repo default-model guard"
+    return
+  fi
+
+  local model_value=""
+  if command -v python3 >/dev/null 2>&1; then
+    model_value="$(python3 - "$cfg" <<'PY' 2>/dev/null || true
+import sys
+
+try:
+    import yaml
+except Exception:
+    raise SystemExit(0)
+
+cfg = yaml.safe_load(open(sys.argv[1])) or {}
+defaults = cfg.get("defaults") or {}
+agent_config = defaults.get("agentConfig") or {}
+model = agent_config.get("model")
+if model is None:
+    print("")
+else:
+    print(str(model).strip())
+PY
+)"
+  fi
+
+  if [ -z "$model_value" ]; then
+    model_value="$(awk '
+      /^defaults:/ { in_defaults=1; in_agent_config=0; next }
+      in_defaults && /^[^[:space:]]/ { in_defaults=0; in_agent_config=0 }
+      in_defaults && /^  agentConfig:/ { in_agent_config=1; next }
+      in_defaults && in_agent_config && /^[[:space:]]{6}model:[[:space:]]*/ {
+        sub(/^[[:space:]]*model:[[:space:]]*/, "", $0)
+        sub(/#.*/, "", $0)
+        gsub(/[[:space:]]+$/, "", $0)
+        print $0
+        exit
+      }
+      in_defaults && in_agent_config && /^  [^[:space:]]/ { in_agent_config=0 }
+      in_defaults && in_agent_config && /^ [^[:space:]]/ { in_agent_config=0 }
+    ' "$cfg")"
+  fi
+
+  if [ -z "$model_value" ]; then
+    pass "$label does not override defaults.agentConfig.model (global model default in use)"
+  else
+    fail "$label has defaults.agentConfig.model set to '$model_value'; remove it to force global default model behavior"
   fi
 }
 
@@ -135,6 +314,25 @@ check_gh_token_not_redacted() {
   esac
 }
 
+# --- Check 3b: MiniMax API key is real ---
+# Root cause: stale/invalid auth headers produce 401s for AO workers while other
+# checks still pass.
+check_minimax_key_not_redacted() {
+  local token="${MINIMAX_API_KEY:-${ANTHROPIC_API_KEY:-${ANTHROPIC_AUTH_TOKEN:-}}}"
+  if [ -z "$token" ]; then
+    warn "MINIMAX_API_KEY / ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN not set — AO minimax workers may get 401s"
+    return
+  fi
+  case "$token" in
+    "__OPENCLAW_REDACTED__"|"__REDACTED__"|"REDACTED"|"")
+      fail "MiniMax auth token is a redacted placeholder — minimax worker requests will fail with 401"
+      ;;
+    *)
+      pass "MiniMax auth token is present and non-placeholder (prefix=${token:0:4}...)"
+      ;;
+  esac
+}
+
 # --- Check 4: dist loaded in memory vs dist on disk ---
 # Root cause: ao dist deploy workflow keeps a symlink at ${AO_BIN_PATH:-/usr/local/bin/ao}
 # pointing to the repo dist; if process holds old dist in memory, PR-merged ≠ fix-deployed.
@@ -170,18 +368,197 @@ check_dist_md5_match() {
 # Root cause: ao start writes running.json; ao spawn needs it. Reboot
 # without re-running ao start → running.json missing → ao spawn fails.
 check_running_json_present() {
-  local running="$HOME/.agent-orchestrator/running.json"
+  local running="$AO_RUNNING_JSON"
+  local pid
   if [ ! -f "$running" ]; then
     fail "running.json missing at $running — 'ao spawn' will fail. Fix: run 'ao start' or 'setup-launchd.sh lifecycle'"
     return
   fi
   pass "running.json present at $running"
+  if is_running_json_stale "$running"; then
+    fail "running.json appears stale: pid=$(running_json_pid "$running") is not alive"
+    return
+  fi
+  if running_json_is_old "$running"; then
+    warn "running.json is old (mtime > ${AO_STALE_RUNNING_JSON_AGE}s) — possible daemon drift"
+  fi
+  if pid="$(running_json_pid "$running")"; then
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+      fail "running.json pid $pid is dead"
+      return
+    fi
+    if [ -n "$pid" ]; then
+      local cmd ao_match
+      cmd="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+      if [ -z "$cmd" ]; then
+        warn "running.json pid $pid exists but command line is unavailable"
+        return
+      fi
+      ao_match="${AO_CLI_PATH:-$(command -v ao 2>/dev/null || true)}"
+      if [ -n "$ao_match" ] && declare -f command_matches_ao_binary >/dev/null 2>&1; then
+        if ! command_matches_ao_binary "$cmd" "$ao_match"; then
+          fail "running.json pid $pid is not this repo's AO process (cmd: $cmd)"
+          return
+        fi
+      fi
+      if ! echo "$cmd" | grep -qE "[[:space:]]start[[:space:]]"; then
+        warn "running.json pid $pid does not look like an 'ao start' orchestrator command"
+      else
+        pass "running.json pid $pid is alive and tied to AO start process"
+      fi
+    fi
+  fi
+}
+
+# --- Check 5: AO session pressure and spawn backlog ---
+# Root cause: last week saw repeated "spawning" saturation and 5h backfill
+# cap alarms while spawn pressure rose past operational guardrails.
+check_ao_session_pressure() {
+  local session_output total_sessions spawning_count
+  local line sid state spawning_ids=0
+  local output_count=0
+
+  if ! command -v ao >/dev/null 2>&1; then
+    warn "ao CLI not available — cannot run AO session pressure check"
+    return
+  fi
+
+  if ! session_output="$(ao session ls 2>/dev/null)"; then
+    warn "ao session ls failed (possibly hung/spawned child dead) — using tmux sessions as a fallback"
+    if command -v tmux >/dev/null 2>&1; then
+      output_count="$(tmux list-sessions 2>/dev/null | wc -l | tr -d ' ')"
+      [ -z "$output_count" ] && output_count=0
+      if [ "$output_count" -ge "$AO_SESSION_HARD_CAP" ]; then
+        fail "tmux session count (${output_count}) is at/above hard AO session cap (${AO_SESSION_HARD_CAP})"
+      elif [ "$output_count" -gt 0 ]; then
+        pass "tmux session count is ${output_count} (ao session ls fallback)"
+      else
+        warn "tmux session count unavailable or zero while ao session ls failed"
+      fi
+    else
+      warn "tmux not available for fallback when ao session ls fails"
+    fi
+    return
+  fi
+
+  total_sessions=0
+  spawning_count=0
+
+  while IFS= read -r line; do
+    if printf '%s\n' "$line" | grep -qE '^[[:space:]]*[A-Za-z0-9._-]+-[0-9]+[[:space:]]+\([^)]*\)[[:space:]]+\[[^]]+\]'; then
+      sid="${line%% *}"
+      state="$(printf '%s' "$line" | sed -E 's/.*\[(.+)\]$/\1/')"
+      total_sessions=$((total_sessions + 1))
+      if [[ "$state" == *"spawning"* ]]; then
+        spawning_count=$((spawning_count + 1))
+        spawning_ids="${spawning_ids} $sid"
+      fi
+    fi
+  done <<< "$session_output"
+
+  if [ "$total_sessions" -eq 0 ]; then
+    warn "no AO sessions detected in ao session ls output"
+    return
+  fi
+
+  if [ "$total_sessions" -ge "$AO_SESSION_HARD_CAP" ]; then
+    fail "AO session pressure is at/above hard cap: total active sessions=$total_sessions (cap=${AO_SESSION_HARD_CAP})"
+  elif [ "$total_sessions" -gt 14 ]; then
+    warn "AO session pressure is high: total active sessions=$total_sessions"
+  else
+    pass "AO session pressure is healthy: total active sessions=$total_sessions"
+  fi
+
+  if [ "$spawning_count" -gt 0 ]; then
+    if [ "$spawning_count" -ge 3 ]; then
+      warn "AO has ${spawning_count} spawning session(s) — backlog risk: ${spawning_ids}"
+    else
+      pass "AO spawning sessions count is low: ${spawning_count}"
+    fi
+  fi
+}
+# The orchestrator must be actively running 'ao start <project>' and lifecycle
+# workers must exist; if the queue is up but workers are not, we're in polling
+# drift and worker spawn requests will fail/hang.
+check_orchestrator_polling_health() {
+  local cfg_projects project_count worker_count
+  cfg_projects="$(project_list_from_config "$HERMES_STAGING_CONFIG")"
+  if [ -z "$cfg_projects" ]; then
+    warn "no projects found in $HERMES_STAGING_CONFIG; skipping orchestrator poll-health check"
+    return
+  fi
+
+  project_count=$(printf '%s\n' "$cfg_projects" | awk 'NF' | wc -l | tr -d ' ')
+  [ "$project_count" -gt 0 ] || { warn "project list is empty; skipping orchestrator poll-health check"; return; }
+
+  local found_orchestrator=0
+  local ao_binary="${AO_CLI_PATH:-$(command -v ao 2>/dev/null || true)}"
+  for project in $cfg_projects; do
+    local pids
+    pids="$(pgrep -f "start[[:space:]]${project}([[:space:]]|$)" 2>/dev/null || true)"
+    for pid in $pids; do
+      local cmd
+      cmd="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+      if [ -z "$cmd" ]; then
+        continue
+      fi
+      if [ -n "$ao_binary" ] && declare -f command_matches_ao_binary >/dev/null 2>&1; then
+        if command_matches_ao_binary "$cmd" "$ao_binary"; then
+          found_orchestrator=1
+          break 2
+        fi
+      else
+        found_orchestrator=1
+        break 2
+      fi
+    done
+  done
+
+  if [ "$found_orchestrator" -eq 0 ]; then
+    fail "no live AO orchestrator ('ao start <project>') found for configured projects"
+  else
+    pass "AO orchestrator is actively running for configured projects"
+  fi
+
+  worker_count=$(pgrep -f "lifecycle-worker" 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${worker_count:-0}" -eq 0 ]; then
+    fail "lifecycle polling appears inactive: no lifecycle-worker processes found"
+    return
+  fi
+  if [ "$worker_count" -lt "$project_count" ]; then
+    warn "lifecycle-worker count $worker_count is below configured project count $project_count"
+    return
+  fi
+  pass "lifecycle-worker polling is running ($worker_count process(es))"
+}
+
+check_service_log_fresh() {
+  local label="$1"
+  local log_path="$2"
+  local max_age="$3"
+  if [ ! -f "$log_path" ]; then
+    fail "$label log not present at $log_path (service may be inert)"
+    return
+  fi
+  local now_ts log_mtime age
+  now_ts=$(date +%s)
+  log_mtime=$(stat -f %m "$log_path" 2>/dev/null || echo 0)
+  age=$((now_ts - log_mtime))
+  if [ "$age" -gt "$max_age" ]; then
+    fail "$label has stale log activity (age=${age}s, max=${max_age}s): $log_path"
+    return
+  fi
+  pass "$label is reporting within freshness window (${age}s <= ${max_age}s)"
 }
 
 # --- Check 6: Tier 1 + Tier 2 + cross-watchdog all present ---
 check_watchdog_chain() {
   local missing=0
   for label in ai.agento.health ai.agento.health-guardian ai.hermes.watchdog; do
+    local plist_path="$HOME/Library/LaunchAgents/${label}.plist"
+    if [ ! -f "$plist_path" ]; then
+      warn "launchd plist missing on disk: $plist_path"
+    fi
     if ! launchctl print "gui/$(id -u)/$label" 2>/dev/null | grep -q "type = LaunchAgent"; then
       warn "watchdog plist $label not registered with launchd"
       missing=$((missing + 1))
@@ -192,6 +569,9 @@ check_watchdog_chain() {
   if [ "$missing" -gt 0 ]; then
     warn "watchdog chain has $missing missing link(s) — fragility window unbounded"
   fi
+  check_service_log_fresh "ai.agento.health" "$AO_HEALTH_LOG" "$AO_HEALTH_LOG_MAX_AGE"
+  check_service_log_fresh "ai.agento.health-guardian" "$AO_HEALTH_GUARDIAN_LOG" "$AO_HEALTH_GUARDIAN_MAX_AGE"
+  check_service_log_fresh "ai.hermes.watchdog" "$AI_HERMES_WATCHDOG_LOG" "$AI_HERMES_WATCHDOG_MAX_AGE"
 }
 
 # --- Check 7: ai.agento.health-guardian log presence and freshness ---
@@ -611,10 +991,17 @@ main() {
     check_skeptic_age_filter_order
   else
     check_scm_config_in_staging
+    check_defaults_agent_minimax_or_absent "$HERMES_STAGING_CONFIG" "staging"
+    check_defaults_agent_minimax_or_absent "$HERMES_PROD_CONFIG" "production"
+    check_defaults_agent_config_model_absent_or_global "$HERMES_STAGING_CONFIG" "staging"
+    check_defaults_agent_config_model_absent_or_global "$HERMES_PROD_CONFIG" "production"
     check_skeptic_age_filter_order
     check_gh_token_not_redacted
+    check_minimax_key_not_redacted
     check_dist_md5_match
     check_running_json_present
+    check_ao_session_pressure
+    check_orchestrator_polling_health
     check_watchdog_chain
     check_health_guardian_log_present
     check_log_path_consistency
