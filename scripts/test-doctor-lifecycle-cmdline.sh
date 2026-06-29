@@ -254,15 +254,12 @@ assert_eq "left boundary: 'restart <proj>' does not match project" "0" \
 # without breaking the `ao start <project>` symlink-wrapper case
 # (where `ao` precedes `start` with whitespace).
 #
-# This test documents the intentional behavior rather than asserting a
-# specific count.
+# This test asserts the LOCKED-IN intentional behavior: count = 1
+# for the systemctl case. If a future refactor adds a tighter guard
+# that breaks the symlink case, this test will fail loudly.
 PS_SYSTEMCTL=$(printf 'root  100  0.0  0.1 100 200 ??  S 10:00AM 0:00.01 systemctl start agent-orchestrator\n')
-SYSTEMCTL_COUNT=$(count_orchestrators_for_project 'agent-orchestrator' "$PS_SYSTEMCTL")
-if [ -n "$SYSTEMCTL_COUNT" ] && [ "$SYSTEMCTL_COUNT" -ge 0 ]; then
-  ok "systemctl start <proj> returns numeric count (=$SYSTEMCTL_COUNT) — intentional behavior, not a guard"
-else
-  fail "systemctl start <proj> returned non-numeric count"
-fi
+assert_eq "systemctl start <proj> intentionally counted (=1, not excluded)" "1" \
+    "$(count_orchestrators_for_project 'agent-orchestrator' "$PS_SYSTEMCTL")"
 
 # ── Section 5: end-to-end check_lifecycle_workers — RED test (mock ps) ──────
 echo ""

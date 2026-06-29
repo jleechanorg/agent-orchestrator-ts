@@ -90,8 +90,15 @@ count_orchestrators_for_project() {
   # boundaries on both sides. Partial matches like "api" inside
   # "lifecycle-worker my-api" or "lifecycle-worker api-v2" are excluded,
   # AND tokens ending in `start` (e.g., `restart <proj>`,
-  # `systemctl start <proj>`) cannot match either shape because the
-  # left boundary rejects unprefixed `start`.
+  # `quickstart <proj>`) cannot match because the left boundary rejects
+  # unprefixed `start`.
+  # NOTE: `systemctl start <proj>` is intentionally NOT excluded because
+  # the (^|[[:space:]]) left boundary would also match
+  # `ao start <project>` (the symlink-wrapper cmdline, where `ao`
+  # precedes `start` with whitespace). Tighter guards like
+  # [^[:alpha:]] would break the symlink case. If systemd-managed
+  # deployments need stricter exclusion, layer it on via
+  # `command_matches_ao_binary` from scripts/lib/ao-health-helpers.sh.
   # `|| true` is required: grep returns 1 on no match, and callers that
   # run with `set -o pipefail` would otherwise abort before wc can
   # report the 0 count.
