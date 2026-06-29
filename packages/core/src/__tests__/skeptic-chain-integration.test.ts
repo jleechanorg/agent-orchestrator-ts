@@ -1220,6 +1220,7 @@ describe("skeptic chain integration", () => {
       expect(reusableFilter).not.toBeNull();
       for (const gate of ["8a", "8b", "8c", "8d"]) {
         expect(gateWorkflowSourceLocal).toContain(`skeptic-gate-${gate}`);
+        expect(reusableWorkflowSourceLocal).toContain(`skeptic-gate-${gate}`);
       }
     });
   });
