@@ -26,7 +26,7 @@ source "$SCRIPT_DIR/lib/ao-health-helpers.sh" 2>/dev/null || {
 if mkdir "$LOCK_DIR" 2>/dev/null; then
     trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
 else
-    lock_age=$(( $(date +%s) - $(stat -f %m "$LOCK_DIR" 2>/dev/null || echo 0) ))
+    lock_age=$(( $(date +%s) - $(stat -f %m "$LOCK_DIR" 2>/dev/null || stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0) ))
     if [ "$lock_age" -lt "$STALE_LOCK_SECS" ]; then
         exit 0
     fi

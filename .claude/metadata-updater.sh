@@ -32,6 +32,13 @@ else
   hook_event=$(echo "$input" | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
 fi
 
+# Fall back to AO_HOOK_EVENT_NAME env var when stdin JSON does not include
+# hook_event_name. settings.json wires PreToolUse/PostToolUse via this env
+# var, so guards below (merge_pattern, PostToolUse-only writers) depend on it.
+if [[ -z "$hook_event" && -n "${AO_HOOK_EVENT_NAME:-}" ]]; then
+  hook_event="$AO_HOOK_EVENT_NAME"
+fi
+
 # Only process successful commands (exit code 0)
 if [[ "$exit_code" -ne 0 ]]; then
   echo '{}'

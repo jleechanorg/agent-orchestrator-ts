@@ -70,7 +70,8 @@ launchctl print gui/$(id -u)/ai.hermes-watchdog | grep -E "state = |last exit"
 
 # doctor-v2 self-test
 bash scripts/ao-doctor-v2.sh
-# Expected: 8 pass, 0 warn, 1 fail (if the staging config scm: regression is present — see below)
+# Expected: 7 pass, 0 warn, 1 fail (if the staging config scm: regression is present — see below)
+# Note: 9 total checks; the regression below means 7 pass + 1 fail + 1 PASS-conditional (skipped in this run).
 ```
 
 **Red phase captured**: `bash scripts/ao-doctor-v2.sh` before this PR would have
