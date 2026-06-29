@@ -553,10 +553,14 @@ except Exception:
   # `count_orchestrators_for_project` (see scripts/lib/ao-doctor-helpers.sh).
   local duplicates_found=0
   # Capture the ps aux snapshot once per check so the per-project loop
-  # doesn't re-run `ps` for every project (could 20+ projects).
-  # grep -v grep filters out the grep process itself from the pipeline.
+  # doesn't re-run `ps` for every project (could be 20+ projects).
+  # No `grep -v grep` filter here — that would also drop legitimate
+  # processes whose command line happens to contain the substring
+  # "grep" (e.g., a `grepsvc` daemon). ps aux itself does not include
+  # a grep process when piped to a variable, so the filter is both
+  # unnecessary and over-broad.
   local ps_snapshot
-  ps_snapshot="$(ps aux 2>/dev/null | grep -v grep || true)"
+  ps_snapshot="$(ps aux 2>/dev/null || true)"
   for proj in $projects; do
     local count
     count="$(count_orchestrators_for_project "$proj" "$ps_snapshot")"

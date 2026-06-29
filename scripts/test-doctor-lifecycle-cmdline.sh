@@ -170,13 +170,25 @@ else
   ok "left boundary: 'quickstart <proj>' does not match project"
 fi
 
-# 3f. False-positive guard: doc filenames must not match
+# 3f. False-positive guard: doc filenames containing matched shape substrings
+# must not match. Embeds the matched shapes (`lifecycle-worker` and `start`)
+# so the leading (^|[[:space:]]) guard is actually exercised — the previous
+# version used `docs/ao-lifecycle-triage.md` which contained neither substring
+# and didn't test the guard at all.
 if cmdline_references_project \
-    "vim docs/ao-lifecycle-triage.md" \
+    "vim docs/ao-lifecycle-worker.md" \
     "agent-orchestrator"; then
-  fail "doc filename must not match 'lifecycle-worker <project>'"
+  fail "doc filename containing 'lifecycle-worker' substring must not match"
 else
-  ok "doc filename does not match"
+  ok "doc filename with 'lifecycle-worker' substring does not match (leading guard works)"
+fi
+
+if cmdline_references_project \
+    "vim docs/quickstart.md" \
+    "agent-orchestrator"; then
+  fail "doc filename containing 'quickstart' substring must not match"
+else
+  ok "doc filename with 'quickstart' substring does not match (leading guard works)"
 fi
 
 # 3g. Project name with regex meta chars (e.g. 'my.project.v2') must be escaped
@@ -305,12 +317,17 @@ PS_EOF
   # Source the doctor script in a subshell-like scope with PATH override.
   # We use HOME override + PATH override so `ps` resolves to our mock
   # and the config lookup picks up the fixture config.
+  # Pass DOCTOR_SH as a positional argument to bash so the path is
+  # NOT re-parsed as shell code — the previous version embedded
+  # `$DOCTOR_SH` directly into the script text, which broke when the
+  # checkout path contained a single quote. Inside the shell we
+  # source the first positional arg to get the doctor script loaded.
   OUTPUT=$(HOME="$FIXTURE_HOME" \
            PATH="$MOCK_BIN:$PATH" \
            AO_REPO_ROOT="$REPO_ROOT" \
            AO_STAGING_CONFIG_PATH="$FIXTURE_HOME/.hermes/agent-orchestrator.yaml" \
            FIXTURE_MODE=1 \
-           bash -c "source '$DOCTOR_SH' 2>/dev/null && check_lifecycle_workers" \
+           bash -c 'source "$1" 2>/dev/null && check_lifecycle_workers' _ "$DOCTOR_SH" \
            2>&1 || true)
 
   assert_not_contains "agent-orchestrator: no false-positive WARN" \

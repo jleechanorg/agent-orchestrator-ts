@@ -45,12 +45,13 @@ cmdline_references_project() {
       | grep -E -q "(^|[[:space:]])lifecycle-worker[[:space:]]+${escaped_proj}([[:space:]]|$)"; then
     return 0
   fi
-  # In-process: `start <proj>` as a whole-word token. The leading
-  # (^|[[:space:]]) guard prevents false matches on tokens that END in
-  # `start` (e.g., `restart <proj>`, `systemctl start <proj>`,
-  # `quickstart <proj>` — only the latter two would still match because
-  # they contain `start` at the end of a non-space-prefixed token; the
-  # guard eliminates the `restart` case).
+  # In-process: `start <proj>` as a whitespace-delimited token. The
+  # leading (^|[[:space:]]) guard rejects suffix tokens such as
+  # `restart <proj>` and `quickstart <proj>`. `systemctl start <proj>`
+  # is intentionally still accepted because `start` is a separate token
+  # (whitespace-delimited, preceded by `systemctl `). See regression
+  # tests 3e4/3e5/4i (reject restart/quickstart) and 4j (lock in
+  # systemctl count=1) for the full coverage of this design choice.
   if printf '%s\n' "$cmdline" \
       | grep -E -q "(^|[[:space:]])start[[:space:]]+${escaped_proj}([[:space:]]|$)"; then
     return 0
