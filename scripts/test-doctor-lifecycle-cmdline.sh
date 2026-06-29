@@ -128,6 +128,25 @@ else
   ok "partial project 'api' does not match 'api-v2'"
 fi
 
+# 3e2. False-positive guard (suffix): 'lifecycle-worker my-api' must not match 'api'
+# (catches the regex bug where `[^[:space:]]*${proj}` allowed any prefix tokens)
+if cmdline_references_project \
+    "node /path/to/dist/index.js lifecycle-worker my-api" \
+    "api"; then
+  fail "suffix project 'api' should not match 'lifecycle-worker my-api'"
+else
+  ok "suffix project 'api' does not match 'lifecycle-worker my-api'"
+fi
+
+# 3e3. False-positive guard (suffix): 'start my-api' must not match 'api'
+if cmdline_references_project \
+    "node /path/to/dist/index.js start my-api --flag" \
+    "api"; then
+  fail "suffix project 'api' should not match 'start my-api'"
+else
+  ok "suffix project 'api' does not match 'start my-api'"
+fi
+
 # 3f. False-positive guard: doc filenames must not match
 if cmdline_references_project \
     "vim docs/ao-lifecycle-triage.md" \
@@ -186,6 +205,16 @@ assert_eq "mixed legacy + in-process: count is 2" "2" \
 PS_DUP_INPROC=$(printf 'user  100  /usr/bin/node /path/to/dist/index.js start agent-orchestrator\nuser  200  /usr/bin/node /path/to/dist/index.js start agent-orchestrator\n')
 assert_eq "duplicate in-process: count is 2" "2" \
     "$(count_orchestrators_for_project 'agent-orchestrator' "$PS_DUP_INPROC")"
+
+# 4g. False-positive guard: snapshot with suffix 'my-api' for legacy must not count for 'api'
+PS_SUFFIX_LEGACY=$(printf 'user  100  /usr/bin/node /path/to/dist/index.js lifecycle-worker my-api\n')
+assert_eq "legacy suffix 'my-api' does not match project 'api'" "0" \
+    "$(count_orchestrators_for_project 'api' "$PS_SUFFIX_LEGACY")"
+
+# 4h. False-positive guard: snapshot with suffix 'my-api' for in-process must not count for 'api'
+PS_SUFFIX_INPROC=$(printf 'user  100  /usr/bin/node /path/to/dist/index.js start my-api\n')
+assert_eq "in-process suffix 'my-api' does not match project 'api'" "0" \
+    "$(count_orchestrators_for_project 'api' "$PS_SUFFIX_INPROC")"
 
 # ── Section 5: end-to-end check_lifecycle_workers — RED test (mock ps) ──────
 echo ""

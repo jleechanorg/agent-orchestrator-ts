@@ -32,17 +32,20 @@ cmdline_references_project() {
   local proj="$2"
   local escaped_proj
   escaped_proj="$(escape_ere "$proj")"
-  # Legacy: `lifecycle-worker <proj>` with proj as a whole-word token
-  # at the end of the arg list. The leading (^|[[:space:]]) guard
-  # prevents false matches on doc filenames like
-  # "diagnose-lifecycle-worker.md" that happen to contain the substring.
+  # Legacy: `lifecycle-worker <proj>` with proj as the immediate next
+  # whitespace-delimited token. Both the leading (^|[[:space:]]) guard
+  # (prevents matches on doc filenames like "diagnose-lifecycle-worker.md")
+  # AND the trailing ([[:space:]]|$) boundary are required — without the
+  # trailing boundary, a project like "api" would spuriously match
+  # `lifecycle-worker my-api` (any suffix token containing the project id).
+  # Mirrors the in-process shape below and the canonical pattern in
+  # scripts/ao-health.sh:138
+  #   pgrep -f "start[[:space:]]($PROJECT_ALT)([[:space:]]|$)"
   if printf '%s\n' "$cmdline" \
-      | grep -E -q "(^|[[:space:]])lifecycle-worker[[:space:]]+[^[:space:]]*${escaped_proj}([[:space:]]|$)"; then
+      | grep -E -q "(^|[[:space:]])lifecycle-worker[[:space:]]+${escaped_proj}([[:space:]]|$)"; then
     return 0
   fi
-  # In-process: `start <proj>` as a whole-word token. Mirrors the
-  # pattern in scripts/ao-health.sh:138
-  #   pgrep -f "start[[:space:]]($PROJECT_ALT)([[:space:]]|$)"
+  # In-process: `start <proj>` as a whole-word token.
   if printf '%s\n' "$cmdline" \
       | grep -E -q "start[[:space:]]+${escaped_proj}([[:space:]]|$)"; then
     return 0
@@ -77,13 +80,17 @@ count_orchestrators_for_project() {
   local escaped_proj
   escaped_proj="$(escape_ere "$proj")"
   # Combined alternation: legacy OR in-process. The grep filter
-  # matches whole-word tokens (project id boundaries) so partial
-  # matches like "api" inside "lifecycle-worker api-v2" are excluded.
+  # requires the project id as the IMMEDIATE whitespace-delimited token
+  # after `lifecycle-worker` or `start`, so partial matches like
+  # "api" inside "lifecycle-worker my-api" or "lifecycle-worker api-v2"
+  # are excluded on either side. The (^|[[:space:]]) leading guard
+  # also prevents false matches on doc filenames like
+  # "diagnose-lifecycle-worker.md".
   # `|| true` is required: grep returns 1 on no match, and callers that
   # run with `set -o pipefail` would otherwise abort before wc can
   # report the 0 count.
   printf '%s\n' "$ps_snapshot" \
-    | grep -E "(^|[[:space:]])lifecycle-worker[[:space:]]+[^[:space:]]*${escaped_proj}([[:space:]]|$)|start[[:space:]]+${escaped_proj}([[:space:]]|$)" \
+    | grep -E "(^|[[:space:]])lifecycle-worker[[:space:]]+${escaped_proj}([[:space:]]|$)|start[[:space:]]+${escaped_proj}([[:space:]]|$)" \
     | wc -l | tr -d ' ' \
     || true
 }
