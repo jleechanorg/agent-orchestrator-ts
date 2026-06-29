@@ -30,6 +30,7 @@ function runPreTool(command: string): HookDecision {
       encoding: "utf8",
       env: {
         ...process.env,
+        AO_ALLOW_GH_PR_MERGE: "",
         AO_DATA_DIR: dataDir,
         AO_SESSION: "test-session",
       },
@@ -136,5 +137,45 @@ describe("metadata-updater PreToolUse guarded command parsing", () => {
     const output = runPreTool("FOO=bar && echo hello");
 
     expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+  });
+});
+
+describe("metadata-updater PreToolUse guarded_merge_context_pattern regex", () => {
+  // Regression guard for PR #731 removal of `guarded_merge_context_pattern`.
+  // The regex is a defense-in-depth check that catches chained `gh pr merge`
+  // invocations (e.g., `cd X && gh pr merge`, `echo "x" ; gh pr merge`).
+  // The python parser strips `cd` prefixes, so `cd X && gh pr merge N` would
+  // pass the parser — the regex is the only thing blocking it.
+  it.each([
+    "cd packages/core && gh pr merge 123",
+    "cd /tmp && gh pr merge 123",
+    'echo "done" ; gh pr merge 123',
+    "echo done; gh pr merge 123",
+    "true && gh pr merge 123",
+    "true; gh pr merge 123",
+  ])("denies chained gh pr merge via && or ; : %s", (command) => {
+    const output = runPreTool(command);
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+
+  it("denies gh pr merge as first command (anchored merge_pattern)", () => {
+    const output = runPreTool("gh pr merge 123");
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+
+  it.each([
+    "git status",
+    "git log --oneline -5",
+    "ls -la",
+    "echo hello world",
+    "gh pr create --title ok --body 'literal text'",
+    "gh pr view 123",
+    "gh issue list",
+  ])("does not deny unrelated commands: %s", (command) => {
+    const output = runPreTool(command);
+
+    expect(output.hookSpecificOutput?.permissionDecision).not.toBe("deny");
   });
 });
