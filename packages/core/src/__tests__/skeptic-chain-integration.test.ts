@@ -731,6 +731,85 @@ describe("skeptic chain integration", () => {
       expect(result!.id).toBe(150);
     });
 
+    // -------------------------------------------------------------------------
+    // TDD RED phase — strict (pre-fix) `jqFilterMatch` REJECTS the same cases
+    // the new `tolerantFilterMatch` accepts. These tests prove the bug existed
+    // and that the new code is the actual fix, not a no-op.
+    //
+    // Trigger SHA: 09a36eeded5a9786705e255c55469558cc9aec0e (from PR #732 evidence)
+    // OLD format request-id: `gate-{FULL_SHA}-{RUN}-{ATTEMPT}` (PR #732 stranded verdict)
+    // NEW format request-id: `gate-{RUN}-{ATTEMPT}-{PR}-{SHA:12}` (current workflow)
+    // -------------------------------------------------------------------------
+    const RED_TRIGGER_SHA = "09a36eeded5a9786705e255c55469558cc9aec0e";
+    const RED_SHA_12 = RED_TRIGGER_SHA.slice(0, 12);
+    const RED_TRIGGER_UPDATED = "2026-06-28T19:57:32Z";
+
+    function redPassBody(sha: string, requestId: string): string {
+      return [
+        "<!-- skeptic-agent-verdict -->",
+        `<!-- skeptic-request-id-${requestId} -->`,
+        `<!-- skeptic-head-sha-${sha} -->`,
+        "<!-- skeptic-gate-1:PASS -->",
+        "<!-- skeptic-gate-2:PASS -->",
+        "<!-- skeptic-gate-3:PASS -->",
+        "<!-- skeptic-gate-4:PASS -->",
+        "<!-- skeptic-gate-5:PASS -->",
+        "<!-- skeptic-gate-6:PASS -->",
+        "<!-- skeptic-gate-7:PASS -->",
+        "<!-- skeptic-gate-8:PASS -->",
+        "VERDICT: PASS",
+        `<!-- skeptic-gate-trigger-${sha} -->`,
+      ].join("\n");
+    }
+
+    it("RED: strict jqFilterMatch REJECTS an OLD-format verdict when trigger uses the NEW format", () => {
+      const verdictRequestIdOld = `gate-${RED_TRIGGER_SHA}-28333687751-1`;
+      const triggerRequestIdNew = `gate-28333687751-1-733-${RED_SHA_12}`;
+      const comments = [
+        {
+          id: 500,
+          body: redPassBody(RED_TRIGGER_SHA, verdictRequestIdOld),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-06-28T20:01:00Z",
+        },
+      ];
+
+      const result = jqFilterMatch(
+        comments,
+        "jleechan2015",
+        RED_TRIGGER_SHA,
+        RED_TRIGGER_UPDATED,
+        triggerRequestIdNew,
+        "other-author",
+      );
+
+      expect(result).toBeNull(); // <-- RED: strict filter strands the verdict
+    });
+
+    it("RED: strict jqFilterMatch REJECTS a NEW-format verdict when trigger uses the OLD format", () => {
+      const triggerRequestIdOld = `gate-${RED_TRIGGER_SHA}-28333687751-1`;
+      const verdictRequestIdNew = `gate-28333687751-1-733-${RED_SHA_12}`;
+      const comments = [
+        {
+          id: 501,
+          body: redPassBody(RED_TRIGGER_SHA, verdictRequestIdNew),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-06-28T20:01:00Z",
+        },
+      ];
+
+      const result = jqFilterMatch(
+        comments,
+        "jleechan2015",
+        RED_TRIGGER_SHA,
+        RED_TRIGGER_UPDATED,
+        triggerRequestIdOld,
+        "other-author",
+      );
+
+      expect(result).toBeNull(); // <-- RED: strict filter strands the verdict
+    });
+
     it("matches SKIPPED fallback comments so the gate can fail closed on the explicit verdict", () => {
       const comments = [
         {
@@ -856,6 +935,240 @@ describe("skeptic chain integration", () => {
     it("selects the first matching verdict line without invoking grep without a pattern", () => {
       expect(workflowSource).not.toContain("| grep -m 1 \\");
       expect(workflowSource).toContain("| head -n 1 \\");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 6: Tolerant request-id filter — validates PR #733 fix.
+  // The polling filter now accepts verdicts via three-way matching:
+  //   1. exact request-id
+  //   2. SHA-substring match (full 40-char OR 12-char prefix) inside the
+  //      skeptic-request-id-* marker
+  //   3. empty request_id (SHA-only matching)
+  // See PR #733.
+  // -------------------------------------------------------------------------
+  describe("tolerant request-id filter (PR #733)", () => {
+    const TRIGGER_SHA_FULL = "09a36eeded5a9786705e255c55469558cc9aec0e";
+    const TRIGGER_SHA_12 = TRIGGER_SHA_FULL.slice(0, 12);
+    const TRIGGER_UPDATED_LOCAL = "2026-06-28T19:57:32Z";
+
+    const gateWorkflowSourceLocal = readFileSync(
+      new URL("../../../../.github/workflows/skeptic-gate.yml", import.meta.url),
+      "utf8",
+    );
+    const reusableWorkflowSourceLocal = readFileSync(
+      new URL("../../../../.github/workflows/skeptic-gate-reusable.yml", import.meta.url),
+      "utf8",
+    );
+
+    // Mirrors the new tolerant filter in skeptic-gate.yml and
+    // skeptic-gate-reusable.yml. Returns matching comment or null.
+    function tolerantFilterMatch(
+      comments: Array<{ id: number; body: string; user: { login: string }; updatedAt: string }>,
+      botAuthor: string,
+      triggerSha: string,
+      triggerUpdated: string,
+      requestId: string | null = null,
+      prAuthor = "pr-author",
+    ): (typeof comments)[number] | null {
+      const escapeRegexLiteral = (token: string): string =>
+        token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escapedSha = escapeRegexLiteral(triggerSha);
+      const shaPrefix = triggerSha.slice(0, 12);
+      const hasEightPassingGates = (body: string): boolean => {
+        for (let gate = 1; gate <= 8; gate += 1) {
+          if (!new RegExp(`<!--\\s*skeptic-gate-${gate}\\s*:\\s*PASS\\s*-->`, "i").test(body)) {
+            return false;
+          }
+        }
+        return true;
+      };
+      const matching = comments.filter((c) => {
+        const userLogin = c.user.login.toLowerCase();
+        const botLogin = botAuthor.toLowerCase();
+        const prLogin = prAuthor.toLowerCase();
+        const markerMatch = /<!--\s*skeptic-agent-verdict\s*-->/i.test(c.body);
+        const requestIdMatch =
+          requestId === null
+            ? true
+            : requestId === ""
+              ? true
+              : new RegExp(
+                  `<!--\\s*skeptic-request-id-${escapeRegexLiteral(requestId)}\\s*-->`,
+                  "i",
+                ).test(c.body) ||
+                new RegExp(
+                  `<!--\\s*skeptic-request-id-[^>]*(${escapedSha}|${shaPrefix})[^>]*-->`,
+                  "i",
+                ).test(c.body);
+        const verdictMatch = c.body.match(
+          /^[ \t]*(?:> ?)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?VERDICT:[ \t]*(PASS|FAIL|SKIPPED)(?:\*{1,2})?[ \t]*(?:[-—:].*)?$/im,
+        );
+        const verdictType = verdictMatch?.[1]?.toUpperCase();
+        const timestampMatch = c.updatedAt >= triggerUpdated;
+        const shaMatch = new RegExp(
+          `<!--\\s*skeptic-gate-trigger-${escapedSha}\\s*-->`,
+          "i",
+        ).test(c.body);
+        const headMatch = new RegExp(
+          `<!--\\s*skeptic-head-sha-${escapedSha}\\s*-->`,
+          "i",
+        ).test(c.body);
+        return (
+          (userLogin === botLogin ||
+            (userLogin === "github-actions[bot]" && userLogin !== prLogin)) &&
+          markerMatch &&
+          requestIdMatch &&
+          Boolean(verdictType) &&
+          timestampMatch &&
+          shaMatch &&
+          headMatch &&
+          (verdictType !== "PASS" || hasEightPassingGates(c.body))
+        );
+      });
+      return matching.length > 0 ? matching[matching.length - 1] : null;
+    }
+
+    function tolerantPassBody(sha: string, requestId: string): string {
+      return [
+        "<!-- skeptic-agent-verdict -->",
+        `<!-- skeptic-request-id-${requestId} -->`,
+        `<!-- skeptic-head-sha-${sha} -->`,
+        "<!-- skeptic-gate-1:PASS -->",
+        "<!-- skeptic-gate-2:PASS -->",
+        "<!-- skeptic-gate-3:PASS -->",
+        "<!-- skeptic-gate-4:PASS -->",
+        "<!-- skeptic-gate-5:PASS -->",
+        "<!-- skeptic-gate-6:PASS -->",
+        "<!-- skeptic-gate-7:PASS -->",
+        "<!-- skeptic-gate-8:PASS -->",
+        "VERDICT: PASS",
+        `<!-- skeptic-gate-trigger-${sha} -->`,
+      ].join("\n");
+    }
+
+    // RED: Pre-fix strict filter would have rejected this verdict because the
+    // trigger request-id and verdict marker use DIFFERENT format generations.
+    // The trigger at 19:57:32Z used the NEW format (12-char SHA prefix); the
+    // verdict marker uses the OLD format (full 40-char SHA). The exact-match
+    // path returns false; only the SHA-substring fallback can satisfy this.
+    it("accepts an OLD-format verdict marker when the trigger request-id uses the NEW format", () => {
+      const verdictRequestIdOld = `gate-${TRIGGER_SHA_FULL}-28333687751-1`;
+      const triggerRequestIdNew = `gate-28333687751-1-733-${TRIGGER_SHA_12}`;
+      const comments = [
+        {
+          id: 400,
+          body: tolerantPassBody(TRIGGER_SHA_FULL, verdictRequestIdOld),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-06-28T20:01:00Z",
+        },
+      ];
+
+      const result = tolerantFilterMatch(
+        comments,
+        "jleechan2015",
+        TRIGGER_SHA_FULL,
+        TRIGGER_UPDATED_LOCAL,
+        triggerRequestIdNew, // different from verdict marker
+        "other-author",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(400);
+      expect(result!.body).toContain("VERDICT: PASS");
+    });
+
+    // GREEN: Reverse direction — trigger is OLD, verdict marker is NEW.
+    // This is the format-drift scenario that stranded PR #732's PASS verdict.
+    it("accepts a NEW-format verdict marker when the trigger request-id uses the OLD format", () => {
+      const triggerRequestIdOld = `gate-${TRIGGER_SHA_FULL}-28333687751-1`;
+      const verdictRequestIdNew = `gate-28333687751-1-733-${TRIGGER_SHA_12}`;
+      const comments = [
+        {
+          id: 401,
+          body: tolerantPassBody(TRIGGER_SHA_FULL, verdictRequestIdNew),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-06-28T20:01:00Z",
+        },
+      ];
+
+      const result = tolerantFilterMatch(
+        comments,
+        "jleechan2015",
+        TRIGGER_SHA_FULL,
+        TRIGGER_UPDATED_LOCAL,
+        triggerRequestIdOld, // different from verdict marker
+        "other-author",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(401);
+    });
+
+    // RED: Wrong SHA in the request-id must still be rejected.
+    it("rejects a verdict whose request-id contains a different SHA", () => {
+      const wrongSha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+      const requestIdWrong = `gate-${wrongSha}-28333687751-1`;
+      const comments = [
+        {
+          id: 402,
+          body: tolerantPassBody(TRIGGER_SHA_FULL, requestIdWrong),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-06-28T20:01:00Z",
+        },
+      ];
+
+      // Pass a requestId param that does NOT contain the wrong SHA — this
+      // simulates the trigger and verdict disagreeing on SHA. The tolerant
+      // filter must reject because neither exact nor SHA-substring matches.
+      const result = tolerantFilterMatch(
+        comments,
+        "jleechan2015",
+        TRIGGER_SHA_FULL,
+        TRIGGER_UPDATED_LOCAL,
+        "gate-different-request-id-without-the-right-sha",
+        "other-author",
+      );
+
+      expect(result).toBeNull();
+    });
+
+    // Empty request_id always matches (existing behavior preserved).
+    it("accepts any SHA-bound verdict when request_id is empty (legacy fallback)", () => {
+      const legacyRequestId = "anything-could-go-here";
+      const comments = [
+        {
+          id: 403,
+          body: tolerantPassBody(TRIGGER_SHA_FULL, legacyRequestId),
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-06-28T20:01:00Z",
+        },
+      ];
+
+      const result = tolerantFilterMatch(
+        comments,
+        "jleechan2015",
+        TRIGGER_SHA_FULL,
+        TRIGGER_UPDATED_LOCAL,
+        "",
+        "other-author",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(403);
+    });
+
+    // Belt-and-suspenders: both skeptic-gate.yml and the reusable workflow
+    // must contain the same tolerant filter shape (exact OR SHA-substring).
+    it("workflows expose the three-way tolerant filter (exact OR SHA-substring OR empty)", () => {
+      const gateFilter = gateWorkflowSourceLocal.match(
+        /\$req == ""[\s\S]*?skeptic-request-id-\[\^>\]\*\([\s\S]*?-->/,
+      );
+      const reusableFilter = reusableWorkflowSourceLocal.match(
+        /\$request_id == ""[\s\S]*?skeptic-request-id-\[\^>\]\*\([\s\S]*?-->/,
+      );
+      expect(gateFilter).not.toBeNull();
+      expect(reusableFilter).not.toBeNull();
     });
   });
 });
