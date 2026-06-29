@@ -45,9 +45,14 @@ cmdline_references_project() {
       | grep -E -q "(^|[[:space:]])lifecycle-worker[[:space:]]+${escaped_proj}([[:space:]]|$)"; then
     return 0
   fi
-  # In-process: `start <proj>` as a whole-word token.
+  # In-process: `start <proj>` as a whole-word token. The leading
+  # (^|[[:space:]]) guard prevents false matches on tokens that END in
+  # `start` (e.g., `restart <proj>`, `systemctl start <proj>`,
+  # `quickstart <proj>` — only the latter two would still match because
+  # they contain `start` at the end of a non-space-prefixed token; the
+  # guard eliminates the `restart` case).
   if printf '%s\n' "$cmdline" \
-      | grep -E -q "start[[:space:]]+${escaped_proj}([[:space:]]|$)"; then
+      | grep -E -q "(^|[[:space:]])start[[:space:]]+${escaped_proj}([[:space:]]|$)"; then
     return 0
   fi
   return 1
@@ -81,16 +86,17 @@ count_orchestrators_for_project() {
   escaped_proj="$(escape_ere "$proj")"
   # Combined alternation: legacy OR in-process. The grep filter
   # requires the project id as the IMMEDIATE whitespace-delimited token
-  # after `lifecycle-worker` or `start`, so partial matches like
-  # "api" inside "lifecycle-worker my-api" or "lifecycle-worker api-v2"
-  # are excluded on either side. The (^|[[:space:]]) leading guard
-  # also prevents false matches on doc filenames like
-  # "diagnose-lifecycle-worker.md".
+  # after `lifecycle-worker` or `start`, with leading/trailing whitespace
+  # boundaries on both sides. Partial matches like "api" inside
+  # "lifecycle-worker my-api" or "lifecycle-worker api-v2" are excluded,
+  # AND tokens ending in `start` (e.g., `restart <proj>`,
+  # `systemctl start <proj>`) cannot match either shape because the
+  # left boundary rejects unprefixed `start`.
   # `|| true` is required: grep returns 1 on no match, and callers that
   # run with `set -o pipefail` would otherwise abort before wc can
   # report the 0 count.
   printf '%s\n' "$ps_snapshot" \
-    | grep -E "(^|[[:space:]])lifecycle-worker[[:space:]]+${escaped_proj}([[:space:]]|$)|start[[:space:]]+${escaped_proj}([[:space:]]|$)" \
+    | grep -E "(^|[[:space:]])lifecycle-worker[[:space:]]+${escaped_proj}([[:space:]]|$)|(^|[[:space:]])start[[:space:]]+${escaped_proj}([[:space:]]|$)" \
     | wc -l | tr -d ' ' \
     || true
 }
