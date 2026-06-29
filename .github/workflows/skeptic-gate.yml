@@ -148,6 +148,10 @@ jobs:
             echo "ERROR: trigger_updated not set — cannot poll for verdicts"
             exit 1
           fi
+          if [ -z "$REQUEST_ID" ] || [ "$REQUEST_ID" = "null" ]; then
+            echo "ERROR: request_id not set — cannot safely bind skeptic verdicts"
+            exit 1
+          fi
           echo "Only accepting verdicts posted after: $TRIGGER_UPDATED"
           echo "Filter by trigger SHA: ${HEAD_SHA:0:7}"
 
@@ -237,13 +241,11 @@ jobs:
                     and (.verdict != "")
                     and (.body | test("skeptic-gate-trigger-" + $ts; "i"))
                     and (.body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
-                    # request-id filter is tolerant: accept exact match OR any request-id
-                    # containing the trigger SHA (full or 12-char prefix). Guards against
-                    # format drift between workflow file and running GHA workflow defs
-                    # (see PR fix). The 12-char prefix branch is required because the
-                    # current trigger emits `gate-...-${HEAD_SHA:0:12}` (see line 96).
-                    and (($req == "")
-                         or (.body | test("<!--\\s*skeptic-request-id-" + $req + "\\s*-->"; "i"))
+                    # request-id filter is tolerant for non-empty request IDs:
+                    # accept exact match OR any request-id containing the trigger
+                    # SHA (full or 12-char prefix). Missing request IDs fail closed
+                    # before polling.
+                    and ((.body | test("<!--\\s*skeptic-request-id-" + $req + "\\s*-->"; "i"))
                          or (.body | test("<!--\\s*skeptic-request-id-[^>]*(" + ($ts | tostring) + "|" + $ts_prefix + ")[^>]*-->"; "i")))
                     and ((.updated_at | try fromdate // 0) >= (try $tu | fromdate // 0))
                     and ((.verdict != "PASS")

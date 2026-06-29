@@ -381,6 +381,11 @@ jobs:
             echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
             exit 1
           fi
+          if [ -z "$REQUEST_ID" ] || [ "$REQUEST_ID" = "null" ]; then
+            echo "ERROR: request_id not set — cannot safely bind skeptic verdicts"
+            echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
           echo "Only accepting verdicts posted after trigger was updated: $TRIGGER_UPDATED"
           echo "Also filtering by trigger SHA: ${TRIGGER_SHA:0:7}"
 
@@ -470,18 +475,19 @@ jobs:
                     and (((.updated_at // "") | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end)
                          >= ($tu | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end))
                     and ($body | test("skeptic-gate-trigger-" + $ts; "i"))
-                    # request-id filter is tolerant: accept exact match OR any request-id
-                    # containing the trigger SHA (full or 12-char prefix). Guards against
-                    # format drift between the workflow file and running GHA workflow
-                    # definitions (see PR fix). The 12-char prefix branch is required
-                    # because the current trigger emits `gate-...-${TRIGGER_SHA:0:12}`
-                    # (see line 328).
-                    and (($request_id == "")
-                         or ($body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i"))
+                    # request-id filter is tolerant for non-empty request IDs:
+                    # accept exact match OR any request-id containing the trigger
+                    # SHA (full or 12-char prefix). Missing request IDs fail closed
+                    # before polling.
+                    and (($body | test("<!--\\s*skeptic-request-id-" + $request_id + "\\s*-->"; "i"))
                          or ($body | test("<!--\\s*skeptic-request-id-[^>]*(" + ($ts | tostring) + "|" + $ts_prefix + ")[^>]*-->"; "i")))
                     and ($body | test("<!--\\s*skeptic-head-sha-" + $ts + "\\s*-->"; "i"))
                     and ((.verdict != "PASS")
-                         or (all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))))
+                         or ((all(range(1;9); . as $gate | ($body | test("<!--\\s*skeptic-gate-" + ($gate | tostring) + "\\s*:\\s*PASS\\s*-->"; "i"))))
+                             and ($body | test("<!--\\s*skeptic-gate-8a\\s*:\\s*PASS\\s*-->"; "i"))
+                             and ($body | test("<!--\\s*skeptic-gate-8b\\s*:\\s*PASS\\s*-->"; "i"))
+                             and ($body | test("<!--\\s*skeptic-gate-8c\\s*:\\s*PASS\\s*-->"; "i"))
+                             and ($body | test("<!--\\s*skeptic-gate-8d\\s*:\\s*PASS\\s*-->"; "i")))))
                   ))
                 | last // empty' 2>/dev/null || echo "empty")
             fi

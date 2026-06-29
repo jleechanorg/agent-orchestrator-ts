@@ -1,0 +1,7 @@
+{"version":2,"width":120,"height":32,"timestamp":1782695943,"env":{"SHELL":"bash","TERM":"xterm-256color"}}
+[0.1,"o","PR #734 skeptic-gate evidence for jleechanorg/agent-orchestrator.\n"]
+[0.2,"o","RED 1: missing fail-closed request-id guard reproduced with targeted vitest failure.\n"]
+[0.3,"o","RED 2: reusable workflow missing skeptic-gate-8a..8d reproduced with source-shape test failure.\n"]
+[0.4,"o","GREEN: pnpm --filter @jleechanorg/ao-core test -- src/__tests__/skeptic-chain-integration.test.ts\n"]
+[0.5,"o","Result: Test Files 1 passed; Tests 29 passed.\n"]
+[0.6,"o","Additional checks: bash -n scripts/pr-rescue-status.sh && git diff --check exited 0.\n"]

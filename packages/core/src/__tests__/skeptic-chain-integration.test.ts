@@ -490,8 +490,13 @@ describe("skeptic chain integration", () => {
       const escapeRegexLiteral = (token: string): string =>
         token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const escapedSha = escapeRegexLiteral(triggerSha);
-      const hasEightPassingGates = (body: string): boolean => {
+      const hasStandalonePassingGates = (body: string): boolean => {
         for (let gate = 1; gate <= 8; gate += 1) {
+          if (!new RegExp(`<!--\\s*skeptic-gate-${gate}\\s*:\\s*PASS\\s*-->`, "i").test(body)) {
+            return false;
+          }
+        }
+        for (const gate of ["8a", "8b", "8c", "8d"]) {
           if (!new RegExp(`<!--\\s*skeptic-gate-${gate}\\s*:\\s*PASS\\s*-->`, "i").test(body)) {
             return false;
           }
@@ -521,7 +526,7 @@ describe("skeptic chain integration", () => {
           timestampMatch &&
           shaMatch &&
           headMatch &&
-          (verdictType !== "PASS" || hasEightPassingGates(c.body))
+          (verdictType !== "PASS" || hasStandalonePassingGates(c.body))
         );
       });
       return matching.length > 0 ? matching[matching.length - 1] : null;
@@ -539,6 +544,10 @@ describe("skeptic chain integration", () => {
         "<!-- skeptic-gate-6:PASS -->",
         "<!-- skeptic-gate-7:PASS -->",
         "<!-- skeptic-gate-8:PASS -->",
+        "<!-- skeptic-gate-8a:PASS -->",
+        "<!-- skeptic-gate-8b:PASS -->",
+        "<!-- skeptic-gate-8c:PASS -->",
+        "<!-- skeptic-gate-8d:PASS -->",
         "VERDICT: PASS",
         `<!-- skeptic-gate-trigger-${sha} -->`,
       ].join("\n");
@@ -975,8 +984,13 @@ describe("skeptic chain integration", () => {
         token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const escapedSha = escapeRegexLiteral(triggerSha);
       const shaPrefix = triggerSha.slice(0, 12);
-      const hasEightPassingGates = (body: string): boolean => {
+      const hasStandalonePassingGates = (body: string): boolean => {
         for (let gate = 1; gate <= 8; gate += 1) {
+          if (!new RegExp(`<!--\\s*skeptic-gate-${gate}\\s*:\\s*PASS\\s*-->`, "i").test(body)) {
+            return false;
+          }
+        }
+        for (const gate of ["8a", "8b", "8c", "8d"]) {
           if (!new RegExp(`<!--\\s*skeptic-gate-${gate}\\s*:\\s*PASS\\s*-->`, "i").test(body)) {
             return false;
           }
@@ -992,7 +1006,7 @@ describe("skeptic chain integration", () => {
           requestId === null
             ? true
             : requestId === ""
-              ? true
+              ? false
               : new RegExp(
                   `<!--\\s*skeptic-request-id-${escapeRegexLiteral(requestId)}\\s*-->`,
                   "i",
@@ -1023,7 +1037,7 @@ describe("skeptic chain integration", () => {
           timestampMatch &&
           shaMatch &&
           headMatch &&
-          (verdictType !== "PASS" || hasEightPassingGates(c.body))
+          (verdictType !== "PASS" || hasStandalonePassingGates(c.body))
         );
       });
       return matching.length > 0 ? matching[matching.length - 1] : null;
@@ -1042,6 +1056,10 @@ describe("skeptic chain integration", () => {
         "<!-- skeptic-gate-6:PASS -->",
         "<!-- skeptic-gate-7:PASS -->",
         "<!-- skeptic-gate-8:PASS -->",
+        "<!-- skeptic-gate-8a:PASS -->",
+        "<!-- skeptic-gate-8b:PASS -->",
+        "<!-- skeptic-gate-8c:PASS -->",
+        "<!-- skeptic-gate-8d:PASS -->",
         "VERDICT: PASS",
         `<!-- skeptic-gate-trigger-${sha} -->`,
       ].join("\n");
@@ -1133,8 +1151,7 @@ describe("skeptic chain integration", () => {
       expect(result).toBeNull();
     });
 
-    // Empty request_id always matches (existing behavior preserved).
-    it("accepts any SHA-bound verdict when request_id is empty (legacy fallback)", () => {
+    it("rejects SHA-bound verdicts when request_id is empty", () => {
       const legacyRequestId = "anything-could-go-here";
       const comments = [
         {
@@ -1154,21 +1171,57 @@ describe("skeptic chain integration", () => {
         "other-author",
       );
 
-      expect(result).not.toBeNull();
-      expect(result!.id).toBe(403);
+      expect(result).toBeNull();
+    });
+
+    it("rejects PASS verdicts without standalone gate 8a-8d markers", () => {
+      const requestId = `gate-28333687751-1-733-${TRIGGER_SHA_12}`;
+      const bodyWithoutExtendedGates = tolerantPassBody(TRIGGER_SHA_FULL, requestId)
+        .replace("<!-- skeptic-gate-8a:PASS -->\n", "")
+        .replace("<!-- skeptic-gate-8b:PASS -->\n", "")
+        .replace("<!-- skeptic-gate-8c:PASS -->\n", "")
+        .replace("<!-- skeptic-gate-8d:PASS -->\n", "");
+      const comments = [
+        {
+          id: 404,
+          body: bodyWithoutExtendedGates,
+          user: { login: "jleechan2015" },
+          updatedAt: "2026-06-28T20:01:00Z",
+        },
+      ];
+
+      const result = tolerantFilterMatch(
+        comments,
+        "jleechan2015",
+        TRIGGER_SHA_FULL,
+        TRIGGER_UPDATED_LOCAL,
+        requestId,
+        "other-author",
+      );
+
+      expect(result).toBeNull();
     });
 
     // Belt-and-suspenders: both skeptic-gate.yml and the reusable workflow
-    // must contain the same tolerant filter shape (exact OR SHA-substring).
-    it("workflows expose the three-way tolerant filter (exact OR SHA-substring OR empty)", () => {
+    // must fail closed on missing request IDs and keep the tolerant
+    // exact-or-SHA-substring shape for non-empty request IDs.
+    it("workflows fail closed on empty request-id and expose exact OR SHA-substring matching", () => {
+      expect(gateWorkflowSourceLocal).toContain("ERROR: request_id not set");
+      expect(reusableWorkflowSourceLocal).toContain("ERROR: request_id not set");
+      expect(gateWorkflowSourceLocal).not.toContain('$req == ""');
+      expect(reusableWorkflowSourceLocal).not.toContain("$request_id == \"\"");
       const gateFilter = gateWorkflowSourceLocal.match(
-        /\$req == ""[\s\S]*?skeptic-request-id-\[\^>\]\*\([\s\S]*?-->/,
+        /skeptic-request-id-" \+ \$req[\s\S]*?skeptic-request-id-\[\^>\]\*\([\s\S]*?-->/,
       );
       const reusableFilter = reusableWorkflowSourceLocal.match(
-        /\$request_id == ""[\s\S]*?skeptic-request-id-\[\^>\]\*\([\s\S]*?-->/,
+        /skeptic-request-id-" \+ \$request_id[\s\S]*?skeptic-request-id-\[\^>\]\*\([\s\S]*?-->/,
       );
       expect(gateFilter).not.toBeNull();
       expect(reusableFilter).not.toBeNull();
+      for (const gate of ["8a", "8b", "8c", "8d"]) {
+        expect(gateWorkflowSourceLocal).toContain(`skeptic-gate-${gate}`);
+        expect(reusableWorkflowSourceLocal).toContain(`skeptic-gate-${gate}`);
+      }
     });
   });
 });
