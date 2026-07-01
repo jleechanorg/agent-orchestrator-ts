@@ -26,7 +26,9 @@ beforeAll(() => {
       if (cmdPath) {
         symlinkSync(cmdPath, join(dummyBinDir, cmd));
       }
-    } catch {}
+    } catch {
+      // Command might not exist or fail to resolve, ignore
+    }
   }
 });
 
