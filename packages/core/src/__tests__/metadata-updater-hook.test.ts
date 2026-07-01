@@ -247,6 +247,17 @@ describe("metadata-updater PreToolUse guarded_merge_context_pattern regex (no-py
     expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
   });
 
+  it.each([
+    "( gh pr merge --auto 123 )",
+    "{ gh pr merge --auto 123; }",
+    "cat <(gh pr merge --auto 123)",
+    "echo $(gh pr merge --auto 123)",
+  ])("denies subshell and command substitution when python3 is unavailable: %s", (command) => {
+    const output = runPreToolNoPython(command);
+
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+
   it("denies gh pr merge as first command when python3 is unavailable (anchored merge_pattern)", () => {
     const output = runPreToolNoPython("gh pr merge 123");
 
