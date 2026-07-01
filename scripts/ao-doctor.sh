@@ -4,6 +4,8 @@ REPO_ROOT="${AO_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/ao-config-topology.sh
 source "$SCRIPT_DIR/lib/ao-config-topology.sh"
+# shellcheck source=./lib/ao-doctor-helpers.sh
+source "$SCRIPT_DIR/lib/ao-doctor-helpers.sh"
 DEFAULT_CONFIG_HOME="${HOME:-$REPO_ROOT}"
 PASS_COUNT=0
 WARN_COUNT=0
@@ -541,17 +543,27 @@ except Exception:
     return
   fi
 
-  # --- Check 3: per-project duplicate detection (original check) ---
+  # --- Check 3: per-project orchestrator detection (legacy + in-process) ---
+  # The lifecycle refactor (PR #712) deleted the `lifecycle-worker` CLI in
+  # favor of an in-process polling model that runs inside `ao start <project>`
+  # (see packages/cli/src/lib/lifecycle-service.ts:1-25). The original
+  # per-project check only matched the legacy subprocess shape, so EVERY
+  # configured project emitted a spurious WARN after the refactor. The
+  # check below accepts BOTH shapes via the pure helper
+  # `count_orchestrators_for_project` (see scripts/lib/ao-doctor-helpers.sh).
   local duplicates_found=0
+  # Capture the ps aux snapshot once per check so the per-project loop
+  # doesn't re-run `ps` for every project (could be 20+ projects).
+  # No `grep -v grep` filter here — that would also drop legitimate
+  # processes whose command line happens to contain the substring
+  # "grep" (e.g., a `grepsvc` daemon). ps aux itself does not include
+  # a grep process when piped to a variable, so the filter is both
+  # unnecessary and over-broad.
+  local ps_snapshot
+  ps_snapshot="$(ps aux 2>/dev/null || true)"
   for proj in $projects; do
-    # Count how many processes appear to be lifecycle-workers for this project
-    # via ps (covers both launchd-managed and manual/process-spawned workers).
-    # -E + -w: require project ID to match as a whole word (prevents "api"
-    # from matching "lifecycle-worker api-v2"). The pattern starts with
-    # lifecycle-worker so we don't match unrelated lines containing the proj ID.
-    # -v grep filters out the grep processes themselves.
     local count
-    count="$(ps aux 2>/dev/null | grep -v grep | grep -E -w "lifecycle-worker[[:space:]].*$proj($|[[:space:]])" | wc -l | tr -d ' ')"
+    count="$(count_orchestrators_for_project "$proj" "$ps_snapshot")"
 
     if [ "$count" -eq 0 ]; then
       warn "no lifecycle-worker process found for project '$proj'"
