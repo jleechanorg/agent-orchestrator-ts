@@ -1,0 +1,41 @@
+name: bead-pr-lint
+
+# Lint: every PR body MUST contain a `Beads:` line. Same shape as
+# jleechanorg/worldarchitect.ai (bead-pr-lint + bead-jsonl-sort-check).
+# Format: `Beads: BD-xxxx` (or comma-separated list of BD- IDs)
+# OR `Beads: none` for explicit opt-out.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint-beads-line:
+    name: "PR body has Beads line"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Validate Beads line in PR body"
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          BODY="${PR_BODY:-}"
+          BEADS_LINE="$(printf "%s\n" "$BODY" | grep -iE "^[[:space:]]*Beads:[[:space:]]*" || true)"
+          if [ -z "$BEADS_LINE" ]; then
+            echo "::error title=Missing Beads line::PR body is missing the required Beads: line."
+            exit 1
+          fi
+          if printf "%s" "$BEADS_LINE" | grep -iqE "^[[:space:]]*Beads:[[:space:]]*none[[:space:]]*$"; then
+            echo "Beads: none (explicit opt-out accepted)."
+            exit 0
+          fi
+          # Accepts BD-/bd- prefix; tweak if your prefix differs.
+          if ! printf "%s" "$BEADS_LINE" | grep -iqE "(bd|BD)-[a-z0-9]{4,}"; then
+            echo "::error title=Malformed Beads line::Expected at least one BD-xxxx reference."
+            exit 1
+          fi
+          echo "Beads line valid: $BEADS_LINE"
