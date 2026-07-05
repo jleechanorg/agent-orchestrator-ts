@@ -17,7 +17,7 @@ vi.mock("node:child_process", () => {
   return { execFile };
 });
 
-import { create, manifest, ghRestFallback } from "../src/index.js";
+import { create, manifest, ghRestFallback, parseHttpStatusCode } from "../src/index.js";
 import { _resetGhCache } from "../src/gh-cache.js";
 import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig, CICheck } from "@jleechanorg/ao-core";
 
@@ -3291,5 +3291,83 @@ describe("scm-github plugin", () => {
       expect(result!.failedJobs).toHaveLength(1);
       expect(result!.failedJobs[0].name).toBe("build");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseHttpStatusCode — strict HTTP status code extraction
+// Regression for the in-process lifecycle wedge: the previous broad regex
+// matched arbitrary "status: NNN" text inside JSON response bodies, causing
+// every poll cycle to falsely classify any gh pr view error as 5xx.
+// See feedback memory feedback_2026-06-28_in_process_lifecycle_wedge_on_rate_limit.md
+// ---------------------------------------------------------------------------
+describe("parseHttpStatusCode", () => {
+  it("returns 500 for canonical 'gh: HTTP 500' format", () => {
+    const err = new Error("gh pr view failed: gh: HTTP 500 (Internal Server Error)");
+    expect(parseHttpStatusCode(err)).toBe(500);
+  });
+
+  it("returns 502 for canonical 'gh: HTTP 502' format", () => {
+    const err = new Error("gh: HTTP 502 (Bad Gateway)");
+    expect(parseHttpStatusCode(err)).toBe(502);
+  });
+
+  it("returns 503 for canonical 'gh: HTTP 503' format", () => {
+    const err = new Error("gh: HTTP 503 (Service Unavailable)");
+    expect(parseHttpStatusCode(err)).toBe(503);
+  });
+
+  it("returns 429 for canonical 'gh: HTTP 429' format", () => {
+    const err = new Error("gh: HTTP 429 (Too Many Requests)");
+    expect(parseHttpStatusCode(err)).toBe(429);
+  });
+
+  it("returns 401 for canonical 'gh: HTTP 401' format", () => {
+    const err = new Error("gh: HTTP 401 (Unauthorized)");
+    expect(parseHttpStatusCode(err)).toBe(401);
+  });
+
+  it("returns 404 for canonical 'gh: HTTP 404' format", () => {
+    const err = new Error("gh: HTTP 404 (Not Found)");
+    expect(parseHttpStatusCode(err)).toBe(404);
+  });
+
+  it("returns undefined for plain 'error 500' (no HTTP prefix)", () => {
+    // The old regex matched this and incorrectly classified as 5xx.
+    // The new strict regex requires the HTTP prefix.
+    const err = new Error("some error 500 happened");
+    expect(parseHttpStatusCode(err)).toBeUndefined();
+  });
+
+  it("returns undefined for JSON body containing 'status: 500' (the bug)", () => {
+    // The bug: 'gh' returns a JSON body with `"status": 500` inside a 200 OK
+    // response (e.g. an API response that mentions an internal status code).
+    // The old regex matched this and triggered infinite 5xx retries.
+    const err = new Error('gh: command failed: {"status": 500, "message": "rate limit"}');
+    expect(parseHttpStatusCode(err)).toBeUndefined();
+  });
+
+  it("returns undefined for 'rate limit' in plain text (rate-limit handled separately)", () => {
+    const err = new Error("gh: API rate limit exceeded");
+    expect(parseHttpStatusCode(err)).toBeUndefined();
+  });
+
+  it("returns undefined for empty error", () => {
+    expect(parseHttpStatusCode(undefined)).toBeUndefined();
+    expect(parseHttpStatusCode(null)).toBeUndefined();
+    expect(parseHttpStatusCode("")).toBeUndefined();
+  });
+
+  it("returns undefined when error message has no 3-digit status", () => {
+    const err = new Error("gh: command not found");
+    expect(parseHttpStatusCode(err)).toBeUndefined();
+  });
+
+  it("uses stderr in addition to message", () => {
+    // `gh` writes status to stderr; collectErrorText reads both.
+    const err = Object.assign(new Error("gh: command failed"), {
+      stderr: "gh: HTTP 500 (Internal Server Error)",
+    });
+    expect(parseHttpStatusCode(err)).toBe(500);
   });
 });
