@@ -137,4 +137,65 @@ describe("metadata-updater PreToolUse guarded command parsing", () => {
 
     expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
+
+  // Regression: PR #731 removed guarded_merge_context_pattern from .claude/metadata-updater.sh,
+  // weakening the regex-level guardrail. This test exercises the bash regex directly so the
+  // layered defense stays in lockstep with the bash merge_pattern, independent of the
+  // Python helper or the upstream-side strip chains.
+  describe("guarded_merge_context_pattern regex (defense in depth)", () => {
+    const guardedMergeContextPattern =
+      "(\\$\\(|`|\\||\\(|\\{|<\\(|&&|;)[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$)";
+
+    // Run the regex through bash so we exercise the exact POSIX ERE semantics the script
+    // uses (avoids JS regex escaping pitfalls with $ \\ ` | ( {).
+    const matches = (cmd: string): boolean => {
+      const result = execFileSync(
+        "/bin/bash",
+        ["-c", '[[ "$1" =~ $2 ]] && echo MATCH || echo NOMATCH', "x", cmd, guardedMergeContextPattern],
+        { encoding: "utf8" },
+      );
+      return result.trim() === "MATCH";
+    };
+
+    it("matches && chained gh pr merge", () => {
+      expect(matches("pre1 && gh pr merge 123")).toBe(true);
+      expect(matches("cd /tmp && gh pr merge 123")).toBe(true);
+    });
+
+    it("matches ; chained gh pr merge", () => {
+      expect(matches("pre1 ; gh pr merge 123")).toBe(true);
+    });
+
+    it("matches pipe chained gh pr merge", () => {
+      expect(matches("pre1 | gh pr merge 123")).toBe(true);
+    });
+
+    it("matches subshell/grouped gh pr merge", () => {
+      expect(matches("( gh pr merge 123 )")).toBe(true);
+      expect(matches("{ gh pr merge 123; }")).toBe(true);
+    });
+
+    it("matches command substitution gh pr merge", () => {
+      expect(matches("echo $( gh pr merge 123 )")).toBe(true);
+      expect(matches("echo ` gh pr merge 123 `")).toBe(true);
+    });
+
+    it("matches process substitution gh pr merge", () => {
+      expect(matches("cat <( gh pr merge 123 )")).toBe(true);
+    });
+
+    it("does not match unrelated commands", () => {
+      expect(matches("echo hello")).toBe(false);
+      expect(matches("gh pr create --title t --body b")).toBe(false);
+      expect(matches("FOO=bar && echo hi")).toBe(false);
+    });
+
+    it("is wired into the merge guard (regex present in script)", () => {
+      const script = execFileSync("cat", [hookScript], { encoding: "utf8" });
+      expect(script).toContain("guarded_merge_context_pattern=");
+      expect(script).toMatch(
+        /clean_command" =~ \$merge_pattern \|\| "\$clean_command" =~ \$guarded_merge_context_pattern/,
+      );
+    });
+  });
 });
