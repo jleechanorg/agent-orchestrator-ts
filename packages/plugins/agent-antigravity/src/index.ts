@@ -75,9 +75,14 @@ const antigravityOverrides: Partial<Agent> = {
     const baseAgent = createAgentPlugin(antigravityConfig);
     const baseEnv = baseAgent.getEnvironment(launchConfig);
 
-    const userHome = os.homedir();
+    // Prefer AO_ORIGINAL_HOME (captured once at orchestrator startup) over os.homedir().
+// When this plugin runs inside a child orchestrator session whose own HOME was set to
+// ~/.ao-sessions/<parent>, os.homedir() inherits that nested path and sessionHome ends up
+// at ~/.ao-sessions/<parent>/.ao-sessions/<child> — the jc-* nesting bug. Pinning to
+// the real user home via AO_ORIGINAL_HOME keeps the path flat regardless of depth.
+    const userHome = process.env.AO_ORIGINAL_HOME ?? os.homedir();
     const sessionHome = path.join(userHome, ".ao-sessions", launchConfig.sessionId);
-    
+
     // Ensure session directory exists
     fs.mkdirSync(sessionHome, { recursive: true });
 
@@ -120,6 +125,49 @@ const antigravityOverrides: Partial<Agent> = {
         }
       } catch (err) {
         console.debug(`[antigravity] Failed to symlink login keychain: ${(err as Error).message}`);
+      }
+    }
+
+    // Share the user's Playwright browser cache (ms-playwright-go for MCP agents,
+    // ms-playwright for Python) across all antigravity sessions instead of letting
+    // each session duplicate its own ~124 MB copy under $HOME/Library/Caches. Across
+    // 24 wa-* sessions that would otherwise consume ~3 GB on disk. Mirrors the
+    // Keychains block above: lstat-then-symlink, idempotent. We only symlink when
+    // the target exists on the host so users without Playwright don't get dangling
+    // links. Both directories are tried; only the ones that actually exist get linked.
+    const playwrightCacheDirs = [
+      path.join("Library", "Caches", "ms-playwright-go"),
+      path.join("Library", "Caches", "ms-playwright"),
+    ];
+    for (const relCacheDir of playwrightCacheDirs) {
+      const sessionCacheDir = path.join(sessionHome, relCacheDir);
+      const realCacheDir = path.join(userHome, relCacheDir);
+      if (!fs.existsSync(realCacheDir)) {
+        continue;
+      }
+      try {
+        let isCorrectSymlink = false;
+        try {
+          const stat = fs.lstatSync(sessionCacheDir);
+          if (stat.isSymbolicLink()) {
+            isCorrectSymlink = fs.readlinkSync(sessionCacheDir) === realCacheDir;
+            if (!isCorrectSymlink) {
+              fs.unlinkSync(sessionCacheDir);
+            }
+          } else {
+            // A real directory/file left by a prior (broken) run — remove it so we can symlink.
+            fs.rmSync(sessionCacheDir, { recursive: true, force: true });
+          }
+        } catch {
+          // Path does not exist yet — nothing to clean up.
+        }
+
+        if (!isCorrectSymlink) {
+          fs.mkdirSync(path.dirname(sessionCacheDir), { recursive: true });
+          fs.symlinkSync(realCacheDir, sessionCacheDir);
+        }
+      } catch (err) {
+        console.debug(`[antigravity] Failed to symlink ${relCacheDir}: ${(err as Error).message}`);
       }
     }
 
