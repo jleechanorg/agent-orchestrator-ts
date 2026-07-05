@@ -8,6 +8,11 @@
     @REPO_ROOT@/launchd/ai.agento.health.plist.template
   if deregistered. Cadence: 60 min.
 
+  2026-06-25: log path moved from ~/.openclaw/logs/ to ~/.hermes/logs/ (the
+  live Hermes system). Previous default caused launchd to auto-create
+  ~/.openclaw/logs/ on every watchdog tick, resurrecting the legacy
+  ~/.openclaw/ tree even after `mv ~/.openclaw ~/.bak`.
+
   INSTALLATION:
     bash scripts/setup-launchd.sh health-guardian
   or:
@@ -45,10 +50,10 @@
   <integer>60</integer>
 
   <key>StandardOutPath</key>
-  <string>@HOME@/.openclaw/logs/ao-health-guardian.log</string>
+  <string>@LOG_FILE@</string>
 
   <key>StandardErrorPath</key>
-  <string>@HOME@/.openclaw/logs/ao-health-guardian.log</string>
+  <string>@LOG_FILE@</string>
 
   <key>EnvironmentVariables</key>
   <dict>
