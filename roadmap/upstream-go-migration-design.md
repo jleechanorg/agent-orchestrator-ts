@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-25
 **Author:** AO fork integration analysis
-**Branch:** `feat/upstream-go-migration-design` (current head `f53c4c3800a632562c70955b7020637ab998b26c`)
+**Branch:** `feat/upstream-go-migration-design` (current head `0a15816c14de976717c7190e4a745297c27f290b`)
 **Status:** PROPOSAL — not yet a plan, awaiting operator decision
 **Scope:** Strategic options for `jleechanorg/agent-orchestrator` relative to upstream `agentwrapper/agent-orchestrator`'s TS→Go rewrite
 
