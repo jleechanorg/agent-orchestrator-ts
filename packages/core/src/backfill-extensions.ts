@@ -30,12 +30,15 @@ import { resolveSpawnQueueConfig } from "./spawn-queue.js";
 import { getSessionsDir, expandHome } from "./paths.js";
 import {
   BACKFILL_MAX_RESPAWNS_PER_PR,
+  backfillRespawnNotifiedKey,
   clearPrRespawnCapNotified,
+  getOrchestratorSessionId,
   getPrNumbersAtRespawnCap,
   isPrRespawnCapNotified,
   markPrRespawnCapNotified,
   readProjectPause,
 } from "./backfill-respawn-guard.js";
+import { readMetadataRaw } from "./metadata.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -245,7 +248,11 @@ export async function backfillUncoveredPRs(
       : new Map<number, number>();
 
     // Escalate uncovered PRs that exceeded the respawn cap (once per PR).
+    // Read the orchestrator metadata file ONCE per cycle (was: once per PR in
+    // the loop, causing N redundant disk reads for N open PRs).
     if (configPath && sessionsDir) {
+      const orchestratorId = getOrchestratorSessionId(project);
+      const rawMetadata = readMetadataRaw(sessionsDir, orchestratorId);
       for (const pr of openPRs) {
         if (pr.isDraft) continue;
         if (coveredPRs.has(pr.number) || coveredBranches.has(pr.branch)) {
@@ -254,12 +261,16 @@ export async function backfillUncoveredPRs(
           // would suppress a future escalation once the active session
           // archives and the PR returns to uncovered + at-cap. Clear it now
           // so the future escalation can fire.
-          clearPrRespawnCapNotified(configPath, project, pr.number);
+          if (rawMetadata?.[backfillRespawnNotifiedKey(pr.number)] !== undefined) {
+            clearPrRespawnCapNotified(configPath, project, pr.number);
+          }
           continue;
         }
         const respawnCount = respawnCapCounts.get(pr.number);
         if (respawnCount === undefined) {
-          clearPrRespawnCapNotified(configPath, project, pr.number);
+          if (rawMetadata?.[backfillRespawnNotifiedKey(pr.number)] !== undefined) {
+            clearPrRespawnCapNotified(configPath, project, pr.number);
+          }
           continue;
         }
         await maybeEscalateRespawnCap(deps, params, pr, respawnCount);
