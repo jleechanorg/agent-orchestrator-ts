@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-25
 **Author:** AO fork integration analysis
-**Branch:** `dev1782443415-upstream-go-integration`
+**Branch:** `feat/upstream-go-migration-design` (current head `f53c4c3800a632562c70955b7020637ab998b26c`)
 **Status:** PROPOSAL — not yet a plan, awaiting operator decision
 **Scope:** Strategic options for `jleechanorg/agent-orchestrator` relative to upstream `agentwrapper/agent-orchestrator`'s TS→Go rewrite
 
@@ -387,5 +387,5 @@ Per operator: **"maybe my skeptic agent can stay as tsx for now"**
 - **Upstream architecture doc**: `/tmp/upstream-ao/docs/architecture.md`, `/tmp/upstream-ao/docs/STATUS.md`
 - **Fork-only tracking PR** (TS→TS refactor): https://github.com/jleechanorg/agent-orchestrator/pull/712
 - **Recent merged fork PR** (webhook opt-in): https://github.com/jleechanorg/agent-orchestrator/pull/727
-- **Bead**: TBD — to be created as `bd-upstream-go-migration`
-- **Memory entry**: TBD — to be created at `feedback_2026-06-25_upstream_go_switch.md`
+- **Bead**: `bd-zrwq` (P2 IN_PROGRESS — Path D + 3 hard gates resolved 2026-06-28)
+- **Memory entry**: `feedback_2026-06-25_upstream_go_switch.md` (created 2026-06-25; agento wedge follow-up at `feedback_2026-06-28_in_process_lifecycle_wedge_on_rate_limit.md`)
