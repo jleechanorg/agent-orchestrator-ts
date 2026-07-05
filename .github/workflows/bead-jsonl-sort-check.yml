@@ -16,7 +16,11 @@ permissions:
 jobs:
   check-sort:
     name: .beads/issues.jsonl sorted by id
-    runs-on: ubuntu-latest
+    # SECURITY: Fork-aware runner selection — do not simplify. See PR #273.
+    runs-on: ${{ vars.SELF_HOSTED_DISABLED == 'true' && 'ubuntu-latest'
+              || (github.event.pull_request.head.repo.fork && github.event_name == 'pull_request'
+                  && 'ubuntu-latest'
+                  || fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","Linux","ARM64","agent-orchestrator"]')) }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
