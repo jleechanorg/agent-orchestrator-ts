@@ -115,8 +115,22 @@ function collectErrorText(error: unknown): string {
   return parts.filter((part) => part.trim().length > 0).join("\n");
 }
 
-function parseHttpStatusCode(error: unknown): number | undefined {
-  const match = collectErrorText(error).match(/\b(?:error|status)\D*(\d{3})\b/i);
+/**
+ * Extract an HTTP status code from a `gh` CLI error.
+ *
+ * Only matches the canonical `gh` error format ("gh: HTTP <code>") — the
+ * previous broad regex (`/\b(?:error|status)\D*(\d{3})\b/i`) also matched
+ * arbitrary text inside JSON response bodies (e.g. `"status": 500` inside
+ * a 200 OK response), which caused every poll cycle to be falsely classified
+ * as a 5xx server error and the orchestrator's `gh pr view` call to wedge
+ * in an infinite retry-then-fallback loop.
+ *
+ * Rate-limit detection is preserved because `isRateLimitError` has its own
+ * pattern list (RATE_LIMIT_ERROR_PATTERNS) that catches "API rate limit"
+ * style messages regardless of the regex here.
+ */
+export function parseHttpStatusCode(error: unknown): number | undefined {
+  const match = collectErrorText(error).match(/\bHTTP\s+(\d{3})\b/i);
   if (!match) return undefined;
   return Number(match[1]);
 }

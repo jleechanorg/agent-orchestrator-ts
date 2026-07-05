@@ -27,7 +27,11 @@ _resolve_repo_root() {
 REPO_ROOT="$(_resolve_repo_root)"
 TEMPLATE_DIR="$REPO_ROOT/launchd"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
-BASE_LOG_DIR="$HOME/.openclaw/logs"
+# 2026-06-25: AO logs now live under ~/.hermes/logs/ (the live Hermes system),
+# not ~/.openclaw/logs/ (legacy directory). The previous default caused
+# launchd to auto-create ~/.openclaw/logs/ on every watchdog tick, which
+# resurrected the entire ~/.openclaw/ tree even after `mv ~/.openclaw ~/.bak`.
+BASE_LOG_DIR="${AO_LOG_DIR:-$HOME/.hermes/logs}"
 BASE_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 action_script="${1:-all}"
@@ -555,7 +559,7 @@ install_launchd_drift_audit_plist() {
   local template="$TEMPLATE_DIR/ai.hermes.launchd-drift-audit.plist.template"
   local plist_path="$LAUNCH_AGENTS_DIR/ai.hermes.launchd-drift-audit.plist"
   local script="$REPO_ROOT/scripts/audit-launchd-drift.sh"
-  local log_dir="$HOME/.hermes/logs"
+  local log_dir="$BASE_LOG_DIR"
   local label="ai.hermes.launchd-drift-audit"
 
   if [ ! -f "$template" ]; then

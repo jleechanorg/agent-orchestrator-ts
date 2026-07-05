@@ -12,6 +12,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/ao-config-topology.sh
 source "$SCRIPT_DIR/lib/ao-config-topology.sh"
 
+# Resolve the log directory EARLY so it is always created, even if later
+# config validation fails. launchd launches this script on a fixed interval
+# and the watchdog / health checks write under $LOG_DIR; if $LOG_DIR is
+# missing, downstream services assume the log path is broken.
+LOG_DIR="${AO_LOG_DIR:-${HOME}/.hermes/logs}"
+mkdir -p "$LOG_DIR"
+
 # Resolve the ao CLI binary. Uses the global npm-installed ao binary.
 _ao_bin() {
   command -v ao 2>/dev/null || echo "ao"
@@ -106,8 +113,7 @@ if [ -z "$PROJECTS" ]; then
 fi
 
 SELECTED="${@:-$PROJECTS}"
-LOG_DIR="${AO_LOG_DIR:-${HOME}/.openclaw/logs}"
-mkdir -p "$LOG_DIR"
+# LOG_DIR is already created near the top of this script (see header comment).
 START_DASHBOARD="${AO_START_DASHBOARD:-0}"
 REPLACE_EXISTING="${AO_START_REPLACE_EXISTING:-0}"
 

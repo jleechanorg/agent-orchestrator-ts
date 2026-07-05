@@ -28,7 +28,7 @@ TIER1_FROZEN_PLIST="$REPO_ROOT/launchd/$TIER1_LABEL.plist.template"
 TIER1_PLIST="$HOME/Library/LaunchAgents/$TIER1_LABEL.plist"
 # Source-of-truth order: live (substituted) > frozen (template w/ @VAR@)
 # If live plist exists, use it; if missing, fall back to template + setup-launchd.sh.
-TIER1_LOG="$HOME/.openclaw/logs/ao-health.log"
+TIER1_LOG="${AO_LOG_DIR:-$HOME/.hermes/logs}/ao-health.log"
 # Channel resolution matches the umbrella pattern from PR #615
 # (jleechanorg/jleechanclaw, lib/slack_thread_lib.sh): empty default > wrong
 # default. The plist's HEALTH_GUARDIAN_ALERT_CHANNEL is the source of truth;
@@ -39,7 +39,7 @@ HERMES_OPS_SLACK_CHANNEL="${HERMES_OPS_SLACK_CHANNEL:-}"
 CHANNEL="${HEALTH_GUARDIAN_ALERT_CHANNEL:-${HERMES_OPS_SLACK_CHANNEL:-}}"
 # post_slack refuses to post when CHANNEL is empty (token check still runs
 # first; missing token logs "no SLACK token" and returns 1 — same as before).
-STATE_DIR="$HOME/.openclaw/logs"
+STATE_DIR="${AO_LOG_DIR:-$HOME/.hermes/logs}"
 DEDUPE_FILE="$STATE_DIR/health-guardian-alerts.sha"
 LOG_PREFIX="[ai.agento.health-guardian]"
 

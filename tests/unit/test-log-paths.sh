@@ -1,0 +1,374 @@
+#!/usr/bin/env bash
+# Unit test for routing AO logs to ~/.hermes/logs instead of ~/.openclaw/logs
+#
+# Run: bash tests/unit/test-log-paths.sh
+# CI:   wired into `pnpm run test:shell` (see package.json)
+
+set -euo pipefail
+
+PASS=0; FAIL=0; XFAIL=0
+
+run_check() {
+  local label="$1" file="$2" expected="${3:-}"
+  if grep -q "\.openclaw/logs" "$file"; then
+    printf "  FAIL  %s\n        Found '.openclaw/logs' reference in %s\n" "$label" "$file"
+    FAIL=$((FAIL+1))
+  elif [ -n "$expected" ] && ! grep -E -q "$expected" "$file"; then
+    printf "  FAIL  %s\n        Missing expected log path pattern '%s' in %s\n" "$label" "$expected" "$file"
+    FAIL=$((FAIL+1))
+  else
+    printf "  PASS  %s\n" "$label"
+    PASS=$((PASS+1))
+  fi
+}
+
+run_xfail() {
+  local label="$1" file="$2"
+  if grep -q "\.openclaw/logs" "$file"; then
+    printf "  XFAIL %s\n        Found expected legacy '.openclaw/logs' reference in %s\n" "$label" "$file"
+    XFAIL=$((XFAIL+1))
+  else
+    printf "  PASS  %s (bug fixed)\n" "$label"
+    PASS=$((PASS+1))
+  fi
+}
+
+run_setup_launchd_check() {
+  local label="$1" file="$2"
+  # setup-launchd.sh has comments mentioning .openclaw/logs, so we check the BASE_LOG_DIR assignment specifically
+  if grep -q 'BASE_LOG_DIR=.*\.openclaw/logs' "$file"; then
+    printf "  FAIL  %s\n        Found legacy BASE_LOG_DIR assignment in %s\n" "$label" "$file"
+    FAIL=$((FAIL+1))
+  elif awk '
+    /^install_.*_plist\(\)/ { in_fn=1; next }
+    in_fn && /^}/ { in_fn=0; next }
+    in_fn && /\.hermes\/logs/ { print FILENAME":"NR":"$0; bad=1 }
+  ' "$file" | grep -q .; then
+    printf "  FAIL  %s\n        install_*_plist() hardcodes .hermes/logs instead of BASE_LOG_DIR/AO_LOG_DIR\n" "$label"
+    FAIL=$((FAIL+1))
+  else
+    printf "  PASS  %s\n" "$label"
+    PASS=$((PASS+1))
+  fi
+}
+
+run_setup_launchd_xfail() {
+  local label="$1" file="$2"
+  if grep -q 'BASE_LOG_DIR=.*\.openclaw/logs' "$file"; then
+    printf "  XFAIL %s\n        Found expected legacy BASE_LOG_DIR assignment in %s\n" "$label" "$file"
+    XFAIL=$((XFAIL+1))
+  else
+    printf "  PASS  %s (bug fixed)\n" "$label"
+    PASS=$((PASS+1))
+  fi
+}
+
+run_bootstrap_check() {
+  local label="$1" file="$2"
+  # bootstrap-openclaw-config.sh must ensure .hermes/logs and must NOT contain .openclaw/logs
+  if ! grep -q "\.hermes/logs" "$file" || ! grep -q "\.hermes_prod/logs" "$file"; then
+    printf "  FAIL  %s\n        Missing .hermes/logs initialization in %s\n" "$label" "$file"
+    FAIL=$((FAIL+1))
+  elif grep -q "\.openclaw/logs" "$file"; then
+    printf "  FAIL  %s\n        Found unexpected legacy '.openclaw/logs' reference in %s\n" "$label" "$file"
+    FAIL=$((FAIL+1))
+  else
+    printf "  PASS  %s\n" "$label"
+    PASS=$((PASS+1))
+  fi
+}
+
+run_bootstrap_xfail() {
+  local label="$1" file="$2"
+  if ! grep -q "\.hermes/logs" "$file" || ! grep -q "\.hermes_prod/logs" "$file" || grep -q "\.openclaw/logs" "$file"; then
+    printf "  XFAIL %s\n        Found expected legacy setup in %s\n" "$label" "$file"
+    XFAIL=$((XFAIL+1))
+  else
+    printf "  PASS  %s (bug fixed)\n" "$label"
+    PASS=$((PASS+1))
+  fi
+}
+
+run_template_check() {
+  local label="$1" file="$2" expected="${3:-}"
+  # Plist templates use XML string elements. Ensure no hardcoded StandardOutPath/StandardErrorPath string points to .openclaw/logs
+  if grep -E -q "<string>[^<]*\.openclaw/logs[^<]*</string>" "$file"; then
+    printf "  FAIL  %s\n        Found hardcoded legacy log path string in template: %s\n" "$label" "$file"
+    FAIL=$((FAIL+1))
+  elif [ -n "$expected" ] && ! grep -E -q "<string>[^<]*$expected[^<]*</string>" "$file"; then
+    printf "  FAIL  %s\n        Missing expected pattern '%s' in template: %s\n" "$label" "$expected" "$file"
+    FAIL=$((FAIL+1))
+  else
+    printf "  PASS  %s\n" "$label"
+    PASS=$((PASS+1))
+  fi
+}
+
+run_template_xfail() {
+  local label="$1" file="$2"
+  if grep -E -q "<string>[^<]*\.openclaw/logs[^<]*</string>" "$file"; then
+    printf "  XFAIL %s\n        Found expected hardcoded legacy log path string in template: %s\n" "$label" "$file"
+    XFAIL=$((XFAIL+1))
+  else
+    printf "  PASS  %s (bug fixed)\n" "$label"
+    PASS=$((PASS+1))
+  fi
+}
+
+echo ""
+echo "=== RED: broken version (demonstrates the legacy log paths) ==="
+run_xfail "ao-health.sh uses legacy log path" "scripts/ao-health.sh"
+run_xfail "health-guardian.sh uses legacy log path" "scripts/ai.agento.health-guardian.sh"
+run_xfail "start-all.sh uses legacy log path" "scripts/start-all.sh"
+run_xfail "ensure-top-pr-coverage.sh uses legacy log path" "scripts/ensure-top-pr-coverage.sh"
+run_xfail "check-pr-worker-coverage.sh uses legacy log path" "scripts/check-pr-worker-coverage.sh"
+run_xfail "hermes-watchdog.sh uses legacy log path" "scripts/hermes-watchdog.sh"
+run_xfail "lw-watchdog.sh uses legacy log path" "scripts/lw-watchdog.sh"
+run_xfail "setup-antigravity-launchd.sh uses legacy log path" "scripts/setup-antigravity-launchd.sh"
+run_xfail "setup-extended.sh uses legacy log path" "scripts/setup-extended.sh"
+run_setup_launchd_xfail "setup-launchd.sh has legacy BASE_LOG_DIR" "scripts/setup-launchd.sh"
+run_bootstrap_xfail "bootstrap-openclaw-config.sh missing hermes logs" "scripts/bootstrap-openclaw-config.sh"
+
+run_template_xfail "health-guardian template uses hardcoded log path" "launchd/ai.agento.health-guardian.plist.template"
+run_template_check "health template uses variable" "launchd/ai.agento.health.plist.template"
+run_template_check "novel-daily template uses variable" "launchd/ai.agento.novel-daily.plist.template"
+run_template_check "antigravity-orch template uses variable" "launchd/ai.agento.antigravity-orch.plist.template"
+run_template_check "lifecycle-all template uses variable" "launchd/ai.agento.lifecycle-all.plist.template"
+run_template_check "lw-watchdog template uses variable" "launchd/ai.agento.lw-watchdog.plist.template"
+run_template_check "drift-audit template uses variable" "launchd/ai.hermes.launchd-drift-audit.plist.template"
+
+echo ""
+echo "=== GREEN: fixed version (checks after fix) ==="
+run_check "ao-health.sh should use hermes/logs" "scripts/ao-health.sh" "AO_LOG_DIR"
+run_check "health-guardian.sh should use hermes/logs" "scripts/ai.agento.health-guardian.sh" "AO_LOG_DIR"
+run_check "start-all.sh should use hermes/logs" "scripts/start-all.sh" "AO_LOG_DIR"
+run_check "ensure-top-pr-coverage.sh should use hermes/logs" "scripts/ensure-top-pr-coverage.sh" "AO_LOG_DIR"
+run_check "check-pr-worker-coverage.sh should use hermes/logs" "scripts/check-pr-worker-coverage.sh" "AO_LOG_DIR"
+run_check "hermes-watchdog.sh should use hermes/logs" "scripts/hermes-watchdog.sh" "AO_LOG_DIR"
+run_check "lw-watchdog.sh should use hermes/logs" "scripts/lw-watchdog.sh" "AO_LOG_DIR"
+run_check "setup-antigravity-launchd.sh should use hermes/logs" "scripts/setup-antigravity-launchd.sh" "AO_LOG_DIR"
+run_check "setup-extended.sh should use hermes/logs" "scripts/setup-extended.sh" "AO_LOG_DIR"
+run_setup_launchd_check "setup-launchd.sh should use hermes/logs" "scripts/setup-launchd.sh"
+run_bootstrap_check "bootstrap-openclaw-config.sh should set up hermes logs" "scripts/bootstrap-openclaw-config.sh"
+
+run_template_check "health-guardian template should use variable" "launchd/ai.agento.health-guardian.plist.template" "@LOG_FILE@"
+run_template_check "health template should use variable" "launchd/ai.agento.health.plist.template" "@LOG_FILE@"
+run_template_check "novel-daily template should use variable" "launchd/ai.agento.novel-daily.plist.template" "@LOG_FILE@"
+run_template_check "antigravity-orch template should use variable" "launchd/ai.agento.antigravity-orch.plist.template" "@LOG_FILE@"
+run_template_check "lifecycle-all template should use variable" "launchd/ai.agento.lifecycle-all.plist.template" "@LOG_FILE@"
+run_template_check "lw-watchdog template should use variable" "launchd/ai.agento.lw-watchdog.plist.template" "@LOG_FILE@"
+run_template_check "drift-audit template should use variable" "launchd/ai.hermes.launchd-drift-audit.plist.template" "__HOME__/\.hermes/logs"
+
+echo ""
+echo "=== RUNTIME VERIFICATION (Behavioral Proof) ==="
+MOCK_HOME="/tmp/mock_home_$(date +%s)"
+mkdir -p "$MOCK_HOME"
+
+echo "Executing bootstrap-openclaw-config.sh in mock environment..."
+# Running bootstrap script with mocked HOME
+HOME="$MOCK_HOME" bash scripts/bootstrap-openclaw-config.sh --force >/dev/null 2>&1
+
+# Assert that legacy openclaw/logs does not exist
+if [ -d "$MOCK_HOME/.openclaw/logs" ] || [ -d "$MOCK_HOME/.openclaw_prod/logs" ]; then
+  printf "  FAIL  launchd/config bootstrap does not recreate legacy .openclaw/logs\n        Found legacy log directory in mock home!\n"
+  FAIL=$((FAIL+1))
+else
+  printf "  PASS  launchd/config bootstrap does not recreate legacy .openclaw/logs\n"
+  PASS=$((PASS+1))
+fi
+
+# Assert that hermes/logs directory is created
+if [ -d "$MOCK_HOME/.hermes/logs" ]; then
+  printf "  PASS  launchd/config bootstrap initializes ~/.hermes/logs\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  launchd/config bootstrap initializes ~/.hermes/logs\n        Missing new log directory in mock home!\n"
+  FAIL=$((FAIL+1))
+fi
+
+# Assert that AO_LOG_DIR environment variable is respected when bootstrapping
+CUSTOM_LOG_DIR="/tmp/custom_logs_$(date +%s)"
+CUSTOM_LOG_DIR_PROD="${CUSTOM_LOG_DIR}_prod"
+
+echo "Executing bootstrap-openclaw-config.sh with custom AO_LOG_DIR..."
+HOME="$MOCK_HOME" AO_LOG_DIR="$CUSTOM_LOG_DIR" AO_LOG_DIR_PROD="$CUSTOM_LOG_DIR_PROD" bash scripts/bootstrap-openclaw-config.sh --force >/dev/null 2>&1
+
+if [ -d "$CUSTOM_LOG_DIR" ] && [ -d "$CUSTOM_LOG_DIR_PROD" ]; then
+  printf "  PASS  launchd/config bootstrap respects custom AO_LOG_DIR\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  launchd/config bootstrap respects custom AO_LOG_DIR\n        Did not find custom log directory!\n"
+  FAIL=$((FAIL+1))
+fi
+
+rm -rf "$CUSTOM_LOG_DIR" "$CUSTOM_LOG_DIR_PROD"
+
+# SCRIPT RUNTIME VERIFICATION (Goal 6 check)
+CUSTOM_SCRIPT_LOG_DIR="/tmp/custom_script_logs_$(date +%s)"
+mkdir -p "$CUSTOM_SCRIPT_LOG_DIR"
+
+# Set up mock bin directory to override system commands at runtime
+MOCK_BIN="/tmp/mock_bin_$(date +%s)"
+mkdir -p "$MOCK_BIN"
+
+# 1. Mock gh
+cat <<'EOF' > "$MOCK_BIN/gh"
+#!/usr/bin/env bash
+echo '[{"number": 12345, "title": "some title", "headRefName": "some-branch", "createdAt": "2026-06-25T12:00:00Z"}]'
+EOF
+chmod +x "$MOCK_BIN/gh"
+
+# 2. Mock launchctl
+cat <<'EOF' > "$MOCK_BIN/launchctl"
+#!/usr/bin/env bash
+echo "type = LaunchAgent"
+EOF
+chmod +x "$MOCK_BIN/launchctl"
+
+# 3. Mock tmux
+cat <<'EOF' > "$MOCK_BIN/tmux"
+#!/usr/bin/env bash
+if [ "${1:-}" = "list-panes" ]; then
+  echo "12345"
+else
+  exit 0
+fi
+EOF
+chmod +x "$MOCK_BIN/tmux"
+
+echo "Running scripts with custom AO_LOG_DIR to verify runtime logging redirect..."
+
+# 1. Run ao-health.sh
+# Remove mock config file to force FATAL: no config found logging write
+rm -f "$MOCK_HOME/.hermes/agent-orchestrator.yaml"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/ao-health.sh >/dev/null 2>&1 || true
+if [ -f "$CUSTOM_SCRIPT_LOG_DIR/ao-health.log" ]; then
+  printf "  PASS  ao-health.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  ao-health.sh respects custom AO_LOG_DIR at runtime\n        Missing ao-health.log in custom log dir!\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 2. Run ai.agento.health-guardian.sh
+# We remove the custom directory first to verify it gets recreated
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/ai.agento.health-guardian.sh >/dev/null 2>&1 || true
+if [ -d "$CUSTOM_SCRIPT_LOG_DIR" ]; then
+  printf "  PASS  health-guardian.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  health-guardian.sh respects custom AO_LOG_DIR at runtime\n        Custom log directory was not created!\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 3. Run start-all.sh
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/start-all.sh >/dev/null 2>&1 || true
+if [ -d "$CUSTOM_SCRIPT_LOG_DIR" ]; then
+  printf "  PASS  start-all.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  start-all.sh respects custom AO_LOG_DIR at runtime\n        Custom log directory was not created!\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 4. Run check-pr-worker-coverage.sh
+# Write a mock claim failure log entry into the custom log directory
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR" && mkdir -p "$CUSTOM_SCRIPT_LOG_DIR"
+echo '{"operation": "lifecycle.backfill.claim_failed", "data": {"prNumber": 12345, "error": "mocked claim error"}}' > "$CUSTOM_SCRIPT_LOG_DIR/ao-lifecycle-agent-orchestrator.log"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/check-pr-worker-coverage.sh >/tmp/cov_output.log 2>&1 || true
+if grep -q "mocked claim error" /tmp/cov_output.log; then
+  printf "  PASS  check-pr-worker-coverage.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  check-pr-worker-coverage.sh respects custom AO_LOG_DIR at runtime\n        Coverage script did not read claim log under custom AO_LOG_DIR!\n"
+  FAIL=$((FAIL+1))
+fi
+rm -f /tmp/cov_output.log
+
+# 5. Run hermes-watchdog.sh
+# Touch fresh logs for hermes-watchdog to find in the custom directory
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR" && mkdir -p "$CUSTOM_SCRIPT_LOG_DIR"
+mkdir -p "$MOCK_HOME/.hermes_prod/logs"
+touch "$MOCK_HOME/.hermes_prod/logs/gateway.log"
+touch "$CUSTOM_SCRIPT_LOG_DIR/ao-health.log"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/hermes-watchdog.sh >/tmp/wd_output.log 2>&1 || true
+if grep -q "all checks green" /tmp/wd_output.log; then
+  printf "  PASS  hermes-watchdog.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  hermes-watchdog.sh respects custom AO_LOG_DIR at runtime\n        Watchdog script did not find fresh logs under custom AO_LOG_DIR!\n"
+  FAIL=$((FAIL+1))
+fi
+rm -f /tmp/wd_output.log
+
+# 6. Run lw-watchdog.sh — checks it creates its LOG_DIR under custom AO_LOG_DIR
+# Clean any prior lock from previous runs
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR" /tmp/lw-watchdog.lock
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/lw-watchdog.sh >/dev/null 2>&1 || true
+if [ -d "$CUSTOM_SCRIPT_LOG_DIR" ]; then
+  printf "  PASS  lw-watchdog.sh respects custom AO_LOG_DIR at runtime\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  lw-watchdog.sh respects custom AO_LOG_DIR at runtime\n        Custom log directory was not created!\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 7. Run ensure-top-pr-coverage.sh — must not write logs into $HOME/.hermes/logs when AO_LOG_DIR is set
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
+AO_LOG_DIR="$CUSTOM_SCRIPT_LOG_DIR" HOME="$MOCK_HOME" PATH="$MOCK_BIN:$PATH" bash scripts/ensure-top-pr-coverage.sh --help >/dev/null 2>&1 || true
+# If the script wrote anywhere, it must not be in $HOME/.hermes/logs (the default).
+# We just check the script resolved LIFECYCLE_LOG to the custom dir; static grep check below suffices.
+if grep -q 'LIFECYCLE_LOG="\${LIFECYCLE_LOG:-\${AO_LOG_DIR:-\$HOME/.hermes/logs}' scripts/ensure-top-pr-coverage.sh; then
+  printf "  PASS  ensure-top-pr-coverage.sh LIFECYCLE_LOG respects AO_LOG_DIR\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  ensure-top-pr-coverage.sh LIFECYCLE_LOG bypasses AO_LOG_DIR\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 8. setup-antigravity-launchd.sh — static guard that LOG_FILE uses AO_LOG_DIR
+if grep -q 'LOG_FILE="\${AO_LOG_DIR:-\$HOME/.hermes/logs}' scripts/setup-antigravity-launchd.sh; then
+  printf "  PASS  setup-antigravity-launchd.sh LOG_FILE respects AO_LOG_DIR\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  setup-antigravity-launchd.sh LOG_FILE bypasses AO_LOG_DIR\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 9. setup-launchd.sh — already covered by run_setup_launchd_check, but assert drift-audit uses BASE_LOG_DIR
+if grep -q 'local log_dir="$BASE_LOG_DIR"' scripts/setup-launchd.sh && \
+   grep -q 'install_launchd_drift_audit_plist' scripts/setup-launchd.sh; then
+  printf "  PASS  setup-launchd.sh drift-audit uses BASE_LOG_DIR\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  setup-launchd.sh drift-audit does not use BASE_LOG_DIR\n"
+  FAIL=$((FAIL+1))
+fi
+
+# 10. setup-extended.sh — static guard that messages reference AO_LOG_DIR
+if grep -q 'AO_LOG_DIR:-\\\$HOME/.hermes/logs' scripts/setup-extended.sh; then
+  printf "  PASS  setup-extended.sh messages reference AO_LOG_DIR\n"
+  PASS=$((PASS+1))
+else
+  printf "  FAIL  setup-extended.sh messages do not reference AO_LOG_DIR\n"
+  FAIL=$((FAIL+1))
+fi
+
+rm -rf "$CUSTOM_SCRIPT_LOG_DIR"
+rm -rf "$MOCK_BIN"
+
+# Clean up mock environment
+rm -rf "$MOCK_HOME"
+
+echo ""
+echo "Results: PASS=$PASS XFAIL=$XFAIL FAIL=$FAIL"
+
+if [[ $FAIL -eq 0 ]]; then
+  echo "All checks run successfully."
+  exit 0
+else
+  echo "FAILURES DETECTED: $FAIL checks failed."
+  exit 1
+fi

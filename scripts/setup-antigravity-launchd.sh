@@ -11,7 +11,7 @@ PLIST_PATH="$LAUNCH_AGENTS_DIR/ai.agento.antigravity-orch.plist"
 TMP_PLIST="$(mktemp)"
 trap 'rm -f "$TMP_PLIST"' EXIT
 WORKING_DIR="$HOME/project_agento/worktree_antigravity_orch"
-LOG_FILE="$HOME/.openclaw/logs/ao-antigravity-orch.log"
+LOG_FILE="${AO_LOG_DIR:-$HOME/.hermes/logs}/ao-antigravity-orch.log"
 LABEL="ai.agento.antigravity-orch"
 PROMPT_FILE="$HOME/.antigravity-loop/orchestrator-prompt.md"
 
