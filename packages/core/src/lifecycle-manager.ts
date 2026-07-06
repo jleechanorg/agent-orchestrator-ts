@@ -85,6 +85,7 @@ import { GLOBAL_PAUSE_UNTIL_KEY, GLOBAL_PAUSE_REASON_KEY, parsePauseUntil } from
 import { isGhRateLimitError } from "./gh-rate-limit.js";
 import { enrichCIFailureReaction } from "./upstream-ci-failure-context.js";
 import { sweepOrphanTmuxSessions, DEFAULT_TMUX_SWEEPER_CONFIG } from "./tmux-session-sweeper.js";
+import { reapStaleSessions, DEFAULT_REAPER_CONFIG } from "./session-reaper.js";
 import {
   maybeWarnBackfillDisabledWithOpenPRs,
   runLifecycleProjectCrons,
@@ -2868,6 +2869,41 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           // Sweep failures must not break the main poll cycle
           console.error(
             `[tmux-sweeper] sweep failed: ${sweepErr instanceof Error ? sweepErr.message : String(sweepErr)}`,
+          );
+        }
+
+        // bd-reap-loop: session reaper — runs on the same SWEEP_INTERVAL_MS cadence
+        // as the tmux sweeper. The reaper kills orphaned/exited/idle sessions and
+        // sessions without a PR past `noPrThresholdMs`. Default config has
+        // orphanedThresholdMs=2h and noPrThresholdMs=4h; we override
+        // noPrThresholdMs to 24h so longer-running multi-PR workers don't get
+        // reaped between PRs. The companion tool
+        // (~/.ao-sessions/<id> GC, see scripts/cleanup-ao-sessions.sh) handles
+        // the on-disk directory GC; this loop only kills the live sessions.
+        // Failure is non-fatal (.catch + log) so the sweep loop keeps running.
+        try {
+          const reaperResult = await reapStaleSessions(
+            {
+              ...DEFAULT_REAPER_CONFIG,
+              noPrThresholdMs: 86_400_000, // 24h
+              projectId: scopedProjectId,
+              ...config.reaper,
+            },
+            { sessionManager },
+          );
+          if (reaperResult.killed.length > 0) {
+            console.log(
+              `[session-reaper] killed ${reaperResult.killed.length} stale session(s): ${reaperResult.killed.map((s) => s.sessionId).join(", ")}`,
+            );
+          }
+          if (reaperResult.errors.length > 0) {
+            console.warn(
+              `[session-reaper] errors: ${reaperResult.errors.map((e) => `${e.sessionId}: ${e.error}`).join("; ")}`,
+            );
+          }
+        } catch (reapErr) {
+          console.error(
+            `[session-reaper] sweep failed: ${reapErr instanceof Error ? reapErr.message : String(reapErr)}`,
           );
         }
       }

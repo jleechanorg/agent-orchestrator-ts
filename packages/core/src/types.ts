@@ -1434,6 +1434,15 @@ export interface OrchestratorConfig {
    * sessions are in a terminal state. Default: false (GC disabled — opt-in).
    */
   pruneWorktrees?: boolean;
+
+  /** bd-reap-loop: Optional reaper thresholds for session-reaper. */
+  reaper?: {
+    orphanedThresholdMs?: number;
+    noPrThresholdMs?: number;
+    maxKillsPerRun?: number;
+    idleThresholdMs?: number;
+    startupGracePeriodMs?: number;
+  };
 }
 
 /** Centralized auto-merge configuration (bd-n047) */

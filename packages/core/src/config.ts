@@ -434,6 +434,22 @@ const OrchestratorConfigSchema = z.object({
           "Untrusted envSource: only shell dotfiles (~/.bashrc, ~/.zshrc, ~/.profile, ...) or /etc/environment are allowed.",
       },
     ),
+  // bd-reap-loop: Optional reaper thresholds for the periodic
+  // reapStaleSessions() call in lifecycle-manager.ts's SWEEP_INTERVAL_MS loop.
+  // All fields are optional; omit a field to use the DEFAULT_REAPER_CONFIG
+  // value (orphanedThresholdMs=2h, noPrThresholdMs=4h, maxKillsPerRun=15).
+  // The lifecycle loop currently overrides noPrThresholdMs to 24h internally
+  // to give multi-PR workers runway; set `reaper.noPrThresholdMs` here to
+  // override that as well.
+  reaper: z
+    .object({
+      orphanedThresholdMs: z.number().int().positive().optional(),
+      noPrThresholdMs: z.number().int().positive().optional(),
+      maxKillsPerRun: z.number().int().positive().optional(),
+      idleThresholdMs: z.number().int().nonnegative().optional(),
+      startupGracePeriodMs: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
 });
 
 // =============================================================================
