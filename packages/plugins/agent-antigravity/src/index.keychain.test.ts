@@ -202,4 +202,79 @@ describe("antigravity Library/Keychains symlink (Darwin)", () => {
       sessionKeychainDir
     );
   });
+
+  it("respects process.env.AO_ORIGINAL_HOME as the base user home if set", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const originalAOOriginalHome = process.env.AO_ORIGINAL_HOME;
+    process.env.AO_ORIGINAL_HOME = "/Users/custom-original-home";
+
+    mockLstatSync.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env).toBeDefined();
+
+      expect(mockMkdirSync).toHaveBeenCalledWith(
+        path.join("/Users/custom-original-home", ".ao-sessions", "sess-1", "Library"),
+        { recursive: true }
+      );
+      expect(mockSymlinkSync).toHaveBeenCalledWith(
+        "/Users/custom-original-home/Library/Keychains",
+        path.join("/Users/custom-original-home", ".ao-sessions", "sess-1", "Library", "Keychains")
+      );
+    } finally {
+      if (originalAOOriginalHome === undefined) {
+        delete process.env.AO_ORIGINAL_HOME;
+      } else {
+        process.env.AO_ORIGINAL_HOME = originalAOOriginalHome;
+      }
+    }
+  });
 });
+
+describe("antigravity Playwright cache symlink", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("symlinks ms-playwright-go and ms-playwright if they exist in the user home", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    // Simulate that the real cache dirs exist on host
+    mockExistsSync.mockImplementation((p) => {
+      if (typeof p === "string" && p.includes("/Users/mockuser/Library/Caches/ms-playwright")) {
+        return true;
+      }
+      return false;
+    });
+
+    mockLstatSync.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    // Verify ms-playwright-go and ms-playwright symlinks are attempted for existing ones
+    expect(mockMkdirSync).toHaveBeenCalledWith(
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Caches"),
+      { recursive: true }
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      "/Users/mockuser/Library/Caches/ms-playwright-go",
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Caches", "ms-playwright-go")
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      "/Users/mockuser/Library/Caches/ms-playwright",
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Caches", "ms-playwright")
+    );
+  });
+});
+

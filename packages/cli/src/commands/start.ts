@@ -859,6 +859,15 @@ async function runStartup(
   // Create orchestrator session (unless --no-orchestrator or already exists)
   let tmuxTarget = sessionId;
   if (opts?.orchestrator !== false) {
+    // Capture the real user home ONCE before spawning the orchestrator. If we don't do
+    // this, every child antigravity session will read HOME via os.homedir() inside a
+    // tmux whose env was already overridden to ~/.ao-sessions/<id>, producing nested
+    // paths like ~/.ao-sessions/<parent>/.ao-sessions/<child>. See packages/plugins/
+    // agent-antigravity/src/index.ts for the consumer of AO_ORIGINAL_HOME.
+    if (!process.env.AO_ORIGINAL_HOME) {
+      process.env.AO_ORIGINAL_HOME = homedir();
+    }
+
     const sm = await getSessionManager(config);
 
     try {
