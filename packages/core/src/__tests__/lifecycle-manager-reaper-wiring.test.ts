@@ -101,4 +101,161 @@ describe("lifecycle-manager reaper configuration wiring", () => {
     // Check that we fallback correctly to DEFAULT_REAPER_CONFIG values if not provided
     expect(passedDeps.sessionManager).toBe(sessionManager);
   });
+
+  it("should log killed sessions when reaper kills stale sessions", async () => {
+    mockReapStaleSessions.mockResolvedValueOnce({
+      killed: [{ sessionId: "session-1", reason: "stale" }],
+      skipped: [],
+      errors: [],
+      dryRun: false,
+    });
+
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const config = {
+      configPath,
+      defaults: {},
+      projects: {
+        "my-project": {
+          name: "My Project",
+          repo: "org/my-project",
+          path: tmpDir,
+          defaultBranch: "main",
+          sessionPrefix: "app",
+          scm: { plugin: "github" },
+        },
+      },
+    } as unknown as OrchestratorConfig;
+
+    const sessionManager = {
+      list: vi.fn().mockResolvedValue([]),
+    } as unknown as SessionManager;
+
+    const registry = {
+      register: vi.fn(),
+      get: vi.fn().mockReturnValue({}),
+      getModule: vi.fn().mockReturnValue(null),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn().mockResolvedValue(undefined),
+    } as unknown as PluginRegistry;
+
+    const lm = createLifecycleManager({
+      config,
+      sessionManager,
+      registry,
+      projectId: "my-project",
+    } as unknown as LifecycleManagerDeps);
+
+    lm.start(60_000);
+    await vi.waitUntil(() => mockReapStaleSessions.mock.calls.length > 0, { timeout: 2000 });
+    lm.stop();
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[session-reaper] killed 1 stale session(s): session-1"),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it("should log warnings when reaper encounters errors during execution", async () => {
+    mockReapStaleSessions.mockResolvedValueOnce({
+      killed: [],
+      skipped: [],
+      errors: [{ sessionId: "session-2", error: "permission denied" }],
+      dryRun: false,
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const config = {
+      configPath,
+      defaults: {},
+      projects: {
+        "my-project": {
+          name: "My Project",
+          repo: "org/my-project",
+          path: tmpDir,
+          defaultBranch: "main",
+          sessionPrefix: "app",
+          scm: { plugin: "github" },
+        },
+      },
+    } as unknown as OrchestratorConfig;
+
+    const sessionManager = {
+      list: vi.fn().mockResolvedValue([]),
+    } as unknown as SessionManager;
+
+    const registry = {
+      register: vi.fn(),
+      get: vi.fn().mockReturnValue({}),
+      getModule: vi.fn().mockReturnValue(null),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn().mockResolvedValue(undefined),
+    } as unknown as PluginRegistry;
+
+    const lm = createLifecycleManager({
+      config,
+      sessionManager,
+      registry,
+      projectId: "my-project",
+    } as unknown as LifecycleManagerDeps);
+
+    lm.start(60_000);
+    await vi.waitUntil(() => mockReapStaleSessions.mock.calls.length > 0, { timeout: 2000 });
+    lm.stop();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[session-reaper] errors: session-2: permission denied"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("should handle and log exceptions thrown during reaping", async () => {
+    mockReapStaleSessions.mockRejectedValueOnce(new Error("reaping exploded"));
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const config = {
+      configPath,
+      defaults: {},
+      projects: {
+        "my-project": {
+          name: "My Project",
+          repo: "org/my-project",
+          path: tmpDir,
+          defaultBranch: "main",
+          sessionPrefix: "app",
+          scm: { plugin: "github" },
+        },
+      },
+    } as unknown as OrchestratorConfig;
+
+    const sessionManager = {
+      list: vi.fn().mockResolvedValue([]),
+    } as unknown as SessionManager;
+
+    const registry = {
+      register: vi.fn(),
+      get: vi.fn().mockReturnValue({}),
+      getModule: vi.fn().mockReturnValue(null),
+      list: vi.fn().mockReturnValue([]),
+      loadBuiltins: vi.fn().mockResolvedValue(undefined),
+    } as unknown as PluginRegistry;
+
+    const lm = createLifecycleManager({
+      config,
+      sessionManager,
+      registry,
+      projectId: "my-project",
+    } as unknown as LifecycleManagerDeps);
+
+    lm.start(60_000);
+    await vi.waitUntil(() => mockReapStaleSessions.mock.calls.length > 0, { timeout: 2000 });
+    lm.stop();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[session-reaper] sweep failed: reaping exploded"),
+    );
+    errorSpy.mockRestore();
+  });
 });
