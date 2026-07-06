@@ -295,4 +295,11 @@ describe("reapStaleSessions", () => {
     expect(result.dryRun).toBe(false);
   });
 
+  it("should pass optional projectId to deps.sessionManager.list", async () => {
+    const sm = makeSessionManager([]);
+    const config = makeConfig({ projectId: "custom-project-1" } as any);
+    await reapStaleSessions(config, makeDeps(sm));
+
+    expect(sm.list).toHaveBeenCalledWith("custom-project-1");
+  });
 });
