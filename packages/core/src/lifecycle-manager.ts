@@ -2886,6 +2886,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             {
               ...DEFAULT_REAPER_CONFIG,
               noPrThresholdMs: 86_400_000, // 24h
+              ...config.reaper,
             },
             { sessionManager },
           );
