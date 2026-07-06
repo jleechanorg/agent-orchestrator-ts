@@ -80,6 +80,7 @@ import {
   GLOBAL_PAUSE_UNTIL_KEY,
   GLOBAL_PAUSE_REASON_KEY,
 } from "../global-pause.js";
+import { readMetadataRaw } from "../metadata.js";
 
 function makePR(overrides: Partial<PRInfo> = {}): PRInfo {
   return {
@@ -1110,7 +1111,7 @@ describe("backfillUncoveredPRs respawn guard", () => {
 
     const archiveDir = join(sessionsDir, "archive");
     mkdirSync(archiveDir, { recursive: true });
-    for (const id of ["app-97", "app-98", "app-99"]) {
+    for (const id of ["app-94", "app-95", "app-96", "app-97", "app-98", "app-99"]) {
       writeFileSync(
         join(archiveDir, `${id}_2026-06-08T12-00-00-000Z`),
         "status=killed\npr=https://github.com/org/repo/pull/654\n",
@@ -1130,7 +1131,7 @@ describe("backfillUncoveredPRs respawn guard", () => {
       expect.objectContaining({
         type: "reaction.escalated",
         message: expect.stringContaining("PR #654"),
-        data: expect.objectContaining({ prNumber: 654, respawnCount: 3 }),
+        data: expect.objectContaining({ prNumber: 654, respawnCount: 6 }),
       }),
       "urgent",
     );
@@ -1154,7 +1155,7 @@ describe("backfillUncoveredPRs respawn guard", () => {
     writeOrchestratorSeed(sessionsDir, "status=active\nbackfillRespawnNotified_654=true\n");
     const archiveDir = join(sessionsDir, "archive");
     mkdirSync(archiveDir, { recursive: true });
-    for (const id of ["app-97", "app-98", "app-99"]) {
+    for (const id of ["app-94", "app-95", "app-96", "app-97", "app-98", "app-99"]) {
       writeFileSync(
         join(archiveDir, `${id}_2026-06-08T12-00-00-000Z`),
         "status=killed\npr=https://github.com/org/repo/pull/654\n",
@@ -1167,6 +1168,82 @@ describe("backfillUncoveredPRs respawn guard", () => {
     expect(result).toBe(false);
     expect(notifyHuman).not.toHaveBeenCalled();
     expect(guardSessionManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it("clears stale respawn-notified markers when PR is below the current cap", async () => {
+    const pr = makePR({ number: 654, branch: "feat/skeptic-model-list" });
+    vi.mocked(guardSCM.listOpenPRs!).mockResolvedValue([pr]);
+
+    const sessionsDir = getSessionsDir(guardConfigPath, guardTmpDir);
+    writeOrchestratorSeed(sessionsDir, "status=active\nbackfillRespawnNotified_654=true\n");
+    const archiveDir = join(sessionsDir, "archive");
+    mkdirSync(archiveDir, { recursive: true });
+    // Write 3 archived sessions (below the cap of 6)
+    for (const id of ["app-97", "app-98", "app-99"]) {
+      writeFileSync(
+        join(archiveDir, `${id}_2026-06-08T12-00-00-000Z`),
+        "status=killed\npr=https://github.com/org/repo/pull/654\n",
+        "utf-8",
+      );
+    }
+
+    const result = await backfillUncoveredPRs(guardDeps, guardParams());
+
+    expect(result).toBe(true);
+    expect(guardSessionManager.spawn).toHaveBeenCalled();
+
+    const raw = readMetadataRaw(sessionsDir, "app-orchestrator");
+    expect(raw?.["backfillRespawnNotified_654"]).toBeUndefined();
+  });
+
+  it("clears stale respawn-notified markers for covered PRs so a future escalation can fire", async () => {
+    // Regression: when the cap was raised, a PR that previously escalated
+    // could still hold a stale `backfillRespawnNotified_<pr>` marker.
+    // If that PR is currently covered (an active session exists) at any
+    // archived-respawn count (including below the new cap), the marker
+    // must be cleared so a future escalation can fire when the active
+    // session later archives past the new cap.
+    const pr = makePR({
+      number: 654,
+      branch: "feat/skeptic-model-list",
+      url: "https://github.com/org/repo/pull/654",
+    });
+    vi.mocked(guardSCM.listOpenPRs!).mockResolvedValue([pr]);
+
+    const sessionsDir = getSessionsDir(guardConfigPath, guardTmpDir);
+    writeOrchestratorSeed(
+      sessionsDir,
+      "status=active\nbackfillRespawnNotified_654=true\n",
+    );
+    const archiveDir = join(sessionsDir, "archive");
+    mkdirSync(archiveDir, { recursive: true });
+    // 3 archived respawns — below the new cap of 6, but the marker would
+    // still suppress a future escalation if left stale.
+    for (const id of ["app-97", "app-98", "app-99"]) {
+      writeFileSync(
+        join(archiveDir, `${id}_2026-06-08T12-00-00-000Z`),
+        "status=killed\npr=https://github.com/org/repo/pull/654\n",
+        "utf-8",
+      );
+    }
+
+    // The PR is covered by an active session on the same branch.
+    const activeSession = makeSession({
+      id: "app-active",
+      branch: "feat/skeptic-model-list",
+      pr,
+    });
+    const result = await backfillUncoveredPRs(guardDeps, guardParams({
+      activeSessions: [activeSession],
+    }));
+
+    // PR is covered, so no new spawn is requested.
+    expect(result).toBe(false);
+    expect(guardSessionManager.spawn).not.toHaveBeenCalled();
+
+    // The stale marker must be cleared even though the PR is below the cap.
+    const raw = readMetadataRaw(sessionsDir, "app-orchestrator");
+    expect(raw?.["backfillRespawnNotified_654"]).toBeUndefined();
   });
 });
 

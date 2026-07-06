@@ -19,7 +19,7 @@ import { parsePrFromUrl } from "./utils/pr.js";
 import type { ProjectConfig } from "./types.js";
 
 /** Max backfill respawns per open PR before requiring human intervention. */
-export const BACKFILL_MAX_RESPAWNS_PER_PR = 3;
+export const BACKFILL_MAX_RESPAWNS_PER_PR = 6;
 
 const BACKFILL_RESPAWN_NOTIFIED_PREFIX = "backfillRespawnNotified_";
 
@@ -142,7 +142,11 @@ export function clearPrRespawnCapNotified(
 ): void {
   const sessionsDir = getSessionsDir(configPath, project.path);
   const orchestratorId = getOrchestratorSessionId(project);
-  if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
+  const raw = readMetadataRaw(sessionsDir, orchestratorId);
+  if (!raw) return;
+  // No-op when the marker is already absent — avoids an atomic metadata
+  // rewrite on every backfill cycle for PRs that were never escalated.
+  if (raw[backfillRespawnNotifiedKey(prNumber)] === undefined) return;
   updateMetadata(sessionsDir, orchestratorId, {
     [backfillRespawnNotifiedKey(prNumber)]: "",
   });
