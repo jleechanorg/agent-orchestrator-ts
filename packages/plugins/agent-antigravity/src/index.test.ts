@@ -158,7 +158,7 @@ describe("antigravity getEnvironment", () => {
     );
   });
 
-  it("performs recursive copy of .gemini directory and skips tmp, history, and browser profile", () => {
+  it("symlinks static .gemini entries, copies mutable settings.json, and skips runtime dirs", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");
 
@@ -195,9 +195,9 @@ describe("antigravity getEnvironment", () => {
       path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini", "settings.json")
     );
 
-    expect(mockCopyFileSync).toHaveBeenCalledWith(
-      path.join("/Users/mockuser", ".gemini", "valid-subdir", "config.json"),
-      path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini", "valid-subdir", "config.json")
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      path.join("/Users/mockuser", ".gemini", "valid-subdir"),
+      path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini", "valid-subdir")
     );
 
     const allCopiedDests = mockCopyFileSync.mock.calls.map((call) => call[1] as string);
@@ -210,7 +210,7 @@ describe("antigravity getEnvironment", () => {
     expect(hasProfile).toBe(false);
   });
 
-  it("skips symlinks during recursive copy", () => {
+  it("skips host symlink entries when materializing .gemini", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");
 

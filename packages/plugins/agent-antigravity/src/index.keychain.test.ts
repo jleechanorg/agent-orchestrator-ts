@@ -278,3 +278,47 @@ describe("antigravity Playwright cache symlink", () => {
   });
 });
 
+describe("antigravity shared .gemini config", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("symlinks static .gemini subdirs and copies settings.json", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    mockExistsSync.mockImplementation((p) => {
+      return typeof p === "string" && p.includes("/Users/mockuser/.gemini");
+    });
+
+    mockLstatSync.mockImplementation((filepath) => {
+      if (typeof filepath === "string" && filepath.endsWith("settings.json")) {
+        return { isSymbolicLink: () => false, isDirectory: () => false };
+      }
+      if (typeof filepath === "string" && filepath.endsWith("extensions")) {
+        return { isSymbolicLink: () => false, isDirectory: () => true };
+      }
+      throw new Error("ENOENT");
+    });
+
+    mockReaddirSync.mockImplementation((dirpath) => {
+      if (typeof dirpath === "string" && dirpath.endsWith(".gemini")) {
+        return ["settings.json", "extensions", "tmp"];
+      }
+      return [];
+    });
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    expect(mockCopyFileSync).toHaveBeenCalledWith(
+      "/Users/mockuser/.gemini/settings.json",
+      "/Users/mockuser/.ao-sessions/sess-1/.gemini/settings.json",
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      "/Users/mockuser/.gemini/extensions",
+      "/Users/mockuser/.ao-sessions/sess-1/.gemini/extensions",
+    );
+  });
+});
