@@ -276,5 +276,45 @@ describe("antigravity Playwright cache symlink", () => {
       path.join("/Users/mockuser", ".ao-sessions", "sess-1", "Library", "Caches", "ms-playwright")
     );
   });
+
+  it("uses ~/.cache instead of Library/Caches on Linux", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/home/mockuser");
+    mockPlatform.mockReturnValue("linux");
+
+    // Simulate that the real cache dirs exist on host, under the Linux cache root
+    mockExistsSync.mockImplementation((p) => {
+      if (typeof p === "string" && p.includes("/home/mockuser/.cache/ms-playwright")) {
+        return true;
+      }
+      return false;
+    });
+
+    mockLstatSync.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    const env = agent.getEnvironment(makeLaunchConfig());
+    expect(env).toBeDefined();
+
+    expect(mockMkdirSync).toHaveBeenCalledWith(
+      path.join("/home/mockuser", ".ao-sessions", "sess-1", ".cache"),
+      { recursive: true }
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      "/home/mockuser/.cache/ms-playwright-go",
+      path.join("/home/mockuser", ".ao-sessions", "sess-1", ".cache", "ms-playwright-go")
+    );
+    expect(mockSymlinkSync).toHaveBeenCalledWith(
+      "/home/mockuser/.cache/ms-playwright",
+      path.join("/home/mockuser", ".ao-sessions", "sess-1", ".cache", "ms-playwright")
+    );
+
+    // Darwin-only Keychains symlink must not be attempted on Linux.
+    const keychainCalls = mockSymlinkSync.mock.calls.filter(
+      (call) => typeof call[1] === "string" && call[1].includes("Keychains")
+    );
+    expect(keychainCalls.length).toBe(0);
+  });
 });
 

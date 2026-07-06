@@ -132,14 +132,21 @@ const antigravityOverrides: Partial<Agent> = {
 
     // Share the user's Playwright browser cache (ms-playwright-go for MCP agents,
     // ms-playwright for Python) across all antigravity sessions instead of letting
-    // each session duplicate its own ~124 MB copy under $HOME/Library/Caches. Across
+    // each session duplicate its own ~124 MB copy under the platform cache dir. Across
     // 24 wa-* sessions that would otherwise consume ~3 GB on disk. Mirrors the
     // Keychains block above: lstat-then-symlink, idempotent. We only symlink when
     // the target exists on the host so users without Playwright don't get dangling
     // links. Both directories are tried; only the ones that actually exist get linked.
+    //
+    // Playwright's default cache root differs per platform (see
+    // https://playwright.dev/docs/browsers#managing-browser-binaries):
+    // macOS uses ~/Library/Caches, Linux uses ~/.cache. Hardcoding the macOS-only
+    // path here would make this a silent no-op on Linux hosts, leaving the same
+    // per-session duplication bug unfixed for them.
+    const playwrightCacheBaseDir = os.platform() === "darwin" ? path.join("Library", "Caches") : ".cache";
     const playwrightCacheDirs = [
-      path.join("Library", "Caches", "ms-playwright-go"),
-      path.join("Library", "Caches", "ms-playwright"),
+      path.join(playwrightCacheBaseDir, "ms-playwright-go"),
+      path.join(playwrightCacheBaseDir, "ms-playwright"),
     ];
     for (const relCacheDir of playwrightCacheDirs) {
       const sessionCacheDir = path.join(sessionHome, relCacheDir);
