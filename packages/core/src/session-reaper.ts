@@ -48,6 +48,8 @@ export interface ReaperConfig {
    * but zombie path cleans any stragglers.
    */
   zombieStatuses?: Set<string>;
+  /** Optional project scope. When set, only sessions belonging to this project are reaped. */
+  projectId?: string;
 }
 
 export interface ReapedSession {
@@ -107,7 +109,7 @@ export async function reapStaleSessions(
   const skipped: SkippedSession[] = [];
   const errors: ReaperError[] = [];
 
-  const sessions = await deps.sessionManager.list();
+  const sessions = await deps.sessionManager.list(config.projectId);
 
   for (const session of sessions) {
     // Stop if we hit the kill cap — count attempts (killed + errors), not just successes

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createLifecycleManager, type LifecycleManagerDeps } from "../lifecycle-manager.js";
 import type { OrchestratorConfig, SessionManager, PluginRegistry } from "../types.js";
+import type { ReaperConfig, ReaperDeps } from "../session-reaper.js";
 
 // Mock runLocalSkepticCron so it doesn't trigger real logic
 vi.mock("../skeptic-cron-local.js", () => ({
@@ -14,7 +15,7 @@ vi.mock("../skeptic-cron-local.js", () => ({
 // Mock reapStaleSessions to verify config wiring
 const mockReapStaleSessions = vi.fn().mockResolvedValue({ killed: [], skipped: [], errors: [], dryRun: false });
 vi.mock("../session-reaper.js", () => ({
-  reapStaleSessions: (config: any, deps: any) => mockReapStaleSessions(config, deps),
+  reapStaleSessions: (config: ReaperConfig, deps: ReaperDeps) => mockReapStaleSessions(config, deps),
   DEFAULT_REAPER_CONFIG: {
     orphanedThresholdMs: 7200000,
     noPrThresholdMs: 14400000,
