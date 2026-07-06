@@ -202,6 +202,39 @@ describe("antigravity Library/Keychains symlink (Darwin)", () => {
       sessionKeychainDir
     );
   });
+
+  it("respects process.env.AO_ORIGINAL_HOME as the base user home if set", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    mockPlatform.mockReturnValue("darwin");
+
+    const originalAOOriginalHome = process.env.AO_ORIGINAL_HOME;
+    process.env.AO_ORIGINAL_HOME = "/Users/custom-original-home";
+
+    mockLstatSync.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env).toBeDefined();
+
+      expect(mockMkdirSync).toHaveBeenCalledWith(
+        path.join("/Users/custom-original-home", ".ao-sessions", "sess-1", "Library"),
+        { recursive: true }
+      );
+      expect(mockSymlinkSync).toHaveBeenCalledWith(
+        "/Users/custom-original-home/Library/Keychains",
+        path.join("/Users/custom-original-home", ".ao-sessions", "sess-1", "Library", "Keychains")
+      );
+    } finally {
+      if (originalAOOriginalHome === undefined) {
+        delete process.env.AO_ORIGINAL_HOME;
+      } else {
+        process.env.AO_ORIGINAL_HOME = originalAOOriginalHome;
+      }
+    }
+  });
 });
 
 describe("antigravity Playwright cache symlink", () => {
