@@ -60,6 +60,31 @@ const antigravityConfig: AgentPluginConfig = {
   permissionlessFlag: "--dangerously-skip-permissions",
 };
 
+function ensureIdempotentSymlink(target: string, linkPath: string, label: string): void {
+  try {
+    let isCorrectSymlink = false;
+    try {
+      const stat = fs.lstatSync(linkPath);
+      if (stat.isSymbolicLink()) {
+        isCorrectSymlink = fs.readlinkSync(linkPath) === target;
+        if (!isCorrectSymlink) {
+          fs.unlinkSync(linkPath);
+        }
+      } else {
+        fs.rmSync(linkPath, { recursive: true, force: true });
+      }
+    } catch {
+      // Path does not exist yet — nothing to clean up.
+    }
+    if (!isCorrectSymlink) {
+      fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+      fs.symlinkSync(target, linkPath);
+    }
+  } catch (err) {
+    console.debug(`[antigravity] Failed to symlink ${label}: ${(err as Error).message}`);
+  }
+}
+
 const antigravityOverrides: Partial<Agent> = {
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     const promptArg = launchConfig.prompt ? shellEscape(launchConfig.prompt) : '""';
@@ -102,30 +127,7 @@ const antigravityOverrides: Partial<Agent> = {
     if (os.platform() === "darwin") {
       const sessionKeychainDir = path.join(sessionHome, "Library", "Keychains");
       const realKeychainDir = path.join(userHome, "Library", "Keychains");
-      try {
-        let isCorrectSymlink = false;
-        try {
-          const stat = fs.lstatSync(sessionKeychainDir);
-          if (stat.isSymbolicLink()) {
-            isCorrectSymlink = fs.readlinkSync(sessionKeychainDir) === realKeychainDir;
-            if (!isCorrectSymlink) {
-              fs.unlinkSync(sessionKeychainDir);
-            }
-          } else {
-            // A real directory/file left by a prior (broken) run — remove it so we can symlink.
-            fs.rmSync(sessionKeychainDir, { recursive: true, force: true });
-          }
-        } catch {
-          // Path does not exist yet — nothing to clean up.
-        }
-
-        if (!isCorrectSymlink) {
-          fs.mkdirSync(path.join(sessionHome, "Library"), { recursive: true });
-          fs.symlinkSync(realKeychainDir, sessionKeychainDir);
-        }
-      } catch (err) {
-        console.debug(`[antigravity] Failed to symlink login keychain: ${(err as Error).message}`);
-      }
+      ensureIdempotentSymlink(realKeychainDir, sessionKeychainDir, "login keychain");
     }
 
     // Share the user's Playwright browser cache (ms-playwright-go for MCP agents,
@@ -142,32 +144,8 @@ const antigravityOverrides: Partial<Agent> = {
     for (const relCacheDir of playwrightCacheDirs) {
       const sessionCacheDir = path.join(sessionHome, relCacheDir);
       const realCacheDir = path.join(userHome, relCacheDir);
-      if (!fs.existsSync(realCacheDir)) {
-        continue;
-      }
-      try {
-        let isCorrectSymlink = false;
-        try {
-          const stat = fs.lstatSync(sessionCacheDir);
-          if (stat.isSymbolicLink()) {
-            isCorrectSymlink = fs.readlinkSync(sessionCacheDir) === realCacheDir;
-            if (!isCorrectSymlink) {
-              fs.unlinkSync(sessionCacheDir);
-            }
-          } else {
-            // A real directory/file left by a prior (broken) run — remove it so we can symlink.
-            fs.rmSync(sessionCacheDir, { recursive: true, force: true });
-          }
-        } catch {
-          // Path does not exist yet — nothing to clean up.
-        }
-
-        if (!isCorrectSymlink) {
-          fs.mkdirSync(path.dirname(sessionCacheDir), { recursive: true });
-          fs.symlinkSync(realCacheDir, sessionCacheDir);
-        }
-      } catch (err) {
-        console.debug(`[antigravity] Failed to symlink ${relCacheDir}: ${(err as Error).message}`);
+      if (fs.existsSync(realCacheDir)) {
+        ensureIdempotentSymlink(realCacheDir, sessionCacheDir, relCacheDir);
       }
     }
 
