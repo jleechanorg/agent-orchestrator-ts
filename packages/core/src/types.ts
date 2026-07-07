@@ -1693,6 +1693,11 @@ export interface ProjectConfig {
   mergeGate?: MergeGateConfig;
 
   /**
+   * Configured PR reviewer agents.
+   */
+  reviewers?: ReviewerConfig[];
+
+  /**
    * Override the global worktree base directory for this project.
    * The lifecycle-worker's orphan sweep uses this to locate worktrees.
    */
@@ -2271,4 +2276,11 @@ export function isConfigNotFoundError(err: unknown): err is ConfigNotFoundError 
     (err instanceof Error && err.name === "ConfigNotFoundError") ||
     (typeof err === "object" && err !== null && "name" in err && (err as Record<string, unknown>).name === "ConfigNotFoundError")
   );
+}
+
+/** PR Reviewer configuration */
+export interface ReviewerConfig {
+  harness: string;
+  cmd?: string[];
+  env?: Record<string, string>;
 }

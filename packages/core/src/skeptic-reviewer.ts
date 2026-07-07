@@ -21,10 +21,11 @@ import { execFile } from "node:child_process";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { Session } from "./types.js";
+import type { Session, ReviewerConfig } from "./types.js";
 import { type SkepticModel } from "./skeptic-model-schema.js";
 import { resolveSkepticModel } from "./skeptic-models.js";
 import { getGhBinaryPath } from "./paths.js";
+import { loadConfig } from "./config.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -262,6 +263,107 @@ async function tryModel(
 }
 
 /**
+ * Run a custom reviewer command using the shell harness.
+ */
+async function runCustomReviewer(
+  session: Session,
+  reviewer: ReviewerConfig,
+  triggerSha: string | undefined,
+  requestId: string | undefined,
+  postComment: boolean,
+): Promise<SkepticReviewResult> {
+  if (reviewer.harness !== "shell") {
+    throw new Error(`Unsupported reviewer harness: ${reviewer.harness}`);
+  }
+
+  const rawCmd = reviewer.cmd ?? [];
+  if (rawCmd.length === 0) {
+    throw new Error("Empty command for custom reviewer");
+  }
+
+  const prNumber = session.pr!.number;
+  const repo = `${session.pr!.owner}/${session.pr!.repo}`;
+
+  let cmdArgs = rawCmd.map((arg) => {
+    let replaced = arg;
+    replaced = replaced.replace(/\{pr_number\}/g, String(prNumber));
+    replaced = replaced.replace(/\{repo\}/g, repo);
+    if (triggerSha) {
+      replaced = replaced.replace(/\{trigger_sha\}/g, triggerSha);
+      replaced = replaced.replace(/\{head_sha\}/g, triggerSha);
+    } else {
+      replaced = replaced.replace(/\{trigger_sha\}/g, "");
+      replaced = replaced.replace(/\{head_sha\}/g, "");
+    }
+    if (requestId) {
+      replaced = replaced.replace(/\{request_id\}/g, requestId);
+    } else {
+      replaced = replaced.replace(/\{request_id\}/g, "");
+    }
+    replaced = replaced.replace(/\{dry_run\}/g, postComment ? "" : "--dry-run");
+    return replaced;
+  });
+
+  // Filter out arguments resulting from empty optional placeholders
+  cmdArgs = cmdArgs.filter((arg, index) => {
+    const original = rawCmd[index];
+    if (original === "{dry_run}" && arg === "") return false;
+    if (original === "{trigger_sha}" && arg === "") return false;
+    if (original === "{head_sha}" && arg === "") return false;
+    if (original === "{request_id}" && arg === "") return false;
+    return true;
+  });
+
+  // If dry-run, auto-append --dry-run for skeptic verify commands
+  if (!postComment) {
+    const runsSkepticVerify = cmdArgs.includes("skeptic") && cmdArgs.includes("verify");
+    if (runsSkepticVerify && !cmdArgs.includes("--dry-run")) {
+      cmdArgs.push("--dry-run");
+    }
+  }
+
+  let binary = cmdArgs[0];
+  const args = cmdArgs.slice(1);
+
+  if (binary === "ao") {
+    binary = process.env["AO_CLI_PATH"] ?? "ao";
+  }
+
+  const env = {
+    ...process.env,
+    ...(reviewer.env || {}),
+  };
+
+  const cwd = session.workspacePath ?? process.env["AO_REPO_ROOT"] ?? process.cwd();
+
+  const modelName = `shell:${cmdArgs.slice(0, 3).join(" ")}`;
+
+  let output: string;
+  try {
+    const execResult = await execFileAsync(binary, args, {
+      timeout: SKEPTIC_VERIFY_TIMEOUT_MS,
+      cwd,
+      env,
+    });
+    output = execResult.stdout + (execResult.stderr || "");
+  } catch (err: unknown) {
+    if (hasVerdictInError(err)) {
+      return extractVerdictFromError(err, modelName);
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Reviewer command failed: ${msg}`, { cause: err });
+  }
+
+  const verdict: "PASS" | "FAIL" | "SKIPPED" = lastVerdictIn(output) ?? "FAIL";
+
+  return {
+    verdict,
+    details: output.slice(0, 500),
+    modelUsed: modelName,
+  };
+}
+
+/**
  * Run the skeptic evaluation for a completed worker session.
  *
  * Uses `ao skeptic --pr N --repo owner/repo` with a fallback chain (bd-skp3):
@@ -330,6 +432,85 @@ export async function runSkepticReview(
       prNumber,
       triggerSha,
     );
+  }
+
+  // Check if project has custom reviewers configured.
+  let reviewers: ReviewerConfig[] | undefined;
+  try {
+    const config = loadConfig();
+    const project = config.projects[session.projectId];
+    if (project?.reviewers && project.reviewers.length > 0) {
+      reviewers = project.reviewers;
+    }
+  } catch {
+    // Non-fatal: loadConfig or project resolution fails
+  }
+
+  if (reviewers && reviewers.length > 0) {
+    const reviewerResults: SkepticReviewResult[] = [];
+    const reviewerErrors: string[] = [];
+
+    for (const reviewer of reviewers) {
+      try {
+        const res = await runCustomReviewer(session, reviewer, triggerSha, requestId, postComment);
+        reviewerResults.push(res);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        reviewerErrors.push(msg);
+        reviewerResults.push({
+          verdict: "FAIL",
+          details: `Infrastructure error: ${msg}`,
+          modelUsed: reviewer.harness,
+        });
+      }
+    }
+
+    const hasFail = reviewerResults.some((r) => r.verdict === "FAIL") || reviewerErrors.length > 0;
+    const hasSkipped = reviewerResults.some((r) => r.verdict === "SKIPPED");
+    const overallVerdict = hasFail ? "FAIL" : hasSkipped ? "SKIPPED" : "PASS";
+
+    const overallDetails = reviewerResults
+      .map((r, i) => `Reviewer ${i + 1} (${r.modelUsed}): ${r.verdict} — ${r.details.slice(0, 150)}`)
+      .join("\n\n");
+    const overallModelUsed = reviewerResults.map((r) => r.modelUsed).join(", ");
+
+    const result: SkepticReviewResult = {
+      verdict: overallVerdict,
+      details: overallDetails,
+      modelUsed: overallModelUsed,
+    };
+
+    // Write report
+    let reportWritten = false;
+    try {
+      if (!session.workspacePath) throw new Error("workspacePath not set");
+      const reportDir = join(session.workspacePath, "specs");
+      await mkdir(reportDir, { recursive: true });
+      await writeFile(
+        join(reportDir, "skeptic-report.json"),
+        JSON.stringify(
+          {
+            timestamp: new Date().toISOString(),
+            sessionId: session.id,
+            prNumber: session.pr.number,
+            repo: `${session.pr.owner}/${session.pr.repo}`,
+            verdict: result.verdict,
+            details: result.details,
+            modelUsed: result.modelUsed,
+            reviewerResults,
+            reviewerErrors,
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+      reportWritten = true;
+    } catch {
+      // Non-fatal
+    }
+
+    return { ...result, reportWritten };
   }
 
   const infraErrors: string[] = [];

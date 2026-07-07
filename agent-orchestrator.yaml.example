@@ -105,6 +105,13 @@ projects:
     #   agentConfig:
     #     model: gpt-5-codex
 
+    # Optional reviewers block using the shell harness to run a custom reviewer (like skeptic)
+    # reviewers:
+    #   - harness: shell
+    #     cmd: ["ao", "skeptic", "verify", "--pr", "{pr_number}", "--repo", "{repo}"]
+    #     env:
+    #       MY_ENV_VAR: "value"
+
     # Inline rules included in every agent prompt for this project
     # agentRules: |
     #   Always run tests before pushing.

@@ -1191,3 +1191,40 @@ describe("Config Validation - Duplicate basename error message (bd-686.1)", () =
     }
   });
 });
+
+describe("Config Validation - Reviewers Config Schema", () => {
+  it("accepts valid reviewers configuration block", () => {
+    const config = {
+      projects: {
+        test: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          reviewers: [
+            {
+              harness: "shell",
+              cmd: ["ao", "skeptic", "verify", "--pr", "{pr_number}", "--repo", "{repo}"],
+              env: {
+                TEST_VAR: "value",
+              },
+            },
+          ],
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.projects.test.reviewers).toBeDefined();
+    expect(validated.projects.test.reviewers![0].harness).toBe("shell");
+    expect(validated.projects.test.reviewers![0].cmd).toEqual([
+      "ao",
+      "skeptic",
+      "verify",
+      "--pr",
+      "{pr_number}",
+      "--repo",
+      "{repo}",
+    ]);
+    expect(validated.projects.test.reviewers![0].env).toEqual({ TEST_VAR: "value" });
+  });
+});
