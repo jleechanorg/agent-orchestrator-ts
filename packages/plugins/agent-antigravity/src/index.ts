@@ -85,6 +85,98 @@ function ensureIdempotentSymlink(target: string, linkPath: string, label: string
   }
 }
 
+
+/** Top-level .gemini entries never materialized into the session (runtime / huge / never inherit). */
+const GEMINI_SKIP_TOP_LEVEL = new Set([
+  "tmp",
+  "history",
+  "antigravity-browser-profile",
+  "worktrees",
+  "playground",
+  "antigravity-ide",
+  "brain.backup",
+  "implicit.backup",
+  "scratch",
+  "log",
+]);
+
+/** Subdirs under antigravity* app dirs redirected to /tmp after materialization. */
+const GEMINI_APP_RUNTIME_SUBDIRS = new Set(["conversations", "brain"]);
+
+/** App dirs that may contain per-session mutable settings.json — materialize as a tree. */
+const GEMINI_APP_DIRS = new Set(["antigravity", "antigravity-cli", "antigravity-ide"]);
+
+/** Files copied into the session because spawn logic mutates them per session. */
+const GEMINI_SESSION_COPY_FILES = new Set(["settings.json", "trustedFolders.json"]);
+
+function copyGeminiFileIfNeeded(src: string, dest: string): void {
+  try {
+    fs.copyFileSync(src, dest);
+  } catch (err) {
+    console.debug(`[antigravity] Failed to copy ${src}: ${(err as Error).message}`);
+  }
+}
+
+/**
+ * Share host .gemini config via symlinks instead of duplicating ~85 MB per session.
+ * Runtime dirs are skipped; mutable JSON files are copied; heavy static trees are symlinked.
+ */
+function materializeSharedGeminiConfig(userHome: string, sessionHome: string): void {
+  const srcGemini = path.join(userHome, ".gemini");
+  const destGemini = path.join(sessionHome, ".gemini");
+  if (!fs.existsSync(srcGemini)) {
+    return;
+  }
+
+  fs.mkdirSync(destGemini, { recursive: true });
+
+  const materializeDir = (
+    srcDir: string,
+    destDir: string,
+    skipNames: Set<string>,
+    appTree: boolean,
+  ): void => {
+    fs.mkdirSync(destDir, { recursive: true });
+    for (const name of fs.readdirSync(srcDir)) {
+      if (skipNames.has(name)) {
+        continue;
+      }
+      const src = path.join(srcDir, name);
+      const dest = path.join(destDir, name);
+      let stat;
+      try {
+        stat = fs.lstatSync(src);
+      } catch {
+        continue;
+      }
+      if (stat.isSymbolicLink()) {
+        continue;
+      }
+      if (stat.isDirectory()) {
+        if (GEMINI_APP_DIRS.has(name) && !appTree) {
+          materializeDir(src, dest, GEMINI_APP_RUNTIME_SUBDIRS, true);
+        } else {
+          ensureIdempotentSymlink(
+            src,
+            dest,
+            path.join(".gemini", path.relative(srcGemini, dest)),
+          );
+        }
+      } else if (GEMINI_SESSION_COPY_FILES.has(name) || (appTree && name === "settings.json")) {
+        copyGeminiFileIfNeeded(src, dest);
+      } else {
+        ensureIdempotentSymlink(
+          src,
+          dest,
+          path.join(".gemini", path.relative(srcGemini, dest)),
+        );
+      }
+    }
+  };
+
+  materializeDir(srcGemini, destGemini, GEMINI_SKIP_TOP_LEVEL, false);
+}
+
 const antigravityOverrides: Partial<Agent> = {
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     const promptArg = launchConfig.prompt ? shellEscape(launchConfig.prompt) : '""';
@@ -149,48 +241,12 @@ const antigravityOverrides: Partial<Agent> = {
       }
     }
 
-    const srcGemini = path.join(userHome, ".gemini");
     const destGemini = path.join(sessionHome, ".gemini");
-    
-    const copyRecursiveSync = (src: string, dest: string) => {
-      const exists = fs.existsSync(src);
-      const stats = exists ? fs.lstatSync(src) : null;
-      if (stats?.isSymbolicLink()) return;
-      const isDirectory = stats?.isDirectory() ?? false;
-      if (isDirectory) {
-        fs.mkdirSync(dest, { recursive: true });
-        fs.readdirSync(src).forEach((childItemName: string) => {
-          if (
-            childItemName === "tmp" ||
-            childItemName === "history" ||
-            childItemName === "antigravity-browser-profile" ||
-            childItemName === "conversations" || // runtime-only; not needed for new sessions
-            childItemName === "brain" ||         // runtime-only; not needed for new sessions
-            childItemName === "worktrees" ||     // never inherit prior worktrees
-            childItemName === "playground" ||    // runtime workspace, 400MB+, starts fresh each session
-            childItemName === "antigravity-ide" || // IDE integration data, 400MB+, not needed in CLI sessions
-            childItemName === "brain.backup" ||  // backup, not needed per-session
-            childItemName === "implicit.backup" || // backup, not needed per-session
-            childItemName === "scratch" ||       // runtime scratch space, starts fresh each session
-            childItemName === "log"              // runtime logs, not needed for new sessions
-          ) {
-            return;
-          }
-          copyRecursiveSync(path.join(src, childItemName), path.join(dest, childItemName));
-        });
-      } else {
-        try {
-          fs.copyFileSync(src, dest);
-        } catch (err) {
-          console.debug(`[antigravity] Failed to copy ${src}: ${(err as Error).message}`);
-        }
-      }
-    };
-    
+
     try {
-      copyRecursiveSync(srcGemini, destGemini);
+      materializeSharedGeminiConfig(userHome, sessionHome);
     } catch (err) {
-      console.debug(`[antigravity] Failed to copy .gemini directory: ${(err as Error).message}`);
+      console.debug(`[antigravity] Failed to materialize shared .gemini config: ${(err as Error).message}`);
     }
 
     // Redirect conversations and brain to /tmp so they don't persist in the session dir.
