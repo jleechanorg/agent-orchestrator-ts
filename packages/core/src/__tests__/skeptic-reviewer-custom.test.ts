@@ -28,7 +28,7 @@ vi.mock("../config.js", () => {
 });
 
 import { runSkepticReview } from "../skeptic-reviewer.js";
-import type { Session, PRInfo } from "../types.js";
+import { ConfigNotFoundError, type Session, type PRInfo } from "../types.js";
 
 function makePR(): PRInfo {
   return {
@@ -180,4 +180,31 @@ describe("runSkepticReview with custom reviewers", () => {
     expect(result.verdict).toBe("FAIL");
     expect(result.details).toContain("Unsupported reviewer harness");
   });
+
+  it("fails the review with a clear message when config fails to load/validate with a non-ConfigNotFoundError", async () => {
+    mocks.loadConfigMock.mockImplementation(() => {
+      throw new Error("YAML syntax error: line 5 column 1");
+    });
+
+    const session = makeSession();
+    const result = await runSkepticReview(session);
+
+    expect(result.verdict).toBe("FAIL");
+    expect(result.details).toContain("Configuration loading error");
+    expect(result.details).toContain("YAML syntax error");
+    expect(result.modelUsed).toBe("config:loadConfig");
+  });
+
+  it("silently falls back to the default chain when config file does not exist (ConfigNotFoundError)", async () => {
+    mocks.loadConfigMock.mockImplementation(() => {
+      throw new ConfigNotFoundError();
+    });
+
+    const session = makeSession();
+    const result = await runSkepticReview(session);
+
+    // Should fall back to the default chain which returns PASS because of our mock setup
+    expect(result.verdict).toBe("PASS");
+  });
 });
+

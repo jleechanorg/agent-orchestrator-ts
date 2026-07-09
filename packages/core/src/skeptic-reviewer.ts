@@ -21,7 +21,7 @@ import { execFile } from "node:child_process";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { Session, ReviewerConfig } from "./types.js";
+import { isConfigNotFoundError, type Session, type ReviewerConfig } from "./types.js";
 import { type SkepticModel } from "./skeptic-model-schema.js";
 import { resolveSkepticModel } from "./skeptic-models.js";
 import { getGhBinaryPath } from "./paths.js";
@@ -442,8 +442,46 @@ export async function runSkepticReview(
     if (project?.reviewers && project.reviewers.length > 0) {
       reviewers = project.reviewers;
     }
-  } catch {
-    // Non-fatal: loadConfig or project resolution fails
+  } catch (err: unknown) {
+    if (!isConfigNotFoundError(err)) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`Skeptic custom reviewer configuration error: ${errorMsg}`);
+
+      const result: SkepticReviewResult = {
+        verdict: "FAIL",
+        details: `Configuration loading error: ${errorMsg}`,
+        modelUsed: "config:loadConfig",
+      };
+
+      let reportWritten = false;
+      try {
+        if (!session.workspacePath) throw new Error("workspacePath not set", { cause: err });
+        const reportDir = join(session.workspacePath, "specs");
+        await mkdir(reportDir, { recursive: true });
+        await writeFile(
+          join(reportDir, "skeptic-report.json"),
+          JSON.stringify(
+            {
+              timestamp: new Date().toISOString(),
+              sessionId: session.id,
+              prNumber: session.pr.number,
+              repo: `${session.pr.owner}/${session.pr.repo}`,
+              verdict: result.verdict,
+              details: result.details,
+              modelUsed: result.modelUsed,
+            },
+            null,
+            2,
+          ),
+          "utf-8",
+        );
+        reportWritten = true;
+      } catch {
+        // Non-fatal
+      }
+
+      return { ...result, reportWritten };
+    }
   }
 
   if (reviewers && reviewers.length > 0) {
