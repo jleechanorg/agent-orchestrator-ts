@@ -1903,6 +1903,27 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       workspacePath: project.path,
     };
 
+    // jleechan-2mlk: mirror spawn()'s workspace-plugin check so orchestrator-role
+    // sessions get an isolated worktree instead of corrupting the primary checkout.
+    let workspacePath = project.path;
+    if (plugins.workspace) {
+      try {
+        const workspaceConfig = {
+          projectId: orchestratorConfig.projectId,
+          project,
+          sessionId,
+          branch: project.defaultBranch,
+        };
+        const adoptedInfo = plugins.workspace.findManagedWorkspace
+          ? await plugins.workspace.findManagedWorkspace(workspaceConfig)
+          : null;
+        const wsInfo = adoptedInfo ?? (await plugins.workspace.create(workspaceConfig));
+        workspacePath = wsInfo.path;
+      } catch (err) {
+        if (process.env["AO_DEBUG"]) console.debug(`spawnOrchestrator: workspace plugin failed, using primary: ${err}`);
+      }
+    }
+
     const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
     const environment = {
       ...plugins.agent.getEnvironment(agentLaunchConfig),
@@ -1911,7 +1932,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
     const handle = await plugins.runtime.create({
       sessionId: tmuxName ?? sessionId,
-      workspacePath: project.path,
+      workspacePath, // jleechan-2mlk: now uses the plugin-managed worktree path
       launchCommand,
       environment: {
         ...environment,
