@@ -2060,6 +2060,11 @@ export interface SessionMetadata {
   branch: string;
   status: string;
   tmuxName?: string; // Globally unique tmux session name (includes hash)
+  /** ISO timestamp of the last successful liveness probe (jleechan-yr6t). */
+  lastActivityAt?: string;
+  /** ISO timestamp of the last time AO observed the session isAlive=true (jleechan-yr6t).
+   *  Lets the daemon distinguish "active" from "stuck-on-disk-spawning". */
+  lastSeenAlive?: string;
   issue?: string;
   pr?: string;
   prAutoDetect?: "on" | "off";

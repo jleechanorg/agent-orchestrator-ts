@@ -1041,6 +1041,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           return;
         }
         const alive = await aliveRuntime.isAlive(session.runtimeHandle);
+        if (alive) {
+          // Persist lastSeenAlive (jleechan-yr6t): disk metadata was stuck on
+          // "spawning" because nothing was ever written on the success path.
+          if (sessionsDir && persistToDisk) {
+            try {
+              updateMetadata(sessionsDir, session.id, {
+                lastSeenAlive: new Date().toISOString(),
+              });
+            } catch {
+              // best-effort
+            }
+          }
+        }
         if (!alive) {
           // Confirm with a second probe before persisting — isAlive() can
           // transiently return false under tmux load, and a disk-persisted
@@ -1050,7 +1063,22 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           // the session as possibly alive and skip the kill — better to leave a
           // session running than to permanently mark it killed on a transient error.
           const confirmedAlive = await aliveRuntime.isAlive(session.runtimeHandle).catch(() => true);
-          if (confirmedAlive) return; // Transient false negative or uncertain — skip this cycle
+          if (confirmedAlive) {
+        // Persist lastSeenAlive so on-disk reflects the live probe (jleechan-yr6t:
+        // without this, transient-alive paths left disk metadata permanently
+        // stuck on "spawning", and the daemon's active_count kept zombie
+        // sessions counted as active).
+        if (sessionsDir && persistToDisk) {
+          try {
+            updateMetadata(sessionsDir, session.id, {
+              lastSeenAlive: new Date().toISOString(),
+            });
+          } catch {
+            // best-effort
+          }
+        }
+        return;
+      }
           const prevActivity = session.activity;
           session.status = "killed";
           session.activity = "exited";
