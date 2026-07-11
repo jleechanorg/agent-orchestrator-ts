@@ -29,7 +29,7 @@ run_filtered() {
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
 AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator-ts}"
 AGENT_ORCHESTRATOR_BRANCH="${AGENT_ORCHESTRATOR_BRANCH:-main}"
-AO_REPO_ROOT="${AO_REPO_ROOT:-$HOME/project_agento/agent-orchestrator}"
+AO_REPO_ROOT="${AO_REPO_ROOT:-$HOME/project_agento/agent-orchestrator-ts}"
 PROJECTS="${AO_PROJECTS:-jleechanclaw browserclaw worldarchitect agent-orchestrator ralph claude-commands worldai-claw openclaw-sso mctrl-test mcp-mail worldclaw-dev llm_wiki}"
 
 echo "=== AO Worker Node Install ==="
@@ -39,7 +39,7 @@ echo
 
 # ─── Step 0: Detect run mode ─────────────────────────────────────────────────
 # Two modes:
-#   repo  — running from an existing ~/project_agento/agent-orchestrator clone
+#   repo  — running from an existing ~/project_agento/agent-orchestrator-ts clone
 #   curl  — piped from curl, need to clone first
 
 # Track whether we created a temp clone (in curl mode) so we can clean up on error.
