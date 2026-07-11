@@ -5043,7 +5043,7 @@ describe("restore", () => {
     expect(readMetadataRaw(sessionsDir, "app-1")).toBeNull();
   });
 
-  it("does not recreate active metadata from archive when session is not restorable", async () => {
+  it("keeps archived metadata read-only during liveness validation", async () => {
     const wsPath = join(tmpDir, "ws-app-archive-non-restorable");
     mkdirSync(wsPath, { recursive: true });
 
@@ -5061,6 +5061,7 @@ describe("restore", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
     await expect(sm.restore("app-1")).rejects.toThrow(SessionNotRestorableError);
 
+    expect(mockRuntime.isAlive).toHaveBeenCalledWith(makeHandle("rt-old"));
     expect(readMetadataRaw(sessionsDir, "app-1")).toBeNull();
   });
 
