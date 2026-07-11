@@ -35,9 +35,7 @@ import {
   isFailedCICheck,
   recordActivityEvent,
 } from "@jleechanorg/ao-core";
-import {
-  isRetryableHttpStatus,
-} from "@jleechanorg/ao-core/utils";
+import { isRetryableHttpStatus } from "@jleechanorg/ao-core/utils";
 import {
   getWebhookHeader,
   parseWebhookBranchRef,
@@ -330,9 +328,7 @@ function synthesizePrViewJsonFromRest(
   return out;
 }
 
-async function fetchPrViewFallbackAsJson(
-  conv: PrViewRestConversion,
-): Promise<string> {
+async function fetchPrViewFallbackAsJson(conv: PrViewRestConversion): Promise<string> {
   const pullRaw = await ghRestFallback(["api", `repos/${conv.repo}/pulls/${conv.prNumber}`]);
   const restObj = JSON.parse(pullRaw) as Record<string, unknown>;
 
@@ -944,7 +940,9 @@ function extractActionRunReference(
   const runId = actionsIndex >= 0 ? pathParts[actionsIndex + 2] : undefined;
   if (!runId || !isDecimalId(runId)) return null;
 
-  const jobIndex = pathParts.findIndex((part, index) => index > actionsIndex && (part === "job" || part === "jobs"));
+  const jobIndex = pathParts.findIndex(
+    (part, index) => index > actionsIndex && (part === "job" || part === "jobs"),
+  );
   const jobId = jobIndex >= 0 ? pathParts[jobIndex + 1] : undefined;
 
   return {
@@ -993,10 +991,7 @@ async function getFailedJobLog(
     ]);
   } catch (err) {
     if (!runReference.jobId) throw err;
-    return gh([
-      "api",
-      `repos/${pr.owner}/${pr.repo}/actions/jobs/${runReference.jobId}/logs`,
-    ]);
+    return gh(["api", `repos/${pr.owner}/${pr.repo}/actions/jobs/${runReference.jobId}/logs`]);
   }
 }
 
@@ -1815,15 +1810,26 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // branch lives). Fall back to a direct branch fetch only when that ref is
       // unavailable (e.g. shallow clone that prunes pull/ refs). (bd-49u)
 
-      // Discover the actual remote URL from the workspace rather than hardcoding.
-      // This respects SSH / HTTPS / GHE configurations configured in the workspace.
+      // Preserve a matching workspace remote (SSH / HTTPS / GHE), but never fetch a
+      // PR through an origin that belongs to a different repository.
       const remoteName = "origin";
-      let remote: string;
+      const expectedRepository = repoFlag(pr).toLowerCase();
+      const prRepositoryUrl = new URL(pr.url);
+      prRepositoryUrl.pathname = `/${repoFlag(pr)}.git`;
+      prRepositoryUrl.search = "";
+      prRepositoryUrl.hash = "";
+      let remote = prRepositoryUrl.toString();
       try {
-        remote = (await git(["remote", "get-url", remoteName], workspacePath)).trim();
+        const candidate = (await git(["remote", "get-url", remoteName], workspacePath)).trim();
+        const normalizedCandidate = candidate.toLowerCase().replace(/\.git\/?$/, "");
+        const matchesExpectedRepository =
+          normalizedCandidate.endsWith(`/${expectedRepository}`) ||
+          normalizedCandidate.endsWith(`:${expectedRepository}`);
+        if (matchesExpectedRepository) {
+          remote = candidate;
+        }
       } catch {
-        // Fall back to the well-known GitHub HTTPS URL only when origin is missing
-        remote = `https://github.com/${repoFlag(pr)}.git`;
+        // The PR URL remains authoritative when origin is missing or unreadable.
       }
 
       const prRef = `refs/pull/${pr.number}/head`;
@@ -2364,7 +2370,8 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
                 prNumber: pr.number,
                 prOwner: pr.owner,
                 prRepo: pr.repo,
-                errorMessage: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+                errorMessage:
+                  fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
               },
             });
             return "failing";
@@ -2942,9 +2949,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       }
     },
 
-    async listPRComments(
-      pr: PRInfo,
-    ): Promise<
+    async listPRComments(pr: PRInfo): Promise<
       Array<{
         id: number;
         body: string;
@@ -2965,8 +2970,11 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             "api",
             `repos/${repoFlag(pr)}/issues/${pr.number}/comments?per_page=${perPage}&page=${page}`,
           ]);
-          const comments: Array<{ id: number; user: { login: string; type?: string }; body: string }> =
-            JSON.parse(raw);
+          const comments: Array<{
+            id: number;
+            user: { login: string; type?: string };
+            body: string;
+          }> = JSON.parse(raw);
           if (comments.length === 0) break;
           for (const c of comments) {
             // Compute the structured trigger flag at the SCM boundary so that
@@ -2984,12 +2992,9 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
               login !== "" &&
               (normalizedLogin.endsWith("[bot]") ||
                 user.type === "Bot" ||
-                Array.from(BOT_AUTHORS).some(
-                  (bot) => bot.toLowerCase() === normalizedLogin,
-                ));
+                Array.from(BOT_AUTHORS).some((bot) => bot.toLowerCase() === normalizedLogin));
             const isGhaTrigger =
-              body.includes("SKEPTIC_GATE_TRIGGER") ||
-              body.includes("SKEPTIC_CRON_TRIGGER");
+              body.includes("SKEPTIC_GATE_TRIGGER") || body.includes("SKEPTIC_CRON_TRIGGER");
             const isHumanSlashCommand = !isBot && login !== "" && /^\s*\/skeptic\b/m.test(body);
             result.push({
               id: c.id,
