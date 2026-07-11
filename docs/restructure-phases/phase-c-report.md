@@ -1,6 +1,6 @@
 # Phase C — Plugin Extraction Audit Report
 
-**Repository:** `jleechanorg/agent-orchestrator` (fork)
+**Repository:** `jleechanorg/agent-orchestrator-ts` (fork)
 **Phase:** C — Plugin Extraction Feasibility
 **Date:** 2026-04-21
 

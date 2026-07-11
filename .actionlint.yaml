@@ -1,4 +1,4 @@
-# Actionlint configuration for jleechanorg/agent-orchestrator
+# Actionlint configuration for jleechanorg/agent-orchestrator-ts
 #
 # Rules:
 # - Fail on expression errors (undefined step properties, type errors)

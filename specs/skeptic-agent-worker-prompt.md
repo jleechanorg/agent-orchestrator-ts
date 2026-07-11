@@ -2,7 +2,7 @@
 
 ## Task
 
-Implement the Skeptic Agent as an AO reaction + TypeScript module in a single PR against `jleechanorg/agent-orchestrator`.
+Implement the Skeptic Agent as an AO reaction + TypeScript module in a single PR against `jleechanorg/agent-orchestrator-ts`.
 
 ## Design References (READ THESE FIRST)
 

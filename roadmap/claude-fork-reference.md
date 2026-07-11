@@ -123,16 +123,16 @@ If skeptic posts `VERDICT: SKIPPED` (infra unavailable — no LLM API keys in GH
 A `VERDICT: FAIL` is a hard block. **Never merge a PR that has an unaddressed FAIL verdict**, even as admin. If you see a merged PR with a FAIL verdict in a review, flag it as a gate enforcement gap:
 ```bash
 # Verify Skeptic Gate is in required status checks (it must be):
-gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --jq '.required_status_checks.contexts'
+gh api repos/jleechanorg/agent-orchestrator-ts/branches/main/protection --jq '.required_status_checks.contexts'
 # Expected: includes "Skeptic Gate"
 # If missing: this is bd-8khr — add it to branch protection
 ```
 
 ### Adding new CI gates — branch protection checklist
 When adding a new required CI gate (e.g., a new workflow check):
-1. Verify the gate name matches exactly: `gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --jq '.required_status_checks.contexts'`
+1. Verify the gate name matches exactly: `gh api repos/jleechanorg/agent-orchestrator-ts/branches/main/protection --jq '.required_status_checks.contexts'`
 2. Add the gate name to required status checks via repo Settings → Branches → Branch protection rules
-3. Confirm with: `gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --jq '.required_status_checks.contexts'` includes your gate
+3. Confirm with: `gh api repos/jleechanorg/agent-orchestrator-ts/branches/main/protection --jq '.required_status_checks.contexts'` includes your gate
 4. Without step 2, any FAIL verdict can be bypassed by admin merge
 
 ### Churn detector — same-file threshold
@@ -142,7 +142,7 @@ The 3-PR churn threshold applies to subsystem keywords. For **same file** fixes,
 # Cross-platform date fallback: macOS/BSD `date -v` sets relative time, GNU/Linux `date -d`
 # does the same. The first invocation uses macOS syntax and redirects stderr to /dev/null so
 # it silently falls through to the GNU/Linux fallback on non-macOS systems.
-gh pr list --repo jleechanorg/agent-orchestrator --state merged \
+gh pr list --repo jleechanorg/agent-orchestrator-ts --state merged \
   --search "merged:>=$(date -v-4h +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -d '4 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
   --json number,title,files 2>/dev/null | jq '.[] | {number, title, files}'
 # If any recently merged PR touches the same file as your change → churn protocol
@@ -370,9 +370,9 @@ pnpm test                                   # all packages
 
 ## This Is an Independent Fork
 
-This repo is `jleechanorg/agent-orchestrator`. It started as a fork of `ComposioHQ/agent-orchestrator` but is now developed independently. Upstream sync is not a goal.
+This repo is `jleechanorg/agent-orchestrator-ts`. It started as a fork of `ComposioHQ/agent-orchestrator` but is now developed independently. Upstream sync is not a goal.
 
-- All PRs target `jleechanorg/agent-orchestrator`
+- All PRs target `jleechanorg/agent-orchestrator-ts`
 - `roadmap/` docs are tracked and welcomed — they are the design record for this fork
 - `.beads/issues.jsonl` is the issue tracker — commit it when beads are opened or closed
 - Remote `jleechanorg` points to the fork; `origin` points to upstream (read-only)
@@ -385,7 +385,7 @@ This repo is `jleechanorg/agent-orchestrator`. It started as a fork of `Composio
 Before creating any PR, confirm the target repo. If the target is `ComposioHQ/agent-orchestrator`, stop and ask:
 > "This would open a PR against the ComposioHQ upstream. Do you approve?"
 
-Default target is always `jleechanorg/agent-orchestrator`. When approved, strip fork-only artifacts: `CLAUDE.md`, `AGENTS.md`, `roadmap/`, `.beads/`, `docs/design/*.md`, and commits referencing fork infrastructure.
+Default target is always `jleechanorg/agent-orchestrator-ts`. When approved, strip fork-only artifacts: `CLAUDE.md`, `AGENTS.md`, `roadmap/`, `.beads/`, `docs/design/*.md`, and commits referencing fork infrastructure.
 
 ## Upstreaming to ComposioHQ — What to Strip
 
@@ -503,7 +503,7 @@ To reconcile PR coverage (compute uncovered PRs, map active sessions, dispatch r
 
 1. **List open PRs** in the repo:
    ```bash
-   gh pr list --repo jleechanorg/agent-orchestrator --state open --limit 100 --json number,title,headRefName
+   gh pr list --repo jleechanorg/agent-orchestrator-ts --state open --limit 100 --json number,title,headRefName
    ```
 2. **List active AO sessions** (with EPIPE guard):
    ```bash

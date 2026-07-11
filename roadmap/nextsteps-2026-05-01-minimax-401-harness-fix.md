@@ -62,9 +62,9 @@ Session started with ao-4449 worker stuck at `/login` with 401 error. Root cause
 
 ## PR / merge state
 
-- [PR #510](https://github.com/jleechanorg/agent-orchestrator/pull/510): **MERGED** — sed substitutions for MINIMAX env vars + AO_CLI_PATH fix
-- [PR #511](https://github.com/jleechanorg/agent-orchestrator/pull/511): **OPEN** — KeepAlive:true on lifecycle-all (needs revision per CR feedback)
-- [PR #512](https://github.com/jleechanorg/agent-orchestrator/pull/512): **OPEN** — `@VAR@` fail-fast check in test-launchd-env.sh
+- [PR #510](https://github.com/jleechanorg/agent-orchestrator-ts/pull/510): **MERGED** — sed substitutions for MINIMAX env vars + AO_CLI_PATH fix
+- [PR #511](https://github.com/jleechanorg/agent-orchestrator-ts/pull/511): **OPEN** — KeepAlive:true on lifecycle-all (needs revision per CR feedback)
+- [PR #512](https://github.com/jleechanorg/agent-orchestrator-ts/pull/512): **OPEN** — `@VAR@` fail-fast check in test-launchd-env.sh
 
 ---
 

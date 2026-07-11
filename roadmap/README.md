@@ -1,6 +1,6 @@
 # Roadmap index (fork)
 
-Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**. Upstream-facing docs live elsewhere; this folder is fork-first.
+Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator-ts**. Upstream-facing docs live elsewhere; this folder is fork-first.
 
 ## Recent activity (rolling)
 
@@ -15,20 +15,20 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 #### Evidence
 
-**Claim class**: docs-only — this entry is a status post describing a systemic harness gap; the structural fixes themselves land in [PR #702](https://github.com/jleechanorg/agent-orchestrator/pull/702) (this PR) and [PR #700](https://github.com/jleechanorg/agent-orchestrator/pull/700) (pr-driver-protocol).
+**Claim class**: docs-only — this entry is a status post describing a systemic harness gap; the structural fixes themselves land in [PR #702](https://github.com/jleechanorg/agent-orchestrator-ts/pull/702) (this PR) and [PR #700](https://github.com/jleechanorg/agent-orchestrator-ts/pull/700) (pr-driver-protocol).
 
 | Artifact | Link |
 |----------|------|
 | Pattern observation (4h stall, 15+ ticks) | PR [#7618](https://github.com/jleechanorg/worldarchitect.ai/pull/7618) — `RATE_LIMIT_DAILY_TURNS=30`, manual `/claw` dispatch required to Hermes |
-| PR implementing DRIVER mode + worker-review recipe | [PR #702](https://github.com/jleechanorg/agent-orchestrator/pull/702) |
-| PR implementing fix-all-before-push contract | [PR #700](https://github.com/jleechanorg/agent-orchestrator/pull/700) |
+| PR implementing DRIVER mode + worker-review recipe | [PR #702](https://github.com/jleechanorg/agent-orchestrator-ts/pull/702) |
+| PR implementing fix-all-before-push contract | [PR #700](https://github.com/jleechanorg/agent-orchestrator-ts/pull/700) |
 | Red-phase: 4h babysit stall | PR #7618 session: babysit cron reported `blocked: Green Gate failing` every poll, no `ao send` ever fired |
 | Green-phase (this PR): DRIVER mode trigger rule | `.claude/skills/babysit/SKILL.md` lines 67-86 — "if the same CI gate failure (same check name, same error class) appears in ≥2 consecutive polls … babysit MUST switch to DRIVER mode for that worker" |
 
 ### 2026-06-15 — wa-2355 silent kill investigation
 
 - **Root cause diagnosed:** Worker wa-2355 (MiniMax-M3, worldarchitect) was killed after 3 consecutive SCM failures (`scm-failure-threshold`) at 23:01 UTC on 2026-06-14 with zero user notification. Two stacked failure modes: (1) `notifyHuman()` in `lifecycle-manager.ts:1869` has bare `catch {}` — no fallback log when ALL notifiers fail; (2) worldarchitect Slack notifier has unresolved `PLACEHOLDER` webhookUrl, making it a permanent no-op.
-- **Beads created:** [bd-s1qg](https://github.com/jleechanorg/agent-orchestrator/issues/695) (code: console.error fallback in notifyHuman for undelivered urgent events), [bd-3rvp](https://github.com/jleechanorg/agent-orchestrator/issues/696) (config: worldarchitect urgent routing → working `webhook` notifier)
+- **Beads created:** [bd-s1qg](https://github.com/jleechanorg/agent-orchestrator-ts/issues/695) (code: console.error fallback in notifyHuman for undelivered urgent events), [bd-3rvp](https://github.com/jleechanorg/agent-orchestrator-ts/issues/696) (config: worldarchitect urgent routing → working `webhook` notifier)
 - **Nextsteps doc:** `~/roadmap/nextsteps-2026-06-15-wa2355-silent-kill-investigation.md`
 
 #### Evidence
@@ -37,26 +37,26 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 | Artifact | Link |
 |----------|------|
-| PR (code fix + tests) | [PR #697](https://github.com/jleechanorg/agent-orchestrator/pull/697) |
+| PR (code fix + tests) | [PR #697](https://github.com/jleechanorg/agent-orchestrator-ts/pull/697) |
 | TDD Red phase (test file) | `packages/core/src/__tests__/lifecycle-manager.test.ts` — `describe("notifyHuman — urgent fallback")` |
 | TDD Green phase | Both new tests PASS; 2356 pre-existing tests unchanged |
 | Fix A config validation | `python3 -c "import yaml; yaml.safe_load(open('...').read())"` on both `~/.hermes` and `~/.hermes_prod` configs → OK |
 
 ### 2026-06-09 — Skeptic chain decoupling (three chapters)
 
-- **PR [#654](https://github.com/jleechanorg/agent-orchestrator/pull/654) MERGED** — skepticModel list fallback + minimax/agy. **Unintentionally introduced `eligiblePRs` 24h age filter** at top of `runLocalSkepticCron` — this is the runtime coupling that caused the worldarchitect fleet-wide skeptic silence (rev-itrz9). The 251 `lifecycle.backfill.disabled_with_open_prs` warnings were operational noise; the actual cause was a fresh `/skeptic` trigger being silently dropped on a stale PR.
-- **PR [#661](https://github.com/jleechanorg/agent-orchestrator/pull/661) OPEN** — `fix(bd-rgk0)`: re-decouples skeptic cron from PR recency. 9 commits on `fix/bd-rgk0-skeptic-cron-trigger-age-filter`, head `1a9767f55`, +360/-34, `mergeable: MERGEABLE`, `reviewDecision: REVIEW_REQUIRED`. Awaiting: Test, Green Gate, Skeptic Gate. The fix: comments checked first via `scm.listPRComments`; 24h filter is a fallback only when the SCM comment API is missing.
-- **PR [#662](https://github.com/jleechanorg/agent-orchestrator/pull/662) OPEN** — `fix(bd-a7mq)`: session-manager reuse path honors `NON_RESTORABLE_STATUSES`.
-- **PR [#663](https://github.com/jleechanorg/agent-orchestrator/pull/663) CLOSED** 2026-06-09T22:26:18Z (closed-not-merged) — user closed in favor of [PR #665](https://github.com/jleechanorg/agent-orchestrator/pull/665) (replacement with opt-in propagation whitelist).
+- **PR [#654](https://github.com/jleechanorg/agent-orchestrator-ts/pull/654) MERGED** — skepticModel list fallback + minimax/agy. **Unintentionally introduced `eligiblePRs` 24h age filter** at top of `runLocalSkepticCron` — this is the runtime coupling that caused the worldarchitect fleet-wide skeptic silence (rev-itrz9). The 251 `lifecycle.backfill.disabled_with_open_prs` warnings were operational noise; the actual cause was a fresh `/skeptic` trigger being silently dropped on a stale PR.
+- **PR [#661](https://github.com/jleechanorg/agent-orchestrator-ts/pull/661) OPEN** — `fix(bd-rgk0)`: re-decouples skeptic cron from PR recency. 9 commits on `fix/bd-rgk0-skeptic-cron-trigger-age-filter`, head `1a9767f55`, +360/-34, `mergeable: MERGEABLE`, `reviewDecision: REVIEW_REQUIRED`. Awaiting: Test, Green Gate, Skeptic Gate. The fix: comments checked first via `scm.listPRComments`; 24h filter is a fallback only when the SCM comment API is missing.
+- **PR [#662](https://github.com/jleechanorg/agent-orchestrator-ts/pull/662) OPEN** — `fix(bd-a7mq)`: session-manager reuse path honors `NON_RESTORABLE_STATUSES`.
+- **PR [#663](https://github.com/jleechanorg/agent-orchestrator-ts/pull/663) CLOSED** 2026-06-09T22:26:18Z (closed-not-merged) — user closed in favor of [PR #665](https://github.com/jleechanorg/agent-orchestrator-ts/pull/665) (replacement with opt-in propagation whitelist).
 - **Three-chapter history**: PR #497 (2026-04-27) decoupled call site at `lifecycle-manager.ts:2799`; PR #654 (2026-06-09) reintroduced coupling via `eligiblePRs` filter; PR #661 (OPEN) re-decouples. Lesson: decoupling must be verified at the call site AND every filter inside the called function.
-- **Beads**: [bd-rgk0](https://github.com/jleechanorg/agent-orchestrator/pull/661) (P0), [bd-a7mq](https://github.com/jleechanorg/agent-orchestrator/pull/662) (P1), [bd-q3tt](https://github.com/jleechanorg/agent-orchestrator/pull/665) (P1 — closed-via-#665)
+- **Beads**: [bd-rgk0](https://github.com/jleechanorg/agent-orchestrator-ts/pull/661) (P0), [bd-a7mq](https://github.com/jleechanorg/agent-orchestrator-ts/pull/662) (P1), [bd-q3tt](https://github.com/jleechanorg/agent-orchestrator-ts/pull/665) (P1 — closed-via-#665)
 - **Nextsteps doc**: `skeptic-decoupling-proof-2026-06-09.md`
 
 ### 2026-06-04
 
 - **Dark-factory deletion investigation** — Reported deletion of `~/projects/dark-factory` was a false alarm; repo intact (HEAD `49c2276`). Root cause of May 29 incident confirmed: AO lifecycle worker `pruneStaleWorktrees` deleted `~/projects/worldarchitect.ai` because `wa-orchestrator` session config had `worktree == path` (main clone treated as stale worktree).
   - **Context & Diagnostics**: In Pass 2 of worktree pruning, dead/killed sessions referencing the project root path as their `worktree` were targeted for cleanup. Due to a path comparison mismatch caused by resolved vs unresolved symlinks (e.g., `/var/folders/` vs `/private/var/folders/` on macOS), the safety check in `pruneStaleWorktrees` failed to identify the path as the main project directory.
-  - **Fix Implementation**: [PR #647](https://github.com/jleechanorg/agent-orchestrator/pull/647) was merged to implement initial protection, but a gap remained where Pass 2 was closed without merge in [PR #642](https://github.com/jleechanorg/agent-orchestrator/pull/642). The full resolution is verified and protected by regression tests added in [PR #652](https://github.com/jleechanorg/agent-orchestrator/pull/652).
+  - **Fix Implementation**: [PR #647](https://github.com/jleechanorg/agent-orchestrator-ts/pull/647) was merged to implement initial protection, but a gap remained where Pass 2 was closed without merge in [PR #642](https://github.com/jleechanorg/agent-orchestrator-ts/pull/642). The full resolution is verified and protected by regression tests added in [PR #652](https://github.com/jleechanorg/agent-orchestrator-ts/pull/652).
   - **Evidence Links**:
     - **TDD Red-Phase Failure**: [Red-Phase Test Log](https://gist.github.com/jleechanao/0cae7dc9f2706a4c466fa042b28e63ce) showing deletion risk of the main directory on unresolved symlink mismatch.
     - **TDD Green-Phase Pass**: [Green-Phase Test Log](https://gist.github.com/jleechanao/0cae7dc9f2706a4c466fa042b28e63ce) showing 12/12 successful worktree prune tests passing, protecting both resolved and unresolved paths.
@@ -65,7 +65,7 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 
 ### 2026-05-29
 
-- **PR #640 OPEN — robust CLI update sync & rebuild** — 8 commits on `fix/robust-cli-update-sync-rebuild`: robust `ao-update.sh` root resolution (ported from upstream), antigravity as default agent in config schema, `noServer` WS fix for onboarding TypeError. Formatting mismatches and review threads fully resolved recursively — **Evidence Gate** and **CodeRabbit** are now **🟢 SUCCESS**. Waiting for explicit user merge approval. Bead [bd-us56](https://github.com/jleechanorg/agent-orchestrator/issues/646) successfully closed.
+- **PR #640 OPEN — robust CLI update sync & rebuild** — 8 commits on `fix/robust-cli-update-sync-rebuild`: robust `ao-update.sh` root resolution (ported from upstream), antigravity as default agent in config schema, `noServer` WS fix for onboarding TypeError. Formatting mismatches and review threads fully resolved recursively — **Evidence Gate** and **CodeRabbit** are now **🟢 SUCCESS**. Waiting for explicit user merge approval. Bead [bd-us56](https://github.com/jleechanorg/agent-orchestrator-ts/issues/646) successfully closed.
 - **Upstream sync Phase 5 complete** — 34 PRs merged (#596–#639), 1,274 upstream commits audited. All MUST/HIGH/DEFER items integrated. Upstream sync epics: bd-qor4, bd-e228, bd-ykk1, bd-lbgc.
 
 ### 2026-05-18
@@ -100,7 +100,7 @@ Design notes, audits, and rolling status for **jleechanorg/agent-orchestrator**.
 - **Stuck-worker harness sweep** — Cross-repo triage of open **worldarchitect.ai** PRs found five AO-owned workers that were not actually doing useful work: PR **#6174 OPEN**, **#6172 OPEN**, **#6171 OPEN**, **#6166 OPEN**, **#6136 OPEN**. Failure classes split into blocked approval prompt, repeated **`Context limit reached`**, unsupported-model/session misroute, stale PR inference in **`ao status`**, and “baked/ready”
 - **Skill restoration (bd-pwku)** — Archived loose-md skills restored to **`~/.claude/skills/<name>/SKILL.md`**; repo **`.claude/skills/README.md`** + **`CLAUDE.md`** pointers; duplicate loose files removed. Details: [`skill-restoration.md`](./skill-restoration.md). Pre-change roadmap snapshot: **`~/Downloads/agent-orchestrator-roadmap-*`**.
 - **Session registry harness** — New initiative: align `ao session ls` / metadata **`[working]`** with **tmux + JSONL ground truth** so operators are not misled by idle panes. Doc: [`session-registry-harness.md`](./session-registry-harness.md). Bead: **bd-9gvm** (related: **bd-3h9**).
-- **Evolve loop & policy** — Landed: healthy-cycle fast path + session budget ([PR #380](https://github.com/jleechanorg/agent-orchestrator/pull/380)); Phase 7 recap + Phase 8 idle auto-cancel ([PR #381](https://github.com/jleechanorg/agent-orchestrator/pull/381)); Zero-Framework Cognition (ZFC) section in CLAUDE.md ([PR #382](https://github.com/jleechanorg/agent-orchestrator/pull/382)).
+- **Evolve loop & policy** — Landed: healthy-cycle fast path + session budget ([PR #380](https://github.com/jleechanorg/agent-orchestrator-ts/pull/380)); Phase 7 recap + Phase 8 idle auto-cancel ([PR #381](https://github.com/jleechanorg/agent-orchestrator-ts/pull/381)); Zero-Framework Cognition (ZFC) section in CLAUDE.md ([PR #382](https://github.com/jleechanorg/agent-orchestrator-ts/pull/382)).
 - **Skeptic** — `claude --print` runs from `/tmp` to avoid project `CLAUDE.md` hooks skewing evaluation (commit `7a9890f9`).
 
 ### 2026-04-08

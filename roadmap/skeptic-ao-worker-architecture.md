@@ -2,7 +2,7 @@
 
 ## Status
 - **Current state**: Broken — VERDICT: SKIPPED on all PRs (no LLM backend works in GHA)
-- **Fix PR**: https://github.com/jleechanorg/agent-orchestrator/pull/244 (closed, needs reopen)
+- **Fix PR**: https://github.com/jleechanorg/agent-orchestrator-ts/pull/244 (closed, needs reopen)
 - **Beads**: bd-1lni (infra broken), bd-0cfv (SKIPPED=success)
 
 **Document map**: The sections above and below this note preserve the historical AO repo

@@ -9,7 +9,7 @@ on:
       owner_repo:
         description: 'owner/repo'
         required: true
-        default: 'jleechanorg/agent-orchestrator'
+        default: 'jleechanorg/agent-orchestrator-ts'
       pr_number:
         description: 'PR number to check'
         required: true

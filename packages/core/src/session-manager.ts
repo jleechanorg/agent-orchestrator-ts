@@ -3361,7 +3361,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     //    and isRestorable would reject it.
     const session = metadataToSession(sessionId, raw, projectId, undefined, undefined, project?.path);
     const plugins = resolvePlugins(project, selection.agentName);
-    await enrichSessionWithRuntimeState(session, plugins, true, sessionsDir, true);
+    await enrichSessionWithRuntimeState(session, plugins, true, sessionsDir, !fromArchive);
 
     // 3. Validate restorability
     if (!isRestorable(session)) {

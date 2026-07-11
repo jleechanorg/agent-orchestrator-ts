@@ -3,7 +3,7 @@
  * scripts/generate-pr-design-docs.mjs
  *
  * Generates .md and .html design doc files for all AO-managed PRs in
- * jleechanorg/agent-orchestrator, following the PR #592 template format.
+ * jleechanorg/agent-orchestrator-ts, following the PR #592 template format.
  *
  * Usage:
  *   node scripts/generate-pr-design-docs.mjs [--repo OWNER/REPO] [--force] [--dry-run] [--limit N]
@@ -30,7 +30,7 @@ const args = Object.fromEntries(
   })
 );
 
-const REPO = args.repo ?? "jleechanorg/agent-orchestrator";
+const REPO = args.repo ?? "jleechanorg/agent-orchestrator-ts";
 const FORCE = args.force === true;
 const DRY_RUN = args["dry-run"] === true;
 const LIMIT = args.limit ? parseInt(args.limit, 10) : Infinity;

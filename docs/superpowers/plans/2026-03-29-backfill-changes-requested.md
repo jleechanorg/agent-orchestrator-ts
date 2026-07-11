@@ -554,7 +554,7 @@ Run: `git push origin feat/orch-bxf`
 
 Run:
 ```bash
-gh pr create --repo jleechanorg/agent-orchestrator \
+gh pr create --repo jleechanorg/agent-orchestrator-ts \
   --title "feat(lifecycle): backfill spawns workers for dead-agent CHANGES_REQUESTED PRs" \
   --body "$(cat <<'EOF'
 ## Summary
@@ -580,5 +580,5 @@ EOF
 - [ ] `pnpm --filter @jleechanorg/ao-core test` passes
 - [ ] `pnpm --filter @jleechanorg/ao-core typecheck` passes
 - [ ] `pnpm --filter @jleechanorg/ao-core lint` passes
-- [ ] PR created against `jleechanorg/agent-orchestrator`
+- [ ] PR created against `jleechanorg/agent-orchestrator-ts`
 - [ ] CI passes

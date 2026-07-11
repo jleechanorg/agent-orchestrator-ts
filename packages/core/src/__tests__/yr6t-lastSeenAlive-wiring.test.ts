@@ -24,14 +24,14 @@ describe("jleechan-yr6t: SessionMetadata exposes freshness fields", () => {
 describe("jleechan-yr6t: enrichSessionWithRuntimeState persists freshness", () => {
   it("persists lastSeenAlive on confirmed-alive path", () => {
     // Find the confirmedAlive branch and assert it persists.
-    const m = MGR.match(/if \(confirmedAlive\) \{[\s\S]*?\n        \}/);
+    const m = MGR.match(/if \(confirmedAlive\) \{[\s\S]*?\n {8}\}/);
     expect(m).toBeDefined();
     expect(m![0]).toMatch(/lastSeenAlive/);
     expect(m![0]).toMatch(/updateMetadata/);
   });
   it("persists lastSeenAlive on first isAlive = true", () => {
     // Find the alive = await block and the immediately-following persist.
-    const m = MGR.match(/const alive = await aliveRuntime\.isAlive[\s\S]*?if \(alive\) \{[\s\S]*?\n          \}/);
+    const m = MGR.match(/const alive = await aliveRuntime\.isAlive[\s\S]*?if \(alive\) \{[\s\S]*?\n {10}\}/);
     expect(m).toBeDefined();
     expect(m![0]).toMatch(/lastSeenAlive/);
     expect(m![0]).toMatch(/updateMetadata/);

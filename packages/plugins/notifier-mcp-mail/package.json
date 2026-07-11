@@ -17,12 +17,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/jleechanorg/agent-orchestrator.git",
+    "url": "https://github.com/jleechanorg/agent-orchestrator-ts.git",
     "directory": "packages/plugins/notifier-mcp-mail"
   },
-  "homepage": "https://github.com/jleechanorg/agent-orchestrator",
+  "homepage": "https://github.com/jleechanorg/agent-orchestrator-ts",
   "bugs": {
-    "url": "https://github.com/jleechanorg/agent-orchestrator/issues"
+    "url": "https://github.com/jleechanorg/agent-orchestrator-ts/issues"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -147,7 +147,7 @@ Only Test + Lint were in branch protection. Docker runner failures were non-bloc
 
 **Verification:**
 ```bash
-gh api repos/jleechanorg/agent-orchestrator/branches/main/protection \
+gh api repos/jleechanorg/agent-orchestrator-ts/branches/main/protection \
   --jq '{required_status_checks: .required_status_checks, enforce_admins: .enforce_admins}'
 # required_status_checks.contexts: ["Test","Lint","Skeptic Gate"]
 # enforce_admins.enabled: false
@@ -671,9 +671,9 @@ This is why PR #361, #362, #352, #360 all fail Evidence Has Media Attachment.
 4. **ao-3906 killed** — PR #454 (feat/install-all-repo-skills) merged while worker was still running, creating zombie session. No auto-cleanup triggered.
 
 ### Top-PR coverage (from prior codex cycle)
-- jleechanorg/agent-orchestrator: 0 open non-draft PRs
+- jleechanorg/agent-orchestrator-ts: 0 open non-draft PRs
 - jleechanorg/jleechanclaw: 2 open (#551 fix/agento-minimax-model-worktree, #549 docs/cmux-terminal-review-skill), both mergeable_state=null, no active session
-- top-pr-coverage.out: "No open non-draft PRs in jleechanorg/agent-orchestrator"
+- top-pr-coverage.out: "No open non-draft PRs in jleechanorg/agent-orchestrator-ts"
 
 ### Beads created: none (defer — gateway is primary blocker)
 
@@ -713,7 +713,7 @@ This is why PR #361, #362, #352, #360 all fail Evidence Has Media Attachment.
 ## 2026-04-17 01:08 cycle (bounded, Codex cycle 2 artifacts used)
 
 ### Zero-touch rate: 0% (0/4)
-All 4 merged PRs in last 24h have `[agento]` prefix — all agent-originated. Zero-touch is actually 100% for agent-orchestrator. The metric measures only `jleechanorg/agent-orchestrator`.
+All 4 merged PRs in last 24h have `[agento]` prefix — all agent-originated. Zero-touch is actually 100% for agent-orchestrator. The metric measures only `jleechanorg/agent-orchestrator-ts`.
 
 ### Open PRs: 4 total (2 repos)
 | PR | Repo | Title | CI | CR | Unresolved |
@@ -776,7 +776,7 @@ Gateway port drift and notifier misconfigs are config-level, not bead-worthy yet
 All 4 merged PRs in last 24h carry [agento] prefix — all fully autonomous. Zero-touch is 100% for agent-orchestrator.
 
 ### Open PRs: 0 (agent-orchestrator)
-No open PRs. jleechanorg/agent-orchestrator is clean.
+No open PRs. jleechanorg/agent-orchestrator-ts is clean.
 
 ### Workers: 0 alive (after zombie sweep)
 - jc-1792, jc-1793 killed: both stuck on `API Error: 401 Invalid authentication credentials` — Codex sessions with expired auth, not recoverable.

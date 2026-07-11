@@ -45,7 +45,7 @@ For chronic problems, read the automation code rather than just checking infrast
 
 1. **Memory search first** — Run `/ms` (memory_search) to pull prior context for tracked PRs and friction points:
    ```
-   /ms "open PRs jleechanorg/agent-orchestrator"
+   /ms "open PRs jleechanorg/agent-orchestrator-ts"
    /ms "open PRs jleechanclaw"
    /ms "stuck PRs zero-touch"
    /ms "bead bd- [recent]"
@@ -54,7 +54,7 @@ For chronic problems, read the automation code rather than just checking infrast
 
 2. Run `/auton` for autonomy diagnostics when the local `auton` skill matches the current repo/system. If the available `auton` skill is repo-specific and does not fit the current target, do the equivalent local health triage directly instead of forcing the wrong diagnostic.
 3. Check AO workers for:
-   - `jleechanorg/agent-orchestrator`
+   - `jleechanorg/agent-orchestrator-ts`
    - `jleechanorg/worldai_claw`
    - `jleechanorg/jleechanclaw`
    - Antigravity orchestrator if relevant
@@ -85,7 +85,7 @@ for sess in $(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -E '^([
   pr_num=$(tmux capture-pane -t "$sess" -p 2>/dev/null | grep -oE "PR: #[0-9]+" | head -1 | grep -oE "[0-9]+")
   [ -z "$pr_num" ] && continue
   case "$sess" in
-    *-ao-*) repo="jleechanorg/agent-orchestrator" ;;
+    *-ao-*) repo="jleechanorg/agent-orchestrator-ts" ;;
     *-jc-*) repo="jleechanorg/jleechanclaw" ;;
     *-wa-*) repo="jleechanorg/worldarchitect.ai" ;;
     *-wc-*) repo="jleechanorg/worldai_claw" ;;
@@ -103,7 +103,7 @@ done
 Calculate the `[agento]` zero-touch rate from merged PRs in the last 24 hours.
 
 ```bash
-gh api 'repos/jleechanorg/agent-orchestrator/pulls?state=closed&per_page=30&sort=updated&direction=desc' \
+gh api 'repos/jleechanorg/agent-orchestrator-ts/pulls?state=closed&per_page=30&sort=updated&direction=desc' \
   --jq '.[] | select(.merged_at != null and .merged_at > "YESTERDAY_ISO") |
     {number, title: .title[:70], agento: (.title | test("^\\[agento\\]"))}'
 ```

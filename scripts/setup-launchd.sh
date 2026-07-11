@@ -17,8 +17,10 @@ _resolve_repo_root() {
   local _script_dir="$(cd "$(dirname "$0")/.." && pwd)"
   # Check if script dir looks like an AO-managed ephemeral worktree
   local _basename="$(basename "$_script_dir")"
-  if [[ "$_basename" =~ ^ao-[0-9]+$ ]] && [[ -d "/Users/jleechan/project_agento/agent-orchestrator" ]]; then
-    echo "/Users/jleechan/project_agento/agent-orchestrator"
+  if [[ "$_basename" =~ ^ao-[0-9]+$ ]] && [[ -d "$HOME/project_agento/agent-orchestrator-ts" ]]; then
+    echo "$HOME/project_agento/agent-orchestrator-ts"
+  elif [[ "$_basename" =~ ^ao-[0-9]+$ ]] && [[ -d "$HOME/project_agento/agent-orchestrator" ]]; then
+    echo "$HOME/project_agento/agent-orchestrator"
   else
     echo "$_script_dir"
   fi

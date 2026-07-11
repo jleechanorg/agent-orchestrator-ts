@@ -21,7 +21,7 @@
 
 ## Context
 
-Session `worktree_upstream` at `9c5887bc` (jleechanorg/agent-orchestrator fork). Prior session established that zero of ~38 MUST-HAVE upstream commits cherry-pick cleanly — structural divergence is in core files (`lifecycle-manager.ts`, `scm-github/src/index.ts`, `spawn.ts`, `session-manager.ts`) totalling ~2,700 LOC.
+Session `worktree_upstream` at `9c5887bc` (jleechanorg/agent-orchestrator-ts fork). Prior session established that zero of ~38 MUST-HAVE upstream commits cherry-pick cleanly — structural divergence is in core files (`lifecycle-manager.ts`, `scm-github/src/index.ts`, `spawn.ts`, `session-manager.ts`) totalling ~2,700 LOC.
 
 This doc covers the **parallel fast path**: what can be restructured RIGHT NOW to reduce upstream merge conflicts, without waiting for the full 8-plugin Phase 1-4 architecture work.
 

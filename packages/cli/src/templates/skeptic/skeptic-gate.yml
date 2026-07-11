@@ -1,6 +1,6 @@
 name: Skeptic Gate
 
-# master logic managed by jleechanorg/agent-orchestrator
+# master logic managed by jleechanorg/agent-orchestrator-ts
 # thin-caller implementation to ensure auto-updates of GHA logic.
 
 on:
@@ -30,7 +30,7 @@ permissions:
 
 jobs:
   skeptic_gate:
-    uses: jleechanorg/agent-orchestrator/.github/workflows/skeptic-gate-reusable.yml@main
+    uses: jleechanorg/agent-orchestrator-ts/.github/workflows/skeptic-gate-reusable.yml@main
     with:
       pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
       head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}

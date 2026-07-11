@@ -5,7 +5,7 @@
 # useful for consumer repos that do not have the AO monorepo or global `ao` CLI.
 #
 # Templates are the canonical copies under packages/cli/src/templates/skeptic/ on
-# jleechanorg/agent-orchestrator (trigger + polling in GHA; ao skeptic verify runs
+# jleechanorg/agent-orchestrator-ts (trigger + polling in GHA; ao skeptic verify runs
 # on a machine running lifecycle-manager with gh auth — no LLM API keys in GHA).
 #
 # Usage:
@@ -16,13 +16,13 @@
 #   SKEPTIC_CI_REF=my-branch ./scripts/install-skeptic-ci-for-repo.sh
 #
 # From another repo: download, inspect, then run (do not pipe curl straight to bash):
-#   curl -fsSL "https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/install-skeptic-ci-for-repo.sh" -o /tmp/install-skeptic-ci-for-repo.sh
+#   curl -fsSL "https://raw.githubusercontent.com/jleechanorg/agent-orchestrator-ts/main/scripts/install-skeptic-ci-for-repo.sh" -o /tmp/install-skeptic-ci-for-repo.sh
 #   less /tmp/install-skeptic-ci-for-repo.sh   # or your editor
 #   bash /tmp/install-skeptic-ci-for-repo.sh
 #
 set -euo pipefail
 
-REPO_DEFAULT="jleechanorg/agent-orchestrator"
+REPO_DEFAULT="jleechanorg/agent-orchestrator-ts"
 REF_DEFAULT="main"
 TEMPLATE_PREFIX="packages/cli/src/templates/skeptic"
 

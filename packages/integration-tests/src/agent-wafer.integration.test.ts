@@ -39,7 +39,7 @@ function makeLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaun
     sessionId: "inttest-wafer",
     projectConfig: {
       name: "inttest-wafer",
-      repo: "jleechanorg/agent-orchestrator",
+      repo: "jleechanorg/agent-orchestrator-ts",
       path: "/workspace",
       defaultBranch: "main",
       sessionPrefix: "wafer",

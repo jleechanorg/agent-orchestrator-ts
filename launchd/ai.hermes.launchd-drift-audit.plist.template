@@ -32,7 +32,7 @@
     launchctl bootstrap gui/$(id -u) \
       ~/Library/LaunchAgents/ai.hermes.launchd-drift-audit.plist
 
-  Reference: jleechanorg/agent-orchestrator #709
+  Reference: jleechanorg/agent-orchestrator-ts #709
              feedback_2026-06-18_launchd_plist_drift
 -->
 <dict>

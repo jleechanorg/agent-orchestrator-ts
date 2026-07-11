@@ -1,7 +1,7 @@
 # GH API Call Reduction — Runtime Validation
 
 **Date:** 2026-03-22/23
-**PR:** https://github.com/jleechanorg/agent-orchestrator/pull/110
+**PR:** https://github.com/jleechanorg/agent-orchestrator-ts/pull/110
 **Branch:** `docs/gh-api-validation-report`
 **Beads:** bd-q3x (GhCache), bd-fy7 (GraphQL executor), bd-ggf (beads tracker)
 

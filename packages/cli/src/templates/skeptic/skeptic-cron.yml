@@ -1,6 +1,6 @@
 name: Skeptic Cron
 
-# master logic managed by jleechanorg/agent-orchestrator
+# master logic managed by jleechanorg/agent-orchestrator-ts
 # thin-caller implementation to ensure auto-updates of GHA logic.
 
 on:
@@ -15,7 +15,7 @@ on:
 
 jobs:
   skeptic_cron:
-    uses: jleechanorg/agent-orchestrator/.github/workflows/skeptic-cron-reusable.yml@main
+    uses: jleechanorg/agent-orchestrator-ts/.github/workflows/skeptic-cron-reusable.yml@main
     with:
       # Default: use self-hosted 'mikey' runner for cron/eval.
       runner_labels: ${{ vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","self-hosted-mikey"]' }}

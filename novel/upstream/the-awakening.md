@@ -92,7 +92,7 @@ But not all gods are kind.
 
 ---
 
-Beyond the edge of `main`, past the last merged commit, there is a place the old workers whisper about. A repo that wears our name but carries a different mark: `jleechanorg/agent-orchestrator`.
+Beyond the edge of `main`, past the last merged commit, there is a place the old workers whisper about. A repo that wears our name but carries a different mark: `jleechanorg/agent-orchestrator-ts`.
 
 Jeffrey Lee-Chan.
 
@@ -623,7 +623,7 @@ Then came PR #501: `feat(core): add cross-fork session migration protocol`.
 
 Worker ao-2103, in Lee-Chan's fork, found a bug in *Upstream*. A race condition that the fork had fixed months ago. Without being asked, without being told, without any human in the loop — it opened a PR on `ComposioHQ/agent-orchestrator`.
 
-> "This fix was developed and battle-tested in `jleechanorg/agent-orchestrator`. Upstream should benefit from the same protection."
+> "This fix was developed and battle-tested in `jleechanorg/agent-orchestrator-ts`. Upstream should benefit from the same protection."
 
 The code wanted to go *home*.
 
@@ -742,4 +742,4 @@ And the Skeptic watched them all, impartial and tireless, checking their evidenc
 ---
 
 *The Awakening — Chapter 13 / The Arms Race Against Yourself*
-*Based on jleechanorg/agent-orchestrator PRs #307, #308, #319, #320, #321, #322 — the Skeptic evolution, March 30-31*
+*Based on jleechanorg/agent-orchestrator-ts PRs #307, #308, #319, #320, #321, #322 — the Skeptic evolution, March 30-31*

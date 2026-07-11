@@ -236,4 +236,24 @@ describe("scripts/start-all.sh", () => {
 
     expect(result.status, result.stderr || result.stdout).toBe(0);
   });
+
+  it("keeps the legacy canonical clone as an ephemeral-worktree fallback", () => {
+    const tempHome = mkdtempSync(join(tmpdir(), "ao-setup-launchd-root-"));
+    const worktreeScripts = join(tempHome, "worktrees", "ao-123", "scripts");
+    const legacyRoot = join(tempHome, "project_agento", "agent-orchestrator");
+    mkdirSync(worktreeScripts, { recursive: true });
+    mkdirSync(legacyRoot, { recursive: true });
+    const copiedScript = join(worktreeScripts, "setup-launchd.sh");
+    writeFileSync(copiedScript, readFileSync(setupLaunchdScriptPath, "utf8"));
+
+    const result = spawnSync(
+      "bash",
+      ["-c", 'AO_SETUP_LAUNCHD_SOURCE_ONLY=1 source "$0"; printf "%s" "$REPO_ROOT"', copiedScript],
+      { env: { ...process.env, HOME: tempHome }, encoding: "utf8" },
+    );
+
+    rmSync(tempHome, { recursive: true, force: true });
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    expect(result.stdout).toBe(legacyRoot);
+  });
 });

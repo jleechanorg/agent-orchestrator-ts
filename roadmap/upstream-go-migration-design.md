@@ -4,7 +4,7 @@
 **Author:** AO fork integration analysis
 **Branch:** `feat/upstream-go-migration-design` (current head `0a15816c14de976717c7190e4a745297c27f290b`)
 **Status:** PROPOSAL — not yet a plan, awaiting operator decision
-**Scope:** Strategic options for `jleechanorg/agent-orchestrator` relative to upstream `agentwrapper/agent-orchestrator`'s TS→Go rewrite
+**Scope:** Strategic options for `jleechanorg/agent-orchestrator-ts` relative to upstream `agentwrapper/agent-orchestrator`'s TS→Go rewrite
 
 ---
 
@@ -112,7 +112,7 @@ The Go project itself is much older than the clone window (depth 50). The fork's
 
 ### Why the fork exists at all
 
-The fork `jleechanorg/agent-orchestrator` is the **operator's working copy** with:
+The fork `jleechanorg/agent-orchestrator-ts` is the **operator's working copy** with:
 
 - **Plugin-first architecture** (already maps to upstream's `internal/ports/`)
 - **Skeptic** (`packages/cli/src/lib/llm-eval-shared.ts`) — multi-model LLM evaluator with fallback chain (Codex → Claude). Operator wants this to **stay TS/tsx**.
@@ -261,7 +261,7 @@ Decision: **KEEP_FORK_WEB as the primary web entry.** Don't adopt Electron. Opti
 |---|---|---|
 | **License** | NO upstream LICENSE file, NO headers in main.go / root.go | **Verify MIT-compatibility with upstream maintainers before vendoring any Go code.** Hard gate. |
 | **Namespace switch** | Upstream uses `~/.ao/` (RunFilePath, DataDir); fork uses `~/.agent-orchestrator/` | Decide: adopt `~/.ao/` (breaking for existing operators) OR keep `~/.agent-orchestrator/` (override default). |
-| **Module path** | Upstream is `github.com/aoagents/agent-orchestrator/backend`; fork is `jleechanorg/agent-orchestrator` | Pick `github.com/jleechanorg/agent-orchestrator/backend` before first Go import. |
+| **Module path** | Upstream is `github.com/aoagents/agent-orchestrator/backend`; fork is `jleechanorg/agent-orchestrator-ts` | Pick `github.com/jleechanorg/agent-orchestrator-ts/backend` before first Go import. |
 
 **Phase 0 (weeks 1-2): Audit TS deps of every fork plugin**
 - For each of the 38 plugins in `packages/plugins/`, check: does it have a hard TS dep on something upstream Go can't easily replicate?
@@ -385,7 +385,7 @@ Per operator: **"maybe my skeptic agent can stay as tsx for now"**
 - **Upstream repo** (now branded "ReverbCode"): https://github.com/agentwrapper/agent-orchestrator
 - **Upstream Go module path**: `github.com/aoagents/agent-orchestrator/backend`
 - **Upstream architecture doc**: `/tmp/upstream-ao/docs/architecture.md`, `/tmp/upstream-ao/docs/STATUS.md`
-- **Fork-only tracking PR** (TS→TS refactor): https://github.com/jleechanorg/agent-orchestrator/pull/712
-- **Recent merged fork PR** (webhook opt-in): https://github.com/jleechanorg/agent-orchestrator/pull/727
+- **Fork-only tracking PR** (TS→TS refactor): https://github.com/jleechanorg/agent-orchestrator-ts/pull/712
+- **Recent merged fork PR** (webhook opt-in): https://github.com/jleechanorg/agent-orchestrator-ts/pull/727
 - **Bead**: `bd-zrwq` (P2 IN_PROGRESS — Path D + 3 hard gates resolved 2026-06-28)
 - **Memory entry**: `feedback_2026-06-25_upstream_go_switch.md` (created 2026-06-25; agento wedge follow-up at `feedback_2026-06-28_in_process_lifecycle_wedge_on_rate_limit.md`)

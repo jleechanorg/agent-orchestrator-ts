@@ -14,7 +14,7 @@ function makeLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaun
     sessionId: "launch-wire-1",
     projectConfig: {
       name: "wire",
-      repo: "jleechanorg/agent-orchestrator",
+      repo: "jleechanorg/agent-orchestrator-ts",
       path: "/workspace",
       defaultBranch: "main",
       sessionPrefix: "w",
