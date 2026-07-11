@@ -3933,12 +3933,18 @@ describe("spawnOrchestrator", () => {
     expect(existsSync(deleteLogPath)).toBe(false);
   });
 
-  it("skips workspace creation", async () => {
+  it("creates an isolated workspace for the orchestrator", async () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
 
     await sm.spawnOrchestrator({ projectId: "my-app" });
 
-    expect(mockWorkspace.create).not.toHaveBeenCalled();
+    expect(mockWorkspace.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "my-app",
+        sessionId: "app-orchestrator",
+        branch: "main",
+      }),
+    );
   });
 
   it("calls agent.setupWorkspaceHooks on project path", async () => {
@@ -3972,7 +3978,7 @@ describe("spawnOrchestrator", () => {
 
     expect(mockRuntime.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        workspacePath: join(tmpDir, "my-app"),
+        workspacePath: "/tmp/mock-ws/app-1",
         launchCommand: "mock-agent --start",
       }),
     );
@@ -6638,4 +6644,3 @@ describe("SessionManager Domain Lock Integration", () => {
     expect(meta?.["status"]).toBe("working");
   });
 });
-
