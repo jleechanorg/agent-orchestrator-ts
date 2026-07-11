@@ -39,7 +39,7 @@ function makeLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaun
     sessionId: "inttest-minimax",
     projectConfig: {
       name: "inttest-minimax",
-      repo: "jleechanorg/agent-orchestrator",
+      repo: "jleechanorg/agent-orchestrator-ts",
       path: "/workspace",
       defaultBranch: "main",
       sessionPrefix: "minimax",

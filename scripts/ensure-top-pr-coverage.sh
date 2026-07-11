@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${REPO:-jleechanorg/agent-orchestrator}"
+REPO="${REPO:-jleechanorg/agent-orchestrator-ts}"
 PROJECT="${PROJECT:-agent-orchestrator}"
 TOP_N="${TOP_N:-5}"
 TMUX_SESSION_BUDGET="${TMUX_SESSION_BUDGET:-20}"

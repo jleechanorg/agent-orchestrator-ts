@@ -2,7 +2,7 @@
 
 ## Status
 
-2026-04-20: implementation PR is https://github.com/jleechanorg/agent-orchestrator/pull/474.
+2026-04-20: implementation PR is https://github.com/jleechanorg/agent-orchestrator-ts/pull/474.
 
 ## Goal
 

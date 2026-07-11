@@ -23,7 +23,7 @@ const oldCommitDate = new Date(NOW_MS - STALL_THRESHOLD_MS - 60_000).toISOString
 
 // Production stores session.pr as a URL string (not PRInfo). Use URL strings
 // in fixtures to match real runtime behavior. parsePRUrl handles both formats.
-const TEST_PR_URL = "https://github.com/jleechanorg/agent-orchestrator/pull/123";
+const TEST_PR_URL = "https://github.com/jleechanorg/agent-orchestrator-ts/pull/123";
 
 function makeDeps(
   overrides: Partial<ProductivityDeps> & { ghRest?: GhRestMock } = {},

@@ -44,7 +44,7 @@ Minimal target: 1 thin GHA workflow + lifecycle-worker as primary + GHA cron as 
 
 | Bead | Title | Link |
 |------|-------|------|
-| bd-150d | Minimal skeptic per-repo design | [bd-150d](https://github.com/jleechanorg/agent-orchestrator/blob/jq-filter-fix/.beads/issues.jsonl#L1) |
+| bd-150d | Minimal skeptic per-repo design | [bd-150d](https://github.com/jleechanorg/agent-orchestrator-ts/blob/jq-filter-fix/.beads/issues.jsonl#L1) |
 
 ---
 

@@ -1,6 +1,6 @@
 # Design: Absorb jleechanclaw Orchestration Patterns into AO Core
 
-> **FORK-ONLY:** This file is for the jleechanorg/agent-orchestrator fork. Do not include in ComposioHQ/agent-orchestrator PRs — exclude from upstream PRs per repo policy. Excluded paths: `docs/design/*.md`, `CLAUDE.md`, `AGENTS.md`, `roadmap/`, `.beads/`.
+> **FORK-ONLY:** This file is for the jleechanorg/agent-orchestrator-ts fork. Do not include in ComposioHQ/agent-orchestrator PRs — exclude from upstream PRs per repo policy. Excluded paths: `docs/design/*.md`, `CLAUDE.md`, `AGENTS.md`, `roadmap/`, `.beads/`.
 
 **Date:** 2026-03-17
 **Beads:** bd-uxs (epic), bd-uxs.1–8

@@ -30,8 +30,8 @@ run_capture shell "bash" "-lc" "tmux list-sessions -F '#{session_name}' 2>/dev/n
 run_capture ao_doctor ao doctor
 run_capture ao_status ao status
 run_capture openclaw_status openclaw status
-run_capture open_prs gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open&per_page=100"
-run_capture merged_prs gh api "repos/jleechanorg/agent-orchestrator/pulls?state=closed&per_page=100&sort=updated&direction=desc"
+run_capture open_prs gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=open&per_page=100"
+run_capture merged_prs gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=closed&per_page=100&sort=updated&direction=desc"
 run_capture sessions ao session ls --project agent-orchestrator
 run_capture coverage bash "$REPO_ROOT/scripts/check-pr-worker-coverage.sh"
 

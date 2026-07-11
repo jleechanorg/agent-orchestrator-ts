@@ -1,6 +1,6 @@
 {
   "branches": ["main"],
-  "repositoryUrl": "https://github.com/jleechanorg/agent-orchestrator",
+  "repositoryUrl": "https://github.com/jleechanorg/agent-orchestrator-ts",
   "tagFormat": "v${version}",
   "plugins": [
     ["@semantic-release/commit-analyzer", {

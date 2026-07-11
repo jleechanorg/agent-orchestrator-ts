@@ -138,7 +138,7 @@ ao session ls --project agent-orchestrator  # session should still be alive
 **What to verify:** PR #151 is merged into main with all 7 green checks passing.
 **Commands to run:**
 ```bash
-gh api repos/jleechanorg/agent-orchestrator/pulls/151 --jq '{state: .state, merged: .merged, mergeable_state: .mergeable_state}'
+gh api repos/jleechanorg/agent-orchestrator-ts/pulls/151 --jq '{state: .state, merged: .merged, mergeable_state: .mergeable_state}'
 ```
 **What PASS looks like:**
 - `state: "closed"`, `merged: true`

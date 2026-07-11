@@ -7,7 +7,7 @@
 # Background: on 2026-06-18 a manual audit found 15 launchd plists at
 # exit 127 (script-missing or wrong-container-name) that had been silently
 # retrying for weeks — launchd's ThrottleInterval=10s restarts them but
-# nothing alerts the operator. See jleechanorg/agent-orchestrator #709 and
+# nothing alerts the operator. See jleechanorg/agent-orchestrator-ts #709 and
 # memory feedback_2026-06-18_launchd_plist_drift for the full incident.
 #
 # This script is the structural backstop: once per night it scans

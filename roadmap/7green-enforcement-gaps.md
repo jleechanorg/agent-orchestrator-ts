@@ -88,7 +88,7 @@ PRs #255, #249, #240, #242, #243, #247, #216
 ### P0: Add required status checks to branch protection
 - **Effort**: Small (GitHub settings change)
 - **Impact**: Prevents gate 1 bypass — CI failures block merge
-- **Action**: `gh api repos/jleechanorg/agent-orchestrator/branches/main/protection --method PUT` with required checks
+- **Action**: `gh api repos/jleechanorg/agent-orchestrator-ts/branches/main/protection --method PUT` with required checks
 
 ### P1: Create merge-gate GitHub Action
 - **Effort**: Medium (new workflow)

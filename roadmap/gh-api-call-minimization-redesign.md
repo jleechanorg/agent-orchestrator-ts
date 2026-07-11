@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-21  
 **Status:** Draft for implementation  
-**Scope:** `jleechanorg/agent-orchestrator` fork runtime + workflows
+**Scope:** `jleechanorg/agent-orchestrator-ts` fork runtime + workflows
 
 ---
 

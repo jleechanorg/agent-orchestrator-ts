@@ -284,7 +284,7 @@ pnpm --filter @jleechanorg/ao-integration-tests test:integration -- -t "agent-(w
 
 ## Fork / PR target
 
-`jleechanorg/agent-orchestrator`. Never upstream `agentwrapper/agent-orchestrator` PR without explicit approval. Strip fork artifacts for upstream cherry-picks. (The `ComposioHQ/agent-orchestrator` repo mirrors `agentwrapper/agent-orchestrator`; the canonical upstream org is now `agentwrapper`.)
+`jleechanorg/agent-orchestrator-ts`. Never upstream `agentwrapper/agent-orchestrator` PR without explicit approval. Strip fork artifacts for upstream cherry-picks. (The `ComposioHQ/agent-orchestrator` repo mirrors `agentwrapper/agent-orchestrator`; the canonical upstream org is now `agentwrapper`.)
 
 ## Provider Agent Plugins (wafer, minimax)
 

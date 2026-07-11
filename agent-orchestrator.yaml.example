@@ -171,12 +171,12 @@ projects:
       enabled: true
       maxActiveSessions: 20
 
-  # Fork: jleechanorg/agent-orchestrator — builtin manager evolve loop (bd-elcfg).
+  # Fork: jleechanorg/agent-orchestrator-ts — builtin manager evolve loop (bd-elcfg).
   # Mirror under projects.agent-orchestrator in ~/.openclaw/agent-orchestrator.yaml when self-hosting.
   # Template: see projects.jleechanclaw.evolveLoop in the same file for a fuller scope list (e.g. antig-dispatch).
   agent-orchestrator:
     name: Agent Orchestrator
-    repo: jleechanorg/agent-orchestrator
+    repo: jleechanorg/agent-orchestrator-ts
     path: ~/projects_reference/agent-orchestrator
     defaultBranch: main
     sessionPrefix: ao
