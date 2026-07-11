@@ -19,13 +19,7 @@ vi.mock("node:child_process", () => {
 
 import { create, manifest, ghRestFallback, parseHttpStatusCode } from "../src/index.js";
 import { _resetGhCache } from "../src/gh-cache.js";
-import type {
-  PRInfo,
-  SCMWebhookRequest,
-  Session,
-  ProjectConfig,
-  CICheck,
-} from "@jleechanorg/ao-core";
+import type { PRInfo, SCMWebhookRequest, Session, ProjectConfig, CICheck } from "@jleechanorg/ao-core";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -401,11 +395,7 @@ describe("scm-github plugin", () => {
       mockGh([
         { id: 1, user: { login: "user-1", type: "User" }, body: "/skeptic do it" },
         { id: 2, user: { login: "Copilot", type: "User" }, body: "/skeptic do it" },
-        {
-          id: 3,
-          user: { login: "copilot-pull-request-reviewer", type: "User" },
-          body: "/skeptic do it",
-        },
+        { id: 3, user: { login: "copilot-pull-request-reviewer", type: "User" }, body: "/skeptic do it" },
         { id: 4, user: { login: "some-system-bot", type: "Bot" }, body: "/skeptic do it" },
         { id: 5, user: { login: "user-2", type: "User" }, body: "SKEPTIC_GATE_TRIGGER" },
         { id: 6, user: { login: "some-system-bot", type: "Bot" }, body: "SKEPTIC_GATE_TRIGGER" },
@@ -438,6 +428,7 @@ describe("scm-github plugin", () => {
       expect(comments[6].user).toEqual({ login: "", type: null });
     });
   });
+
 
   describe("verifyWebhook", () => {
     it("accepts unsigned webhooks when no secret is configured", async () => {
@@ -2029,9 +2020,10 @@ describe("scm-github plugin", () => {
       mockGhError("API rate limit exceeded");
       mockGh({ state: "open", merged: false });
       ghMock.mockRejectedValueOnce(
-        Object.assign(new Error("Command failed: curl ... returned error: 403"), {
-          stdout: '{"message":"Resource not accessible by integration"}',
-        }),
+        Object.assign(
+          new Error("Command failed: curl ... returned error: 403"),
+          { stdout: '{"message":"Resource not accessible by integration"}' },
+        ),
       );
       mockGh([]);
 
@@ -3253,10 +3245,7 @@ describe("scm-github plugin", () => {
 
       const checks = [
         failedCheck({ name: "build (ubuntu)" }),
-        failedCheck({
-          name: "build (macos)",
-          url: "https://github.com/acme/repo/actions/runs/12345/jobs/67890",
-        }),
+        failedCheck({ name: "build (macos)", url: "https://github.com/acme/repo/actions/runs/12345/jobs/67890" }),
       ];
       const result = await scm.getCIFailureSummary!(pr, checks);
       // Same runId:jobId → only one entry
@@ -3272,14 +3261,8 @@ describe("scm-github plugin", () => {
       ghMock.mockResolvedValueOnce({ stdout: logOutput });
 
       const checks = [
-        failedCheck({
-          name: "build",
-          url: "https://github.com/acme/repo/actions/runs/111/jobs/222",
-        }),
-        failedCheck({
-          name: "deploy",
-          url: "https://github.com/acme/repo/actions/runs/333/jobs/444",
-        }),
+        failedCheck({ name: "build", url: "https://github.com/acme/repo/actions/runs/111/jobs/222" }),
+        failedCheck({ name: "deploy", url: "https://github.com/acme/repo/actions/runs/333/jobs/444" }),
       ];
       const result = await scm.getCIFailureSummary!(pr, checks);
       expect(result).not.toBeNull();
@@ -3321,13 +3304,7 @@ describe("scm-github plugin", () => {
     it("fetches failed checks itself when none provided", async () => {
       // getCIChecks call
       mockGh([
-        {
-          name: "build",
-          state: "FAILURE",
-          link: "https://github.com/acme/repo/actions/runs/123/jobs/456",
-          startedAt: "",
-          completedAt: "",
-        },
+        { name: "build", state: "FAILURE", link: "https://github.com/acme/repo/actions/runs/123/jobs/456", startedAt: "", completedAt: "" },
         { name: "lint", state: "SUCCESS", link: "", startedAt: "", completedAt: "" },
       ]);
       // getFailedJobLog call
