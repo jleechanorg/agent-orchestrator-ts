@@ -132,6 +132,33 @@ describe("antigravity getLaunchCommand", () => {
 
     expect(cmd).toContain("agy --prompt-interactive 'hello '\\''world'\\''");
   });
+
+  it("incorporates launchConfig.model if provided", () => {
+    const agent = create();
+    const cmd = agent.getLaunchCommand({
+      ...makeLaunchConfig(),
+      model: "gemini-2.5-pro",
+    });
+
+    expect(cmd).toContain("--model 'gemini-2.5-pro'");
+  });
+
+  it("escapes launchConfig.model if it has special characters", () => {
+    const agent = create();
+    const cmd = agent.getLaunchCommand({
+      ...makeLaunchConfig(),
+      model: "my 'custom' model",
+    });
+
+    expect(cmd).toContain("--model 'my '\\''custom'\\'' model'");
+  });
+
+  it("does not incorporate launchConfig.model if not provided", () => {
+    const agent = create();
+    const cmd = agent.getLaunchCommand(makeLaunchConfig());
+
+    expect(cmd).not.toContain("--model");
+  });
 });
 
 describe("antigravity getEnvironment", () => {
