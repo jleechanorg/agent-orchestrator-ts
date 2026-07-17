@@ -126,7 +126,7 @@ async function checkGhAuth(): Promise<void> {
       }
     }
 
-    throw new Error("GitHub CLI is not authenticated. Run: gh auth login");
+    throw new Error("GitHub CLI is not authenticated. Run: gh auth login", { cause: err });
   }
 }
 
