@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { type Session, type SessionManager, getProjectBaseDir } from "@jleechanorg/ao-core";
 
-const { mockExec, mockConfigRef, mockSessionManager, mockEnsureLifecycleWorker, mockGetRunning } = vi.hoisted(
+const { mockExec, mockExecOrError, mockConfigRef, mockSessionManager, mockEnsureLifecycleWorker, mockGetRunning } = vi.hoisted(
   () => ({
     mockExec: vi.fn(),
+    mockExecOrError: vi.fn(),
     mockConfigRef: { current: null as Record<string, unknown> | null },
     mockSessionManager: {
       list: vi.fn(),
@@ -26,6 +27,7 @@ const { mockExec, mockConfigRef, mockSessionManager, mockEnsureLifecycleWorker, 
 vi.mock("../../src/lib/shell.js", () => ({
   tmux: vi.fn(),
   exec: mockExec,
+  execOrError: mockExecOrError,
   execSilent: vi.fn(),
   git: vi.fn(),
   gh: vi.fn(),
@@ -632,11 +634,15 @@ describe("spawn pre-flight checks", () => {
     >;
     projects["my-app"].tracker = { plugin: "github" };
 
-    // tmux check passes, gh --version passes, gh auth status fails
+    // tmux check passes, gh --version passes, gh auth status fails (401)
     mockExec
       .mockResolvedValueOnce({ stdout: "tmux 3.3a", stderr: "" }) // tmux -V
-      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // gh --version
-      .mockRejectedValueOnce(new Error("not logged in")); // gh auth status
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }); // gh --version
+    mockExecOrError.mockResolvedValueOnce({
+      stdout: "",
+      stderr: "gh: HTTP 401 Bad credentials",
+      code: 1,
+    });
 
     await expect(program.parseAsync(["node", "test", "spawn"])).rejects.toThrow(
       "process.exit(1)",
@@ -646,7 +652,7 @@ describe("spawn pre-flight checks", () => {
       .mocked(console.error)
       .mock.calls.map((c) => String(c[0]))
       .join("\n");
-    expect(errors).toContain("not authenticated");
+    expect(errors).toContain("401");
     expect(mockSessionManager.spawn).not.toHaveBeenCalled();
   });
 
@@ -660,8 +666,12 @@ describe("spawn pre-flight checks", () => {
 
     mockExec
       .mockResolvedValueOnce({ stdout: "tmux 3.3a", stderr: "" })
-      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" })
-      .mockRejectedValueOnce(new Error("not logged in"));
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" });
+    mockExecOrError.mockResolvedValueOnce({
+      stdout: "",
+      stderr: "gh: HTTP 401 Bad credentials",
+      code: 1,
+    });
 
     await expect(
       program.parseAsync(["node", "test", "spawn", "--claim-pr", "123"]),
@@ -671,7 +681,7 @@ describe("spawn pre-flight checks", () => {
       .mocked(console.error)
       .mock.calls.map((c) => String(c[0]))
       .join("\n");
-    expect(errors).toContain("not authenticated");
+    expect(errors).toMatch(/401|auth login/);
     expect(mockSessionManager.spawn).not.toHaveBeenCalled();
   });
 
@@ -720,14 +730,17 @@ describe("spawn pre-flight checks", () => {
 
     mockExec
       .mockResolvedValueOnce({ stdout: "tmux 3.3a", stderr: "" })
-      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" })
-      .mockResolvedValueOnce({ stdout: "Logged in", stderr: "" });
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" });
+    mockExecOrError.mockResolvedValueOnce({ stdout: "Logged in", stderr: "", code: 0 });
 
     await program.parseAsync(["node", "test", "spawn", "--claim-pr", "123"]);
 
     expect(mockExec).toHaveBeenCalledWith("tmux", ["-V"]);
-    const ghCalls = mockExec.mock.calls.filter(([command]) => command === "gh");
-    expect(ghCalls).toHaveLength(2);
+    // `gh auth status` is now called via `execOrError` (post-qcr9) so
+    // mockExec only carries --version; the status call shows up on
+    // mockExecOrError instead.
+    expect(mockExec).toHaveBeenCalledWith("gh", ["--version"]);
+    expect(mockExecOrError).toHaveBeenCalledWith("gh", ["auth", "status"]);
     expect(mockSessionManager.spawn).toHaveBeenCalled();
     expect(mockSessionManager.claimPR).toHaveBeenCalledWith("app-1", "123", {
       assignOnGithub: undefined,

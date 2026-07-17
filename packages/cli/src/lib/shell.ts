@@ -21,6 +21,31 @@ export async function exec(
   return { stdout: stdout.trimEnd(), stderr: stderr.trimEnd() };
 }
 
+/**
+ * Like `exec` but does NOT throw on non-zero exit — returns the captured
+ * stdout/stderr and a separate `code` so callers (e.g. `preflight.checkGhAuth`)
+ * can classify failures by the actual command output instead of just
+ * "exit code != 0". Pre-qcr9 the preflight treated every non-zero exit as
+ * "not authenticated" and missed transient HTTP 403/429 rate-limit cases.
+ */
+export async function execOrError(
+  cmd: string,
+  args: string[],
+  options?: { cwd?: string; env?: Record<string, string> },
+): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  try {
+    const result = await exec(cmd, args, options);
+    return { stdout: result.stdout, stderr: result.stderr, code: 0 };
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; code?: number | null };
+    return {
+      stdout: (e.stdout ?? "").trimEnd(),
+      stderr: (e.stderr ?? "").trimEnd(),
+      code: e.code ?? null,
+    };
+  }
+}
+
 export async function execSilent(cmd: string, args: string[]): Promise<string | null> {
   try {
     const { stdout } = await exec(cmd, args);

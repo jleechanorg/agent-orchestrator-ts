@@ -595,3 +595,101 @@ describe("buildWorkerPromptArtifact", () => {
     expect(result.promptIssueId).toBe("INT-500");
   });
 });
+
+// =============================================================================
+// Stage C — Dispatch Prompt Repo / Remote / Push-Command Layer
+// =============================================================================
+//
+// Subsumes tracker 9sh5 + the prior "Stage C" dispatch hardening goal: the
+// prompt sent to a freshly-spawned worker must state the repo, the remote
+// name (default: origin), and the literal push command so the agent never
+// guesses. Today the project context only emits a `Repository:` line; the
+// push-command and remote-name are left implicit. These tests pin the
+// Stage C contract so a worker cannot push to the wrong remote by mistake.
+
+describe("Dispatch Repo / Remote / Push-Command (Stage C)", () => {
+  it("includes a Git Remote section naming the remote and its URL", () => {
+    project.repo = "jleechanorg/worldarchitect.ai";
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+    });
+
+    expect(result).toContain("## Git Remote");
+    expect(result).toContain("origin");
+    expect(result).toContain("jleechanorg/worldarchitect.ai");
+  });
+
+  it("includes the literal git push command the worker should run", () => {
+    project.repo = "jleechanorg/worldarchitect.ai";
+    project.defaultBranch = "main";
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-9sh5",
+    });
+
+    // Stage C must show the worker the exact push command — not "git push"
+    // alone. The remote name (`origin`) and the user's local branch (HEAD)
+    // must both be explicit.
+    expect(result).toContain("git push");
+    expect(result).toContain("origin HEAD");
+  });
+
+  it("names the configured default branch in the push hint", () => {
+    project.defaultBranch = "develop";
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+    });
+
+    expect(result).toContain("## Git Remote");
+    // The default branch (develop) should be mentioned so the worker knows
+    // what `origin/HEAD` will land on when they open the PR.
+    expect(result).toContain("develop");
+  });
+
+  it("omits Git Remote section when project.repo is unset (no remote detected)", () => {
+    project.repo = undefined;
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+    });
+
+    // Without a configured repo, the agent has no canonical remote to push
+    // to — emitting a "Git Remote" section with a missing URL would mislead
+    // the worker. The section must be suppressed.
+    expect(result).not.toContain("## Git Remote");
+    expect(result).not.toContain("git push origin HEAD");
+  });
+
+  it("is included in the dispatched prompt written to disk by buildWorkerPromptArtifact", () => {
+    project.repo = "jleechanorg/worldarchitect.ai";
+    const dir = join(tmpdir(), `ao-prompt-test-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    const configPath = join(dir, "ao-config.yaml");
+    writeFileSync(configPath, "projects: {}\n");
+    const config: WorkerPromptArtifactConfig = {
+      agent: {
+        name: "test-agent",
+        runtime: "tmux",
+        supportsSystemPromptFile: true,
+      } as unknown as Agent,
+      configPath,
+      hasTracker: false,
+      issueContext: undefined,
+      project,
+      resolvedIssue: undefined,
+      sessionId: "test-session-9sh5" as WorkerPromptArtifactConfig["sessionId"],
+      spawnConfig: {
+        projectId: "test-app",
+        issueId: "INT-9sh5",
+      },
+    };
+    const result = buildWorkerPromptArtifact(config);
+
+    const content = readFileSync(result.composedPromptPath, "utf-8");
+    expect(content).toContain("## Git Remote");
+    expect(content).toContain("git push origin HEAD");
+  });
+});

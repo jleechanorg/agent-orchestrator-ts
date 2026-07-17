@@ -44,17 +44,26 @@ export function readProjectPause(
   configPath: string,
   project: ProjectConfig,
   nowMs = Date.now(),
+  agentName?: string,
 ): ProjectPauseState | null {
   const sessionsDir = getSessionsDir(configPath, project.path);
   const raw = readMetadataRaw(sessionsDir, getOrchestratorSessionId(project));
   if (!raw) return null;
 
-  const until = parsePauseUntil(raw[GLOBAL_PAUSE_UNTIL_KEY]);
+  const suffix = agentName ? `_${agentName}` : "";
+  let until = parsePauseUntil(raw[`${GLOBAL_PAUSE_UNTIL_KEY}${suffix}`]);
+  let reason = raw[`${GLOBAL_PAUSE_REASON_KEY}${suffix}`];
+
+  if ((!until || until.getTime() <= nowMs) && suffix !== "") {
+    until = parsePauseUntil(raw[GLOBAL_PAUSE_UNTIL_KEY]);
+    reason = raw[GLOBAL_PAUSE_REASON_KEY];
+  }
+
   if (!until || until.getTime() <= nowMs) return null;
 
   return {
     until,
-    reason: raw[GLOBAL_PAUSE_REASON_KEY] ?? "Model rate limit reached",
+    reason: reason ?? "Model rate limit reached",
   };
 }
 

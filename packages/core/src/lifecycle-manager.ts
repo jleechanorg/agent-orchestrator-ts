@@ -484,29 +484,42 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     try {
       const sessions = await sessionManager.list(scopedProjectId);
 
-      // Mirror pollAll: build a snapshot of currently-paused projects so
+      // Mirror pollAll: build a snapshot of currently-paused projects/agents so
       // productivity checks skip paused sessions (bd-nk7).
-      const pausedProjects = new Map<string, Date>();
+      const pausedAgentsByProject = new Map<string, Set<string>>();
       for (const session of sessions) {
         if (!isLifecycleOrchestratorSession(session)) continue;
-        const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
-        if (!until) continue;
-        if (until.getTime() <= Date.now()) {
-          // Pause has expired — clear it from disk.
-          const project = config.projects[session.projectId];
-          if (project && session.metadata[GLOBAL_PAUSE_REASON_KEY]) {
-            clearProjectPause(config.configPath, project);
+        for (const [key, value] of Object.entries(session.metadata)) {
+          if (key === GLOBAL_PAUSE_UNTIL_KEY || key.startsWith(`${GLOBAL_PAUSE_UNTIL_KEY}_`)) {
+            const until = parsePauseUntil(value);
+            if (!until) continue;
+            const agentName = key === GLOBAL_PAUSE_UNTIL_KEY ? "" : key.slice(GLOBAL_PAUSE_UNTIL_KEY.length + 1);
+            if (until.getTime() <= Date.now()) {
+              // Pause has expired — clear it from disk.
+              const project = config.projects[session.projectId];
+              const suffix = agentName ? `_${agentName}` : "";
+              if (project && session.metadata[`${GLOBAL_PAUSE_REASON_KEY}${suffix}`]) {
+                clearProjectPause(config.configPath, project, agentName || undefined);
+              }
+              continue;
+            }
+            if (!pausedAgentsByProject.has(session.projectId)) {
+              pausedAgentsByProject.set(session.projectId, new Set());
+            }
+            pausedAgentsByProject.get(session.projectId)!.add(agentName);
           }
-          continue;
         }
-        pausedProjects.set(session.projectId, until);
       }
 
-      // Filter to active (non-terminal) sessions, excluding paused projects.
+      // Filter to active (non-terminal) sessions, excluding paused projects/agents.
       const active = sessions.filter(
-        (s: Session) =>
-          !TERMINAL_STATUSES.has(s.status) &&
-          !pausedProjects.has(s.projectId),
+        (s: Session) => {
+          if (TERMINAL_STATUSES.has(s.status)) return false;
+          const pausedSet = pausedAgentsByProject.get(s.projectId);
+          if (!pausedSet) return true;
+          const sAgent = s.metadata["agent"] || "";
+          return !pausedSet.has("") && (!sAgent || !pausedSet.has(sAgent));
+        },
       );
       const tmux = await import("./tmux.js");
       const { runProductivityChecks } = await import("./productivity-checker.js");
@@ -2658,21 +2671,30 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     try {
       const sessions = await loadSessionsForPoll();
 
-      const pausedProjects = new Map<string, Date>();
+      const pausedAgentsByProject = new Map<string, Set<string>>();
       for (const session of sessions) {
         if (!isLifecycleOrchestratorSession(session)) continue;
-        const until = parsePauseUntil(session.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
-        if (!until) continue;
-        if (until.getTime() <= Date.now()) {
-          // Only clear REASON if still set; UNTIL is intentionally preserved for the
-          // grace-window check in detectAndApplyRateLimitPause (avoids repeated disk writes).
-          const project = config.projects[session.projectId];
-          if (project && session.metadata[GLOBAL_PAUSE_REASON_KEY]) {
-            clearProjectPause(config.configPath, project);
+        for (const [key, value] of Object.entries(session.metadata)) {
+          if (key === GLOBAL_PAUSE_UNTIL_KEY || key.startsWith(`${GLOBAL_PAUSE_UNTIL_KEY}_`)) {
+            const until = parsePauseUntil(value);
+            if (!until) continue;
+            const agentName = key === GLOBAL_PAUSE_UNTIL_KEY ? "" : key.slice(GLOBAL_PAUSE_UNTIL_KEY.length + 1);
+            if (until.getTime() <= Date.now()) {
+              // Only clear REASON if still set; UNTIL is intentionally preserved for the
+              // grace-window check in detectAndApplyRateLimitPause (avoids repeated disk writes).
+              const project = config.projects[session.projectId];
+              const suffix = agentName ? `_${agentName}` : "";
+              if (project && session.metadata[`${GLOBAL_PAUSE_REASON_KEY}${suffix}`]) {
+                clearProjectPause(config.configPath, project, agentName || undefined);
+              }
+              continue;
+            }
+            if (!pausedAgentsByProject.has(session.projectId)) {
+              pausedAgentsByProject.set(session.projectId, new Set());
+            }
+            pausedAgentsByProject.get(session.projectId)!.add(agentName);
           }
-          continue;
         }
-        pausedProjects.set(session.projectId, until);
       }
 
       // Track whether any sessions have been observed across all poll cycles.
@@ -2699,18 +2721,31 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           const sessionsDir = getSessionsDir(config.configPath, project.path);
           const orchId = `${project.sessionPrefix}-orchestrator`;
           const raw = readMetadataRaw(sessionsDir, orchId);
-          const until = raw ? parsePauseUntil(raw[GLOBAL_PAUSE_UNTIL_KEY]) : null;
-          if (until && until.getTime() > Date.now()) {
-            pausedProjects.set(s.projectId, until);
+          if (raw) {
+            const pausedSet = new Set<string>();
+            for (const [key, value] of Object.entries(raw)) {
+              if (key === GLOBAL_PAUSE_UNTIL_KEY || key.startsWith(`${GLOBAL_PAUSE_UNTIL_KEY}_`)) {
+                const until = parsePauseUntil(value);
+                if (until && until.getTime() > Date.now()) {
+                  const agentName = key === GLOBAL_PAUSE_UNTIL_KEY ? "" : key.slice(GLOBAL_PAUSE_UNTIL_KEY.length + 1);
+                  pausedSet.add(agentName);
+                }
+              }
+            }
+            pausedAgentsByProject.set(s.projectId, pausedSet);
           } else {
-            pausedProjects.delete(s.projectId);
+            pausedAgentsByProject.delete(s.projectId);
           }
         }
         // Skip non-orchestrator sessions if project is currently paused.
         // Terminal sessions bypass so exit proof, outcome recording, and cleanup
         // are not delayed (bd-e4t).
-        if (pausedProjects.has(s.projectId) && !isLifecycleOrchestratorSession(s) && !TERMINAL_STATUSES.has(s.status)) {
-          continue;
+        if (!isLifecycleOrchestratorSession(s) && !TERMINAL_STATUSES.has(s.status)) {
+          const sAgent = s.metadata["agent"] || "";
+          const pausedSet = pausedAgentsByProject.get(s.projectId);
+          if (pausedSet && (pausedSet.has("") || (sAgent && pausedSet.has(sAgent)))) {
+            continue;
+          }
         }
         await checkSession(s).catch((err) => {
           const errorReason = err instanceof Error ? err.message : String(err);

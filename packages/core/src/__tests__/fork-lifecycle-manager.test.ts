@@ -438,4 +438,35 @@ describe("detectAndApplyRateLimitPause", () => {
     const raw = readMetadataRaw(sessionsDir, orchId);
     expect(raw![GLOBAL_PAUSE_UNTIL_KEY]).toBe(expiredUntil.toISOString());
   });
+
+  it("detectAndApplyRateLimitPause scopes pause by agentName from session metadata", async () => {
+    vi.setSystemTime(new Date("2026-06-01T10:00:00"));
+    const configPath = makeConfigPath();
+    const project = makeProject();
+    const sessionsDir = getSessionsDir(configPath, project.path);
+    const orchId = "app-orchestrator";
+    writeOrchestratorSeed(sessionsDir, orchId);
+
+    const session = makeSession({
+      id: "app-1",
+      metadata: { agent: "claude" },
+    });
+    const mockRuntime: Runtime = {
+      getOutput: vi.fn().mockResolvedValue(
+        "usage limit reached\nlimit will reset at 2026-06-01 12:00",
+      ),
+    } as unknown as Runtime;
+    const mockSessionManager: SessionManager = {
+      get: vi.fn().mockResolvedValue({
+        id: orchId,
+        metadata: readMetadataRaw(sessionsDir, orchId) ?? {},
+      }),
+    } as unknown as SessionManager;
+
+    await detectAndApplyRateLimitPause(configPath, session, project, mockRuntime, mockSessionManager);
+
+    const raw = readMetadataRaw(sessionsDir, orchId);
+    expect(raw!["globalPauseUntil_claude"]).toBe(new Date("2026-06-01T12:00:00").toISOString());
+    expect(raw!["globalPauseSource_claude"]).toBe("app-1");
+  });
 });
