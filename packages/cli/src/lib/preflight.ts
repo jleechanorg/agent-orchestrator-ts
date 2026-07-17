@@ -55,9 +55,53 @@ async function checkTmux(): Promise<void> {
 }
 
 /**
+ * Narrow classification of `gh auth status` failure output, used only to
+ * distinguish a GitHub API rate-limit response (GraphQL bucket exhausted)
+ * from a genuine auth failure (no token / bad credentials). This is
+ * deterministic parsing of a CLI's own error text for control flow, not
+ * semantic judgment — the signatures come directly from gh's known error
+ * strings and HTTP status codes.
+ */
+function isRateLimitError(output: string): boolean {
+  const lower = output.toLowerCase();
+  return (
+    lower.includes("api rate limit") ||
+    lower.includes("rate limit exceeded") ||
+    lower.includes("http 403") ||
+    lower.includes("http 429") ||
+    /\b403\b/.test(lower) ||
+    /\b429\b/.test(lower)
+  );
+}
+
+/**
+ * Returns a configured GitHub token, if any, without making an API call.
+ * Env vars are checked first since `gh` itself prioritizes them; `gh auth
+ * token` reads local credential storage and is a local op (no network/API
+ * call), so it stays reliable even when the API rate limit is exhausted.
+ */
+async function getConfiguredGhToken(): Promise<string | null> {
+  if (process.env.GH_TOKEN) return process.env.GH_TOKEN;
+  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
+  try {
+    const { stdout } = await exec("gh", ["auth", "token"]);
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check that the GitHub CLI is installed and authenticated.
  * Distinguishes between "not installed" and "not authenticated"
  * so the user gets the right troubleshooting guidance.
+ *
+ * `gh auth status` validates the token via a GraphQL call. When the
+ * GraphQL rate-limit bucket is exhausted, `gh auth status` fails and
+ * reports the token as invalid even though a real, valid token is
+ * configured (see jleechan-ao-preflight-ratelimit-qcr9). In that case we
+ * fall back to a local, API-free presence check instead of hard-failing
+ * every spawn for the rate-limit window.
  */
 async function checkGhAuth(): Promise<void> {
   try {
@@ -68,7 +112,20 @@ async function checkGhAuth(): Promise<void> {
 
   try {
     await exec("gh", ["auth", "status"]);
-  } catch {
+  } catch (err: unknown) {
+    const error = err as { stdout?: string; stderr?: string };
+    const output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
+
+    if (isRateLimitError(output)) {
+      const token = await getConfiguredGhToken();
+      if (token) {
+        console.warn(
+          "gh auth status is rate-limited (GitHub API bucket exhausted); proceeding with configured token.",
+        );
+        return;
+      }
+    }
+
     throw new Error("GitHub CLI is not authenticated. Run: gh auth login");
   }
 }
