@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { mockExec, mockIsPortAvailable, mockExistsSync } = vi.hoisted(() => ({
   mockExec: vi.fn(),
@@ -94,6 +94,22 @@ describe("preflight.checkTmux", () => {
 });
 
 describe("preflight.checkGhAuth", () => {
+  const savedGhToken = process.env.GH_TOKEN;
+  const savedGithubToken = process.env.GITHUB_TOKEN;
+
+  beforeEach(() => {
+    delete process.env.GH_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  afterEach(() => {
+    if (savedGhToken === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = savedGhToken;
+    if (savedGithubToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = savedGithubToken;
+    vi.restoreAllMocks();
+  });
+
   it("passes when gh is installed and authenticated", async () => {
     mockExec.mockResolvedValue({ stdout: "ok", stderr: "" });
     await expect(preflight.checkGhAuth()).resolves.toBeUndefined();
@@ -111,10 +127,15 @@ describe("preflight.checkGhAuth", () => {
     expect(mockExec).toHaveBeenCalledWith("gh", ["--version"]);
   });
 
-  it("throws 'not authenticated' when gh exists but auth fails", async () => {
+  it("throws 'not authenticated' when gh exists but auth fails with a genuine auth error", async () => {
     mockExec
       .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version succeeds
-      .mockRejectedValueOnce(new Error("not logged in")); // auth status fails
+      .mockRejectedValueOnce(
+        Object.assign(new Error("not logged in"), {
+          stdout: "",
+          stderr: "You are not logged into any GitHub hosts.",
+        }),
+      ); // auth status fails with a genuine (non-rate-limit) error
     await expect(preflight.checkGhAuth()).rejects.toThrow(
       "GitHub CLI is not authenticated",
     );
@@ -131,9 +152,64 @@ describe("preflight.checkGhAuth", () => {
     mockExec.mockReset();
 
     // Not authenticated → auth login
-    mockExec
-      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" })
-      .mockRejectedValueOnce(new Error("not logged in"));
+    mockExec.mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }).mockRejectedValueOnce(
+      Object.assign(new Error("not logged in"), {
+        stdout: "",
+        stderr: "You are not logged into any GitHub hosts.",
+      }),
+    );
     await expect(preflight.checkGhAuth()).rejects.toThrow("gh auth login");
+  });
+
+  it("does NOT throw 'not authenticated' when gh auth status fails due to GraphQL rate-limiting and a token is present", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockExec
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version
+      .mockRejectedValueOnce(
+        Object.assign(new Error("HTTP 403"), {
+          stdout: "",
+          stderr: "gh: API rate limit exceeded for installation ID 12345. (HTTP 403)",
+        }),
+      ) // auth status fails with rate-limit signature
+      .mockResolvedValueOnce({ stdout: "gho_faketoken1234567890", stderr: "" }); // gh auth token succeeds
+
+    await expect(preflight.checkGhAuth()).resolves.toBeUndefined();
+
+    expect(mockExec).toHaveBeenCalledWith("gh", ["auth", "token"]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("still throws 'not authenticated' when rate-limited AND no token is configured", async () => {
+    mockExec
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version
+      .mockRejectedValueOnce(
+        Object.assign(new Error("HTTP 429"), {
+          stdout: "",
+          stderr: "rate limit exceeded",
+        }),
+      ) // auth status rate-limited
+      .mockRejectedValueOnce(new Error("no token found")); // gh auth token fails too
+
+    await expect(preflight.checkGhAuth()).rejects.toThrow(
+      "GitHub CLI is not authenticated",
+    );
+  });
+
+  it("uses GH_TOKEN env var as presence check without calling 'gh auth token' again", async () => {
+    process.env.GH_TOKEN = "gho_envtoken";
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockExec
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version
+      .mockRejectedValueOnce(
+        Object.assign(new Error("HTTP 403"), {
+          stdout: "",
+          stderr: "API rate limit exceeded",
+        }),
+      ); // auth status rate-limited
+
+    await expect(preflight.checkGhAuth()).resolves.toBeUndefined();
+    // Should NOT shell out to `gh auth token` since GH_TOKEN env var already answers presence
+    expect(mockExec).not.toHaveBeenCalledWith("gh", ["auth", "token"]);
+    expect(warnSpy).toHaveBeenCalled();
   });
 });
