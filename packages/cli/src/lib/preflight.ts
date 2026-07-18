@@ -55,12 +55,11 @@ async function checkTmux(): Promise<void> {
 }
 
 /**
- * Narrow classification of `gh auth status` failure output, used only to
- * distinguish a GitHub API rate-limit response (GraphQL bucket exhausted)
- * from a genuine auth failure (no token / bad credentials). This is
- * deterministic parsing of a CLI's own error text for control flow, not
- * semantic judgment — the signatures come directly from gh's known error
- * strings and HTTP status codes.
+ * Narrow classification of a `gh` failure's output, used only to distinguish
+ * a GitHub API rate-limit response from a genuine auth failure (no token /
+ * bad credentials). This is deterministic parsing of a CLI's own error text
+ * for control flow, not semantic judgment — the signatures come directly
+ * from gh's known error strings and HTTP status codes.
  */
 function isRateLimitError(output: string): boolean {
   const lower = output.toLowerCase();
@@ -96,12 +95,18 @@ async function getConfiguredGhToken(): Promise<string | null> {
  * Distinguishes between "not installed" and "not authenticated"
  * so the user gets the right troubleshooting guidance.
  *
- * `gh auth status` validates the token via a GraphQL call. When the
- * GraphQL rate-limit bucket is exhausted, `gh auth status` fails and
- * reports the token as invalid even though a real, valid token is
- * configured (see jleechan-ao-preflight-ratelimit-qcr9). In that case we
- * fall back to a local, API-free presence check instead of hard-failing
- * every spawn for the rate-limit window.
+ * The primary probe is `gh api user` — a single cheap REST call that tests
+ * the thing we actually need (can this environment make authenticated API
+ * calls) rather than `gh`'s own opinion of the token. `gh auth status`
+ * validates via GraphQL and has proven unreliable for this purpose in two
+ * ways (see jleechan-ao-preflight-ratelimit-qcr9): it fails with rate-limit
+ * text when the GraphQL bucket is exhausted even though the token is valid,
+ * and — reproduced live against the daemon's actual token — it can report
+ * "token is invalid" outright while `gh api user` succeeds with the same
+ * token. So `gh auth status` is no longer consulted at all: if `gh api
+ * user` succeeds, preflight passes immediately; only on failure do we
+ * classify the failure text (rate-limit vs genuine) and fall back to a
+ * local, API-free token-presence check instead of hard-failing every spawn.
  */
 async function checkGhAuth(): Promise<void> {
   try {
@@ -111,7 +116,8 @@ async function checkGhAuth(): Promise<void> {
   }
 
   try {
-    await exec("gh", ["auth", "status"]);
+    await exec("gh", ["api", "user"]);
+    return;
   } catch (err: unknown) {
     const error = err as { stdout?: string; stderr?: string };
     const output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
@@ -120,7 +126,7 @@ async function checkGhAuth(): Promise<void> {
       const token = await getConfiguredGhToken();
       if (token) {
         console.warn(
-          "gh auth status is rate-limited (GitHub API bucket exhausted); proceeding with configured token.",
+          "gh api user is rate-limited (GitHub API bucket exhausted); proceeding with configured token.",
         );
         return;
       }

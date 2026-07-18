@@ -114,7 +114,7 @@ describe("preflight.checkGhAuth", () => {
     mockExec.mockResolvedValue({ stdout: "ok", stderr: "" });
     await expect(preflight.checkGhAuth()).resolves.toBeUndefined();
     expect(mockExec).toHaveBeenCalledWith("gh", ["--version"]);
-    expect(mockExec).toHaveBeenCalledWith("gh", ["auth", "status"]);
+    expect(mockExec).toHaveBeenCalledWith("gh", ["api", "user"]);
   });
 
   it("throws 'not installed' when gh is missing (ENOENT)", async () => {
@@ -122,20 +122,20 @@ describe("preflight.checkGhAuth", () => {
     await expect(preflight.checkGhAuth()).rejects.toThrow(
       "GitHub CLI (gh) is not installed",
     );
-    // Should only call --version, not auth status
+    // Should only call --version, not the api probe
     expect(mockExec).toHaveBeenCalledTimes(1);
     expect(mockExec).toHaveBeenCalledWith("gh", ["--version"]);
   });
 
-  it("throws 'not authenticated' when gh exists but auth fails with a genuine auth error", async () => {
+  it("throws 'not authenticated' when gh exists but the api probe fails with a genuine auth error", async () => {
     mockExec
       .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version succeeds
       .mockRejectedValueOnce(
-        Object.assign(new Error("not logged in"), {
+        Object.assign(new Error("HTTP 401"), {
           stdout: "",
-          stderr: "You are not logged into any GitHub hosts.",
+          stderr: "gh: Bad credentials (HTTP 401)",
         }),
-      ); // auth status fails with a genuine (non-rate-limit) error
+      ); // gh api user fails with a genuine (non-rate-limit) error
     await expect(preflight.checkGhAuth()).rejects.toThrow(
       "GitHub CLI is not authenticated",
     );
@@ -153,15 +153,15 @@ describe("preflight.checkGhAuth", () => {
 
     // Not authenticated → auth login
     mockExec.mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }).mockRejectedValueOnce(
-      Object.assign(new Error("not logged in"), {
+      Object.assign(new Error("HTTP 401"), {
         stdout: "",
-        stderr: "You are not logged into any GitHub hosts.",
+        stderr: "gh: Bad credentials (HTTP 401)",
       }),
     );
     await expect(preflight.checkGhAuth()).rejects.toThrow("gh auth login");
   });
 
-  it("does NOT throw 'not authenticated' when gh auth status fails due to GraphQL rate-limiting and a token is present", async () => {
+  it("does NOT throw 'not authenticated' when gh api user fails due to rate-limiting and a token is present", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockExec
       .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version
@@ -170,7 +170,7 @@ describe("preflight.checkGhAuth", () => {
           stdout: "",
           stderr: "gh: API rate limit exceeded for installation ID 12345. (HTTP 403)",
         }),
-      ) // auth status fails with rate-limit signature
+      ) // gh api user fails with rate-limit signature
       .mockResolvedValueOnce({ stdout: "gho_faketoken1234567890", stderr: "" }); // gh auth token succeeds
 
     await expect(preflight.checkGhAuth()).resolves.toBeUndefined();
@@ -187,7 +187,7 @@ describe("preflight.checkGhAuth", () => {
           stdout: "",
           stderr: "rate limit exceeded",
         }),
-      ) // auth status rate-limited
+      ) // gh api user rate-limited
       .mockRejectedValueOnce(new Error("no token found")); // gh auth token fails too
 
     await expect(preflight.checkGhAuth()).rejects.toThrow(
@@ -205,11 +205,62 @@ describe("preflight.checkGhAuth", () => {
           stdout: "",
           stderr: "API rate limit exceeded",
         }),
-      ); // auth status rate-limited
+      ); // gh api user rate-limited
 
     await expect(preflight.checkGhAuth()).resolves.toBeUndefined();
     // Should NOT shell out to `gh auth token` since GH_TOKEN env var already answers presence
     expect(mockExec).not.toHaveBeenCalledWith("gh", ["auth", "token"]);
     expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("passes immediately when gh api user succeeds, even though gh auth status would report the token invalid", async () => {
+    // Live-reproduced bug: `gh auth status` can report "token is invalid" for a
+    // token that `gh api user` accepts fine. The primary probe must be `gh api
+    // user`, and `gh auth status` must never be consulted at all — its opinion
+    // (mocked here as a hypothetical failing call) is irrelevant once the
+    // api-user probe succeeds.
+    mockExec
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version
+      .mockResolvedValueOnce({ stdout: '{"login":"jleechan2015"}', stderr: "" }); // gh api user succeeds
+
+    await expect(preflight.checkGhAuth()).resolves.toBeUndefined();
+
+    expect(mockExec).toHaveBeenCalledTimes(2);
+    expect(mockExec).toHaveBeenCalledWith("gh", ["api", "user"]);
+    expect(mockExec).not.toHaveBeenCalledWith("gh", ["auth", "status"]);
+  });
+
+  it("falls back to rate-limit classification when gh api user itself is rate-limited and a token is present (warn+proceed)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockExec
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version
+      .mockRejectedValueOnce(
+        Object.assign(new Error("HTTP 403"), {
+          stdout: "",
+          stderr: "API rate limit exceeded for installation ID 12345. (HTTP 403)",
+        }),
+      ) // gh api user itself is rate-limited
+      .mockResolvedValueOnce({ stdout: "gho_faketoken", stderr: "" }); // gh auth token succeeds
+
+    await expect(preflight.checkGhAuth()).resolves.toBeUndefined();
+    expect(mockExec).not.toHaveBeenCalledWith("gh", ["auth", "status"]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("throws 'not authenticated' when gh api user fails with a genuine 401 and no rate-limit signature", async () => {
+    mockExec
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version
+      .mockRejectedValueOnce(
+        Object.assign(new Error("HTTP 401"), {
+          stdout: "",
+          stderr: "gh: Bad credentials (HTTP 401)",
+        }),
+      ); // gh api user fails, no rate-limit signature present
+
+    await expect(preflight.checkGhAuth()).rejects.toThrow(
+      "GitHub CLI is not authenticated",
+    );
+    // Should not even attempt the token-presence fallback for a non-rate-limit failure
+    expect(mockExec).not.toHaveBeenCalledWith("gh", ["auth", "token"]);
   });
 });
