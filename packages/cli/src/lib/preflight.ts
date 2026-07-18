@@ -57,20 +57,23 @@ async function checkTmux(): Promise<void> {
 /**
  * Narrow classification of a `gh` failure's output, used only to distinguish
  * a GitHub API rate-limit response from a genuine auth failure (no token /
- * bad credentials). This is deterministic parsing of a CLI's own error text
- * for control flow, not semantic judgment — the signatures come directly
- * from gh's known error strings and HTTP status codes.
+ * bad credentials, missing scopes, org/SSO policy block). This is
+ * deterministic parsing of a CLI's own error text for control flow, not
+ * semantic judgment — the signatures come directly from gh's known error
+ * strings and HTTP status codes.
+ *
+ * A bare "403" is NOT sufficient evidence of rate limiting: GitHub returns
+ * 403 for missing token scopes and org/SSO policy blocks too, and those are
+ * genuine auth failures that must still throw, not warn-and-proceed (see PR
+ * #771 review — chatgpt-codex-connector P2). 403 only counts when paired
+ * with explicit rate-limit text. 429 ("Too Many Requests") is unambiguous on
+ * its own and may match bare.
  */
 function isRateLimitError(output: string): boolean {
   const lower = output.toLowerCase();
-  return (
-    lower.includes("api rate limit") ||
-    lower.includes("rate limit exceeded") ||
-    lower.includes("http 403") ||
-    lower.includes("http 429") ||
-    /\b403\b/.test(lower) ||
-    /\b429\b/.test(lower)
-  );
+  const hasRateLimitText = lower.includes("rate limit") || lower.includes("too many requests");
+  const hasStatus429 = lower.includes("http 429") || /\b429\b/.test(lower);
+  return hasRateLimitText || hasStatus429;
 }
 
 /**

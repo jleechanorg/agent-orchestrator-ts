@@ -263,4 +263,57 @@ describe("preflight.checkGhAuth", () => {
     // Should not even attempt the token-presence fallback for a non-rate-limit failure
     expect(mockExec).not.toHaveBeenCalledWith("gh", ["auth", "token"]);
   });
+
+  // PR #771 review (chatgpt-codex-connector, P2): a bare "403" is not sufficient
+  // evidence of rate limiting — GitHub also returns 403 for missing token scopes
+  // and org/SSO policy blocks, which are genuine auth failures.
+  it("throws 'not authenticated' for a 403 that carries org/SSO policy text but no rate-limit signature (bare 403 must not bypass auth)", async () => {
+    mockExec
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version
+      .mockRejectedValueOnce(
+        Object.assign(new Error("HTTP 403"), {
+          stdout: "",
+          stderr:
+            "gh: Resource protected by organization SAML enforcement. You must grant your OAuth token access to this organization. (HTTP 403)",
+        }),
+      ); // gh api user fails with a genuine 403 (SSO policy block), no rate-limit text
+
+    await expect(preflight.checkGhAuth()).rejects.toThrow(
+      "GitHub CLI is not authenticated",
+    );
+    // Must not even attempt the token-presence fallback — this is not a rate limit
+    expect(mockExec).not.toHaveBeenCalledWith("gh", ["auth", "token"]);
+  });
+
+  it("warns and proceeds for a 403 accompanied by explicit rate-limit text", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockExec
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version
+      .mockRejectedValueOnce(
+        Object.assign(new Error("HTTP 403"), {
+          stdout: "",
+          stderr: "gh: API rate limit exceeded for installation ID 12345. (HTTP 403)",
+        }),
+      ) // gh api user fails with 403 + explicit "rate limit exceeded" text
+      .mockResolvedValueOnce({ stdout: "gho_faketoken", stderr: "" }); // gh auth token succeeds
+
+    await expect(preflight.checkGhAuth()).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("warns and proceeds for a bare 429 with no other rate-limit text (429 is unambiguous)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockExec
+      .mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }) // --version
+      .mockRejectedValueOnce(
+        Object.assign(new Error("HTTP 429"), {
+          stdout: "",
+          stderr: "gh: 429",
+        }),
+      ) // bare 429, no "rate limit" phrase at all
+      .mockResolvedValueOnce({ stdout: "gho_faketoken", stderr: "" }); // gh auth token succeeds
+
+    await expect(preflight.checkGhAuth()).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+  });
 });
