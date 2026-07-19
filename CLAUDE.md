@@ -246,9 +246,9 @@ Current smooth requirement:
   `max_inactivity_gap <= 60 minutes` across PR-open -> merge timeline events.
 
 
-## 7-Green (summary)
+## 6-Green (summary)
 
-All seven must hold: CI green; mergeable; CodeRabbit APPROVED; Bugbot clean; inline threads resolved; evidence when required; Skeptic PASS (not `SKIPPED`). Check merge first: `gh api repos/OWNER/REPO/pulls/N --jq '{state, merged}'`. After push: exit (no sleep-poll). Pre-push: `mergeableState` ≠ `dirty`.
+All six must hold: CI green; mergeable; an approved current-head review; Bugbot clean; inline threads resolved; evidence when required. Check merge first: `gh api repos/OWNER/REPO/pulls/N --jq '{state, merged}'`. After push: exit (no sleep-poll). Pre-push: `mergeableState` ≠ `dirty`.
 
 **Full detail:** CR loop, evidence bundle, GraphQL gate-5, spawn gates, worktrees, lifecycle triage → `roadmap/claude-fork-reference.md`.
 

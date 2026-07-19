@@ -91,7 +91,7 @@ roadmap/               # Design docs and decision records — first-class, commi
 - **Minimum CI shape:** repro gist, terminal media (tmux/terminal context) + **separate** fenced test logs, UI media or exact `N/A - no UI changes`.
 - **Bar-raising (UI / interactive):** MUST provide **video evidence (.mp4/.gif/.cast)** of key flows + **before/after** states. Screenshots alone are INSUFFICIENT. Evidence MUST demonstrate the TDD Red-Green cycle (capture the failure first). Direct all agents to follow repository standards in [skills/ui-video-evidence/SKILL.md](skills/ui-video-evidence/SKILL.md), [skills/tmux-video-evidence/SKILL.md](skills/tmux-video-evidence/SKILL.md), and [skills/tdd-evidence-workflow/SKILL.md](skills/tdd-evidence-workflow/SKILL.md). Map claims to gist steps / logs / media (`docs/evidence/reviewer-checklist.md`).
 - **Self-validation:** Clean/isolated reruns where practical; **negative paths** when risk warrants; **revert** temp toggles before merge.
-- **Review stack:** CI Evidence Gate → `/er` (evidence review) → Skeptic — see `docs/evidence/README.md`.
+- **Review stack:** CI Evidence Gate → `/er` (evidence review) — see `docs/evidence/README.md`.
 - Cursor alignment: [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use) (artifacts for merge confidence).
 
 ## Fork Isolation — Mandatory for All Changes
@@ -220,7 +220,7 @@ Why: Two workers on different beads duplicated the same env-source.test.ts mock 
 
 **Operator** (human dispatching workers): Use `ao spawn` with non-overlapping beads. If overlap is unavoidable, steer the second worker away from the first's domain via `ao send`.
 
-## PR worker harness — blocked vs done (7-green)
+## PR worker harness — blocked vs done (6-green)
 
 Use this **before** spending tokens on fixes, and **after** each push, to avoid stale loops (e.g. working a merged PR, or declaring progress while threads are unresolved).
 
@@ -243,7 +243,7 @@ scripts/pr-rescue-status.sh jleechanorg/agent-orchestrator-ts <PR_NUMBER>
 | Exit | Meaning |
 |------|---------|
 | **0** | PR merged (done) **or** open PR passes: mergeable `MERGEABLE`, **0** unresolved review threads (GraphQL), `reviewDecision` **APPROVED**, CI rollup has **no** `FAILURE` / **no** pending checks |
-| **1** | Blocked — stderr names the next action (rebase, resolve threads, wait for CI, fix Skeptic, etc.) |
+| **1** | Blocked — stderr names the next action (rebase, resolve threads, wait for CI, etc.) |
 
 **Interpretation:** exit **0** means “structurally OK for merge-gate automation”; it does **not** replace `/er`, human review, or org-specific policies.
 
