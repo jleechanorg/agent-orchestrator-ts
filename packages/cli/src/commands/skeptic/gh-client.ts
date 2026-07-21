@@ -120,21 +120,48 @@ export async function fetchPRMeta(
   owner: string,
   repo: string,
   prNumber: number,
- ): Promise<PRInfo> {
-  const query = [
-    "{",
-    `  repository(owner:"${owner}", name:"${repo}") {`,
-    `    pullRequest(number:${prNumber}) {`,
-    "      number title body state headRefOid baseRefName isDraft",
-    "    }",
-    "  }",
-    "}",
-  ].join("\n");
-  const data = await ghJson("graphql", ["-f", "query=" + query]);
-  const d = data as { data?: { repository?: { pullRequest?: PRInfo } } };
-  const pr = d?.data?.repository?.pullRequest;
-  if (!pr) throw new Error("PR not found");
-  return pr;
+): Promise<PRInfo> {
+  try {
+    const query = [
+      "{",
+      `  repository(owner:"${owner}", name:"${repo}") {`,
+      `    pullRequest(number:${prNumber}) {`,
+      "      number title body state headRefOid baseRefName isDraft",
+      "    }",
+      "  }",
+      "}",
+    ].join("\n");
+    const data = await ghJson("graphql", ["-f", "query=" + query]);
+    const d = data as { data?: { repository?: { pullRequest?: PRInfo } } };
+    const pr = d?.data?.repository?.pullRequest;
+    if (!pr) throw new Error("PR not found");
+    return pr;
+  } catch (err: unknown) {
+    const error = err as { message?: string; stdout?: string; stderr?: string };
+    const errMsg = String(error.message || error.stdout || error.stderr || err || "");
+    if (errMsg.includes("rate limit") || errMsg.includes("GraphQL") || errMsg.includes("graphql")) {
+      // Fallback to REST API
+      const data = (await ghJson(`repos/${owner}/${repo}/pulls/${prNumber}`)) as {
+        number: number;
+        title: string;
+        body: string | null;
+        state: string;
+        head?: { sha?: string };
+        base?: { ref?: string };
+        draft?: boolean;
+      };
+      return {
+        number: data.number,
+        title: data.title,
+        body: data.body || "",
+        state: (data.state || "").toUpperCase(),
+        headRefOid: data.head?.sha ?? "",
+        baseRefName: data.base?.ref ?? "",
+        isDraft: data.draft ?? false,
+      };
+    }
+    throw err;
+  }
 }
 
 interface GraphQLReviewNode {
@@ -150,40 +177,59 @@ export async function fetchReviews(
   repo: string,
   prNumber: number,
 ): Promise<ReviewInfo[]> {
-  const query = [
-    "{",
-    `  repository(owner:"${owner}", name:"${repo}") {`,
-    `    pullRequest(number:${prNumber}) {`,
-    "      reviewDecision",
-    "      reviews(last:20) {",
-    // `commit { oid }` is required so callers can filter stale reviews
-    // against the current head SHA. GitHub's UI-level `reviewDecision`
-    // returns the worst state across ALL reviews (including ones on
-    // superseded head SHAs) which causes false-FAIL verdicts.
-    "        nodes { author { login } state body submittedAt commit { oid } }",
-    "      }",
-    "    }",
-    "  }",
-    "}",
-  ].join("\n");
-  const data = await ghJson("graphql", ["-f", "query=" + query]);
-  const r = data as {
-    data?: {
-      repository?: {
-        pullRequest?: {
-          reviewDecision?: string;
-          reviews?: { nodes?: GraphQLReviewNode[] };
+  try {
+    const query = [
+      "{",
+      `  repository(owner:"${owner}", name:"${repo}") {`,
+      `    pullRequest(number:${prNumber}) {`,
+      "      reviewDecision",
+      "      reviews(last:20) {",
+      "        nodes { author { login } state body submittedAt commit { oid } }",
+      "      }",
+      "    }",
+      "  }",
+      "}",
+    ].join("\n");
+    const data = await ghJson("graphql", ["-f", "query=" + query]);
+    const r = data as {
+      data?: {
+        repository?: {
+          pullRequest?: {
+            reviewDecision?: string;
+            reviews?: { nodes?: GraphQLReviewNode[] };
+          };
         };
       };
     };
-  };
-  return (r?.data?.repository?.pullRequest?.reviews?.nodes ?? []).map((n) => ({
-    author: n.author,
-    state: n.state.toLowerCase() as ReviewInfo["state"],
-    body: n.body,
-    submittedAt: n.submittedAt,
-    commitId: n.commit?.oid ?? null,
-  }));
+    return (r?.data?.repository?.pullRequest?.reviews?.nodes ?? []).map((n) => ({
+      author: n.author,
+      state: n.state.toLowerCase() as ReviewInfo["state"],
+      body: n.body,
+      submittedAt: n.submittedAt,
+      commitId: n.commit?.oid ?? null,
+    }));
+  } catch (err: unknown) {
+    const error = err as { message?: string; stdout?: string; stderr?: string };
+    const errMsg = String(error.message || error.stdout || error.stderr || err || "");
+    if (errMsg.includes("rate limit") || errMsg.includes("GraphQL") || errMsg.includes("graphql")) {
+      // Fallback to REST API
+      const list = (await ghJson(`repos/${owner}/${repo}/pulls/${prNumber}/reviews`)) as Array<{
+        user?: { login?: string } | null;
+        state?: string;
+        body?: string | null;
+        submitted_at?: string;
+        commit_id?: string | null;
+      }>;
+      return (list || []).map((r) => ({
+        author: r.user?.login ? { login: r.user.login } : null,
+        state: (r.state || "").toLowerCase() as ReviewInfo["state"],
+        body: r.body || null,
+        submittedAt: r.submitted_at || "",
+        commitId: r.commit_id || null,
+      }));
+    }
+    throw err;
+  }
 }
 
 export async function fetchDiff(owner: string, repo: string, prNumber: number): Promise<string> {

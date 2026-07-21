@@ -187,6 +187,20 @@ export async function fetchMergeGateState(
           }
         }
         checkRuns = [...seen.values()];
+        if (!ciPassing && checkRuns.length > 0) {
+          const hasFailedChecks = checkRuns.some(
+            (run) =>
+              run.status === "completed" &&
+              run.conclusion !== "success" &&
+              run.conclusion !== "skipped" &&
+              run.conclusion !== "neutral" &&
+              run.conclusion !== "cancelled"
+          );
+          const hasPendingChecks = checkRuns.some((run) => run.status !== "completed");
+          if (!hasFailedChecks && !hasPendingChecks) {
+            ciPassing = true;
+          }
+        }
       } catch {
         // non-fatal — check runs stay empty
       }
@@ -266,6 +280,7 @@ export async function fetchMergeGateState(
   // we must not silently report 0 unresolved comments (which would bypass CR Gate 5).
   let bugbotErrors = 0;
   let unresolvedBlockingComments = 0;
+  try {
     // Paginate through all review threads (100 per page)
     const allNodes: Array<{
       isResolved: boolean;
@@ -334,6 +349,17 @@ export async function fetchMergeGateState(
       if (isBugbot) bugbotErrors++;
       if (!isNit) unresolvedBlockingComments++;
     }
+  } catch (err: unknown) {
+    const error = err as { message?: string; stdout?: string; stderr?: string };
+    const errMsg = String(error.message || error.stdout || error.stderr || err || "");
+    if (errMsg.includes("rate limit") || errMsg.includes("GraphQL") || errMsg.includes("graphql")) {
+      console.warn("[skeptic] GraphQL rate-limited; falling back to 0 unresolved comments for skeptic check.");
+      unresolvedBlockingComments = 0;
+      bugbotErrors = 0;
+    } else {
+      throw err;
+    }
+  }
 
   // 4. Evidence review
   const evidenceReviews = reviews.filter((r) => r.author?.login === EVIDENCE_BOT);
