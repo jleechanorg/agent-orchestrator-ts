@@ -304,23 +304,37 @@ async function runCustomReviewer(
     return replaced;
   });
 
-  // Filter out arguments resulting from empty optional placeholders
-  cmdArgs = cmdArgs.filter((arg, index) => {
-    const original = rawCmd[index];
-    if (original === "{dry_run}" && arg === "") return false;
-    if (original === "{trigger_sha}" && arg === "") return false;
-    if (original === "{head_sha}" && arg === "") return false;
-    if (original === "{request_id}" && arg === "") return false;
-    return true;
-  });
+  // Filter out arguments resulting from empty optional placeholders. A
+  // standalone placeholder token (e.g. "{trigger_sha}") that resolves to ""
+  // is dropped entirely; a preceding bare flag it was the value for (e.g.
+  // "--sha") is dropped too, so it doesn't dangle with no value and get the
+  // next positional argument consumed in its place. Config authors can avoid
+  // this class of substitution entirely by using the combined form
+  // "--sha={trigger_sha}", which degrades to a single well-formed "--sha="
+  // token instead of two separate tokens (see agent-orchestrator.yaml.example).
+  const isEmptyPlaceholder = (arg: string, original: string | undefined) =>
+    arg === "" &&
+    (original === "{dry_run}" ||
+      original === "{trigger_sha}" ||
+      original === "{head_sha}" ||
+      original === "{request_id}");
 
-  // If dry-run, auto-append --dry-run for skeptic verify commands
-  if (!postComment) {
-    const runsSkepticVerify = cmdArgs.includes("skeptic") && cmdArgs.includes("verify");
-    if (runsSkepticVerify && !cmdArgs.includes("--dry-run")) {
-      cmdArgs.push("--dry-run");
+  const dropIndices = new Set<number>();
+  for (let i = 0; i < cmdArgs.length; i++) {
+    if (!isEmptyPlaceholder(cmdArgs[i], rawCmd[i])) continue;
+    dropIndices.add(i);
+    const prev = cmdArgs[i - 1];
+    if (
+      i > 0 &&
+      typeof prev === "string" &&
+      prev.startsWith("-") &&
+      !prev.includes("=") &&
+      !dropIndices.has(i - 1)
+    ) {
+      dropIndices.add(i - 1);
     }
   }
+  cmdArgs = cmdArgs.filter((_, index) => !dropIndices.has(index));
 
   let binary = cmdArgs[0];
   const args = cmdArgs.slice(1);

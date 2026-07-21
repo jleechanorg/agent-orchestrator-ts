@@ -106,6 +106,58 @@ describe("runSkepticReview with custom reviewers", () => {
     expect(opts.env.TEST_ENV).toBe("hello");
   });
 
+  it("drops a bare flag whose value placeholder resolved to empty, instead of leaving it dangling", async () => {
+    mocks.loadConfigMock.mockReturnValue({
+      projects: {
+        "my-app": {
+          reviewers: [
+            {
+              // Default execFile mock resolves the gh-api head-sha lookup to
+              // "VERDICT: PASS\nAll good.", which is not a 40-hex-char SHA,
+              // so triggerSha stays undefined and {trigger_sha} resolves to "".
+              harness: "shell",
+              cmd: ["tool", "--sha", "{trigger_sha}", "--repo", "{repo}"],
+            },
+          ],
+        },
+      },
+    });
+
+    const session = makeSession();
+    await runSkepticReview(session, { postComment: false });
+
+    const reviewerCall = mocks.execFileMock.mock.calls.find((c) => c[0] === "tool");
+    expect(reviewerCall).toBeDefined();
+    const [, args] = reviewerCall as [string, string[]];
+    // "--sha" must not survive with no value once its placeholder is empty.
+    expect(args).not.toContain("--sha");
+    expect(args).toContain("--repo");
+    expect(args).toContain("acme/app");
+  });
+
+  it("does not auto-append --dry-run based on literal skeptic/verify tokens in cmd", async () => {
+    mocks.loadConfigMock.mockReturnValue({
+      projects: {
+        "my-app": {
+          reviewers: [
+            {
+              harness: "shell",
+              cmd: ["tool", "skeptic", "verify"],
+            },
+          ],
+        },
+      },
+    });
+
+    const session = makeSession();
+    await runSkepticReview(session, { postComment: false });
+
+    const reviewerCall = mocks.execFileMock.mock.calls.find((c) => c[0] === "tool");
+    expect(reviewerCall).toBeDefined();
+    const [, args] = reviewerCall as [string, string[]];
+    expect(args).not.toContain("--dry-run");
+  });
+
   it("combines multiple reviewer results and fails if any reviewer fails", async () => {
     mocks.loadConfigMock.mockReturnValue({
       projects: {

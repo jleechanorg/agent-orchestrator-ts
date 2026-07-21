@@ -157,12 +157,14 @@ export async function fetchMergeGateState(
     prAuthor = prData?.user?.login;
     // Use headSha (immutable commit SHA) to avoid TOCTOU races
     // where the branch moves between status check and merge.
+    let hasLegacyStatusContexts = false;
     if (headSha) {
       const commitStatus = await ghJson(
         "repos/" + owner + "/" + repo + "/commits/" + headSha + "/status",
-      ) as { state?: string };
+      ) as { state?: string; total_count?: number };
       ciRawState = commitStatus?.state ?? "unknown";
       ciPassing = commitStatus?.state === "success";
+      hasLegacyStatusContexts = (commitStatus?.total_count ?? 0) > 0;
     }
     // Fetch individual check runs for independent verification (paginated to capture all pages)
     if (headSha) {
@@ -187,7 +189,10 @@ export async function fetchMergeGateState(
           }
         }
         checkRuns = [...seen.values()];
-        if (!ciPassing && checkRuns.length > 0) {
+        // Combined commit status is authoritative whenever legacy status
+        // contexts exist (including failure/pending) — check runs are only
+        // used as a fallback signal when no legacy contexts exist at all.
+        if (!ciPassing && !hasLegacyStatusContexts && checkRuns.length > 0) {
           const hasFailedChecks = checkRuns.some(
             (run) =>
               run.status === "completed" &&
@@ -280,25 +285,24 @@ export async function fetchMergeGateState(
   // we must not silently report 0 unresolved comments (which would bypass CR Gate 5).
   let bugbotErrors = 0;
   let unresolvedBlockingComments = 0;
-  try {
-    // Paginate through all review threads (100 per page)
-    const allNodes: Array<{
-      isResolved: boolean;
-      isOutdated: boolean;
-      comments?: { nodes?: Array<{ body: string; author?: { login: string } }> };
-    }> = [];
-    let cursor: string | null = null;
-    let hasNextPage = true;
-    while (hasNextPage) {
-      // Escape GraphQL string inputs to prevent injection via --repo owner/repo.
-      // owner/repo are CLI-supplied; cursor comes from GitHub API (trusted but still escaped).
-      // Escape control chars (\n \r \t \f) for GraphQL single-line string literals.
-      const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t").replace(/\f/g, "\\f");
-      const safeOwner = esc(owner);
-      const safeRepo = esc(repo);
-      const safeCursor = esc(cursor ?? "");
-      const afterArg = safeCursor ? `, after:"${safeCursor}"` : "";
-      const threadQuery = `{
+  // Paginate through all review threads (100 per page)
+  const allNodes: Array<{
+    isResolved: boolean;
+    isOutdated: boolean;
+    comments?: { nodes?: Array<{ body: string; author?: { login: string } }> };
+  }> = [];
+  let cursor: string | null = null;
+  let hasNextPage = true;
+  while (hasNextPage) {
+    // Escape GraphQL string inputs to prevent injection via --repo owner/repo.
+    // owner/repo are CLI-supplied; cursor comes from GitHub API (trusted but still escaped).
+    // Escape control chars (\n \r \t \f) for GraphQL single-line string literals.
+    const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t").replace(/\f/g, "\\f");
+    const safeOwner = esc(owner);
+    const safeRepo = esc(repo);
+    const safeCursor = esc(cursor ?? "");
+    const afterArg = safeCursor ? `, after:"${safeCursor}"` : "";
+    const threadQuery = `{
   repository(owner:"${safeOwner}", name:"${safeRepo}") {
     pullRequest(number:${prNumber}) {
       reviewThreads(first:100${afterArg}) {
@@ -314,51 +318,40 @@ export async function fetchMergeGateState(
     }
   }
 }`;
-      const threadData = await ghJson("graphql", ["-f", "query=" + threadQuery]) as {
-        data?: {
-          repository?: {
-            pullRequest?: {
-              reviewThreads?: {
-                pageInfo?: { hasNextPage?: boolean; endCursor?: string };
-                nodes?: Array<{
-                  isResolved: boolean;
-                  isOutdated: boolean;
-                  comments?: { nodes?: Array<{ body: string; author?: { login: string } }> };
-                }>;
-              };
+    const threadData = await ghJson("graphql", ["-f", "query=" + threadQuery]) as {
+      data?: {
+        repository?: {
+          pullRequest?: {
+            reviewThreads?: {
+              pageInfo?: { hasNextPage?: boolean; endCursor?: string };
+              nodes?: Array<{
+                isResolved: boolean;
+                isOutdated: boolean;
+                comments?: { nodes?: Array<{ body: string; author?: { login: string } }> };
+              }>;
             };
           };
         };
       };
-      const page = threadData?.data?.repository?.pullRequest?.reviewThreads;
-      if (page?.nodes) allNodes.push(...page.nodes);
-      hasNextPage = page?.pageInfo?.hasNextPage ?? false;
-      cursor = page?.pageInfo?.endCursor ?? null;
-    }
-    const threads = allNodes;
-    for (const t of threads) {
-      if (t.isResolved || t.isOutdated) continue;
-      const firstComment = t.comments?.nodes?.[0];
-      const body = firstComment?.body ?? "";
-      const author = firstComment?.author?.login ?? "";
-      const isNit = NIT_PATTERN.test(body.trimStart());
-      const isBugbot =
-        /cursor\[bot]/i.test(author) &&
-        /error/i.test(body);
+    };
+    const page = threadData?.data?.repository?.pullRequest?.reviewThreads;
+    if (page?.nodes) allNodes.push(...page.nodes);
+    hasNextPage = page?.pageInfo?.hasNextPage ?? false;
+    cursor = page?.pageInfo?.endCursor ?? null;
+  }
+  const threads = allNodes;
+  for (const t of threads) {
+    if (t.isResolved || t.isOutdated) continue;
+    const firstComment = t.comments?.nodes?.[0];
+    const body = firstComment?.body ?? "";
+    const author = firstComment?.author?.login ?? "";
+    const isNit = NIT_PATTERN.test(body.trimStart());
+    const isBugbot =
+      /cursor\[bot]/i.test(author) &&
+      /error/i.test(body);
 
-      if (isBugbot) bugbotErrors++;
-      if (!isNit) unresolvedBlockingComments++;
-    }
-  } catch (err: unknown) {
-    const error = err as { message?: string; stdout?: string; stderr?: string };
-    const errMsg = String(error.message || error.stdout || error.stderr || err || "");
-    if (errMsg.includes("rate limit") || errMsg.includes("GraphQL") || errMsg.includes("graphql")) {
-      console.warn("[skeptic] GraphQL rate-limited; falling back to 0 unresolved comments for skeptic check.");
-      unresolvedBlockingComments = 0;
-      bugbotErrors = 0;
-    } else {
-      throw err;
-    }
+    if (isBugbot) bugbotErrors++;
+    if (!isNit) unresolvedBlockingComments++;
   }
 
   // 4. Evidence review

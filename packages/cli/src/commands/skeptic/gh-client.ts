@@ -212,14 +212,21 @@ export async function fetchReviews(
     const error = err as { message?: string; stdout?: string; stderr?: string };
     const errMsg = String(error.message || error.stdout || error.stderr || err || "");
     if (errMsg.includes("rate limit") || errMsg.includes("GraphQL") || errMsg.includes("graphql")) {
-      // Fallback to REST API
-      const list = (await ghJson(`repos/${owner}/${repo}/pulls/${prNumber}/reviews`)) as Array<{
-        user?: { login?: string } | null;
-        state?: string;
-        body?: string | null;
-        submitted_at?: string;
-        commit_id?: string | null;
-      }>;
+      // Fallback to REST API. Paginate: gh api returns only the first 30
+      // reviews by default, which can miss the latest on-head approval or
+      // change request on a busy PR.
+      const pages = (await ghJsonPaginate(
+        `repos/${owner}/${repo}/pulls/${prNumber}/reviews`,
+      )) as Array<
+        Array<{
+          user?: { login?: string } | null;
+          state?: string;
+          body?: string | null;
+          submitted_at?: string;
+          commit_id?: string | null;
+        }>
+      >;
+      const list = (pages ?? []).flat();
       return (list || []).map((r) => ({
         author: r.user?.login ? { login: r.user.login } : null,
         state: (r.state || "").toLowerCase() as ReviewInfo["state"],
