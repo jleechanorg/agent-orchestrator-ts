@@ -276,7 +276,7 @@ Verify: <command to run before pushing> (e.g., pnpm -C packages/cli test)"
 
 ## Evidence
 
-> This skill is shipped by PR #700 in `jleechanorg/agent-orchestrator`. The classification script (`bin/classify_pane.sh`), the watch loop (`bin/watch_worker.sh`), and the 8-state fixtures were tested TDD-style: a Red phase confirmed the broken behavior, the Green phase applied the fix, and the test fixtures lock in the post-fix classification. The PR description includes authoritative links to the test runner output and the fixtures.
+> This skill is shipped by PR #700 in `jleechanorg/agent-orchestrator-ts`. The classification script (`bin/classify_pane.sh`), the watch loop (`bin/watch_worker.sh`), and the 8-state fixtures were tested TDD-style: a Red phase confirmed the broken behavior, the Green phase applied the fix, and the test fixtures lock in the post-fix classification. The PR description includes authoritative links to the test runner output and the fixtures.
 
 ### Test runner
 

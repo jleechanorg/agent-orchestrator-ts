@@ -1,4 +1,4 @@
-PR #540 jleechanorg/agent-orchestrator (branch add-merge-conflict-worker-20260511):
+PR #540 jleechanorg/agent-orchestrator-ts (branch add-merge-conflict-worker-20260511):
 
 Same as step 2+3 playbook: rebase onto origin/main (or merge if required), push, run tests, fix CI from gh pr checks, ao skeptic verify -n 540 when keys available.
 

@@ -14,7 +14,7 @@ Default: trailing 24h of merged PRs.
 
 ## Command
 ```bash
-scripts/metrics/touch-rate.py --repo jleechanorg/agent-orchestrator --hours 24
+scripts/metrics/touch-rate.py --repo jleechanorg/agent-orchestrator-ts --hours 24
 ```
 
 ## Output example
@@ -23,7 +23,7 @@ JSON rates are emitted as 0–1 fractions (for example, `0.375` = 37.5%).
 
 ```json
 {
-  "repo": "jleechanorg/agent-orchestrator",
+  "repo": "jleechanorg/agent-orchestrator-ts",
   "hours": 24,
   "total_merged": 8,
   "first_touch_rate_exact_1": 0.375,
@@ -39,7 +39,7 @@ JSON rates are emitted as 0–1 fractions (for example, `0.375` = 37.5%).
 To reproduce the output example above, run:
 
 ```bash
-scripts/metrics/touch-rate.py --repo jleechanorg/agent-orchestrator --hours 24
+scripts/metrics/touch-rate.py --repo jleechanorg/agent-orchestrator-ts --hours 24
 ```
 
 The script queries the GitHub API for closed PRs in the trailing window, counts
@@ -48,7 +48,7 @@ All data is derived live from the GitHub API — no cached or synthetic datasets
 
 ## Evidence artifacts
 
-- **Script invocation**: `scripts/metrics/touch-rate.py --repo jleechanorg/agent-orchestrator --hours 24`
+- **Script invocation**: `scripts/metrics/touch-rate.py --repo jleechanorg/agent-orchestrator-ts --hours 24`
 - **Data source**: Live GitHub REST API — `gh api repos/OWNER/REPO/pulls?state=closed` (paginated) and `gh api repos/OWNER/REPO/pulls/N/reviews` (paginated) per merged PR
 - **Reproducibility**: Run the command above against any repo with merged PRs; output is deterministic for a given time window and API state
 

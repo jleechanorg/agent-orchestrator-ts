@@ -30,7 +30,7 @@ import { _resetEnvBootstrapForTesting, loadConfig } from "../config.js";
 //    never replaces the frozen string.
 //
 // bd-feedback-2026-06-19-notif-slack-placeholder
-// See PR #715: https://github.com/jleechanorg/agent-orchestrator/pull/715
+// See PR #715: https://github.com/jleechanorg/agent-orchestrator-ts/pull/715
 
 const originalHome = process.env["HOME"];
 const originalCwd = process.cwd();

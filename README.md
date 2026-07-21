@@ -13,13 +13,13 @@
 > `prose-polish` plugin, MCP-AO bridge).<br><br>**Expect to fix configuration before you can use this on your own repo.**
 > Specifically:
 > 1. **Clone URL & npm scope** — The default install instructions clone
->    `github.com/jleechanorg/agent-orchestrator` and install the global
+>    `github.com/jleechanorg/agent-orchestrator-ts` and install the global
 >    `@jleechanorg/ao-cli` npm package. Substitute your own fork, or use
 >    `github.com/AgentWrapper/agent-orchestrator` + `@aoagents/ao` for
 >    upstream.
 > 2. **`agent-orchestrator.yaml`** — The shipped example includes a
 >    `projects.agent-orchestrator` entry pointing at
->    `jleechanorg/agent-orchestrator` and a default notifier list of
+>    `jleechanorg/agent-orchestrator-ts` and a default notifier list of
 >    `[desktop, openclaw]`. Replace with your repo(s) and either remove
 >    the OpenClaw notifier, or set the `OPENCLAW_HOOKS_TOKEN` env var
 >    and run an OpenClaw server reachable at `127.0.0.1:18789`.
@@ -94,7 +94,7 @@ If `npm install -g` fails with EACCES, prefix with `sudo` or [fix your npm permi
 To install this fork from source (for contributors):
 
 ```bash
-git clone https://github.com/jleechanorg/agent-orchestrator.git
+git clone https://github.com/jleechanorg/agent-orchestrator-ts.git
 cd agent-orchestrator && bash scripts/setup.sh
 ```
 
@@ -152,7 +152,7 @@ merge with zero operator intervention.
 **Upstream:** [`AgentWrapper/agent-orchestrator`](https://github.com/AgentWrapper/agent-orchestrator)
 (snapshot: `ComposioHQ/agent-orchestrator` at the same URL still resolves
 but is no longer the canonical home).
-**This fork:** [`jleechanorg/agent-orchestrator`](https://github.com/jleechanorg/agent-orchestrator).
+**This fork:** [`jleechanorg/agent-orchestrator-ts`](https://github.com/jleechanorg/agent-orchestrator-ts).
 
 | Capability | AgentWrapper (upstream) | jleechanorg (this fork) |
 |---|---|---|
@@ -195,7 +195,7 @@ This fork is used as the execution layer for `jleechanorg/jleechanclaw`.
 
 Typical split of responsibilities:
 - `jleechanorg/jleechanclaw` (OpenClaw harness): user intent parsing, context expansion, policy, and status updates.
-- `jleechanorg/agent-orchestrator`: worker session lifecycle, isolated worktrees, PR execution loops, CI/review remediation.
+- `jleechanorg/agent-orchestrator-ts`: worker session lifecycle, isolated worktrees, PR execution loops, CI/review remediation.
 
 Key integration points in this repo:
 - Plugin contracts: `packages/core/src/types.ts`
@@ -334,7 +334,7 @@ Use this doc as the source of truth for dashboards, scripts, and status reportin
 
 Structural backstop against the 2026-06-18 incident: 15 LaunchAgents were at
 exit 127 (script-missing / wrong container name) and silently retrying for
-weeks before a manual audit surfaced them. See [jleechanorg/agent-orchestrator#709](https://github.com/jleechanorg/agent-orchestrator/issues/709).
+weeks before a manual audit surfaced them. See [jleechanorg/agent-orchestrator-ts#709](https://github.com/jleechanorg/agent-orchestrator-ts/issues/709).
 
 | What it does | When it runs | Where it alerts |
 |---|---|---|
@@ -369,7 +369,7 @@ launchctl bootstrap gui/$(id -u) \
 
 1. `launchctl print gui/$(id -u)/<label>` to see the last error.
 2. Find the referenced script: `find ~/.hermes/.claude/worktrees ~/.hermes/.worktrees -name "<script>"`.
-3. Restore from the worktree backup or regenerate the plist from its `*.plist.template` per [`~/.claude/skills/launchd-plist-template/SKILL.md`](https://github.com/jleechanorg/agent-orchestrator/blob/main/launchd/).
+3. Restore from the worktree backup or regenerate the plist from its `*.plist.template` per [`~/.claude/skills/launchd-plist-template/SKILL.md`](https://github.com/jleechanorg/agent-orchestrator-ts/blob/main/launchd/).
 4. `launchctl kickstart -k gui/$(id -u)/<label>` to restart, then `launchctl list | grep <label>` should show PID + exit 0 within a few seconds.
 
 **Tests:** `tests/unit/test-audit-launchd-drift.sh` (23 assertions across 5 cases: empty drift → exit 0 + no Slack; non-empty drift → exit 1 + exactly one Slack post with correct channel/token; launchctl list failure → exit 2 (not masked as clean); Slack `{"ok":false}` response → exit 1 + WARN; plist template validates via `plutil -lint` (macOS) or structural checks (Linux) with no hardcoded user paths, plus scheduled cadence `Hour=2 Minute=0` assertion).

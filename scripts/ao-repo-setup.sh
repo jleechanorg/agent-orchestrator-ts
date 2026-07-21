@@ -1,14 +1,14 @@
 #!/bin/bash
 # ao-repo-setup.sh — Bootstrap a fresh AO worker node
 # Replaces multiple legacy config directories with ~/.hermes_prod/ as sole source.
-# Usage: curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/ao-repo-setup.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator-ts/main/scripts/ao-repo-setup.sh | bash
 set -euo pipefail
 
 OPENCLAW_PROD="${OPENCLAW_PROD:-}"
 AO_CONFIG="${AO_CONFIG:-}"
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
-AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
+AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator-ts}"
 AGENT_ORCHESTRATOR_BRANCH="${AGENT_ORCHESTRATOR_BRANCH:-main}"
 
 echo "=== AO Repo Setup ==="
@@ -79,7 +79,7 @@ else
 fi
 
 # Step 6: Verify agent-orchestrator repo is accessible
-AO_CLONE_DIR="$HOME/project_agento/agent-orchestrator"
+AO_CLONE_DIR="$HOME/project_agento/agent-orchestrator-ts"
 if [ -d "$AO_CLONE_DIR/.git" ]; then
     echo "[6/6] Agent-orchestrator repo: $AO_CLONE_DIR (already cloned)"
 else

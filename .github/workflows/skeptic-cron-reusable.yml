@@ -5,7 +5,7 @@ name: Skeptic Cron (Reusable)
 #
 #   jobs:
 #     skeptic_cron:
-#       uses: jleechanorg/agent-orchestrator/.github/workflows/skeptic-cron-reusable.yml@main
+#       uses: jleechanorg/agent-orchestrator-ts/.github/workflows/skeptic-cron-reusable.yml@main
 #       with:
 #         runner_labels: ${{ vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted"]' }}
 #       secrets: inherit

@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-02  
 **Status:** Draft for review  
-**Scope:** `jleechanorg/agent-orchestrator` fork (with upstream compatibility plan)
+**Scope:** `jleechanorg/agent-orchestrator-ts` fork (with upstream compatibility plan)
 
 ---
 

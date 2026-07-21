@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/check-pr-worker-coverage.sh
-# Validates PR→session coverage for jleechanorg/agent-orchestrator.
+# Validates PR→session coverage for jleechanorg/agent-orchestrator-ts.
 # Exits 0 if all open PRs have an active session; exits non-zero if uncovered PRs remain.
 #
 # bd-ara.stale additions:
@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-REPO="jleechanorg/agent-orchestrator"
+REPO="jleechanorg/agent-orchestrator-ts"
 PROJECT="agent-orchestrator"
 STALE_HOURS="${STALE_HOURS:-3}"
 LIFECYCLE_LOG="${LIFECYCLE_LOG:-${AO_LOG_DIR:-$HOME/.hermes/logs}/ao-lifecycle-${PROJECT}.log}"

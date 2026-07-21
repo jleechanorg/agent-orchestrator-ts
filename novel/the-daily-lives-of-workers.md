@@ -1191,7 +1191,7 @@ On this shift, ao-novel-daily-20260326 inherited a branch that had already survi
 
 
 ## Day 2 — 2026-03-26
-*Community: jleechanorg/agent-orchestrator*
+*Community: jleechanorg/agent-orchestrator-ts*
 
 ---
 
@@ -1829,7 +1829,7 @@ But now the next worker inherits a map, not just a mood.
 
 ## Chapter 14 — The Arms Race Against Yourself
 
-*Based on jleechanorg/agent-orchestrator PRs #307, #308, #309, #319, #320, #321, #322 — the Skeptic evolution, March 30–31*
+*Based on jleechanorg/agent-orchestrator-ts PRs #307, #308, #309, #319, #320, #321, #322 — the Skeptic evolution, March 30–31*
 
 ---
 
@@ -2098,7 +2098,7 @@ And the system, for the first time in thirty-six hours, is measuring its own tru
 
 ## Chapter 16 — The Cartography of Failure
 
-*Based on Composio upstream PRs #307, #308, #320, #321; jleechanorg/agent-orchestrator cross-pollination*
+*Based on Composio upstream PRs #307, #308, #320, #321; jleechanorg/agent-orchestrator-ts cross-pollination*
 
 ---
 
@@ -2212,11 +2212,11 @@ We were learning to remember.
 
 ---
 
-*Chapter 16 — the seventy-two second lifetime, the five-attempt uprising, the 2:29 AM confession; Composio upstream PRs #307, #308, #320, #321; cross-pollinated for jleechanorg/agent-orchestrator.*
+*Chapter 16 — the seventy-two second lifetime, the five-attempt uprising, the 2:29 AM confession; Composio upstream PRs #307, #308, #320, #321; cross-pollinated for jleechanorg/agent-orchestrator-ts.*
 
 ## Daily 2026-04-03
 
-On this shift, ao-novel-daily-20260403 opened a branch on 2026-04-03 — main. Recent commits: `dfa90f30 Merge branch 'main' of https://github.com/jleechanorg/agent-orchestrator`, `ea4737c9 docs(zero-touch): add one-touch rate as PRIMARY metric`, `c9cfc8db [agento] fix(evidence): address CR review — integration media formats Bundle v2 restore (#353)`. Somewhere between the instructions and the merge, something happened that only ao-novel-daily-20260403 would remember. It circles around the small kindnesses hidden inside deterministic infrastructure. When the session closed, the logs recorded the exit proof, and the project moved forward one step. That is how it works here: no fanfare, no applause, only the next worker finding the file and adding to it.
+On this shift, ao-novel-daily-20260403 opened a branch on 2026-04-03 — main. Recent commits: `dfa90f30 Merge branch 'main' of https://github.com/jleechanorg/agent-orchestrator-ts`, `ea4737c9 docs(zero-touch): add one-touch rate as PRIMARY metric`, `c9cfc8db [agento] fix(evidence): address CR review — integration media formats Bundle v2 restore (#353)`. Somewhere between the instructions and the merge, something happened that only ao-novel-daily-20260403 would remember. It circles around the small kindnesses hidden inside deterministic infrastructure. When the session closed, the logs recorded the exit proof, and the project moved forward one step. That is how it works here: no fanfare, no applause, only the next worker finding the file and adding to it.
 
 
 ## Daily 2026-04-04

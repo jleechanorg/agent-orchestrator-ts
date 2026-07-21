@@ -137,7 +137,7 @@ Run all of these together:
 gh api rate_limit --jq '.resources | {core: .core.remaining, graphql: .graphql.remaining}'
 
 # B2. Open PRs with status (REST — works when GraphQL=0)
-gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq '.[] | {number, title: .title[0:60], mergeable_state, branch: .head.ref}' 2>/dev/null
+gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=open" --jq '.[] | {number, title: .title[0:60], mergeable_state, branch: .head.ref}' 2>/dev/null
 
 # B2c. Verify local skeptic-review hook wiring (not legacy auto-merge)
 python3 - <<'PY'
@@ -147,16 +147,16 @@ print({"worker-signals-completion": (cfg.get("reactions") or {}).get("worker-sig
 PY
 
 # B2b. Review states for each open PR (per-reviewer, not just global last)
-for pr in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq '.[].number' 2>/dev/null); do
+for pr in $(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=open" --jq '.[].number' 2>/dev/null); do
   # Get latest review state per reviewer to avoid hiding CHANGES_REQUESTED behind another reviewer's APPROVED
-  reviews=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr/reviews" --jq '
+  reviews=$(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/$pr/reviews" --jq '
     [.[] | select(.state != "COMMENTED")]
     | group_by(.user.login)
     | map({reviewer: .[0].user.login, state: .[-1].state})
     | map("\(.reviewer)=\(.state)")
     | join(", ")
   ' 2>/dev/null)
-  blocking=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr/reviews" --jq '
+  blocking=$(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/$pr/reviews" --jq '
     [.[] | select(.state != "COMMENTED")]
     | group_by(.user.login)
     | map(.[-1])
@@ -166,11 +166,11 @@ for pr in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq 
 done
 
 # B3. skeptic-cron workflow health
-gh run list --repo jleechanorg/agent-orchestrator --workflow skeptic-cron.yml --limit 3 --json databaseId,status,conclusion,createdAt,updatedAt,url
+gh run list --repo jleechanorg/agent-orchestrator-ts --workflow skeptic-cron.yml --limit 3 --json databaseId,status,conclusion,createdAt,updatedAt,url
 
 # B4. Latest skeptic-cron log tail (gate-by-gate failures and merge decisions)
-run_id=$(gh run list --repo jleechanorg/agent-orchestrator --workflow skeptic-cron.yml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null)
-[ -n "$run_id" ] && gh run view "$run_id" --repo jleechanorg/agent-orchestrator --log | tail -120
+run_id=$(gh run list --repo jleechanorg/agent-orchestrator-ts --workflow skeptic-cron.yml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null)
+[ -n "$run_id" ] && gh run view "$run_id" --repo jleechanorg/agent-orchestrator-ts --log | tail -120
 ```
 
 ### Step 3: Cross-reference — CHANGES_REQUESTED gap detection
@@ -190,8 +190,8 @@ For every open PR, check last commit date and compare to current UTC time. Flag 
 # Stall detection — REST API (works even when GraphQL=0)
 current_epoch=$(date -u +%s)
 echo "=== STALLED PR DETECTION (>1hr gap, not 6-green) ==="
-for pr in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq '.[].number' 2>/dev/null); do
-  last_commit=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr/commits" --jq '.[-1].commit.committer.date' 2>/dev/null)
+for pr in $(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=open" --jq '.[].number' 2>/dev/null); do
+  last_commit=$(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/$pr/commits" --jq '.[-1].commit.committer.date' 2>/dev/null)
   # Cross-platform date parsing: try BSD (macOS) first, then GNU (Linux)
   commit_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$last_commit" +%s 2>/dev/null || date -u -d "$last_commit" +%s 2>/dev/null || echo "")
   if [ -z "$commit_epoch" ]; then
@@ -200,12 +200,12 @@ for pr in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=open" --jq 
   fi
   gap_mins=$(( (current_epoch - commit_epoch) / 60 ))
   if [ "$gap_mins" -gt 60 ]; then
-    pr_data=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr" --jq '{mergeable_state, title: .title[0:55], branch: .head.ref}' 2>/dev/null)
+    pr_data=$(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/$pr" --jq '{mergeable_state, title: .title[0:55], branch: .head.ref}' 2>/dev/null)
     mergeable=$(echo "$pr_data" | jq -r '.mergeable_state')
     title=$(echo "$pr_data" | jq -r '.title')
     branch=$(echo "$pr_data" | jq -r '.branch')
     # Per-reviewer review state — check if any reviewer has CHANGES_REQUESTED
-    review=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$pr/reviews" --jq '
+    review=$(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/$pr/reviews" --jq '
       [.[] | select(.state != "COMMENTED")]
       | group_by(.user.login) | map(.[-1].state)
       | if any(. == "CHANGES_REQUESTED") then "CHANGES_REQUESTED"
@@ -237,11 +237,11 @@ Measure how many merged PRs were truly autonomous. A PR is "zero-touch" ONLY if 
 echo "=== MERGE QUALITY (last 7 days) ==="
 cutoff=$(date -u -v-7d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "7 days ago" +%Y-%m-%dT%H:%M:%SZ)
 auto=0; manual=0; total=0
-for pr_json in $(gh api "repos/jleechanorg/agent-orchestrator/pulls?state=closed&sort=updated&direction=desc&per_page=50" --jq "[.[] | select(.merged_at != null) | select(.merged_at > \"$cutoff\")] | .[] | @base64" 2>/dev/null); do
+for pr_json in $(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=closed&sort=updated&direction=desc&per_page=50" --jq "[.[] | select(.merged_at != null) | select(.merged_at > \"$cutoff\")] | .[] | @base64" 2>/dev/null); do
   pr=$(echo "$pr_json" | base64 -D 2>/dev/null || echo "$pr_json" | base64 -d 2>/dev/null)
   number=$(echo "$pr" | jq -r '.number')
   title=$(echo "$pr" | jq -r '.title[0:50]')
-  merged_by=$(gh api "repos/jleechanorg/agent-orchestrator/pulls/$number" --jq '.merged_by.login // "unknown"' 2>/dev/null || echo "unknown")
+  merged_by=$(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/$number" --jq '.merged_by.login // "unknown"' 2>/dev/null || echo "unknown")
   total=$((total + 1))
   if [ "$merged_by" = "github-actions[bot]" ]; then
     auto=$((auto + 1))

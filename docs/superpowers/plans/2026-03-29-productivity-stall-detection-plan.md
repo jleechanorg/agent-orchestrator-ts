@@ -881,4 +881,4 @@ EOF
 - [ ] Context exhaustion parses "N% until" pattern from tmux pane
 - [ ] Unit tests cover all 4 functions with fake timers
 - [ ] `pnpm -C packages/core test` passes
-- [ ] PR created against `jleechanorg/agent-orchestrator`
+- [ ] PR created against `jleechanorg/agent-orchestrator-ts`

@@ -313,13 +313,13 @@ ao skeptic install --all
 **Option B — curl installer (no Node build):** from the consumer repo root:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/install-skeptic-ci-for-repo.sh" -o /tmp/install-skeptic-ci-for-repo.sh
+curl -fsSL "https://raw.githubusercontent.com/jleechanorg/agent-orchestrator-ts/main/scripts/install-skeptic-ci-for-repo.sh" -o /tmp/install-skeptic-ci-for-repo.sh
 # Inspect the script before executing (avoid piping curl directly to bash).
 less /tmp/install-skeptic-ci-for-repo.sh
 bash /tmp/install-skeptic-ci-for-repo.sh
 ```
 
-The `curl` URL above uses **jleechanorg/agent-orchestrator** because this fork publishes the installer and skeptic workflow templates under `packages/cli/src/templates/skeptic/`. **ComposioHQ/agent-orchestrator** does not yet include `scripts/install-skeptic-ci-for-repo.sh` on `main`; do not switch the URL to upstream until those files exist there (or set `SKEPTIC_CI_REPO` / `SKEPTIC_CI_REF` to a fork or mirror that carries the same paths).
+The `curl` URL above uses **jleechanorg/agent-orchestrator-ts** because this fork publishes the installer and skeptic workflow templates under `packages/cli/src/templates/skeptic/`. **ComposioHQ/agent-orchestrator** does not yet include `scripts/install-skeptic-ci-for-repo.sh` on `main`; do not switch the URL to upstream until those files exist there (or set `SKEPTIC_CI_REPO` / `SKEPTIC_CI_REF` to a fork or mirror that carries the same paths).
 
 With no flags, the script installs both workflows; use `--gate` or `--cron` to install only one. To pull templates from another fork or mirror, set `SKEPTIC_CI_REPO=owner/repo` and optionally `SKEPTIC_CI_REF=branch` when running the script.
 

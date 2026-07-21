@@ -5,7 +5,7 @@ name: Skeptic Gate (Reusable)
 #
 #   jobs:
 #     skeptic_gate:
-#       uses: jleechanorg/agent-orchestrator/.github/workflows/skeptic-gate-reusable.yml@main
+#       uses: jleechanorg/agent-orchestrator-ts/.github/workflows/skeptic-gate-reusable.yml@main
 #       with:
 #         runner_labels: ${{ vars.SELF_HOSTED_RUNNER_LABELS || '["self-hosted","claude"]' }}
 #       secrets: inherit

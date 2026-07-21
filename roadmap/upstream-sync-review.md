@@ -1,7 +1,7 @@
 # Upstream Sync Review: ComposioHQ/agent-orchestrator
 
 **Date**: 2026-03-28 (updated 2026-04-09)
-**Fork**: jleechanorg/agent-orchestrator
+**Fork**: jleechanorg/agent-orchestrator-ts
 **Branch**: `feat/upstream-sync-review-1274` (worktree: `ao-1274`)
 **Upstream SHA**: `upstream/main` as of 2026-04-09
 **Origin SHA**: `origin/main` as of 2026-04-09
@@ -26,12 +26,12 @@ This document is the canonical upstream-sync inventory. Do not create a new para
 
 | PR | Status | Branch | Classification | Notes |
 |---|---|---|---|---|
-| [PR 263](https://github.com/jleechanorg/agent-orchestrator/pull/263) | merged 2026-03-29 | `feat/bd-1274-upstream-sync-review` | canonical merged review | Landed the prior upstream review plus the security/gitleaks carryover |
-| [PR 262](https://github.com/jleechanorg/agent-orchestrator/pull/262) | closed unmerged | `feat/upstream-sync-review-1274` | superseded | Earlier narrower variant, replaced by PR 263 |
-| [PR 107](https://github.com/jleechanorg/agent-orchestrator/pull/107) | merged 2026-03-23 | `chore/upstream-cwd-matching` | merged topic | Upstream-derived cwd matching was already integrated; the branch head still exists but should not drive current upstream work |
-| [PR 15](https://github.com/jleechanorg/agent-orchestrator/pull/15) | merged 2026-03-16 | `chore/upstream-pr-guidelines` | merged topic | Documentation-only upstream strip-list rules already landed |
-| [PR 14](https://github.com/jleechanorg/agent-orchestrator/pull/14) | closed unmerged | `feat/sync-fork-to-upstream` | stale / no reuse value | Old sync attempt; do not revive as a merge base |
-| [PR 187](https://github.com/jleechanorg/agent-orchestrator/pull/187) | merged 2026-03-25 | `feat/novel-upstream-consolidation` | unrelated to code sync | Novel consolidation only; not actionable for repo merge work |
+| [PR 263](https://github.com/jleechanorg/agent-orchestrator-ts/pull/263) | merged 2026-03-29 | `feat/bd-1274-upstream-sync-review` | canonical merged review | Landed the prior upstream review plus the security/gitleaks carryover |
+| [PR 262](https://github.com/jleechanorg/agent-orchestrator-ts/pull/262) | closed unmerged | `feat/upstream-sync-review-1274` | superseded | Earlier narrower variant, replaced by PR 263 |
+| [PR 107](https://github.com/jleechanorg/agent-orchestrator-ts/pull/107) | merged 2026-03-23 | `chore/upstream-cwd-matching` | merged topic | Upstream-derived cwd matching was already integrated; the branch head still exists but should not drive current upstream work |
+| [PR 15](https://github.com/jleechanorg/agent-orchestrator-ts/pull/15) | merged 2026-03-16 | `chore/upstream-pr-guidelines` | merged topic | Documentation-only upstream strip-list rules already landed |
+| [PR 14](https://github.com/jleechanorg/agent-orchestrator-ts/pull/14) | closed unmerged | `feat/sync-fork-to-upstream` | stale / no reuse value | Old sync attempt; do not revive as a merge base |
+| [PR 187](https://github.com/jleechanorg/agent-orchestrator-ts/pull/187) | merged 2026-03-25 | `feat/novel-upstream-consolidation` | unrelated to code sync | Novel consolidation only; not actionable for repo merge work |
 
 ### Remote branches still ahead of `origin/main`
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # ao-install.sh — Consolidated AO worker-node install
 # Replaces: setup.sh + bootstrap-openclaw-config.sh + setup-extended.sh
-# Usage: curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator/main/scripts/ao-install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/jleechanorg/agent-orchestrator-ts/main/scripts/ao-install.sh | bash
 # Or:     bash /tmp/ao-install.sh  (run from a clone of agent-orchestrator)
 # Requirements: git, curl, bash 4+, npm (for ao CLI build)
 
@@ -27,9 +27,9 @@ run_filtered() {
 }
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes_prod}"
-AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator}"
+AGENT_ORCHESTRATOR_REPO="${AGENT_ORCHESTRATOR_REPO:-https://github.com/jleechanorg/agent-orchestrator-ts}"
 AGENT_ORCHESTRATOR_BRANCH="${AGENT_ORCHESTRATOR_BRANCH:-main}"
-AO_REPO_ROOT="${AO_REPO_ROOT:-$HOME/project_agento/agent-orchestrator}"
+AO_REPO_ROOT="${AO_REPO_ROOT:-$HOME/project_agento/agent-orchestrator-ts}"
 PROJECTS="${AO_PROJECTS:-jleechanclaw browserclaw worldarchitect agent-orchestrator ralph claude-commands worldai-claw openclaw-sso mctrl-test mcp-mail worldclaw-dev llm_wiki}"
 
 echo "=== AO Worker Node Install ==="
@@ -39,7 +39,7 @@ echo
 
 # ─── Step 0: Detect run mode ─────────────────────────────────────────────────
 # Two modes:
-#   repo  — running from an existing ~/project_agento/agent-orchestrator clone
+#   repo  — running from an existing ~/project_agento/agent-orchestrator-ts clone
 #   curl  — piped from curl, need to clone first
 
 # Track whether we created a temp clone (in curl mode) so we can clean up on error.

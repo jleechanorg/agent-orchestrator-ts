@@ -41,7 +41,7 @@ function makeLaunchConfig(overrides: Partial<AgentLaunchConfig> = {}): AgentLaun
     sessionId: "inttest-zai",
     projectConfig: {
       name: "inttest-zai",
-      repo: "jleechanorg/agent-orchestrator",
+      repo: "jleechanorg/agent-orchestrator-ts",
       path: "/workspace",
       defaultBranch: "main",
       sessionPrefix: "zai",
