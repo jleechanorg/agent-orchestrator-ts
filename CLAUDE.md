@@ -172,6 +172,8 @@ After every `git push`, a PR driver (worker or babysit session) MUST enumerate A
 
 ## Skeptic Architecture — SETTLED DECISION (do not revisit)
 
+**RETIRED IN THIS REPO (PR #773):** `skeptic-gate.yml`, `skeptic-cron.yml`, and `test.yml`'s trigger job were deleted — this repo no longer runs Skeptic as a PR-gating requirement on itself (see "6-Green" above). The architecture below still applies to `packages/cli/src/templates/skeptic/*.yml`, the standalone templates this repo distributes to consumer repos that still want Skeptic gating, and to the `ao skeptic verify` CLI command itself (still live, still callable manually or via a project's `reviewers:` config per PR #752).
+
 **Skeptic evaluations run via AO worker (local API keys), NOT in GHA. Do NOT add API keys to CI.**
 
 | Component | Role | Runs where |
@@ -246,9 +248,11 @@ Current smooth requirement:
   `max_inactivity_gap <= 60 minutes` across PR-open -> merge timeline events.
 
 
-## 7-Green (summary)
+## 6-Green (summary)
 
-All seven must hold: CI green; mergeable; CodeRabbit APPROVED; Bugbot clean; inline threads resolved; evidence when required; Skeptic PASS (not `SKIPPED`). Check merge first: `gh api repos/OWNER/REPO/pulls/N --jq '{state, merged}'`. After push: exit (no sleep-poll). Pre-push: `mergeableState` ≠ `dirty`.
+All six must hold: CI green; mergeable; CodeRabbit APPROVED; Bugbot clean; inline threads resolved; evidence when required. Check merge first: `gh api repos/OWNER/REPO/pulls/N --jq '{state, merged}'`. After push: exit (no sleep-poll). Pre-push: `mergeableState` ≠ `dirty`.
+
+**Was "7-Green" (Skeptic PASS as a 7th required gate) until this repo's own Skeptic PR-gating automation was retired — see PR #773 and the Skeptic Architecture note below. Skeptic is no longer a required merge gate for this repo.**
 
 **Full detail:** CR loop, evidence bundle, GraphQL gate-5, spawn gates, worktrees, lifecycle triage → `roadmap/claude-fork-reference.md`.
 

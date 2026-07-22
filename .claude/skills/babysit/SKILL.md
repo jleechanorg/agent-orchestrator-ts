@@ -32,8 +32,8 @@ The `failed=N` count excludes Skeptic Gate checks (they are self-referential and
 
 | Category | Criteria | Action |
 |----------|----------|--------|
-| **merge-ready** | All 7-green gates: CI green (pending=0) + mergeable + review APPROVED + Bugbot clean + inline threads resolved + evidence authentic + same-head Skeptic PASS | Run full 7-green verification then merge |
-| **needs-fix** | CI red (failed > 0), review CHANGES_REQUESTED, or skeptic FAIL | Spawn parallel AO worker per PR |
+| **merge-ready** | All 6-green gates: CI green (pending=0) + mergeable + review APPROVED + Bugbot clean + inline threads resolved + evidence authentic | Run full 6-green verification then merge |
+| **needs-fix** | CI red (failed > 0) or review CHANGES_REQUESTED | Spawn parallel AO worker per PR |
 | **blocked** | CONFLICTING, depends on another PR, or external blocker | Log blocker, skip for now |
 | **stale** | No activity >7 days | Close or ping owner |
 
@@ -45,12 +45,12 @@ For each **needs-fix** PR that is independent (no mutual dependencies), spawn an
 # Default one-shot dispatch (worker exits after one fix attempt):
 ao spawn --claim-pr N  "fix PR N: <specific failure>"
 
-# DRIVER mode — worker owns the PR until 7-green is confirmed:
+# DRIVER mode — worker owns the PR until 6-green is confirmed:
 # Pass the DRIVER mode contract in the prompt itself. The worker is told to
 # iterate, not exit, and to apply the fix-all invariant below.
 ao spawn --claim-pr N  "DRIVER MODE: take ownership of PR N and iterate until
-                       ALL 7-green gates pass (CI green + CR APPROVED + Skeptic
-                       PASS). See DRIVER mode contract in .claude/commands/babysit.md.
+                       ALL 6-green gates pass (CI green + CR APPROVED).
+                       See DRIVER mode contract in .claude/commands/babysit.md.
                        Apply the fix-all invariant — fix ALL outstanding issues in
                        ONE commit. Do not exit until done or explicitly blocked."
 ```

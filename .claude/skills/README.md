@@ -11,7 +11,7 @@
 | Evolve / roadmap ops | `~/.claude/skills/evolve-loop/SKILL.md`, `nextsteps/SKILL.md` |
 | OpenClaw → AO dispatch | **`dispatch-task/SKILL.md`** (stub); **`/claw`** → canonical **`~/.claude/commands/claw.md`** (symlink to **[user_scope](https://github.com/jleechanorg/user_scope)** `backup/Mac/claude/commands/claw.md`) |
 | Harness | `~/.claude/skills/harness-engineering/SKILL.md` |
-| Fork policy & 7-green | `CLAUDE.md` (root), `roadmap/claude-fork-reference.md`, `roadmap/session-registry-harness.md` |
+| Fork policy & 6-green | `CLAUDE.md` (root), `roadmap/claude-fork-reference.md`, `roadmap/session-registry-harness.md` |
 
 **Bundled in-repo skill (not user-scope):** `video-render/SKILL.md` (project-specific).
 
