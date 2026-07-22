@@ -338,6 +338,12 @@ export async function fetchMergeGateState(
     if (page?.nodes) allNodes.push(...page.nodes);
     hasNextPage = page?.pageInfo?.hasNextPage ?? false;
     cursor = page?.pageInfo?.endCursor ?? null;
+    // Fail-closed: a malformed page reporting hasNextPage without a cursor
+    // would otherwise re-fetch the same first page forever, hanging this
+    // check indefinitely instead of surfacing a real error.
+    if (hasNextPage && !cursor) {
+      throw new Error("reviewThreads pagination returned hasNextPage without an endCursor");
+    }
   }
   const threads = allNodes;
   for (const t of threads) {

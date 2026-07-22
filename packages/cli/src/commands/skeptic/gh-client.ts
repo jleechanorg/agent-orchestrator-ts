@@ -146,6 +146,7 @@ export async function fetchPRMeta(
         title: string;
         body: string | null;
         state: string;
+        merged?: boolean;
         head?: { sha?: string };
         base?: { ref?: string };
         draft?: boolean;
@@ -154,7 +155,7 @@ export async function fetchPRMeta(
         number: data.number,
         title: data.title,
         body: data.body || "",
-        state: (data.state || "").toUpperCase(),
+        state: data.merged ? "MERGED" : (data.state || "").toUpperCase(),
         headRefOid: data.head?.sha ?? "",
         baseRefName: data.base?.ref ?? "",
         isDraft: data.draft ?? false,
@@ -216,7 +217,7 @@ export async function fetchReviews(
       // reviews by default, which can miss the latest on-head approval or
       // change request on a busy PR.
       const pages = (await ghJsonPaginate(
-        `repos/${owner}/${repo}/pulls/${prNumber}/reviews`,
+        `repos/${owner}/${repo}/pulls/${prNumber}/reviews?per_page=100`,
       )) as Array<
         Array<{
           user?: { login?: string } | null;

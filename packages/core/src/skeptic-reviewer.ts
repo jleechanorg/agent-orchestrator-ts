@@ -26,6 +26,7 @@ import { type SkepticModel } from "./skeptic-model-schema.js";
 import { resolveSkepticModel } from "./skeptic-models.js";
 import { getGhBinaryPath } from "./paths.js";
 import { loadConfig } from "./config.js";
+import { runCustomReviewer } from "./skeptic-reviewer-custom.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -108,7 +109,7 @@ const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
  * line (e.g. from an echoed prompt template) from overriding the actual terminal
  * verdict that the model emits at the end of its output.
  */
-function lastVerdictIn(text: string): "PASS" | "FAIL" | "SKIPPED" | null {
+export function lastVerdictIn(text: string): "PASS" | "FAIL" | "SKIPPED" | null {
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const m = lines[i].match(VERDICT_LINE_RE);
@@ -131,7 +132,7 @@ export interface SkepticReviewResult {
 // The nested skeptic CLI can spend up to 5 minutes per headless evaluator before
 // posting. Keep this wrapper above two-tool fallback time so slow reviews still
 // emit verdicts before the GitHub polling wrapper expires.
-const SKEPTIC_VERIFY_TIMEOUT_MS = 30 * 60_000;
+export const SKEPTIC_VERIFY_TIMEOUT_MS = 30 * 60_000;
 
 /**
  * Determine whether a CLI error is an infrastructure failure (ENOBUFS, spawn errors)
@@ -142,7 +143,7 @@ const SKEPTIC_VERIFY_TIMEOUT_MS = 30 * 60_000;
  * when the CLI echoes prompt templates that contain "VERDICT: PASS" boilerplate.
  * Infrastructure crashes never produce a clean terminal VERDICT line.
  */
-function hasVerdictInError(err: unknown): boolean {
+export function hasVerdictInError(err: unknown): boolean {
   if (err && typeof err === "object" && "stdout" in err) {
     const e = err as { stdout?: string };
     const stdout = e.stdout ?? "";
@@ -163,7 +164,7 @@ function hasVerdictInError(err: unknown): boolean {
  * hasVerdictInError: restricts to tail to skip prompt echo, then takes the
  * last matching verdict within the tail to handle multiple verdict lines.
  */
-function extractVerdictFromError(
+export function extractVerdictFromError(
   err: unknown,
   model: string,
 ): SkepticReviewResult {
@@ -263,118 +264,44 @@ async function tryModel(
 }
 
 /**
- * Run a custom reviewer command using the shell harness.
+ * Write specs/skeptic-report.json for a completed evaluation. Shared by all
+ * three report-writing sites in runSkepticReview (config-error, custom-
+ * reviewers, and model-chain paths) so they can't drift from each other —
+ * `extra` carries the fields specific to each path (e.g. reviewerResults,
+ * fallbacksAttempted). Non-fatal: returns false (does not throw) on any
+ * write failure, since a report-write failure must not fail the reaction.
  */
-async function runCustomReviewer(
+async function writeSkepticReport(
   session: Session,
-  reviewer: ReviewerConfig,
-  triggerSha: string | undefined,
-  requestId: string | undefined,
-  postComment: boolean,
-): Promise<SkepticReviewResult> {
-  if (reviewer.harness !== "shell") {
-    throw new Error(`Unsupported reviewer harness: ${reviewer.harness}`);
-  }
-
-  const rawCmd = reviewer.cmd ?? [];
-  if (rawCmd.length === 0) {
-    throw new Error("Empty command for custom reviewer");
-  }
-
-  const prNumber = session.pr!.number;
-  const repo = `${session.pr!.owner}/${session.pr!.repo}`;
-
-  let cmdArgs = rawCmd.map((arg) => {
-    let replaced = arg;
-    replaced = replaced.replace(/\{pr_number\}/g, String(prNumber));
-    replaced = replaced.replace(/\{repo\}/g, repo);
-    if (triggerSha) {
-      replaced = replaced.replace(/\{trigger_sha\}/g, triggerSha);
-      replaced = replaced.replace(/\{head_sha\}/g, triggerSha);
-    } else {
-      replaced = replaced.replace(/\{trigger_sha\}/g, "");
-      replaced = replaced.replace(/\{head_sha\}/g, "");
-    }
-    if (requestId) {
-      replaced = replaced.replace(/\{request_id\}/g, requestId);
-    } else {
-      replaced = replaced.replace(/\{request_id\}/g, "");
-    }
-    replaced = replaced.replace(/\{dry_run\}/g, postComment ? "" : "--dry-run");
-    return replaced;
-  });
-
-  // Filter out arguments resulting from empty optional placeholders. A
-  // standalone placeholder token (e.g. "{trigger_sha}") that resolves to ""
-  // is dropped entirely; a preceding bare flag it was the value for (e.g.
-  // "--sha") is dropped too, so it doesn't dangle with no value and get the
-  // next positional argument consumed in its place. Config authors can avoid
-  // this class of substitution entirely by using the combined form
-  // "--sha={trigger_sha}", which degrades to a single well-formed "--sha="
-  // token instead of two separate tokens (see agent-orchestrator.yaml.example).
-  const isEmptyPlaceholder = (arg: string, original: string | undefined) =>
-    arg === "" &&
-    (original === "{dry_run}" ||
-      original === "{trigger_sha}" ||
-      original === "{head_sha}" ||
-      original === "{request_id}");
-
-  const dropIndices = new Set<number>();
-  for (let i = 0; i < cmdArgs.length; i++) {
-    if (!isEmptyPlaceholder(cmdArgs[i], rawCmd[i])) continue;
-    dropIndices.add(i);
-    const prev = cmdArgs[i - 1];
-    if (
-      i > 0 &&
-      typeof prev === "string" &&
-      prev.startsWith("-") &&
-      !prev.includes("=") &&
-      !dropIndices.has(i - 1)
-    ) {
-      dropIndices.add(i - 1);
-    }
-  }
-  cmdArgs = cmdArgs.filter((_, index) => !dropIndices.has(index));
-
-  let binary = cmdArgs[0];
-  const args = cmdArgs.slice(1);
-
-  if (binary === "ao") {
-    binary = process.env["AO_CLI_PATH"] ?? "ao";
-  }
-
-  const env = {
-    ...process.env,
-    ...(reviewer.env || {}),
-  };
-
-  const cwd = session.workspacePath ?? process.env["AO_REPO_ROOT"] ?? process.cwd();
-
-  const modelName = `shell:${cmdArgs.slice(0, 3).join(" ")}`;
-
-  let output: string;
+  result: SkepticReviewResult,
+  extra?: Record<string, unknown>,
+): Promise<boolean> {
   try {
-    const execResult = await execFileAsync(binary, args, {
-      timeout: SKEPTIC_VERIFY_TIMEOUT_MS,
-      cwd,
-      env,
-    });
-    output = execResult.stdout + (execResult.stderr || "");
-  } catch (err: unknown) {
-    if (hasVerdictInError(err)) {
-      return extractVerdictFromError(err, modelName);
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Reviewer command failed: ${msg}`, { cause: err });
+    if (!session.workspacePath) throw new Error("workspacePath not set");
+    const reportDir = join(session.workspacePath, "specs");
+    await mkdir(reportDir, { recursive: true });
+    await writeFile(
+      join(reportDir, "skeptic-report.json"),
+      JSON.stringify(
+        {
+          timestamp: new Date().toISOString(),
+          sessionId: session.id,
+          prNumber: session.pr!.number,
+          repo: `${session.pr!.owner}/${session.pr!.repo}`,
+          verdict: result.verdict,
+          details: result.details,
+          modelUsed: result.modelUsed,
+          ...extra,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    return true;
+  } catch {
+    return false;
   }
-
-  const verdict: "PASS" | "FAIL" | "SKIPPED" = lastVerdictIn(output) ?? "FAIL";
-
-  return {
-    verdict,
-    details: output.slice(0, 500),
-    modelUsed: modelName,
-  };
 }
 
 /**
@@ -467,32 +394,7 @@ export async function runSkepticReview(
         modelUsed: "config:loadConfig",
       };
 
-      let reportWritten = false;
-      try {
-        if (!session.workspacePath) throw new Error("workspacePath not set", { cause: err });
-        const reportDir = join(session.workspacePath, "specs");
-        await mkdir(reportDir, { recursive: true });
-        await writeFile(
-          join(reportDir, "skeptic-report.json"),
-          JSON.stringify(
-            {
-              timestamp: new Date().toISOString(),
-              sessionId: session.id,
-              prNumber: session.pr.number,
-              repo: `${session.pr.owner}/${session.pr.repo}`,
-              verdict: result.verdict,
-              details: result.details,
-              modelUsed: result.modelUsed,
-            },
-            null,
-            2,
-          ),
-          "utf-8",
-        );
-        reportWritten = true;
-      } catch {
-        // Non-fatal
-      }
+      const reportWritten = await writeSkepticReport(session, result);
 
       return { ...result, reportWritten };
     }
@@ -533,34 +435,7 @@ export async function runSkepticReview(
     };
 
     // Write report
-    let reportWritten = false;
-    try {
-      if (!session.workspacePath) throw new Error("workspacePath not set");
-      const reportDir = join(session.workspacePath, "specs");
-      await mkdir(reportDir, { recursive: true });
-      await writeFile(
-        join(reportDir, "skeptic-report.json"),
-        JSON.stringify(
-          {
-            timestamp: new Date().toISOString(),
-            sessionId: session.id,
-            prNumber: session.pr.number,
-            repo: `${session.pr.owner}/${session.pr.repo}`,
-            verdict: result.verdict,
-            details: result.details,
-            modelUsed: result.modelUsed,
-            reviewerResults,
-            reviewerErrors,
-          },
-          null,
-          2,
-        ),
-        "utf-8",
-      );
-      reportWritten = true;
-    } catch {
-      // Non-fatal
-    }
+    const reportWritten = await writeSkepticReport(session, result, { reviewerResults, reviewerErrors });
 
     return { ...result, reportWritten };
   }
@@ -573,33 +448,9 @@ export async function runSkepticReview(
     if (attempt.result) {
       // Got a verdict — write report and return
       const result = attempt.result;
-      let reportWritten = false;
-      try {
-        if (!session.workspacePath) throw new Error("workspacePath not set");
-        const reportDir = join(session.workspacePath, "specs");
-        await mkdir(reportDir, { recursive: true });
-        await writeFile(
-          join(reportDir, "skeptic-report.json"),
-          JSON.stringify(
-            {
-              timestamp: new Date().toISOString(),
-              sessionId: session.id,
-              prNumber: session.pr.number,
-              repo: `${session.pr.owner}/${session.pr.repo}`,
-              verdict: result.verdict,
-              details: result.details,
-              modelUsed: result.modelUsed,
-              fallbacksAttempted: infraErrors.length,
-            },
-            null,
-            2,
-          ),
-          "utf-8",
-        );
-        reportWritten = true;
-      } catch {
-        // Non-fatal — don't fail the reaction if report write fails
-      }
+      const reportWritten = await writeSkepticReport(session, result, {
+        fallbacksAttempted: infraErrors.length,
+      });
 
       return { ...result, reportWritten };
     }
