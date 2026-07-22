@@ -38,7 +38,7 @@ vi.mock("node:fs/promises", () => ({
 import * as childProcess from "node:child_process";
 import { existsSync, lstatSync, symlinkSync, rmSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import * as fsPromises from "node:fs/promises";
-import { create, manifest } from "../index.js";
+import { create, manifest, canonicalizeRemoteUrl, remoteUrlsMatch } from "../index.js";
 
 // ---------------------------------------------------------------------------
 // Typed mock references
@@ -71,6 +71,18 @@ function mockGitError(message: string) {
 }
 
 /**
+ * Stage C / 9sh5: tests using `mockGitImpl` set a key-specific map. When
+ * they DON'T override `git,config,--get,remote.origin.url,(cwd=/repo/path)`,
+ * the assertion needs a matching default. Tests that override with a
+ * different URL (e.g. mismatch scenarios) supply their own entry.
+ *
+ * The impl-time default URL is `git@github.com:test/repo.git`, which
+ * canonicalizes to /test/repo — matching the default project.repo from
+ * makeProject().
+ */
+const DEFAULT_REMOTE_PROBE_STDOUT = "git@github.com:test/repo.git";
+
+/**
  * Per-test git mock using mockImplementation. Decides outcome by call arguments (not queue position),
  * so unmocked calls succeed with empty stdout.
  *
@@ -78,16 +90,42 @@ function mockGitError(message: string) {
  * git() is called with a cwd option (it always is for repo-path git calls).
  */
 type GitCallResult = { stdout?: string; stderr?: string } | Error;
+/**
+ * Stage C / 9sh5: default remote probe response. Tests using `mockGitImpl`
+ * get this default unless they override the explicit remote.origin.url key.
+ * Tests using `mockGitSuccess` / `mockGitError` (queue-position based) need
+ * to prepend a probe response themselves; see queueDefaultOriginProbe().
+ */
+const DEFAULT_REMOTE_PROBE_KEY = "git,config,--get,remote.origin.url,(cwd=/repo/path)";
+const DEFAULT_REMOTE_PROBE: Record<string, GitCallResult> = {
+  [DEFAULT_REMOTE_PROBE_KEY]: { stdout: DEFAULT_REMOTE_PROBE_STDOUT },
+};
+
 function mockGitImpl(calls: Record<string, GitCallResult>, allowUnmocked = true): void {
+  // Merge defaults so the Stage C remote probe never silently returns empty.
+  const merged: Record<string, GitCallResult> = { ...DEFAULT_REMOTE_PROBE, ...calls };
   mockExecFileAsync.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string }) => {
     const key = [cmd, ...args, opts?.cwd ? `(cwd=${opts.cwd})` : ""].join(",");
-    const result = calls[key];
+    const result = merged[key];
     if (result !== undefined) {
       if (result instanceof Error) return Promise.reject(result);
       return Promise.resolve({ stdout: (result?.stdout ?? "") + "\n", stderr: result?.stderr ?? "" });
     }
     if (allowUnmocked) return Promise.resolve({ stdout: "\n", stderr: "" });
     return Promise.reject(new Error(`unmocked git: ${key}`));
+  });
+}
+
+/**
+ * Stage C / 9sh5: prepend a default origin probe response to the queue
+ * consumed by `mockGitSuccess` / `mockGitError`. Call this as the FIRST
+ * mockGit* call inside create() / restore() tests to satisfy the spawn-time
+ * assertion without changing the rest of the queue.
+ */
+function queueDefaultOriginProbe() {
+  mockExecFileAsync.mockResolvedValueOnce({
+    stdout: DEFAULT_REMOTE_PROBE_STDOUT + "\n",
+    stderr: "",
   });
 }
 
@@ -125,6 +163,8 @@ beforeEach(() => {
   // Default git mock: any git call returns empty stdout. Individual tests override
   // with mockGitSuccess() / mockGitImpl() for specific call patterns. This ensures
   // the prune call from cleanupStaleWorktree() always gets a response.
+  // mockGitImpl also injects a default origin probe so Stage C / 9sh5
+  // assertions pass without per-test wiring.
   mockGitImpl({});
 
   // Default: no existing exclude file, writes succeed.
@@ -161,6 +201,8 @@ describe("create() factory", () => {
     const ws = create();
 
     // Mock: fetch, for-each-ref (unambiguous), worktree add
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -174,6 +216,8 @@ describe("create() factory", () => {
   it("uses custom worktreeDir from config", async () => {
     const ws = create({ worktreeDir: "/custom/worktrees" });
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -187,6 +231,8 @@ describe("create() factory", () => {
   it("expands tilde in custom worktreeDir", async () => {
     const ws = create({ worktreeDir: "~/custom-path" });
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -202,6 +248,8 @@ describe("workspace.create()", () => {
   it("calls git fetch and git worktree add with correct args", async () => {
     const ws = create();
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -233,6 +281,8 @@ describe("workspace.create()", () => {
   it("creates the project worktree directory", async () => {
     const ws = create();
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -248,6 +298,8 @@ describe("workspace.create()", () => {
   it("continues when fetch fails (offline)", async () => {
     const ws = create();
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitError("Could not resolve host"); // fetch fails
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -264,6 +316,8 @@ describe("workspace.create()", () => {
 
     const branchCollisionError = `Command failed: git worktree add -b feat/TEST-1 ${worktreePath} origin/main\nfatal: A branch named 'feat/TEST-1' already exists.`;
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -294,6 +348,8 @@ describe("workspace.create()", () => {
       `Command failed: git worktree add -b feat/TEST-1 ${worktreePath} origin/main\n` +
       `fatal: A branch named 'feat/TEST-1' already exists.`;
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -314,6 +370,8 @@ describe("workspace.create()", () => {
   it("cleans up worktree on retry failure", async () => {
     const ws = create();
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -343,6 +401,8 @@ describe("workspace.create()", () => {
 
     const branchCollisionError = `Command failed: git worktree add -b feat/TEST-1 ${worktreePath} origin/main\nfatal: A branch named 'feat/TEST-1' already exists.`;
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -377,6 +437,8 @@ describe("workspace.create()", () => {
   it("reports error when stale branch reset via -B fails", async () => {
     const ws = create();
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -398,6 +460,8 @@ describe("workspace.create()", () => {
 
     mockExistsSync.mockReturnValue(true);
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -417,6 +481,8 @@ describe("workspace.create()", () => {
   it("throws for non-already-exists worktree add errors", async () => {
     const ws = create();
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -431,6 +497,8 @@ describe("workspace.create()", () => {
   it("auto-renames local conflicting branch when origin/main is ambiguous", async () => {
     const ws = create();
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     // git branch --list origin/main returns the local branch → ambiguous
     mockGitSuccess("  origin/main");
@@ -469,6 +537,8 @@ describe("workspace.create()", () => {
   it("throws actionable error when rename fails during ambiguous-ref remediation", async () => {
     const ws = create();
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     // git branch --list origin/main returns the local branch → ambiguous
     mockGitSuccess("  origin/main");
@@ -481,6 +551,8 @@ describe("workspace.create()", () => {
   it("proceeds without rename when no local branch conflicts with baseRef", async () => {
     const ws = create();
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     // git branch --list origin/main returns empty → no local conflict
     mockGitSuccess("");
@@ -551,6 +623,8 @@ describe("workspace.create()", () => {
   it("returns correct WorkspaceInfo", async () => {
     const ws = create();
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -574,6 +648,8 @@ describe("workspace.create()", () => {
     // Initial worktree add -b fails with branch collision — worktreePath appears in
     // the command string portion of the Node.js execFile error, NOT in git's path-error
     // format. This should NOT trigger ghost detection.
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -624,6 +700,8 @@ describe("workspace.create()", () => {
     // git worktree add -b fails because the path already exists on disk
     // (git prints: fatal: '/path/to/worktree' already exists)
     // This is different from "branch already exists" error.
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -658,9 +736,11 @@ describe("workspace.create()", () => {
     // Verify: ghost worktree was removed via filesystem (not git, since git doesn't know about it)
     expect(mockRmSync).toHaveBeenCalledWith(worktreePath, { recursive: true, force: true });
 
-    // Verify: we retried worktree add -b after cleanup (retry is the 7th call: fetch, branch, prune, add-fail, list, tmux, add-retry)
+    // Verify: we retried worktree add -b after cleanup (retry is the 8th call:
+    // probe, fetch, branch, prune, add-fail, list, tmux, add-retry).
+    // Stage C / 9sh5 shifted the positions by 1 due to the spawn-time probe.
     expect(mockExecFileAsync).toHaveBeenNthCalledWith(
-      7,
+      8,
       "git",
       ["worktree", "add", "-b", "feat/TEST-1", worktreePath, "origin/main"],
       { cwd: "/repo/path", timeout: 30_000 },
@@ -672,6 +752,8 @@ describe("workspace.create()", () => {
     const worktreePath = "/mock-home/.worktrees/myproject/session-1";
 
     // git worktree add -b fails with path already exists
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -690,6 +772,8 @@ describe("workspace.create()", () => {
     const worktreePath = "/mock-home/.worktrees/myproject/session-1";
 
     // git worktree add -b fails with path already exists
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -709,6 +793,8 @@ describe("workspace.create()", () => {
     const worktreePath = "/mock-home/.worktrees/myproject/session-1";
 
     // git worktree add -b fails with an error that doesn't match path-collision format
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -745,6 +831,8 @@ describe("workspace.create()", () => {
     const worktreePath = "/mock-home/.worktrees/myproject/session-1";
 
     // git worktree add -b fails with path already exists
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -789,6 +877,8 @@ describe("workspace.create()", () => {
   it("expands tilde in project path", async () => {
     const ws = create();
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -1314,6 +1404,8 @@ describe("workspace.postCreate()", () => {
 describe("setupAoManagedExclude (via workspace.create())", () => {
   it("writes AO-managed patterns to .git/info/exclude on first create", async () => {
     const ws = create();
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -1333,6 +1425,8 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
     // Simulate exclude file already containing AO patterns
     mockReadFile.mockResolvedValueOnce("# AO-managed files - do not track in worktree\n.metadata-updater.sh\n");
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -1349,6 +1443,8 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
     const existingExclude = "# Custom rules\n*.log\n";
     mockReadFile.mockResolvedValueOnce(existingExclude);
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -1373,6 +1469,8 @@ describe("setupAoManagedExclude (via workspace.create())", () => {
     const _worktreePath = "/mock-home/.worktrees/myproject/ao-1";
     const mainGitDir = "/main-repo/.git";
 
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // fetch
     mockGitSuccess(""); // git branch --list origin/main — no local conflict
     mockGitSuccess(""); // git worktree prune (cleanupStaleWorktree)
@@ -1406,6 +1504,8 @@ describe("setupAoManagedExclude (via workspace.restore())", () => {
     // 3. git fetch origin --quiet (caught if fails — ok to leave unmocked)
     // 4. git worktree add <worktreePath> <branch> (first attempt — succeeds, no disambiguateBaseRef)
     // 5. setupAoManagedExclude: git rev-parse --git-common-dir
+    // Stage C / 9sh5: probe response for spawn-time remote assertion
+    queueDefaultOriginProbe();
     mockGitSuccess(""); // unlock
     mockGitSuccess(""); // prune
     mockGitSuccess(""); // fetch
@@ -1560,5 +1660,208 @@ describe("create() with stale locked worktree", () => {
     expect(unlockIndex).toBeGreaterThan(-1);
     expect(unlockIndex).toBeLessThan(addIndex);
     expect(info.path).toBe(worktreePath);
+  });
+});
+
+// =============================================================================
+// Stage C — Spawn-time Worktree Remote Assertion (subsumes 9sh5)
+// =============================================================================
+//
+// A worker must not push to a remote that does not match its configured
+// `project.repo`. Today the worktree plugin fetches from `origin` without
+// verifying that origin's URL actually matches the expected repo, so a
+// misconfigured /repo/worktree can silently push to the wrong place.
+//
+// These tests pin the spawn-time assertion contract:
+//   * When `project.repo` is set and `git config --get remote.origin.url`
+//     returns a different repo, `workspace.create()` MUST refuse.
+//   * When the URLs match (after canonicalization), create() proceeds.
+//   * When `project.repo` is unset, no assertion is performed.
+
+describe("canonicalizeRemoteUrl / remoteUrlsMatch (Stage C / 9sh5)", () => {
+  it("canonicalizes ssh form git@host:owner/repo.git to host/owner/repo", () => {
+    expect(canonicalizeRemoteUrl("git@github.com:test/repo.git")).toBe(
+      "github.com/test/repo",
+    );
+  });
+
+  it("canonicalizes https form to host/owner/repo", () => {
+    expect(canonicalizeRemoteUrl("https://github.com/test/repo")).toBe(
+      "github.com/test/repo",
+    );
+    expect(canonicalizeRemoteUrl("https://github.com/test/repo.git")).toBe(
+      "github.com/test/repo",
+    );
+  });
+
+  it("returns null for URLs without owner/repo tail", () => {
+    expect(canonicalizeRemoteUrl("")).toBeNull();
+    expect(canonicalizeRemoteUrl("/just-a-segment")).toBeNull();
+  });
+
+  it("matches equivalent ssh and https URLs", () => {
+    expect(
+      remoteUrlsMatch(
+        "git@github.com:test/repo.git",
+        "https://github.com/test/repo",
+      ),
+    ).toBe(true);
+  });
+
+  it("matches host-less owner/repo against host/owner/repo", () => {
+    expect(
+      remoteUrlsMatch(
+        "git@github.com:test/repo.git",
+        "test/repo",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects different owners", () => {
+    expect(
+      remoteUrlsMatch(
+        "git@github.com:someone-else/wrong-repo.git",
+        "test/repo",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects missing inputs", () => {
+    expect(remoteUrlsMatch(null, "test/repo")).toBe(false);
+    expect(remoteUrlsMatch("", "")).toBe(false);
+  });
+});
+
+describe("workspace.create() — spawn-time remote assertion (Stage C / 9sh5)", () => {
+  it("queries `git config --get remote.origin.url` during create()", async () => {
+    const ws = create();
+
+    mockGitImpl({
+      // Remote URL probe — must be issued before any fetch / worktree add
+      [`git,config,--get,remote.origin.url,(cwd=/repo/path)`]: {
+        stdout: "git@github.com:test/repo.git",
+      },
+      // fetch
+      [`git,fetch,origin,--quiet,(cwd=/repo/path)`]: { stdout: "" },
+      // disambiguateBaseRef
+      [`git,branch,--list,origin/main,(cwd=/repo/path)`]: { stdout: "" },
+      // worktree prune (cleanupStaleWorktree)
+      [`git,worktree,prune,(cwd=/repo/path)`]: { stdout: "" },
+      // worktree add
+      [`git,worktree,add,-b,feat/TEST-1,/mock-home/.worktrees/myproject/session-1,origin/main,(cwd=/repo/path)`]: {
+        stdout: "",
+      },
+      // setupAoManagedExclude
+      [`git,rev-parse,--path-format=absolute,--git-common-dir,(cwd=/mock-home/.worktrees/myproject/session-1)`]: {
+        stdout: "/repo/path/.git",
+      },
+      [`git,rev-parse,--path-format=absolute,--git-dir,(cwd=/mock-home/.worktrees/myproject/session-1)`]: {
+        stdout: "/repo/path/.git",
+      },
+      // worktree lock
+      [`git,worktree,lock,--reason,AO session active,/mock-home/.worktrees/myproject/session-1,(cwd=/repo/path)`]: {
+        stdout: "",
+      },
+    });
+
+    await ws.create(makeCreateConfig({ project: makeProject({ repo: "test/repo" }) }));
+
+    const calls = mockExecFileAsync.mock.calls;
+    const probeCall = calls.find(
+      (call) =>
+        Array.isArray(call[1]) &&
+        call[1][0] === "config" &&
+        call[1][1] === "--get" &&
+        call[1][2] === "remote.origin.url",
+    );
+    expect(probeCall).toBeDefined();
+  });
+
+  it("throws an actionable error when origin URL does NOT match project.repo", async () => {
+    const ws = create();
+
+    mockGitImpl({
+      // Remote URL probe — returns a DIFFERENT repo than configured
+      [`git,config,--get,remote.origin.url,(cwd=/repo/path)`]: {
+        stdout: "git@github.com:someone-else/wrong-repo.git",
+      },
+    });
+
+    await expect(
+      ws.create(makeCreateConfig({ project: makeProject({ repo: "test/repo" }) })),
+    ).rejects.toThrow(/remote.*origin.*mismatch|wrong-repo|test\/repo/i);
+  });
+
+  it("proceeds when origin URL canonicalizes to project.repo", async () => {
+    const ws = create();
+
+    mockGitImpl({
+      // Same repo, with .git suffix and ssh:// prefix — should canonicalize
+      [`git,config,--get,remote.origin.url,(cwd=/repo/path)`]: {
+        stdout: "git@github.com:test/repo.git",
+      },
+      // fetch
+      [`git,fetch,origin,--quiet,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,branch,--list,origin/main,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,worktree,prune,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,worktree,add,-b,feat/TEST-1,/mock-home/.worktrees/myproject/session-1,origin/main,(cwd=/repo/path)`]: {
+        stdout: "",
+      },
+      [`git,rev-parse,--path-format=absolute,--git-common-dir,(cwd=/mock-home/.worktrees/myproject/session-1)`]: {
+        stdout: "/repo/path/.git",
+      },
+      [`git,rev-parse,--path-format=absolute,--git-dir,(cwd=/mock-home/.worktrees/myproject/session-1)`]: {
+        stdout: "/repo/path/.git",
+      },
+      [`git,worktree,lock,--reason,AO session active,/mock-home/.worktrees/myproject/session-1,(cwd=/repo/path)`]: {
+        stdout: "",
+      },
+    });
+
+    const info = await ws.create(
+      makeCreateConfig({ project: makeProject({ repo: "test/repo" }) }),
+    );
+    expect(info.path).toBe("/mock-home/.worktrees/myproject/session-1");
+  });
+
+  it("skips the remote assertion when project.repo is unset", async () => {
+    const ws = create();
+
+    mockGitImpl({
+      // No remote probe is configured — if the plugin tries to call
+      // `git config --get remote.origin.url` here, the implementation
+      // rejects and the test fails.
+      [`git,fetch,origin,--quiet,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,branch,--list,origin/main,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,worktree,prune,(cwd=/repo/path)`]: { stdout: "" },
+      [`git,worktree,add,-b,feat/TEST-1,/mock-home/.worktrees/myproject/session-1,origin/main,(cwd=/repo/path)`]: {
+        stdout: "",
+      },
+      [`git,rev-parse,--path-format=absolute,--git-common-dir,(cwd=/mock-home/.worktrees/myproject/session-1)`]: {
+        stdout: "/repo/path/.git",
+      },
+      [`git,rev-parse,--path-format=absolute,--git-dir,(cwd=/mock-home/.worktrees/myproject/session-1)`]: {
+        stdout: "/repo/path/.git",
+      },
+      [`git,worktree,lock,--reason,AO session active,/mock-home/.worktrees/myproject/session-1,(cwd=/repo/path)`]: {
+        stdout: "",
+      },
+    });
+
+    const info = await ws.create(
+      makeCreateConfig({ project: makeProject({ repo: undefined }) }),
+    );
+    expect(info.path).toBe("/mock-home/.worktrees/myproject/session-1");
+
+    // Verify no `git config --get remote.origin.url` was issued
+    const calls = mockExecFileAsync.mock.calls;
+    const probeCall = calls.find(
+      (call) =>
+        Array.isArray(call[1]) &&
+        call[1][0] === "config" &&
+        call[1][1] === "--get" &&
+        call[1][2] === "remote.origin.url",
+    );
+    expect(probeCall).toBeUndefined();
   });
 });

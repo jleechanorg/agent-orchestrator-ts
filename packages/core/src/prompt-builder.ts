@@ -151,6 +151,31 @@ function buildConfigLayer(config: PromptBuildConfig): string {
   }
   lines.push("- Default branch: " + project.defaultBranch);
 
+  // Stage C / 9sh5: dispatch prompt must state repo/remote/push-command so the
+  // worker never guesses. Only emit the section when project.repo is configured
+  // — without a canonical remote URL we have nothing authoritative to push to.
+  if (project.repo) {
+    lines.push("");
+    lines.push("## Git Remote");
+    lines.push(`- Remote name: \`origin\``);
+    lines.push(`- Repository: \`${project.repo}\``);
+    lines.push(`- Default branch: \`${project.defaultBranch}\``);
+    lines.push("");
+    lines.push(
+      `When you push your branch and create the PR, run the literal command:`,
+    );
+    lines.push("");
+    lines.push("```bash");
+    lines.push("git push origin HEAD");
+    lines.push("```");
+    lines.push("");
+    lines.push(
+      `This pushes your current branch to \`origin\` (which points at \`${project.repo}\`). ` +
+        `Do not guess a different remote name — if \`origin\` is missing or points elsewhere, ` +
+        `stop and report the worktree remote mismatch instead of pushing to the wrong place.`,
+    );
+  }
+
   if (project.tracker) {
     lines.push(`- Tracker: ${project.tracker.plugin}`);
   }
