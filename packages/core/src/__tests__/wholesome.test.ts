@@ -819,6 +819,13 @@ describe("wholesome — structural source-code assertions", () => {
       "generate-pr-design-docs.yml",
       // Green gate is a polling/gate workflow, not a code execution gate
       "green-gate.yml",
+      // Reusable skeptic gate — workflow_call only, no direct pull_request trigger;
+      // fork-aware runner selection is delegated to the caller workflow. Retained
+      // (unlike this repo's own skeptic-gate.yml/skeptic-cron.yml/test.yml) because
+      // consumer-repo templates still call it via `uses:` (see PR #773).
+      "skeptic-gate-reusable.yml",
+      // Reusable skeptic cron — workflow_call only, same rationale as above
+      "skeptic-cron-reusable.yml",
     ];
 
     /** Jobs that are inherently safe on ubuntu-latest (no secrets, no self-hosted need).
