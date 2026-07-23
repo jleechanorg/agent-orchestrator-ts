@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Regression guard: pr-rescue-status.sh is the mechanical preflight for 7-green
+ * Regression guard: pr-rescue-status.sh is the mechanical preflight for 6-green
  * (see AGENTS.md). If deleted or gutted, agents lose a deterministic blocked-vs-done check.
  */
 function repoRoot(): string {

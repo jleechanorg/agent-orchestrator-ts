@@ -1,12 +1,14 @@
 ---
 name: pr-green-definition
-description: Canonical 7-green PR merge criteria, PR status check pattern, PR freeze discipline, and admin merge protocol
+description: Canonical 6-green PR merge criteria, PR status check pattern, PR freeze discipline, and admin merge protocol
 type: policy
 ---
 
-# PR "Green" Definition (7-Green)
+# PR "Green" Definition (6-Green)
 
-A PR is "green" (merge-ready) when **all 7 conditions** hold:
+**Was "7-Green" until this repo's own Skeptic PR-gating automation (`skeptic-gate.yml`, `skeptic-cron.yml`, `test.yml`'s trigger job) was retired in PR #773 — Skeptic PASS is no longer a required gate here.** See `CLAUDE.md`'s "Skeptic Architecture" note for what still applies (consumer-repo templates, the `ao skeptic verify` CLI itself).
+
+A PR is "green" (merge-ready) when **all 6 conditions** hold:
 
 | # | Condition | Verification |
 |---|---|---|
@@ -16,13 +18,12 @@ A PR is "green" (merge-ready) when **all 7 conditions** hold:
 | 4 | **Bugbot clean** | Zero error-severity comments from cursor[bot] |
 | 5 | **All inline comments resolved** | Zero unresolved non-nit inline review comments |
 | 6 | **Evidence review passed** | evidence-review-bot APPROVED or evidence-gate CI passed |
-| 7 | **Skeptic PASS** | github-actions[bot] posted VERDICT: PASS on the PR (from skeptic-cron.yml workflow) |
 
-**Pre-merge verification is MANDATORY.** Before executing any merge command (`gh pr merge`, `gh api .../merge`), verify all 7 gates pass. If ANY gate fails, do NOT merge — fix the failing gate first. Merging a non-green PR is a commitment integrity violation.
+**Pre-merge verification is MANDATORY.** Before executing any merge command (`gh pr merge`, `gh api .../merge`), verify all 6 gates pass. If ANY gate fails, do NOT merge — fix the failing gate first. Merging a non-green PR is a commitment integrity violation.
 
 ## Verification Procedure (Mandatory)
 
-**WARNING: `gh pr checks` is NOT sufficient for 7-green verification.** The Green Gate workflow always exits 0 (success), so `gh pr checks` shows "Green Gate: pass" even when individual gates FAIL. The "CodeRabbit: pass" line means the webhook responded, NOT that CodeRabbit gave an APPROVED review.
+**WARNING: `gh pr checks` is NOT sufficient for 6-green verification.** The Green Gate workflow always exits 0 (success), so `gh pr checks` shows "Green Gate: pass" even when individual gates FAIL. The "CodeRabbit: pass" line means the webhook responded, NOT that CodeRabbit gave an APPROVED review.
 
 ### Step-by-step verification
 
@@ -38,13 +39,7 @@ RUN_ID=$(gh run list --workflow green-gate.yml --repo OWNER/REPO --branch "$BRAN
 # 3. Read gate-by-gate results (THE ONLY RELIABLE CHECK)
 gh run view "$RUN_ID" --repo OWNER/REPO --log 2>/dev/null | grep -E "GATE-[1-5] (PASS|FAIL)"
 
-# 4. Get latest Skeptic Gate run (use workflow file name)
-SKEPTIC_ID=$(gh run list --workflow skeptic-gate.yml --repo OWNER/REPO --branch "$BRANCH" -L 1 --json databaseId --jq '.[0].databaseId')
-
-# 5. Read skeptic verdict
-gh run view "$SKEPTIC_ID" --repo OWNER/REPO --log 2>/dev/null | grep -E "VERDICT"
-
-# 6. Cross-reference CR review state (do NOT trust gh pr checks)
+# 4. Cross-reference CR review state (do NOT trust gh pr checks)
 gh pr view N --repo OWNER/REPO --json reviews --jq '[.reviews[] | select(.state != "COMMENTED") | {author: .author.login, state: .state}] | last'
 ```
 
@@ -58,9 +53,8 @@ gh pr view N --repo OWNER/REPO --json reviews --jq '[.reviews[] | select(.state 
 | 4 | "Cursor Bugbot: pass" (MISLEADING) | cursor[bot] check conclusion = success, no error comments |
 | 5 | (not shown) | GraphQL: zero unresolved review threads |
 | 6 | (not shown) | Evidence review bot APPROVED |
-| 7 | "Skeptic Gate: pass" (MISLEADING) | VERDICT: PASS posted by skeptic-cron |
 
-**Rule**: A PR is 7-green ONLY when all 7 gates show PASS in the workflow logs. Never report 7-green status based on `gh pr checks` output alone.
+**Rule**: A PR is 6-green ONLY when all 6 gates show PASS in the workflow logs. Never report 6-green status based on `gh pr checks` output alone.
 
 ## PR status check — canonical pattern (mandatory)
 
@@ -78,7 +72,7 @@ Why: `mergeable_state` returns `unknown` for merged PRs (identical to its transi
 
 **Pre-push commit count check**: Before pushing a PR branch, run COMMITS=$(git rev-list --count origin/main..HEAD). If > 5 commits, warn: "N commits — squash before final review to avoid CR incremental stall and merge conflicts."
 
-**Squash before final merge**: When all 7-green conditions are met (or CR has verbally approved in comments), squash all commits into ONE before pushing:
+**Squash before final merge**: When all 6-green conditions are met (or CR has verbally approved in comments), squash all commits into ONE before pushing:
 
 ```bash
 git reset --soft origin/main
@@ -86,7 +80,7 @@ git commit -m "feat(scope): concise single-commit message"
 git push --force-with-lease
 ```
 
-Then let skeptic-cron merge (or `gh pr merge N --squash --admin`).
+Then merge with explicit human approval (`gh pr merge N --squash --admin`) — this repo no longer has an automated skeptic-cron merge path (retired PR #773); `MERGE APPROVED` from the human is required every time, not just when CR is in incremental stall.
 
 **Why**: 16-commit PR #412 took 5 review rounds. CR treats squashed commits as "already reviewed" and refuses re-review. 1-commit squash merged in one shot.
 

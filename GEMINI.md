@@ -4,10 +4,10 @@ This file contains repository-specific baseline guidelines for Antigravity/Gemin
 
 ## PR Merge Gating & Auto-Merge
 
-### 7-Green Auto-Merge via Skeptic Cron (Mandatory)
-* **Auto-Merge Behavior**: The GitHub Actions workflow `skeptic-cron.yml` runs periodically to evaluate open PRs against all 7-green conditions. If a PR passes all 7 gates (including a `VERDICT: PASS` comment posted by the skeptic verification agent), the workflow will automatically merge the PR.
-* **Auto-Merge Configuration**: This behavior is controlled by the GitHub repository variable `SKEPTIC_CRON_AUTO_MERGE`. It is currently set to `"true"` for this repository.
-* **Human Authorization Guard**: Even though auto-merge is active via GitHub Actions, agents must NEVER perform any manual or override merges (`gh pr merge` or otherwise) in chat unless the human user has typed `MERGE APPROVED` in the current turn.
+### 6-Green (Mandatory) — Skeptic Cron auto-merge retired (PR #773)
+* **No more automated Skeptic Cron auto-merge in this repo.** `skeptic-cron.yml` (and `skeptic-gate.yml`, and `test.yml`'s Skeptic trigger job) were deleted in PR #773 — this repo's own Skeptic PR-gating/auto-merge automation is retired. Do not reference `SKEPTIC_CRON_AUTO_MERGE` or expect a `VERDICT: PASS` comment to trigger a merge; that mechanism no longer runs here.
+* **Current gating**: PRs must pass the 6-green Green Gate check (CI green, mergeable, CodeRabbit APPROVED, Bugbot clean, inline threads resolved, evidence when required) — see `CLAUDE.md`'s "6-Green (summary)" section for the authoritative definition.
+* **Human Authorization Guard (unchanged)**: Agents must NEVER perform any manual or override merges (`gh pr merge` or otherwise) in chat unless the human user has typed `MERGE APPROVED` in the current turn — this rule holds regardless of gate automation.
 
 ## Memory Search Alias
 * **Memory Search (`/ms`)**: In Claude Code / OpenClaw, the `/ms` command is an alias for `/memory_search` which searches across all memory systems (roadmap, beads, memories, wiki, history, etc.). Use this command or its equivalent to locate historical decisions and configurations.
