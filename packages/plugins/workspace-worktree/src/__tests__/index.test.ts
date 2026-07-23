@@ -806,6 +806,25 @@ describe("workspace.create()", () => {
       timeout: 30_000,
     });
   });
+
+  // jleechan-v4ui: `ao spawn --project X` failed with the misleading
+  // "spawn git ENOENT" (identical to a missing git binary) whenever the
+  // project's configured `path:` did not exist on disk. Root cause: Node's
+  // execFile fails the chdir step for a nonexistent `cwd` and reports it as
+  // ENOENT on the spawned command itself. Fix: fail fast with an actionable
+  // message before any git command runs.
+  it("throws an actionable error when the project repo path does not exist", async () => {
+    const ws = create();
+
+    mockExistsSync.mockImplementation((p: unknown) => String(p) !== "/repo/path");
+
+    await expect(ws.create(makeCreateConfig())).rejects.toThrow(
+      'Project "myproject" repo path does not exist: /repo/path. Check the "path:" field for this project in agent-orchestrator.yaml.',
+    );
+
+    // Must fail before any git command is attempted against the missing cwd.
+    expect(mockExecFileAsync).not.toHaveBeenCalled();
+  });
 });
 
 describe("workspace.destroy()", () => {
@@ -1525,8 +1544,12 @@ describe("create() with stale locked worktree", () => {
     const ws = create();
     const worktreePath = "/mock-home/.worktrees/myproject/wa-999";
 
-    // Path is missing (simulating stale lock scenario per bd-206)
-    mockExistsSync.mockImplementation((p: string) => String(p).endsWith(".git/info"));
+    // Path is missing (simulating stale lock scenario per bd-206).
+    // The repo path itself (/repo/path) must still exist -- only the
+    // worktree path/lock is stale; assertRepoPathExists() checks the repo path.
+    mockExistsSync.mockImplementation(
+      (p: string) => String(p).endsWith(".git/info") || String(p) === "/repo/path",
+    );
 
     // create() should try to unlock any stale entry before adding
     mockGitImpl({
