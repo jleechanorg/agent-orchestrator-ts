@@ -105,6 +105,19 @@ projects:
     #   agentConfig:
     #     model: gpt-5-codex
 
+    # Optional reviewers block using the shell harness to run a custom reviewer (like skeptic)
+    # {trigger_sha}, {head_sha}, {request_id}, and {dry_run} are optional and
+    # may resolve to an empty string. For a flag that takes one of these as
+    # its value, prefer the combined "--flag={placeholder}" form (e.g.
+    # "--sha={trigger_sha}") over separate "--flag", "{placeholder}" tokens —
+    # combined form degrades to a well-formed "--sha=" when the value is
+    # empty, instead of leaving a separate "--sha" flag with no value.
+    # reviewers:
+    #   - harness: shell
+    #     cmd: ["ao", "skeptic", "verify", "--pr", "{pr_number}", "--repo", "{repo}"]
+    #     env:
+    #       MY_ENV_VAR: "value"
+
     # Inline rules included in every agent prompt for this project
     # agentRules: |
     #   Always run tests before pushing.

@@ -164,7 +164,7 @@ else
     # bd-#667: --no-open suppresses the dashboard browser open even if the
     # config or env prefers it. Belt-and-suspenders: the ai.agento.health
     # launchd plist also exports AO_NO_OPEN_BROWSER=1.
-    AO_CONFIG_PATH="$CONFIG_PATH" nohup "${AO_LAUNCH[@]}" start "$ANCHOR_PROJECT" --no-dashboard --no-open >> "$LOG_FILE" 2>&1 &
+    AO_CONFIG_PATH="$CONFIG_PATH" nohup "${AO_LAUNCH[@]}" start "$ANCHOR_PROJECT" --no-dashboard --no-open --allow-main-repo >> "$LOG_FILE" 2>&1 &
     disown
     STARTED=$((STARTED + 1))
 
