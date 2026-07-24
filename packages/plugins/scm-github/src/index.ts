@@ -1815,15 +1815,26 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // branch lives). Fall back to a direct branch fetch only when that ref is
       // unavailable (e.g. shallow clone that prunes pull/ refs). (bd-49u)
 
-      // Discover the actual remote URL from the workspace rather than hardcoding.
-      // This respects SSH / HTTPS / GHE configurations configured in the workspace.
+      // Preserve a matching workspace remote (SSH / HTTPS / GHE), but never fetch a
+      // PR through an origin that belongs to a different repository.
       const remoteName = "origin";
-      let remote: string;
+      const expectedRepository = repoFlag(pr).toLowerCase();
+      const prRepositoryUrl = new URL(pr.url);
+      prRepositoryUrl.pathname = `/${repoFlag(pr)}.git`;
+      prRepositoryUrl.search = "";
+      prRepositoryUrl.hash = "";
+      let remote = prRepositoryUrl.toString();
       try {
-        remote = (await git(["remote", "get-url", remoteName], workspacePath)).trim();
+        const candidate = (await git(["remote", "get-url", remoteName], workspacePath)).trim();
+        const normalizedCandidate = candidate.toLowerCase().replace(/\.git\/?$/, "");
+        const matchesExpectedRepository =
+          normalizedCandidate.endsWith(`/${expectedRepository}`) ||
+          normalizedCandidate.endsWith(`:${expectedRepository}`);
+        if (matchesExpectedRepository) {
+          remote = candidate;
+        }
       } catch {
-        // Fall back to the well-known GitHub HTTPS URL only when origin is missing
-        remote = `https://github.com/${repoFlag(pr)}.git`;
+        // The PR URL remains authoritative when origin is missing or unreadable.
       }
 
       const prRef = `refs/pull/${pr.number}/head`;

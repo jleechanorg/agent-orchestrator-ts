@@ -884,6 +884,30 @@ describe("scm-github plugin", () => {
       expect(changed).toBe(true);
     });
 
+    it("uses the PR repository when workspace origin points to a different repository", async () => {
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" });
+      ghMock.mockResolvedValueOnce({ stdout: "" });
+      ghMock.mockResolvedValueOnce({ stdout: "https://github.com/acme/different-repo.git\n" });
+      ghMock.mockResolvedValueOnce({ stdout: "" });
+      ghMock.mockResolvedValueOnce({ stdout: "main\n" });
+      ghMock.mockResolvedValueOnce({ stdout: "" });
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" });
+      ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" });
+
+      await scm.checkoutPR?.(pr, "/tmp/repo");
+
+      expect(ghMock).toHaveBeenCalledWith(
+        "git",
+        [
+          "fetch",
+          "--force",
+          "https://github.com/acme/repo.git",
+          "+refs/pull/42/head:feat/my-feature",
+        ],
+        expect.any(Object),
+      );
+    });
+
     it("throws when git fetch fails for non-ref-not-found reasons (auth, network)", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "main\n" }); // git branch --show-current (before)
       ghMock.mockResolvedValueOnce({ stdout: "" }); // git status --porcelain (clean)
