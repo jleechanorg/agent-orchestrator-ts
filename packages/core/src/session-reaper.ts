@@ -50,6 +50,18 @@ export interface ReaperConfig {
   zombieStatuses?: Set<string>;
   /** Optional project scope. When set, only sessions belonging to this project are reaped. */
   projectId?: string;
+  /**
+   * jleechan-issue-12: ms a session may remain in status="spawning" before
+   * being reaped. Spawn init (tmux pane creation, agent CLI startup) either
+   * succeeds and transitions status away from "spawning", or fails and
+   * should free its queue slot promptly — it should never take hours.
+   * A session stuck in "spawning" is created with activity="active", so it
+   * matches none of the activity-based kill conditions below, and — since
+   * spawn failures always start with pr===null — was previously only
+   * caught (if at all) by the much coarser noPrThresholdMs fallback.
+   * When omitted, this check is disabled (backward-compatible default).
+   */
+  spawnTimeoutMs?: number;
 }
 
 export interface ReapedSession {
@@ -170,7 +182,17 @@ export async function reapStaleSessions(
     // Determine kill reason (priority order)
     let killReason: string | null = null;
 
-    if (session.pr === null && ageMs > config.noPrThresholdMs && meetsIdleGate) {
+    if (
+      config.spawnTimeoutMs !== undefined &&
+      session.status === "spawning" &&
+      ageMs > config.spawnTimeoutMs
+    ) {
+      // jleechan-issue-12: dedicated check for sessions stuck in "spawning".
+      // Must run before the generic noPrThresholdMs fallback below so a
+      // configured spawnTimeoutMs (typically far shorter than 24h) takes
+      // effect promptly instead of waiting on the coarser no-PR window.
+      killReason = "stuck in spawning past timeout";
+    } else if (session.pr === null && ageMs > config.noPrThresholdMs && meetsIdleGate) {
       // No PR after threshold AND idle long enough (if idle gate is configured)
       killReason = "no PR after threshold";
     } else if (session.activity === "exited" && idleMs > config.orphanedThresholdMs) {

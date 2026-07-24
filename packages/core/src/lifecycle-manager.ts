@@ -2886,6 +2886,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             {
               ...DEFAULT_REAPER_CONFIG,
               noPrThresholdMs: 86_400_000, // 24h
+              // jleechan-issue-12: sessions stuck in status="spawning" (spawn
+              // init never completed) match none of the activity-based kill
+              // conditions and were previously only caught — if at all — by
+              // the 24h noPrThresholdMs fallback above, far too slow to keep
+              // the spawn queue healthy. 15 minutes is generous headroom for
+              // legitimate tmux pane creation + agent CLI startup.
+              spawnTimeoutMs: 900_000, // 15m
               projectId: scopedProjectId,
               ...config.reaper,
             },
