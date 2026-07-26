@@ -85,6 +85,7 @@ let originalEnv: NodeJS.ProcessEnv;
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "ao-dashboard-open-test-"));
   originalEnv = { ...process.env };
+  delete process.env["AO_NO_OPEN_BROWSER"];
   process.env["AO_CONFIG_PATH"] = join(tmpDir, "agent-orchestrator.yaml");
 
   program = new Command();
