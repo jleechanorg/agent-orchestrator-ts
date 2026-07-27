@@ -118,7 +118,7 @@ describe("antigravity Library/Keychains symlink (Darwin)", () => {
     mockPlatform.mockReturnValue("darwin");
 
     mockLstatSync.mockImplementation(() => {
-      throw new Error("ENOENT");
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     });
 
     const env = agent.getEnvironment(makeLaunchConfig());
@@ -212,7 +212,7 @@ describe("antigravity Library/Keychains symlink (Darwin)", () => {
     process.env.AO_ORIGINAL_HOME = "/Users/custom-original-home";
 
     mockLstatSync.mockImplementation(() => {
-      throw new Error("ENOENT");
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     });
 
     try {
@@ -256,7 +256,7 @@ describe("antigravity Playwright cache symlink", () => {
     });
 
     mockLstatSync.mockImplementation(() => {
-      throw new Error("ENOENT");
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     });
 
     const env = agent.getEnvironment(makeLaunchConfig());
@@ -299,7 +299,7 @@ describe("antigravity shared .gemini config", () => {
       if (typeof filepath === "string" && filepath.endsWith("extensions")) {
         return { isSymbolicLink: () => false, isDirectory: () => true };
       }
-      throw new Error("ENOENT");
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     });
 
     mockReaddirSync.mockImplementation((dirpath) => {
