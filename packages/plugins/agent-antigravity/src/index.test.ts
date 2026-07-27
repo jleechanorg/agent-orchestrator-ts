@@ -235,6 +235,31 @@ describe("antigravity getEnvironment", () => {
     );
   });
 
+  it("fails closed when the session .gemini path cannot be inspected", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    const sessionGemini = path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini");
+    const ioError = Object.assign(new Error("filesystem unavailable"), { code: "EIO" });
+
+    mockLstatSync.mockImplementation((filepath) => {
+      if (filepath === sessionGemini) {
+        throw ioError;
+      }
+      return {
+        isSymbolicLink: () => false,
+        isDirectory: () => true,
+      };
+    });
+
+    expect(() => agent.getEnvironment(makeLaunchConfig())).toThrow(ioError);
+    expect(mockReaddirSync).not.toHaveBeenCalled();
+    expect(mockCopyFileSync).not.toHaveBeenCalled();
+    expect(mockRmSync).not.toHaveBeenCalledWith(
+      expect.stringContaining(".gemini"),
+      expect.anything(),
+    );
+  });
+
   it("skips host symlink entries when materializing .gemini", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");

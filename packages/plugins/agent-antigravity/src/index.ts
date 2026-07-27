@@ -246,8 +246,10 @@ const antigravityOverrides: Partial<Agent> = {
     let destGeminiStat;
     try {
       destGeminiStat = fs.lstatSync(destGemini);
-    } catch {
-      // A fresh session has no .gemini entry yet.
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw err;
+      }
     }
     if (destGeminiStat?.isSymbolicLink()) {
       fs.unlinkSync(destGemini);
