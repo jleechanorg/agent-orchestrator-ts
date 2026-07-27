@@ -13,6 +13,7 @@ import {
   GLOBAL_PAUSE_SOURCE_KEY,
   GLOBAL_PAUSE_CREATED_AT_KEY,
   parsePauseUntil,
+  formatPauseKeySuffix,
 } from "./global-pause.js";
 import type { Session, SessionManager, Runtime, ProjectConfig as _ProjectConfig } from "./types.js";
 
@@ -190,13 +191,14 @@ export function setProjectPause(
   until: Date,
   isDurationBased = false,
   agentName?: string,
+  model?: string,
 ): void {
   const sessionsDir = getSessionsDir(configPath, project.path);
   const orchestratorId = getOrchestratorId(project);
   // Guard: only update if orchestrator session already exists to avoid creating phantom sessions
   if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
   const message = `Model rate limit detected from ${sourceSessionId}`;
-  const suffix = agentName ? `_${agentName}` : "";
+  const suffix = formatPauseKeySuffix(agentName, model);
   const keyUntil = `${GLOBAL_PAUSE_UNTIL_KEY}${suffix}`;
   const keyReason = `${GLOBAL_PAUSE_REASON_KEY}${suffix}`;
   const keySource = `${GLOBAL_PAUSE_SOURCE_KEY}${suffix}`;
@@ -228,12 +230,17 @@ export function setProjectPause(
  * the pause expires (it reads the expired UNTIL to compute the grace period).
  * Only the human-readable REASON is cleared to signal the pause is no longer active.
  */
-export function clearProjectPause(configPath: string, project: _ProjectConfig, agentName?: string): void {
+export function clearProjectPause(
+  configPath: string,
+  project: _ProjectConfig,
+  agentName?: string,
+  model?: string,
+): void {
   const sessionsDir = getSessionsDir(configPath, project.path);
   const orchestratorId = getOrchestratorId(project);
   // Guard: only update if orchestrator session already exists to avoid creating phantom sessions
   if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
-  const suffix = agentName ? `_${agentName}` : "";
+  const suffix = formatPauseKeySuffix(agentName, model);
   updateMetadata(sessionsDir, orchestratorId, {
     [`${GLOBAL_PAUSE_REASON_KEY}${suffix}`]: "",
   });
@@ -261,8 +268,9 @@ export async function detectAndApplyRateLimitPause(
     const { resetAt, isDurationBased } = result;
     if (resetAt.getTime() <= Date.now()) return;
 
-    const agentName = session.metadata["agent"];
-    const suffix = agentName ? `_${agentName}` : "";
+    const agentName = session.metadata?.["agent"] || session.agent;
+    const model = session.metadata?.["model"] || session.agentConfig?.model;
+    const suffix = formatPauseKeySuffix(agentName, model);
     const keyUntil = `${GLOBAL_PAUSE_UNTIL_KEY}${suffix}`;
     const keySource = `${GLOBAL_PAUSE_SOURCE_KEY}${suffix}`;
     const keyCreatedAt = `${GLOBAL_PAUSE_CREATED_AT_KEY}${suffix}`;
@@ -317,7 +325,7 @@ export async function detectAndApplyRateLimitPause(
       }
     }
 
-    setProjectPause(configPath, project, session.id, resetAt, isDurationBased, agentName);
+    setProjectPause(configPath, project, session.id, resetAt, isDurationBased, agentName, model);
   } catch {
     return;
   }

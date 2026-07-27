@@ -10,6 +10,7 @@ import {
   detectAndApplyRateLimitPause,
 } from "../fork-lifecycle-manager.js";
 import { readMetadataRaw } from "../metadata.js";
+import { readProjectPause } from "../backfill-respawn-guard.js";
 import { getSessionsDir } from "../paths.js";
 import {
   GLOBAL_PAUSE_UNTIL_KEY,
@@ -302,6 +303,27 @@ describe("setProjectPause and clearProjectPause", () => {
     expect(raw![GLOBAL_PAUSE_UNTIL_KEY]).toBe(until.toISOString());
     expect(raw![GLOBAL_PAUSE_SOURCE_KEY]).toBe("app-1");
     expect(raw![GLOBAL_PAUSE_CREATED_AT_KEY]).toBeDefined();
+  });
+
+  it("scopes pause keys by agentName and model when both are provided", () => {
+    const configPath = makeConfigPath();
+    const project = makeProject();
+    const sessionsDir = getSessionsDir(configPath, project.path);
+    const orchId = "app-orchestrator";
+    writeOrchestratorSeed(sessionsDir, orchId);
+
+    const until = new Date(Date.now() + 3_600_000);
+    setProjectPause(configPath, project, "app-1", until, false, "claude-code", "claude-3-5-sonnet");
+
+    const raw = readMetadataRaw(sessionsDir, orchId);
+    expect(raw).not.toBeNull();
+    expect(raw!["globalPauseUntil_claude-code:claude-3-5-sonnet"]).toBe(until.toISOString());
+
+    const pauseForSameModel = readProjectPause(configPath, project, Date.now(), "claude-code", "claude-3-5-sonnet");
+    expect(pauseForSameModel).not.toBeNull();
+
+    const pauseForDiffModel = readProjectPause(configPath, project, Date.now(), "claude-code", "claude-3-7-sonnet");
+    expect(pauseForDiffModel).toBeNull();
   });
 });
 

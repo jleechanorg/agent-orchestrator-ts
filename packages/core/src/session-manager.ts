@@ -405,7 +405,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return getSessionsDir(config.configPath, project.path);
   }
 
-  function getProjectPause(project: ProjectConfig, agentName?: string): {
+  function getProjectPause(project: ProjectConfig, agentName?: string, model?: string): {
     until: Date;
     reason: string;
     sourceSessionId: string;
@@ -415,19 +415,31 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const orchestratorRaw = readMetadataRaw(sessionsDir, orchestratorId);
     if (!orchestratorRaw) return null;
 
-    const suffix = agentName ? `_${agentName}` : "";
-    let until = parsePauseUntil(orchestratorRaw[`${GLOBAL_PAUSE_UNTIL_KEY}${suffix}`]);
-    let reason = orchestratorRaw[`${GLOBAL_PAUSE_REASON_KEY}${suffix}`];
-    let sourceSessionId = orchestratorRaw[`${GLOBAL_PAUSE_SOURCE_KEY}${suffix}`];
+    let until: Date | null = null;
+    let reason: string | undefined = undefined;
+    let sourceSessionId: string | undefined = undefined;
 
-    if ((!until || until.getTime() <= Date.now()) && suffix !== "") {
+    if (agentName && model) {
+      const modelSuffix = `_${agentName}:${model}`;
+      until = parsePauseUntil(orchestratorRaw[`${GLOBAL_PAUSE_UNTIL_KEY}${modelSuffix}`]);
+      reason = orchestratorRaw[`${GLOBAL_PAUSE_REASON_KEY}${modelSuffix}`];
+      sourceSessionId = orchestratorRaw[`${GLOBAL_PAUSE_SOURCE_KEY}${modelSuffix}`];
+    }
+
+    if ((!until || until.getTime() <= Date.now()) && agentName) {
+      const agentSuffix = `_${agentName}`;
+      until = parsePauseUntil(orchestratorRaw[`${GLOBAL_PAUSE_UNTIL_KEY}${agentSuffix}`]);
+      reason = orchestratorRaw[`${GLOBAL_PAUSE_REASON_KEY}${agentSuffix}`];
+      sourceSessionId = orchestratorRaw[`${GLOBAL_PAUSE_SOURCE_KEY}${agentSuffix}`];
+    }
+
+    if (!until || until.getTime() <= Date.now()) {
       until = parsePauseUntil(orchestratorRaw[GLOBAL_PAUSE_UNTIL_KEY]);
       reason = orchestratorRaw[GLOBAL_PAUSE_REASON_KEY];
       sourceSessionId = orchestratorRaw[GLOBAL_PAUSE_SOURCE_KEY];
     }
 
-    if (!until) return null;
-    if (until.getTime() <= Date.now()) return null;
+    if (!until || until.getTime() <= Date.now()) return null;
 
     return {
       until,

@@ -78,14 +78,30 @@ function tailOfRepoRef(s: string | null | undefined): string | null {
  * so `test/repo` (no host) matches `github.com/test/repo` (with host).
  * Returns false when either side is missing or has no recognizable tail.
  */
+export function redactCredentials(url: string): string {
+  if (!url) return url;
+  return url.replace(/^(https?:\/\/)[^@/]+@/i, "$1***@");
+}
+
+/**
+ * Stage C / 9sh5: compare two git remote URLs for equivalence after
+ * canonicalization. The "tail" — owner/repo — is the authoritative key,
+ * so `test/repo` (no host) matches `github.com/test/repo` (with host).
+ * Returns false when either side is missing or has no recognizable tail.
+ */
 export function remoteUrlsMatch(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a || !b) return false;
   const ca = canonicalizeRemoteUrl(a);
   const cb = canonicalizeRemoteUrl(b);
-  // If both canonicalize to full URLs, compare them directly.
   if (ca && cb) {
     if (ca === cb) return true;
-    // Allow host-less `owner/repo` to match `host/owner/repo` via tail compare.
+    const partsA = ca.split("/").filter(Boolean);
+    const partsB = cb.split("/").filter(Boolean);
+    const hasHostA = partsA.length >= 3;
+    const hasHostB = partsB.length >= 3;
+    if (hasHostA && hasHostB && partsA[0] !== partsB[0]) {
+      return false;
+    }
     const ta = tailOfRepoRef(ca);
     const tb = tailOfRepoRef(cb);
     if (ta && tb) return ta === tb;
@@ -116,15 +132,18 @@ export async function assertOriginMatchesProjectRepo(
   try {
     actual = await git(repoPath, "config", "--get", "remote.origin.url");
   } catch {
+    const safeProjectRepo = redactCredentials(projectRepo);
     throw new Error(
       `Stage C / 9sh5 remote assertion failed: cannot read remote.origin.url in ${repoPath}. ` +
-        `Expected ${projectRepo}. Refusing to create worktree until origin is configured.`,
+        `Expected ${safeProjectRepo}. Refusing to create worktree until origin is configured.`,
     );
   }
   if (!remoteUrlsMatch(actual, projectRepo)) {
+    const safeActual = redactCredentials(actual);
+    const safeProjectRepo = redactCredentials(projectRepo);
     throw new Error(
-      `Stage C / 9sh5 remote mismatch: worktree ${repoPath} has remote.origin.url="${actual}" ` +
-        `but project.repo is "${projectRepo}". Refusing to create worktree to prevent pushing to the wrong place. ` +
+      `Stage C / 9sh5 remote mismatch: worktree ${repoPath} has remote.origin.url="${safeActual}" ` +
+        `but project.repo is "${safeProjectRepo}". Refusing to create worktree to prevent pushing to the wrong place. ` +
         `Fix the remote (e.g. \`git remote set-url origin <url>\`) or update project.repo.`,
     );
   }

@@ -9,3 +9,13 @@ export function parsePauseUntil(raw: string | undefined): Date | null {
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed;
 }
+
+export function formatPauseKeySuffix(agentName?: string, model?: string): string {
+  if (agentName && model) {
+    return `_${agentName}:${model}`;
+  }
+  if (agentName) {
+    return `_${agentName}`;
+  }
+  return "";
+}

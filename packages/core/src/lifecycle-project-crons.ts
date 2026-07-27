@@ -104,6 +104,7 @@ export async function runLifecycleProjectCrons(
           project: params.project,
           activeSessions: params.activeSessions,
           correlationId: params.correlationId,
+          defaults: (params.config as { defaults?: DefaultPlugins }).defaults,
           worktreeDir: (params.config as { worktreeDir?: string }).worktreeDir,
           configPath: params.config.configPath ?? "",
         },
