@@ -79,6 +79,41 @@ describe("readProjectPause", () => {
     expect(pause?.until.toISOString()).toBe(until);
     expect(pause?.reason).toContain("Model rate limit");
   });
+
+  it("returns agent-scoped active pause when agentName is provided", () => {
+    const sessionsDir = getSessionsDir(configPath, tmpDir);
+    mkdirSync(sessionsDir, { recursive: true });
+    const until = new Date(Date.now() + 60 * 60_000).toISOString();
+    writeFileSync(
+      join(sessionsDir, "app-orchestrator"),
+      `status=active\nglobalPauseUntil_claude=${until}\nglobalPauseReason_claude=Scoped rate limit\n`,
+      "utf-8",
+    );
+
+    const pause = readProjectPause(configPath, makeProject(), Date.now(), "claude");
+    expect(pause).not.toBeNull();
+    expect(pause?.until.toISOString()).toBe(until);
+    expect(pause?.reason).toBe("Scoped rate limit");
+
+    // A check for a different agent should fall back to global (which is null/expired)
+    expect(readProjectPause(configPath, makeProject(), Date.now(), "gemini")).toBeNull();
+  });
+
+  it("returns global pause fallback when agent-scoped pause is not active but global is", () => {
+    const sessionsDir = getSessionsDir(configPath, tmpDir);
+    mkdirSync(sessionsDir, { recursive: true });
+    const until = new Date(Date.now() + 60 * 60_000).toISOString();
+    writeFileSync(
+      join(sessionsDir, "app-orchestrator"),
+      `status=active\nglobalPauseUntil=${until}\nglobalPauseReason=Global rate limit\n`,
+      "utf-8",
+    );
+
+    const pause = readProjectPause(configPath, makeProject(), Date.now(), "claude");
+    expect(pause).not.toBeNull();
+    expect(pause?.until.toISOString()).toBe(until);
+    expect(pause?.reason).toBe("Global rate limit");
+  });
 });
 
 describe("backfill respawn cap", () => {

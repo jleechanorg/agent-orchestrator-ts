@@ -156,7 +156,8 @@ export async function backfillUncoveredPRs(
   if (now - lastBackfillTime < BACKFILL_INTERVAL_MS) return false;
 
   if (configPath) {
-    const pause = readProjectPause(configPath, project, now);
+    const defaultAgent = project.defaultAgent ?? project.agent;
+    const pause = readProjectPause(configPath, project, now, defaultAgent);
     if (pause) {
       observer.recordOperation({
         metric: "lifecycle_poll",

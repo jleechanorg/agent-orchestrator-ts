@@ -13,6 +13,125 @@ const GIT_TIMEOUT = 30_000;
 const execFileAsync = promisify(execFile);
 
 /**
+ * Stage C / 9sh5: canonicalize a git remote URL so two equivalent forms
+ * (`git@github.com:owner/repo.git` vs `https://github.com/owner/repo.git`)
+ * compare equal. We strip:
+ *   - trailing `.git` suffix
+ *   - protocol (`https://`, `http://`, `ssh://`)
+ *   - leading `git@`
+ *   - `:port` and trailing `:`
+ * and lowercase the host. The owner/repo tail is the authoritative compare key.
+ *
+ * Returns the normalized form, or null when the URL has no recognizable
+ * owner/repo tail (e.g. file:// transports, relative paths).
+ */
+export function canonicalizeRemoteUrl(url: string): string | null {
+  if (!url || typeof url !== "string") return null;
+  let s = url.trim();
+  if (!s) return null;
+
+  // Strip protocol prefix (https://, http://, ssh://, git://)
+  s = s.replace(/^(https?|ssh|git):\/\//i, "");
+
+  // Strip trailing .git
+  s = s.replace(/\.git$/i, "");
+
+  // Strip trailing slash
+  s = s.replace(/\/+$/, "");
+
+  // ssh / git@host:path form: "git@github.com:owner/repo" → "github.com/owner/repo"
+  // Need to do this AFTER protocol strip and BEFORE host/colon split.
+  const sshMatch = s.match(/^git@([^:/]+)[:/](.+)$/);
+  if (sshMatch) {
+    s = `${sshMatch[1].toLowerCase()}/${sshMatch[2]}`;
+  } else {
+    // https://host/owner/repo or git@host style without colon (already handled above)
+    // Strip any userinfo (e.g. token@host)
+    s = s.replace(/^[^@/]+@/, "");
+    // Lowercase host segment only — owner/repo is case-sensitive on GH but
+    // we canonicalize for compare; matching here is enough to detect a
+    // mismatch (different host or different owner/repo tail).
+    const parts = s.split("/").filter(Boolean);
+    if (parts.length < 2) return null;
+    parts[0] = parts[0].toLowerCase();
+    s = parts.join("/");
+  }
+
+  return s;
+}
+
+/**
+ * Stage C / 9sh5: extract the owner/repo tail from a URL (canonicalized or
+ * not). For `github.com/owner/repo` returns `owner/repo`. For `owner/repo`
+ * (no host) returns `owner/repo`. For null/empty returns null.
+ */
+function tailOfRepoRef(s: string | null | undefined): string | null {
+  if (!s) return null;
+  const parts = s.split("/").filter(Boolean);
+  if (parts.length < 2) return null;
+  return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+}
+
+/**
+ * Stage C / 9sh5: compare two git remote URLs for equivalence after
+ * canonicalization. The "tail" — owner/repo — is the authoritative key,
+ * so `test/repo` (no host) matches `github.com/test/repo` (with host).
+ * Returns false when either side is missing or has no recognizable tail.
+ */
+export function remoteUrlsMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const ca = canonicalizeRemoteUrl(a);
+  const cb = canonicalizeRemoteUrl(b);
+  // If both canonicalize to full URLs, compare them directly.
+  if (ca && cb) {
+    if (ca === cb) return true;
+    // Allow host-less `owner/repo` to match `host/owner/repo` via tail compare.
+    const ta = tailOfRepoRef(ca);
+    const tb = tailOfRepoRef(cb);
+    if (ta && tb) return ta === tb;
+    return false;
+  }
+  // One side is bare `owner/repo` (no host) — canonicalize what we can.
+  const normalize = (s: string) => s.trim().replace(/\.git$/i, "").replace(/\/+$/, "");
+  const ta = tailOfRepoRef(normalize(a));
+  const tb = tailOfRepoRef(normalize(b));
+  if (ta && tb) return ta === tb;
+  return false;
+}
+
+/**
+ * Stage C / 9sh5: assert that the worktree's `origin` remote URL matches the
+ * configured `project.repo`. When `project.repo` is unset (no canonical remote
+ * expected) this is a no-op. When it is set and the URLs differ, throws an
+ * actionable error so the worker does not push to the wrong place.
+ *
+ * Returns the resolved `origin` URL on success.
+ */
+export async function assertOriginMatchesProjectRepo(
+  repoPath: string,
+  projectRepo: string | undefined,
+): Promise<string | null> {
+  if (!projectRepo) return null;
+  let actual: string;
+  try {
+    actual = await git(repoPath, "config", "--get", "remote.origin.url");
+  } catch {
+    throw new Error(
+      `Stage C / 9sh5 remote assertion failed: cannot read remote.origin.url in ${repoPath}. ` +
+        `Expected ${projectRepo}. Refusing to create worktree until origin is configured.`,
+    );
+  }
+  if (!remoteUrlsMatch(actual, projectRepo)) {
+    throw new Error(
+      `Stage C / 9sh5 remote mismatch: worktree ${repoPath} has remote.origin.url="${actual}" ` +
+        `but project.repo is "${projectRepo}". Refusing to create worktree to prevent pushing to the wrong place. ` +
+        `Fix the remote (e.g. \`git remote set-url origin <url>\`) or update project.repo.`,
+    );
+  }
+  return actual;
+}
+
+/**
  * bd-uxs.7: AO-managed exclude patterns
  * These files are written by AO but should not cause worktree to show as dirty.
  */
@@ -459,6 +578,13 @@ export function create(config?: Record<string, unknown>): Workspace {
 
       mkdirSync(projectWorktreeDir, { recursive: true });
 
+      // Stage C / 9sh5: spawn-time worktree remote assertion. Refuse to create
+      // the worktree when `origin` is misconfigured relative to project.repo so
+      // a worker cannot push to the wrong place. Skipped when project.repo is
+      // unset (no canonical remote expected). Failures throw — they do NOT
+      // fall back silently.
+      await assertOriginMatchesProjectRepo(repoPath, cfg.project.repo);
+
       // Fetch latest from remote
       try {
         await git(repoPath, "fetch", "origin", "--quiet");
@@ -881,6 +1007,10 @@ export function create(config?: Record<string, unknown>): Workspace {
 
     async restore(cfg: WorkspaceCreateConfig, workspacePath: string): Promise<WorkspaceInfo> {
       const repoPath = expandPath(cfg.project.path);
+
+      // Stage C / 9sh5: same remote assertion as create() — restoring a
+      // misconfigured worktree is just as dangerous as creating one.
+      await assertOriginMatchesProjectRepo(repoPath, cfg.project.repo);
 
       // Unlock any stale locked entry for this path before pruning.
       // This recovers worktrees whose directories were deleted externally
