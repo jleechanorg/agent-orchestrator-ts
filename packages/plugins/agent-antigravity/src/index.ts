@@ -243,6 +243,16 @@ const antigravityOverrides: Partial<Agent> = {
 
     const destGemini = path.join(sessionHome, ".gemini");
 
+    let destGeminiStat;
+    try {
+      destGeminiStat = fs.lstatSync(destGemini);
+    } catch {
+      // A fresh session has no .gemini entry yet.
+    }
+    if (destGeminiStat?.isSymbolicLink()) {
+      fs.unlinkSync(destGemini);
+    }
+
     try {
       materializeSharedGeminiConfig(userHome, sessionHome);
     } catch (err) {

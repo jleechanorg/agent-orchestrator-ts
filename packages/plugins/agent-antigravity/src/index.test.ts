@@ -210,6 +210,31 @@ describe("antigravity getEnvironment", () => {
     expect(hasProfile).toBe(false);
   });
 
+  it("detaches a legacy session .gemini symlink before materializing host config", () => {
+    const agent = create();
+    mockHomedir.mockReturnValue("/Users/mockuser");
+    const sessionGemini = path.join("/Users/mockuser", ".ao-sessions", "sess-1", ".gemini");
+
+    mockExistsSync.mockImplementation((filepath) =>
+      typeof filepath === "string" && filepath.includes(".gemini")
+    );
+    mockLstatSync.mockImplementation((filepath) => ({
+      isSymbolicLink: () => filepath === sessionGemini,
+      isDirectory: () => false,
+    }));
+    mockReaddirSync.mockReturnValue([]);
+
+    agent.getEnvironment(makeLaunchConfig());
+
+    expect(mockUnlinkSync).toHaveBeenCalledWith(sessionGemini);
+    expect(mockMkdirSync).toHaveBeenCalledWith(sessionGemini, { recursive: true });
+    expect(mockUnlinkSync.mock.invocationCallOrder[0]).toBeLessThan(
+      mockMkdirSync.mock.invocationCallOrder.find(
+        (_, index) => mockMkdirSync.mock.calls[index][0] === sessionGemini
+      ) ?? Number.POSITIVE_INFINITY
+    );
+  });
+
   it("skips host symlink entries when materializing .gemini", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");
@@ -299,8 +324,10 @@ describe("antigravity getEnvironment", () => {
     const agent = create();
     mockHomedir.mockReturnValue("/Users/mockuser");
 
-    mockLstatSync.mockImplementation(() => ({
-      isSymbolicLink: () => true,
+    mockLstatSync.mockImplementation((filepath) => ({
+      isSymbolicLink: () =>
+        typeof filepath === "string" &&
+        (filepath.includes("conversations") || filepath.includes("brain")),
       isDirectory: () => false,
     }));
 
