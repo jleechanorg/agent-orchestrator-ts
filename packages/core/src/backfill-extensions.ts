@@ -162,7 +162,7 @@ export async function backfillUncoveredPRs(
     const workerSelection = resolveAgentSelection({
       role: "worker",
       project,
-      defaults: params.defaults ?? {},
+      defaults: params.defaults ?? ({} as unknown as DefaultPlugins),
     });
     const pause = readProjectPause(
       configPath,

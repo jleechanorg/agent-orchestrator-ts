@@ -268,8 +268,8 @@ export async function detectAndApplyRateLimitPause(
     const { resetAt, isDurationBased } = result;
     if (resetAt.getTime() <= Date.now()) return;
 
-    const agentName = session.metadata?.["agent"] || session.agent;
-    const model = session.metadata?.["model"] || session.agentConfig?.model;
+    const agentName = session.metadata?.["agent"] || (session as { agent?: string }).agent;
+    const model = session.metadata?.["model"] || (session as { agentConfig?: { model?: string } }).agentConfig?.model;
     const suffix = formatPauseKeySuffix(agentName, model);
     const keyUntil = `${GLOBAL_PAUSE_UNTIL_KEY}${suffix}`;
     const keySource = `${GLOBAL_PAUSE_SOURCE_KEY}${suffix}`;

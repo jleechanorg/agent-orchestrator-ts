@@ -10,6 +10,7 @@ import type {
   SCM,
   Session,
   SessionManager,
+  DefaultPlugins,
 } from "./types.js";
 import type { ProjectObserver } from "./observability.js";
 
