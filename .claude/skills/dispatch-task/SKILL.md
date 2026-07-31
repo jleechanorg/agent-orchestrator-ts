@@ -1,3 +1,8 @@
+---
+name: dispatch-task
+description: Use when OpenClaw or a gateway receives repository coding work that must be handed to an Agent Orchestrator worker instead of executed inline
+---
+
 # dispatch-task — OpenClaw / gateway → AO worker (orch-nkg)
 
 **Trigger:** OpenClaw embedded agent receives a **coding** task (files, PRs, tracker issues) and must **not** execute inline.

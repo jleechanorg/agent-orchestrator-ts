@@ -1,3 +1,8 @@
+---
+name: video-render
+description: Use when rendering the Agent Orchestrator worker novel into an animated MP4 and uploading the result to Google Drive
+---
+
 # Video Render Skill — AO Novel MP4 Pipeline
 
 Renders `novel/the-daily-lives-of-workers.md` as an animated MP4 using Remotion, then uploads to Google Drive.

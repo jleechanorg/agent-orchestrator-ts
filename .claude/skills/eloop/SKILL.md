@@ -1,8 +1,8 @@
 ---
-name: evolve_loop
-description: 12-hour autonomous evolution loop for the AO agent-orchestrator fork. Repo-local override — use this for agent-orchestrator-specific PRs, workers, and beads. Falls back to the user-scope /eloop for generalized harness-evolution patterns.
+name: evolve-loop
+description: Use when running autonomous multi-cycle improvement of this Agent Orchestrator fork across workers, pull requests, beads, and harness failures
 type: skill
-...
+---
 
 # Evolve Loop — Agent Orchestrator Fork
 
