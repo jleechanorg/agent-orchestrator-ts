@@ -171,9 +171,9 @@ Append:
 
 1. Use `/claw` for each actionable bead.
 2. Babysit open PRs that have no live worker.
-3. Run `/er` inline on PRs approaching 6-green.
+3. Run `/er` inline as draft-quality review when a PR has an evidence bundle.
 4. If `/claw` fails, fall back to manual worktree or direct fix and record the failure.
-5. Never merge without explicit 6-green verification.
+5. Never merge without current human authorization and a fresh two-gate `/green` verification.
 
 Dispatch template:
 
@@ -182,7 +182,7 @@ Dispatch template:
 
 After implementing:
 1. Run /er on the PR evidence bundle to validate authenticity
-2. Ensure 6-green (CI, no conflicts, CR APPROVED, Bugbot clean, comments resolved, evidence reviewed)
+2. Verify required current-head CI and `mergeable == MERGEABLE`; triage reviews and evidence separately
 3. Run /learn to capture reusable patterns"
 ```
 
@@ -191,13 +191,23 @@ Pre-merge gate check:
 ```bash
 PR_NUM=NNN
 REPO="jleechanorg/REPO"
-STATE=$(gh api "repos/$REPO/pulls/$PR_NUM" --jq '{state, merged}')
-CI=$(gh api "repos/$REPO/commits/$(gh api repos/$REPO/pulls/$PR_NUM --jq '.head.sha')/status" --jq '.state')
-MERGEABLE=$(gh api "repos/$REPO/pulls/$PR_NUM" --jq '.mergeable_state')
-CR=$(gh api "repos/$REPO/pulls/$PR_NUM/reviews" --jq '[.[] | select(.user.login=="coderabbitai[bot]") | select(.state=="APPROVED" or .state=="CHANGES_REQUESTED")] | sort_by(.submitted_at) | last | .state // "NONE"')
-UNRESOLVED=$(gh api graphql -f query='query($pr:Int!){repository(owner:"'$(echo $REPO|cut -d/ -f1)'",name:"'$(echo $REPO|cut -d/ -f2)'"){pullRequest(number:$pr){reviewThreads(first:100){nodes{isResolved}}}}}' -F pr=$PR_NUM --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)] | length' 2>/dev/null || echo "?")
-SKEPTIC=$(gh api "repos/$REPO/issues/$PR_NUM/comments" --jq '[.[] | select(.body | test("VERDICT:"; "i"))] | sort_by(.created_at) | last | .body' 2>/dev/null | grep -oiE "VERDICT: (PASS|FAIL|SKIPPED)")
+gh pr view "$PR_NUM" --repo "$REPO" \
+  --json headRefOid,mergeable,statusCheckRollup \
+  --jq '{
+    headRefOid,
+    mergeable,
+    checks: [
+      (.statusCheckRollup // [])[] |
+      if .__typename == "CheckRun"
+      then {type: .__typename, name, status, conclusion}
+      else {type: .__typename, context, state}
+      end
+    ]
+  }'
 ```
+
+Inspect required current-head CI plus mergeability, then re-read HEAD. Review
+comments and evidence are separate draft-quality inputs.
 
 ### Phase 7: Recap
 

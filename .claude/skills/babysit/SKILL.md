@@ -32,7 +32,7 @@ The `failed=N` count excludes Skeptic Gate checks (they are self-referential and
 
 | Category | Criteria | Action |
 |----------|----------|--------|
-| **merge-ready** | All 6-green gates: CI green (pending=0) + mergeable + review APPROVED + Bugbot clean + inline threads resolved + evidence authentic | Run full 6-green verification then merge |
+| **merge-ready** | Both current-head `/green` gates pass: required CI succeeds and `mergeable == MERGEABLE` | Re-read HEAD and both gates; merge only with current human authorization |
 | **needs-fix** | CI red (failed > 0) or review CHANGES_REQUESTED | Spawn parallel AO worker per PR |
 | **blocked** | CONFLICTING, depends on another PR, or external blocker | Log blocker, skip for now |
 | **stale** | No activity >7 days | Close or ping owner |
@@ -45,11 +45,12 @@ For each **needs-fix** PR that is independent (no mutual dependencies), spawn an
 # Default one-shot dispatch (worker exits after one fix attempt):
 ao spawn --claim-pr N  "fix PR N: <specific failure>"
 
-# DRIVER mode — worker owns the PR until 6-green is confirmed:
+# DRIVER mode — worker owns the PR until both current-head green gates pass:
 # Pass the DRIVER mode contract in the prompt itself. The worker is told to
 # iterate, not exit, and to apply the fix-all invariant below.
 ao spawn --claim-pr N  "DRIVER MODE: take ownership of PR N and iterate until
-                       ALL 6-green gates pass (CI green + CR APPROVED).
+                       required current-head CI passes and GitHub reports
+                       mergeable == MERGEABLE.
                        See DRIVER mode contract in .claude/commands/babysit.md.
                        Apply the fix-all invariant — fix ALL outstanding issues in
                        ONE commit. Do not exit until done or explicitly blocked."
@@ -70,7 +71,7 @@ Before making ANY edits to a PR:
 1. Collect ALL outstanding issues: CI test failures, CR review comments, Skeptic Gate findings, Bugbot errors, unresolved threads
 2. Fix ALL of them in a SINGLE commit
 3. Push ONCE
-4. Wait for all bots to settle (CI, CR, Bugbot, Skeptic)
+4. Wait for required CI to become terminal; triage new bot feedback as advisory
 5. Re-survey — if new issues appeared, repeat from step 1
 
 Why one-at-a-time is banned: each partial push triggers a full CI run (~5-15 min) and resets CR/Skeptic. A 5-issue PR fixed one-at-a-time = 5 CI runs = 25-75 min. Fixed in one batch = 1 CI run = 5-15 min.
@@ -116,7 +117,7 @@ Verify: <command to run before pushing>"
 ## Anti-patterns (DO NOT)
 
 - ❌ Spend entire session on one PR without surveying others
-- ❌ Run `ao skeptic verify` serially on each PR — parallelize
+- ❌ Treat an advisory bot approval as an extra green gate
 - ❌ Fix one gate, push, wait, fix next gate — batch fixes before pushing
 - ❌ Treat a context-resume summary as a single-PR task queue
 - ❌ Send generic "keep working" or "fix CI" after 2+ ticks of the same failure — use DRIVER mode

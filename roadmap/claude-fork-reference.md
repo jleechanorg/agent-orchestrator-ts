@@ -61,19 +61,22 @@ Current smooth requirement:
 - A PR is zero-touch smooth only if it is zero-touch-by-operator and has
   `max_inactivity_gap <= 60 minutes` across PR-open -> merge timeline events.
 
-## Definition of a "Green" PR (7-Green)
+## Definition of a "Green" PR
 
-A PR is green when **ALL SEVEN** are true:
+A PR is green when exactly two conditions hold at one current HEAD:
 
-1. **CI green** — all required GitHub Actions checks pass (no failures, no pending required)
-2. **No merge conflicts** — `mergeable: MERGEABLE` (not CONFLICTING)
-3. **CodeRabbit approved** — latest verdict is APPROVE or LGTM (REQUEST_CHANGES is a blocker)
-4. **Cursor Bugbot finished** — conclusion neutral/success, no blocking findings
-5. **All inline comments resolved** — EVEN after CR APPROVED, check ALL reviewers (CR, Copilot, Bugbot, humans). Major/Critical/actionable are blockers, nitpicks are OK. PRIMARY (GraphQL): `gh api graphql -f query='...'` to get unresolved thread count. FALLBACK (REST — use when GraphQL rate-limited): `gh api repos/OWNER/REPO/pulls/NUM/comments --jq '[.[] | {user: .user.login, body: .body[0:200], path: .path}]'` — review each comment, fix actionable ones.
-6. **Evidence review passed** — run `/er` if PR has evidence bundle (skip if none)
-7. **Skeptic PASS** — `Skeptic Gate` CI check must pass. Skeptic is an independent LLM verifier that checks all 7 conditions; if it finds a gap, it fails. If `ANTHROPIC_API_KEY` is not configured, the check SKIPs (not a blocker) but a real skeptic run is required for a genuine green PR.
+1. **CI green** — all required GitHub Actions checks are terminal and
+   successful at `headRefOid`.
+2. **No merge conflicts** — GitHub reports `mergeable: MERGEABLE`.
 
-**Never declare a PR green or ask for merge unless all 7 are true.**
+Retry while mergeability is `UNKNOWN`; `CONFLICTING` fails. Re-read
+`headRefOid` after both checks and restart if it moved.
+
+CodeRabbit, Bugbot, Skeptic, evidence review, and thread cleanup remain useful
+draft-quality or advisory work. They do not add `/green` gates. Human
+`MERGE APPROVED` in the current message is still required before an agent
+merge. The executable procedure lives in
+`skills/pr-green-definition/SKILL.md`.
 
 **PR status check — always check merge state FIRST:**
 ```bash
@@ -104,29 +107,21 @@ When a PR has `mergeable_state: dirty` (merge conflicts), this is **P0 immediate
 4. **Resolve conflicts**, push, repeat until clean
 5. **Then** check other gates (CI, CR, etc.)
 
-### CR CHANGES_REQUESTED resolution workflow
-When CR posts CHANGES_REQUESTED on your PR:
+### Advisory review resolution workflow
+When CodeRabbit or another reviewer posts actionable feedback:
 1. Run `scripts/extract-unresolved-comments.sh <OWNER>/<REPO> <PR>` — gets prioritized list (Critical first)
-2. Fix **only those exact items** — no other changes
+2. Validate each item and fix the applicable issues in one bounded pass
 3. Commit with `[agento]` prefix and push
 4. Run `scripts/cr-loop-guard.sh <OWNER>/<REPO> <PR> fix-mode`:
    - Output starts with `cr-trigger` → post `@coderabbitai all good?`
    - Output starts with `copilot-expanded` → run `/copilot-expanded` on the exact comment list
-   - Output starts with `skip` → loop limit reached, escalate
-5. Wait for CR formal review (not just `<!-- Review triggered -->` acknowledgment)
-6. If CR gets stuck in incremental mode (no new formal review after 2 cycles), dismiss the stale review: get latest CR review ID, `gh api repos/<OWNER>/<REPO>/pulls/<PR>/reviews/<ID>/dismissals --method PUT -f message="Stale CR verdict — all comments addressed, dismissing to allow fresh re-review" -f event=DISMISS`, then post `@coderabbitai all good?`
+   - Output starts with `skip` → loop limit reached; record the advisory state
+5. Do not wait for, dismiss, or synthesize a bot approval to satisfy `/green`.
 
-### Skeptic SKIPPED — do not merge
-If skeptic posts `VERDICT: SKIPPED` (infra unavailable — no LLM API keys in GHA), the PR does **NOT** have a genuine skeptic review. The `skeptic-cron.yml` workflow handles skeptic evaluation via AO worker. **Do not merge until skeptic-cron has run `ao skeptic verify` and posted `VERDICT: PASS` or `VERDICT: FAIL`.** Check skeptic-cron hasn't already evaluated this PR SHA (comments show `VERDICT:`).
-
-### Skeptic FAIL — hard merge block (even for admins)
-A `VERDICT: FAIL` is a hard block. **Never merge a PR that has an unaddressed FAIL verdict**, even as admin. If you see a merged PR with a FAIL verdict in a review, flag it as a gate enforcement gap:
-```bash
-# Verify Skeptic Gate is in required status checks (it must be):
-gh api repos/jleechanorg/agent-orchestrator-ts/branches/main/protection --jq '.required_status_checks.contexts'
-# Expected: includes "Skeptic Gate"
-# If missing: this is bd-8khr — add it to branch protection
-```
+### Skeptic verdicts are advisory
+Treat PASS, FAIL, and SKIPPED as review inputs. Investigate actionable FAIL
+findings during draft quality, but do not turn the review verdict itself into a
+third `/green` gate.
 
 ### Adding new CI gates — branch protection checklist
 When adding a new required CI gate (e.g., a new workflow check):
@@ -177,9 +172,9 @@ Rules:
 - Evidence checks are pre-merge only; merged/closed PRs are skipped.
 
 ### Evidence review (`/er`) vs CI vs Skeptic
-- **`/er` (step 6 of 7-green):** Human or agent review that evidence **substance** matches the **claimed** class. Use when the PR has an evidence bundle; **PASS/INSUFFICIENT** is about proof fit, not YAML shape alone.
+- **`/er`:** Draft-phase human or agent review that evidence **substance** matches the **claimed** class. Use when the PR has an evidence bundle; **PASS/INSUFFICIENT** is about proof fit, not YAML shape alone.
 - **Evidence Gate (CI):** Format and presence rules only; fails closed on missing fields.
-- **Skeptic Gate:** Independent LLM check on overall merge readiness (can flag gaps between claims and 7-green story). Does not replace real artifacts or `/er`.
+- **Skeptic:** Advisory independent LLM review of overall readiness. It does not replace real artifacts or `/er`, and its approval is not an extra `/green` gate.
 
 ### Cursor cloud-agent artifact model (reference)
 Cursor describes **cloud agents** that run in isolated environments, **test their changes**, and **produce artifacts (videos, screenshots, and logs)** so reviewers can validate work quickly, and open **merge-ready PRs with artifacts to demo their changes**. See [Cursor agents can now control their own computers](https://cursor.com/blog/agent-computer-use) (product announcement; read the full post for examples). The same post shows **video artifacts** for full flows, **screenshots** for static proof, and **summaries/logs** alongside — not prose-only claims.
@@ -267,7 +262,7 @@ When reviewing or producing evidence, identify the **claim class** before issuin
 | **Integration test** | Test log with real I/O, API calls shown, timing |
 | **Pipeline E2E** | Session spawn proof, event routing proof, outcome recording proof |
 | **PR-lifecycle E2E** | PR creation (URL+timestamp+actor), transition proof (CI/review timeline), merge outcome, cleanup proof |
-| **Merge-gate green** | All conditions checked with evidence per condition |
+| **Merge-gate green** | Current-head required CI proof plus `mergeable == MERGEABLE` |
 
 **Fail-closed rules:** PASS only if ALL required proofs are present. INSUFFICIENT if any missing. Never downgrade the claim class to avoid INSUFFICIENT. A pipeline E2E does NOT satisfy a PR-lifecycle E2E claim.
 
@@ -400,13 +395,17 @@ When cherry-picking work to a `feat/*-upstream` branch for a ComposioHQ PR, **do
 
 ## Bulk PR Merging
 
-Use `/bulk-merge` to evaluate, risk-assess, and sequentially merge multiple PRs. See `.claude/commands/bulk-merge.md` for the full workflow. Key points:
+For an explicitly authorized bulk merge:
 
-- Verify all 4 green checks before merging any PR
-- Merge low-risk (additive-only) PRs first, smallest to largest
-- Medium-risk (modifies existing files) PRs merge after low-risk
-- Resolve `index.ts` and `.beads/issues.jsonl` conflicts between each merge (keep both sides)
-- Run `pnpm build && pnpm test && pnpm typecheck` after all merges complete
+- Freeze candidate HEADs and verify both `/green` gates for every candidate.
+- Complete applicable draft-quality evidence and triage advisory reviews.
+- Order low-risk additive changes first, smallest to largest; medium and high
+  risk changes follow.
+- Before each merge, re-read HEAD, required CI, mergeability, and current human
+  authorization.
+- Preserve both sides when resolving `index.ts` or `.beads/issues.jsonl`
+  conflicts.
+- Run `pnpm build && pnpm test && pnpm typecheck` after the authorized batch.
 
 ## Mirror Fork for Clean Upstream PRs
 

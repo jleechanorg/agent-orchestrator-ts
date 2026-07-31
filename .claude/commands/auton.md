@@ -180,16 +180,17 @@ After both groups complete, cross-reference:
 2. Check if each CR_REQ PR has an active worker session (from Group A2)
 3. If a CR_REQ PR has **no active session**, flag it as a gap — the orchestrator should be addressing it
 
-### Step 3b: Stalled PR detection (>1hr gap, not 6-green)
+### Step 3b: Stalled PR candidate detection (>1hr gap)
 
-For every open PR, check last commit date and compare to current UTC time. Flag any PR that:
-- Is NOT at 6-green (any of: CI failing, merge conflict, CR not APPROVED, unresolved comments, Bugbot blocking)
-- Has >1 hour since the last commit with no visible progress
+For every open PR, check last commit date and compare to current UTC time. Flag
+PRs with more than one hour since the last commit as candidates, then use the
+canonical `/green` procedure to distinguish a ready PR from a real stall.
+Review state is useful triage context but is not an extra green gate.
 
 ```bash
 # Stall detection — REST API (works even when GraphQL=0)
 current_epoch=$(date -u +%s)
-echo "=== STALLED PR DETECTION (>1hr gap, not 6-green) ==="
+echo "=== STALLED PR CANDIDATES (>1hr since last commit) ==="
 for pr in $(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=open" --jq '.[].number' 2>/dev/null); do
   last_commit=$(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls/$pr/commits" --jq '.[-1].commit.committer.date' 2>/dev/null)
   # Cross-platform date parsing: try BSD (macOS) first, then GNU (Linux)
@@ -212,10 +213,6 @@ for pr in $(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=open" --
         elif any(. == "APPROVED") then "APPROVED"
         else "NONE" end
     ' 2>/dev/null)
-    # Skip PRs that appear 6-green (clean + approved)
-    if [ "$mergeable" = "clean" ] && [ "$review" = "APPROVED" ]; then
-      continue
-    fi
     # Check for worker on this branch
     has_worker="no"
     for s in $(tmux list-sessions 2>/dev/null | grep -E "ao-[0-9]+|jc-[0-9]+" | cut -d: -f1); do
@@ -294,11 +291,12 @@ fi
 <List PRs with CR CHANGES_REQUESTED that have NO active session>
 (If none, say "All CR_REQ PRs have active sessions")
 
-### Stalled PRs (>1hr gap, not 6-green)
+### Stalled PR candidates (>1hr since last commit)
 | PR | Gap | Review state | Mergeable | Worker | Title |
 |---|---|---|---|---|---|
-<List each stalled PR. If worker=no, this is a coverage gap requiring ao spawn.>
-(If none, say "No stalled PRs")
+<For each candidate, run the canonical two-gate /green check. If a non-green
+candidate has worker=no, this is a coverage gap requiring ao spawn.>
+(If none, say "No stalled PR candidates")
 
 ### Zombie session check
 <Sessions where AO status=killed but tmux still alive>
