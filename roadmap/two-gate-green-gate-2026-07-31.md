@@ -22,23 +22,29 @@ found no CodeRabbit approval.
 | Decision | Choice | Reason |
 |---|---|---|
 | Workflow owner | Replace the existing workflow in place | Preserve the branch-protection check identity |
-| Gate 1 | Latest terminal non-advisory check runs at the live PR head | Bind the verdict to reviewed code and fail closed |
+| Gate 1 | Latest terminal non-advisory `statusCheckRollup` contexts at the expected PR head | Evaluate both `CheckRun.conclusion` and legacy `StatusContext.state`, and fail closed |
 | Gate 2 | REST mergeability with bounded retry for `null` | Use live GitHub state and fail closed |
 | Reviewer/evidence state | Remove from `/green` exit logic | These are advisory or draft-phase concerns |
 | Runner | `[self-hosted]` | Enforce the private-repository runner policy without a mutable hosted-runner override |
 
 ## Failure Handling
 
-Missing identity, API errors, no checks, pending/failed/cancelled checks, moved head,
-or unresolved/non-mergeable state all fail. The result comment includes the exact head
-SHA. Advisory review bots and evidence formatting do not affect the exit code.
+Missing identity, API errors, no contexts, pending/failed/cancelled check runs,
+pending/failed legacy statuses, a moved head, or unresolved/non-mergeable state all
+fail. A mismatch between the event/dispatch SHA and the live PR head exits before
+polling or commenting, so one run never silently certifies a different commit. The
+result comment includes the exact head SHA. Advisory review bots and evidence
+formatting do not affect the exit code.
 
 ## Test Strategy
 
-The contract test reads the workflow because the behavior is encoded in its shell body.
-RED is the same test against `origin/main`, where all six assertions fail. GREEN requires
-all six assertions, YAML parsing, actionlint, and `git diff --check` to pass. The draft PR
-then supplies Layer 2 GitHub Actions evidence.
+The contract test reads and executes the workflow's shell body because that is where
+the behavior is encoded. RED covers the prior REST-only check-run implementation and
+its warn-and-continue moved-head branch. GREEN requires structural assertions plus
+deterministic boundary replays for success, API outage, zero contexts, CheckRun
+pending/failure/cancellation, legacy status pending/failure/success, and a moved head.
+YAML parsing, actionlint, and `git diff --check` must also pass. The draft PR then
+supplies Layer 2 GitHub Actions evidence.
 
 ## Rollback
 

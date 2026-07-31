@@ -46,19 +46,23 @@ jobs:
             echo "ERROR: could not determine current HEAD SHA for PR #$PR_NUM"
             exit 1
           fi
-          if [ -n "$EXPECTED_HEAD_SHA" ] && [ "$EXPECTED_HEAD_SHA" != "$HEAD_SHA" ]; then
-            echo "Expected SHA ${EXPECTED_HEAD_SHA:0:12} is stale; checking current HEAD ${HEAD_SHA:0:12}"
+          if [ "$EXPECTED_HEAD_SHA" != "$HEAD_SHA" ]; then
+            echo "ERROR: expected SHA ${EXPECTED_HEAD_SHA:0:12} is stale; current HEAD is ${HEAD_SHA:0:12}"
+            exit 1
           fi
           echo "Checking PR #$PR_NUM at current HEAD ${HEAD_SHA:0:12}"
 
-          # Gate 1: every latest non-advisory, non-self check run at HEAD must
-          # be terminal and successful. Cursor-owned reviews and the
-          # coderabbit ping job are advisory rather than CI gates.
+          # Gate 1: every latest non-advisory, non-self context in GitHub's
+          # statusCheckRollup must be terminal and successful. This includes
+          # both CheckRun.conclusion and legacy StatusContext.state.
           MAX_WAIT=900
           INTERVAL=30
           ELAPSED=0
           STABLE_SUCCESS_SNAPSHOTS=0
           LAST_SUCCESS_SIGNATURE=""
+          REPOSITORY="${{ github.repository }}"
+          REPOSITORY_OWNER="${REPOSITORY%%/*}"
+          REPOSITORY_NAME="${REPOSITORY#*/}"
           while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
             if [ "$ELAPSED" -eq 0 ]; then
               sleep 10
@@ -68,33 +72,128 @@ jobs:
               ELAPSED=$((ELAPSED + INTERVAL))
             fi
 
-            CHECK_RUNS=$(gh api repos/${{ github.repository }}/commits/"$HEAD_SHA"/check-runs \
-              --paginate --slurp 2>/dev/null || echo "")
-            if [ -z "$CHECK_RUNS" ]; then
+            # GraphQL variables expand server-side rather than in this shell.
+            # shellcheck disable=SC2016
+            ROLLUP_PAGES=$(gh api graphql --paginate --slurp \
+              -F owner="$REPOSITORY_OWNER" \
+              -F name="$REPOSITORY_NAME" \
+              -F sha="$HEAD_SHA" \
+              -f query='
+                query(
+                  $owner: String!,
+                  $name: String!,
+                  $sha: GitObjectID!,
+                  $endCursor: String
+                ) {
+                  repository(owner: $owner, name: $name) {
+                    object(oid: $sha) {
+                      ... on Commit {
+                        statusCheckRollup {
+                          contexts(first: 100, after: $endCursor) {
+                            nodes {
+                              __typename
+                              ... on CheckRun {
+                                name
+                                status
+                                conclusion
+                                startedAt
+                                checkSuite { app { slug } }
+                              }
+                              ... on StatusContext {
+                                context
+                                state
+                                createdAt
+                              }
+                            }
+                            pageInfo { hasNextPage endCursor }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }' 2>/dev/null || echo "")
+            if [ -z "$ROLLUP_PAGES" ] ||
+               ! echo "$ROLLUP_PAGES" | jq -e '
+                 type == "array"
+                 and length > 0
+                 and all(
+                   .[];
+                   (.data.repository.object.statusCheckRollup.contexts.nodes | type)
+                     == "array"
+                 )' >/dev/null 2>&1; then
               CHECK_RUNS_FAILED="__API_ERROR__"
               CHECK_RUNS_PENDING="__API_ERROR__"
               TOTAL_CHECKS=0
             else
-              LATEST_CHECKS=$(echo "$CHECK_RUNS" | jq -c '
-                [.[].check_runs[]]
-                | group_by(.name)
-                | map(sort_by(.started_at) | reverse | .[0])
+              LATEST_CHECKS=$(echo "$ROLLUP_PAGES" | jq -c '
+                [.[].data.repository.object.statusCheckRollup.contexts.nodes[]?]
+                | group_by(
+                    if .__typename == "CheckRun"
+                    then "check:\(.name)"
+                    else "status:\(.context)"
+                    end
+                  )
+                | map(
+                    sort_by(
+                      if .__typename == "CheckRun"
+                      then (.startedAt // "")
+                      else (.createdAt // "")
+                      end
+                    )
+                    | reverse
+                    | .[0]
+                  )
                 | map(select(
-                    .name != "Green Gate"
-                    and .name != "ping-coderabbit"
-                    and (.app.slug // "") != "cursor"
-                    and (.app.slug // "") != "coderabbitai"
+                    if .__typename == "CheckRun" then
+                      .name != "Green Gate"
+                      and .name != "ping-coderabbit"
+                      and (.checkSuite.app.slug // "") != "cursor"
+                      and (.checkSuite.app.slug // "") != "coderabbitai"
+                    else
+                      .context != "Green Gate"
+                      and .context != "CodeRabbit"
+                      and .context != "Bugbot"
+                      and .context != "Cursor"
+                    end
                   ))')
               TOTAL_CHECKS=$(echo "$LATEST_CHECKS" | jq 'length')
-              CHECK_RUNS_PENDING=$(echo "$LATEST_CHECKS" | jq '[.[] | select(.status != "completed")] | length')
+              CHECK_RUNS_PENDING=$(echo "$LATEST_CHECKS" | jq '
+                [.[] | select(
+                  (.__typename == "CheckRun" and .status != "COMPLETED")
+                  or (.__typename == "StatusContext" and .state == "PENDING")
+                )] | length')
               CHECK_RUNS_FAILED=$(echo "$LATEST_CHECKS" | jq '
                 [.[] | select(
-                  .status == "completed"
-                  and (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")
+                  (
+                    .__typename == "CheckRun"
+                    and .status == "COMPLETED"
+                    and (
+                      .conclusion != "SUCCESS"
+                      and .conclusion != "SKIPPED"
+                      and .conclusion != "NEUTRAL"
+                    )
+                  )
+                  or (
+                    .__typename == "StatusContext"
+                    and .state != "SUCCESS"
+                    and .state != "PENDING"
+                  )
                 )] | length')
               SUCCESS_SIGNATURE=$(echo "$LATEST_CHECKS" | jq -c '
-                sort_by(.name)
-                | map({name, app: (.app.slug // ""), status, conclusion})')
+                sort_by(
+                  if .__typename == "CheckRun"
+                  then "check:\(.name)"
+                  else "status:\(.context)"
+                  end
+                )
+                | map({
+                    type: .__typename,
+                    name: (.name // .context),
+                    app: (.checkSuite.app.slug // ""),
+                    status,
+                    conclusion,
+                    state
+                  })')
             fi
 
             echo "  [${ELAPSED}s] total=${TOTAL_CHECKS}, pending=${CHECK_RUNS_PENDING}, failed=${CHECK_RUNS_FAILED}"
@@ -121,7 +220,7 @@ jobs:
           if [ "${CHECK_RUNS_FAILED:-}" = "__API_ERROR__" ] ||
              [ "${CHECK_RUNS_PENDING:-}" = "__API_ERROR__" ]; then
             GATE1="FAIL"
-            CI_DETAIL="$CI_DETAIL (check-runs API error)"
+            CI_DETAIL="$CI_DETAIL (statusCheckRollup API error)"
             FAILED_GATES="${FAILED_GATES}1, "
           elif [ "${TOTAL_CHECKS:-0}" -eq 0 ]; then
             GATE1="FAIL"
@@ -206,7 +305,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Post gate results comment
-        if: always()
+        if: always() && steps.gates.outputs.comment_body != ''
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
