@@ -996,6 +996,37 @@ export function create(config?: Record<string, unknown>): Workspace {
         }
       }
 
+      // Automatic venv symlinking: if .venv or venv exists in repoPath or ~/.venvs/<repo_name>,
+      // symlink it into the worktree if not already present.
+      const venvCandidates = [".venv", "venv"];
+      for (const venvName of venvCandidates) {
+        const targetPath = join(info.path, venvName);
+        if (existsSync(targetPath)) continue;
+
+        const repoVenv = join(repoPath, venvName);
+        const centralVenv = join(homedir(), ".venvs", basename(repoPath), venvName);
+        const sourceVenv = existsSync(centralVenv)
+          ? centralVenv
+          : (existsSync(repoVenv) ? repoVenv : null);
+
+        if (sourceVenv) {
+          try {
+            mkdirSync(dirname(targetPath), { recursive: true });
+            symlinkSync(sourceVenv, targetPath);
+            recordActivityEvent({
+              projectId: info.projectId,
+              sessionId: info.sessionId,
+              source: "workspace",
+              kind: "workspace.venv_symlinked",
+              level: "info",
+              summary: `Symlinked ${venvName} from ${sourceVenv} into worktree ${info.path}`,
+            });
+          } catch {
+            // Best-effort symlink creation
+          }
+        }
+      }
+
       // Run postCreate hooks
       // NOTE: commands run with full shell privileges — they come from trusted YAML config
       if (project.postCreate) {
