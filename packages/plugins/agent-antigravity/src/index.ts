@@ -181,6 +181,9 @@ const antigravityOverrides: Partial<Agent> = {
   getLaunchCommand(launchConfig: AgentLaunchConfig): string {
     const promptArg = launchConfig.prompt ? shellEscape(launchConfig.prompt) : '""';
     const parts = ["agy", "--prompt-interactive", promptArg];
+    if (launchConfig.model) {
+      parts.push("--model", shellEscape(launchConfig.model));
+    }
     const permissions = launchConfig.permissions ?? "permissionless";
     if (permissions === "permissionless" || permissions === "auto-edit" || permissions === "skip") {
       parts.push("--dangerously-skip-permissions");
