@@ -4,9 +4,9 @@ This file contains repository-specific baseline guidelines for Antigravity/Gemin
 
 ## PR Merge Gating & Auto-Merge
 
-### 6-Green (Mandatory) — Skeptic Cron auto-merge retired (PR #773)
+### PR green — Skeptic Cron auto-merge retired (PR #773)
 * **No more automated Skeptic Cron auto-merge in this repo.** `skeptic-cron.yml` (and `skeptic-gate.yml`, and `test.yml`'s Skeptic trigger job) were deleted in PR #773 — this repo's own Skeptic PR-gating/auto-merge automation is retired. Do not reference `SKEPTIC_CRON_AUTO_MERGE` or expect a `VERDICT: PASS` comment to trigger a merge; that mechanism no longer runs here.
-* **Current gating**: PRs must pass the 6-green Green Gate check (CI green, mergeable, CodeRabbit APPROVED, Bugbot clean, inline threads resolved, evidence when required) — see `CLAUDE.md`'s "6-Green (summary)" section for the authoritative definition.
+* **Current gating**: `/green` has exactly two gates at one current HEAD: all required CI is terminal and successful, and GitHub reports `mergeable == MERGEABLE`. Re-check both if HEAD moves. CodeRabbit, Bugbot, Skeptic, evidence review, and thread cleanup are draft-quality or advisory work, not extra green gates. See `skills/pr-green-definition/SKILL.md`.
 * **Human Authorization Guard (unchanged)**: Agents must NEVER perform any manual or override merges (`gh pr merge` or otherwise) in chat unless the human user has typed `MERGE APPROVED` in the current turn — this rule holds regardless of gate automation.
 
 ## Memory Search Alias
@@ -44,4 +44,3 @@ Verified local output from `pnpm test` run:
 - **SCM GitHub PR comment author normalization**:
   - [TDD Red failure log (scm-github index.test.ts)](https://gist.github.com/jleechan-af/ec14dc325de15f0049b868c788376355): Shows that listPRComments fails on null user input and triggers `/skeptic` erroneously.
   - [TDD Green success log (scm-github index.test.ts)](https://gist.github.com/jleechan-af/56edbb0a82392c4b1a8c03538bf87b65): Shows normalized user object `{ login: "", type: null }` preventing false skeptic triggers on comments with null users.
-

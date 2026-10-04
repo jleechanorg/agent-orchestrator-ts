@@ -172,7 +172,7 @@ After every `git push`, a PR driver (worker or babysit session) MUST enumerate A
 
 ## Skeptic Architecture — SETTLED DECISION (do not revisit)
 
-**RETIRED IN THIS REPO (PR #773):** `skeptic-gate.yml`, `skeptic-cron.yml`, and `test.yml`'s trigger job were deleted — this repo no longer runs Skeptic as a PR-gating requirement on itself (see "6-Green" above). The architecture below still applies to `packages/cli/src/templates/skeptic/*.yml`, the standalone templates this repo distributes to consumer repos that still want Skeptic gating, and to the `ao skeptic verify` CLI command itself (still live, still callable manually or via a project's `reviewers:` config per PR #752).
+**RETIRED IN THIS REPO (PR #773):** `skeptic-gate.yml`, `skeptic-cron.yml`, and `test.yml`'s trigger job were deleted — this repo no longer runs Skeptic as a PR-gating requirement on itself (see "PR green" below). The architecture below still applies to `packages/cli/src/templates/skeptic/*.yml`, the standalone templates this repo distributes to consumer repos that still want Skeptic review, and to the `ao skeptic verify` CLI command itself (still live, still callable manually or via a project's `reviewers:` config per PR #752).
 
 **Skeptic evaluations run via AO worker (local API keys), NOT in GHA. Do NOT add API keys to CI.**
 
@@ -248,13 +248,20 @@ Current smooth requirement:
   `max_inactivity_gap <= 60 minutes` across PR-open -> merge timeline events.
 
 
-## 6-Green (summary)
+## PR green (summary)
 
-All six must hold: CI green; mergeable; CodeRabbit APPROVED; Bugbot clean; inline threads resolved; evidence when required. Check merge first: `gh api repos/OWNER/REPO/pulls/N --jq '{state, merged}'`. After push: exit (no sleep-poll). Pre-push: `mergeableState` ≠ `dirty`.
+`/green` has exactly two gates at one current `headRefOid`: every required CI
+check is terminal and successful, and GitHub reports
+`mergeable == MERGEABLE`. Retry `UNKNOWN`; `CONFLICTING` fails. Re-read the HEAD
+after both checks and restart if it moved.
 
-**Was "7-Green" (Skeptic PASS as a 7th required gate) until this repo's own Skeptic PR-gating automation was retired — see PR #773 and the Skeptic Architecture note below. Skeptic is no longer a required merge gate for this repo.**
+CodeRabbit, Bugbot, Skeptic, evidence review, and review-thread cleanup are
+draft-phase quality or advisory work, not additional `/green` gates. Complete
+applicable quality work before marking a draft ready. Human `MERGE APPROVED` in
+the current message remains required before any agent merge.
 
-**Full detail:** CR loop, evidence bundle, GraphQL gate-5, spawn gates, worktrees, lifecycle triage → `roadmap/claude-fork-reference.md`.
+**Canonical procedure:** `skills/pr-green-definition/SKILL.md`. Supporting
+fork operations: `roadmap/claude-fork-reference.md`.
 
 **Evidence Requirement**: Every pull request MUST include a `## Evidence` section with links to authoritative gists. UI/Terminal claims MUST be supported by video evidence (.mp4, .gif, or .cast) and MUST show the TDD Red-Green cycle. Capture the failure first. See [evidence-standards](skills/evidence-standards/SKILL.md) and [tdd-evidence-workflow](skills/tdd-evidence-workflow/SKILL.md).
 

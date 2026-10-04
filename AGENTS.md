@@ -220,9 +220,11 @@ Why: Two workers on different beads duplicated the same env-source.test.ts mock 
 
 **Operator** (human dispatching workers): Use `ao spawn` with non-overlapping beads. If overlap is unavoidable, steer the second worker away from the first's domain via `ao send`.
 
-## PR worker harness — blocked vs done (6-green)
+## PR worker harness — blocked vs done
 
-Use this **before** spending tokens on fixes, and **after** each push, to avoid stale loops (e.g. working a merged PR, or declaring progress while threads are unresolved).
+Use this **before** spending tokens on fixes, and **after** each push, to avoid
+stale loops. The canonical two-gate green verdict is defined in
+`skills/pr-green-definition/SKILL.md`.
 
 ### Step 0 — merge state (mandatory)
 
@@ -242,10 +244,12 @@ scripts/pr-rescue-status.sh jleechanorg/agent-orchestrator-ts <PR_NUMBER>
 
 | Exit | Meaning |
 |------|---------|
-| **0** | PR merged (done) **or** open PR passes: mergeable `MERGEABLE`, **0** unresolved review threads (GraphQL), `reviewDecision` **APPROVED**, CI rollup has **no** `FAILURE` / **no** pending checks |
+| **0** | PR merged (done) **or** the open PR passes this script's broader draft-quality structural preflight |
 | **1** | Blocked — stderr names the next action (rebase, resolve threads, wait for CI, fix Skeptic, etc.) |
 
-**Interpretation:** exit **0** means “structurally OK for merge-gate automation”; it does **not** replace `/er`, human review, or org-specific policies.
+**Interpretation:** this script is a diagnostic for CI, mergeability, reviews,
+and thread cleanup. Its exit code is not a `/green` verdict. `/green` has only
+two gates: required current-head CI and `mergeable == MERGEABLE`.
 
 ### Stale worker / capacity signals
 
@@ -275,13 +279,20 @@ Before running `gh pr create`, verify the `--repo` target or the default remote.
 
 ## Bulk PR Merging
 
-When merging multiple PRs, use the `/bulk-merge` workflow (`.claude/commands/bulk-merge.md`):
+For a user-authorized bulk merge:
 
-1. Verify all PRs are green (CI + mergeable + no unresolved comments + CodeRabbit approved)
-2. Categorize: LOW (additive only), MEDIUM (modifies existing files), HIGH (core runtime/API changes)
-3. Merge order: low-risk smallest-first, then medium, then high
-4. Resolve `index.ts` / `.beads/issues.jsonl` conflicts between merges (keep all lines from both sides)
-5. Post-merge: `pnpm build && pnpm test && pnpm typecheck`
+1. Freeze the candidate set and record each current HEAD.
+2. Verify both `/green` gates at each recorded HEAD: required CI succeeds and
+   `mergeable == MERGEABLE`.
+3. Triage advisory bot feedback and applicable draft-quality evidence before
+   marking candidates ready.
+4. Categorize LOW (additive), MEDIUM (modifies existing files), or HIGH (core
+   runtime/API), then order smallest low-risk changes first.
+5. Immediately before each merge, re-read HEAD and both gates. Stop if HEAD
+   moved or the current user message does not authorize merging.
+6. Resolve `index.ts` / `.beads/issues.jsonl` conflicts between authorized
+   merges, preserving both sides.
+7. Run `pnpm build && pnpm test && pnpm typecheck` after the batch.
 
 ## Reference Repos
 

@@ -19,13 +19,13 @@ See `.claude/skills/babysit/SKILL.md` for full protocol.
 - `/babysit` — Full survey + dispatch
 - `/babysit --status` — Survey only, no dispatch (just report classification)
 - `/babysit --fix N` — Deep-dive on specific PR N (after survey)
-- `/babysit --driver N` — DRIVER mode: take ownership of PR N, iterate until ALL gates pass (CI green + CR APPROVED). Does not exit until done or explicitly blocked.
+- `/babysit --driver N` — DRIVER mode: take ownership of PR N and iterate until required current-head CI passes and `mergeable == MERGEABLE`. Does not exit until done or explicitly blocked.
 
 ## DRIVER mode contract
 
 When a babysit-spawned AO worker is in DRIVER mode for PR N, it MUST:
 
-1. Fix all outstanding issues in one batch — read ALL CR comments and ALL CI failures BEFORE making any edits. Fix everything in a single commit. Never push after fixing one item and wait for CI to find the next.
-2. Iterate until actually fixed — after each push, wait for CI + CR to settle, then re-survey. If new issues surface, fix all of them again in one batch. Repeat until all 6 green gates pass.
-3. Never exit with "attempted" — "I tried X" is not done. The worker exits only when: (a) 6-green confirmed, or (b) blocked on a genuine external dependency (merge conflict with another PR, external service outage, explicit user instruction to stop).
+1. Fix all outstanding issues in one batch — read all CI failures and triage actionable review feedback before editing. Fix the bounded set in a single commit. Never push after fixing one item and wait for CI to find the next.
+2. Iterate until actually fixed — after each push, wait for required CI to become terminal, then re-survey current HEAD and mergeability. Triage new bot feedback as advisory. Repeat until both green gates pass.
+3. Never exit with "attempted" — "I tried X" is not done. The worker exits only when: (a) required current-head CI passes and `mergeable == MERGEABLE`, or (b) blocked on a genuine external dependency (external service outage or explicit user instruction to stop).
 4. Report blockers explicitly — if blocked, post: "BLOCKED: <exact reason> — needs: <what resolves it>". Never silent exit.
