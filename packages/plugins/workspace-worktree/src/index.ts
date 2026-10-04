@@ -441,6 +441,28 @@ async function disambiguateBaseRef(repoPath: string, ref: string): Promise<void>
 }
 
 
+/**
+ * Validate that a project's configured repo path exists on disk before any
+ * git command is run against it as `cwd`.
+ *
+ * Root cause (jleechan-v4ui): when `cwd` passed to `child_process.execFile`
+ * does not exist, Node/libuv fails the spawn at the chdir step but reports
+ * it as `spawn git ENOENT` -- indistinguishable from "git binary not found"
+ * even though `git` resolves fine via PATH. This produced a misleading
+ * "ao spawn --project X" failure that looked like a PATH-propagation bug
+ * but was actually a stale/incorrect `path:` in the project's config entry.
+ * Failing fast here with an actionable message avoids that misdiagnosis.
+ */
+function assertRepoPathExists(repoPath: string, projectId: string): void {
+  if (!existsSync(repoPath)) {
+    throw new Error(
+      `Project "${projectId}" repo path does not exist: ${repoPath}. ` +
+        `Check the "path:" field for this project in agent-orchestrator.yaml.`,
+    );
+  }
+}
+
+
 export function create(config?: Record<string, unknown>): Workspace {
   const worktreeBaseDir = config?.worktreeDir
     ? expandPath(config.worktreeDir as string)
@@ -454,6 +476,7 @@ export function create(config?: Record<string, unknown>): Workspace {
       assertSafePathSegment(cfg.sessionId, "sessionId");
 
       const repoPath = expandPath(cfg.project.path);
+      assertRepoPathExists(repoPath, cfg.projectId);
       const projectWorktreeDir = join(worktreeBaseDir, cfg.projectId);
       const worktreePath = join(projectWorktreeDir, cfg.sessionId);
 
@@ -831,6 +854,7 @@ export function create(config?: Record<string, unknown>): Workspace {
       assertSafePathSegment(cfg.sessionId, "sessionId");
 
       const repoPath = expandPath(cfg.project.path);
+      assertRepoPathExists(repoPath, cfg.projectId);
       const effectiveBaseDir = cfg.worktreeDir ?? worktreeBaseDir;
       const projectWorktreeDir = cfg.worktreeDir
         ? effectiveBaseDir
@@ -881,6 +905,7 @@ export function create(config?: Record<string, unknown>): Workspace {
 
     async restore(cfg: WorkspaceCreateConfig, workspacePath: string): Promise<WorkspaceInfo> {
       const repoPath = expandPath(cfg.project.path);
+      assertRepoPathExists(repoPath, cfg.projectId);
 
       // Unlock any stale locked entry for this path before pruning.
       // This recovers worktrees whose directories were deleted externally
