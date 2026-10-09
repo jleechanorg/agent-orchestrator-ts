@@ -120,6 +120,31 @@ describe("reapStaleSessions — stuck spawning sessions (#12)", () => {
     expect(result.killed).toHaveLength(0);
   });
 
+  it("does not time out a fresh restore of an old session", async () => {
+    const restored = makeSession("fresh-restore", {
+      status: "spawning", activity: "active", pr: null,
+      createdAt: new Date(BASE_NOW.getTime() - 7_200_000),
+      restoredAt: new Date(BASE_NOW.getTime() - TEN_MIN_MS),
+      lastActivityAt: new Date(BASE_NOW.getTime() - TEN_MIN_MS),
+    });
+    const sm = makeSessionManager([restored]);
+    const result = await reapStaleSessions(makeConfig({ spawnTimeoutMs: FIFTEEN_MIN_MS }), makeDeps(sm));
+    expect(result.killed).toHaveLength(0);
+    expect(sm.kill).not.toHaveBeenCalled();
+  });
+
+  it("times out a restore once that attempt exceeds the window", async () => {
+    const restored = makeSession("stale-restore", {
+      status: "spawning", activity: "active", pr: null,
+      createdAt: new Date(BASE_NOW.getTime() - 7_200_000),
+      restoredAt: new Date(BASE_NOW.getTime() - TWENTY_MIN_MS),
+      lastActivityAt: new Date(BASE_NOW.getTime() - TWENTY_MIN_MS),
+    });
+    const sm = makeSessionManager([restored]);
+    const result = await reapStaleSessions(makeConfig({ spawnTimeoutMs: FIFTEEN_MIN_MS }), makeDeps(sm));
+    expect(result.killed).toContainEqual(expect.objectContaining({ sessionId: "stale-restore", reason: "stuck in spawning past timeout" }));
+  });
+
   it("is disabled by default (spawnTimeoutMs undefined) — backward compatible", async () => {
     const stuck = makeSession("stuck-3", {
       status: "spawning",

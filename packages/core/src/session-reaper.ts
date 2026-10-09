@@ -179,13 +179,16 @@ export async function reapStaleSessions(
     const meetsIdleGate =
       config.idleThresholdMs === undefined || idleMs > config.idleThresholdMs;
 
+    // A restore starts a new spawn attempt without changing the session age.
+    const spawnAgeMs = now.getTime() - (session.restoredAt ?? session.createdAt).getTime();
+
     // Determine kill reason (priority order)
     let killReason: string | null = null;
 
     if (
       config.spawnTimeoutMs !== undefined &&
       session.status === "spawning" &&
-      ageMs > config.spawnTimeoutMs
+      spawnAgeMs > config.spawnTimeoutMs
     ) {
       // jleechan-issue-12: dedicated check for sessions stuck in "spawning".
       // Must run before the generic noPrThresholdMs fallback below so a
