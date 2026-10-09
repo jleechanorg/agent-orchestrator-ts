@@ -1824,14 +1824,29 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       prRepositoryUrl.search = "";
       prRepositoryUrl.hash = "";
       let remote = prRepositoryUrl.toString();
+      let trackingRemote = remote;
       try {
         const candidate = (await git(["remote", "get-url", remoteName], workspacePath)).trim();
-        const normalizedCandidate = candidate.toLowerCase().replace(/\.git\/?$/, "");
-        const matchesExpectedRepository =
-          normalizedCandidate.endsWith(`/${expectedRepository}`) ||
-          normalizedCandidate.endsWith(`:${expectedRepository}`);
-        if (matchesExpectedRepository) {
+        // Accept URI and SCP-style SSH remotes, but compare the entire repository
+        // path and host rather than an owner/repo suffix on an unrelated server.
+        const scpRemote = candidate.match(/^(?:[^@/]+@)?([^:/]+):(.+)$/);
+        const candidateUrl = candidate.includes("://")
+          ? new URL(candidate)
+          : scpRemote
+            ? new URL(`ssh://${scpRemote[1]}/${scpRemote[2]}`)
+            : null;
+        const candidateRepository = candidateUrl?.pathname
+          .replace(/^\/|\/$/g, "")
+          .replace(/\.git$/i, "")
+          .toLowerCase();
+        if (
+          candidateUrl &&
+          ["https:", "http:", "ssh:", "git:"].includes(candidateUrl.protocol) &&
+          candidateUrl.hostname.toLowerCase() === prRepositoryUrl.hostname.toLowerCase() &&
+          candidateRepository === expectedRepository
+        ) {
           remote = candidate;
+          trackingRemote = remoteName;
         }
       } catch {
         // The PR URL remains authoritative when origin is missing or unreadable.
@@ -1935,25 +1950,26 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             );
             if (sessionBranch && sessionBranch !== pr.branch) {
               await git(
-                ["config", `branch.${sessionBranch}.remote`, remoteName],
+                ["config", `branch.${sessionBranch}.remote`, trackingRemote],
                 workspacePath,
               ).catch(() => {});
               await git(
                 ["config", `branch.${sessionBranch}.merge`, `refs/heads/${pr.branch}`],
                 workspacePath,
               ).catch(() => {});
-              // Override the push remote for this session branch so `git push` routes
-              // to the correct remote. With push.default=simple (git's default), plain
-              // `git push` still requires the local and upstream names to match; to push
-              // transparently use `git push origin HEAD:${pr.branch}` or set
-              // push.default=upstream in your personal git config.
+              // Use origin only when it matched the PR repository; otherwise track
+              // the same authoritative URL used for fetch without rewriting origin.
+              // With push.default=simple, plain `git push` still requires matching
+              // local/upstream branch names. Use an explicit HEAD:<PR branch> refspec
+              // with this tracking destination, or push.default=upstream in your
+              // personal git config.
               // NOTE: Do not set push.default here — it writes to the shared .git/config
               // (the git-common-dir shared by all worktrees in this repo) and would
               // change push behavior for every worktree/branch in the repo. The
               // "should not set push.default in checkoutPR fallback" regression test in
               // test/index.test.ts enforces this constraint.
               await git(
-                ["config", `branch.${sessionBranch}.pushRemote`, remoteName],
+                ["config", `branch.${sessionBranch}.pushRemote`, trackingRemote],
                 workspacePath,
               ).catch(() => {});
             }
