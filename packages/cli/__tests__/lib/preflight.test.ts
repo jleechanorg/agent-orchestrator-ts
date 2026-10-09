@@ -285,6 +285,17 @@ describe("preflight.checkGhAuth", () => {
     expect(mockExec).not.toHaveBeenCalledWith("gh", ["auth", "token"]);
   });
 
+
+  it("preserves a plain non-rate-limit HTTP 403 as an authentication failure", async () => {
+    const denied = Object.assign(new Error("HTTP 403"), { stdout: "", stderr: "HTTP 403" });
+    mockExec.mockResolvedValueOnce({ stdout: "gh version 2.40", stderr: "" }).mockRejectedValueOnce(denied);
+    await expect(preflight.checkGhAuth()).rejects.toMatchObject({
+      message: "GitHub CLI is not authenticated. Run: gh auth login",
+      cause: denied,
+    });
+    expect(mockExec).not.toHaveBeenCalledWith("gh", ["auth", "token"]);
+  });
+
   it("warns and proceeds for a 403 accompanied by explicit rate-limit text", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockExec
