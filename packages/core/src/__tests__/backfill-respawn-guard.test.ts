@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,6 +19,13 @@ import {
   GLOBAL_PAUSE_REASON_KEY,
 } from "../global-pause.js";
 import type { ProjectConfig } from "../types.js";
+
+// Keep test metadata and prompt artifacts out of the operator's AO home.
+const testHome = vi.hoisted(() => ({ path: "" }));
+vi.mock("node:os", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:os")>();
+  return { ...original, homedir: () => testHome.path };
+});
 
 let tmpDir: string;
 let configPath: string;
@@ -58,6 +65,7 @@ function writeArchivedPr(sessionId: string, prNumber: number): void {
 describe("readProjectPause", () => {
   beforeEach(() => {
     tmpDir = join(tmpdir(), `ao-backfill-guard-${randomUUID()}`);
+    testHome.path = tmpDir;
     mkdirSync(tmpDir, { recursive: true });
     configPath = join(tmpDir, "agent-orchestrator.yaml");
     writeFileSync(configPath, "# test\n", "utf-8");
@@ -79,11 +87,47 @@ describe("readProjectPause", () => {
     expect(pause?.until.toISOString()).toBe(until);
     expect(pause?.reason).toContain("Model rate limit");
   });
+
+  it("returns agent-scoped active pause when agentName is provided", () => {
+    const sessionsDir = getSessionsDir(configPath, tmpDir);
+    mkdirSync(sessionsDir, { recursive: true });
+    const until = new Date(Date.now() + 60 * 60_000).toISOString();
+    writeFileSync(
+      join(sessionsDir, "app-orchestrator"),
+      `status=active\nglobalPauseUntil_claude=${until}\nglobalPauseReason_claude=Scoped rate limit\n`,
+      "utf-8",
+    );
+
+    const pause = readProjectPause(configPath, makeProject(), Date.now(), "claude");
+    expect(pause).not.toBeNull();
+    expect(pause?.until.toISOString()).toBe(until);
+    expect(pause?.reason).toBe("Scoped rate limit");
+
+    // A check for a different agent should fall back to global (which is null/expired)
+    expect(readProjectPause(configPath, makeProject(), Date.now(), "gemini")).toBeNull();
+  });
+
+  it("returns global pause fallback when agent-scoped pause is not active but global is", () => {
+    const sessionsDir = getSessionsDir(configPath, tmpDir);
+    mkdirSync(sessionsDir, { recursive: true });
+    const until = new Date(Date.now() + 60 * 60_000).toISOString();
+    writeFileSync(
+      join(sessionsDir, "app-orchestrator"),
+      `status=active\nglobalPauseUntil=${until}\nglobalPauseReason=Global rate limit\n`,
+      "utf-8",
+    );
+
+    const pause = readProjectPause(configPath, makeProject(), Date.now(), "claude");
+    expect(pause).not.toBeNull();
+    expect(pause?.until.toISOString()).toBe(until);
+    expect(pause?.reason).toBe("Global rate limit");
+  });
 });
 
 describe("backfill respawn cap", () => {
   beforeEach(() => {
     tmpDir = join(tmpdir(), `ao-backfill-guard-${randomUUID()}`);
+    testHome.path = tmpDir;
     mkdirSync(tmpDir, { recursive: true });
     configPath = join(tmpDir, "agent-orchestrator.yaml");
     writeFileSync(configPath, "# test\n", "utf-8");

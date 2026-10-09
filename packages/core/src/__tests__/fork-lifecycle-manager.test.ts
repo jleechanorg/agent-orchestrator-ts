@@ -10,6 +10,7 @@ import {
   detectAndApplyRateLimitPause,
 } from "../fork-lifecycle-manager.js";
 import { readMetadataRaw } from "../metadata.js";
+import { readProjectPause } from "../backfill-respawn-guard.js";
 import { getSessionsDir } from "../paths.js";
 import {
   GLOBAL_PAUSE_UNTIL_KEY,
@@ -22,6 +23,13 @@ import type { ProjectConfig, Session, SessionManager, Runtime } from "../types.j
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// Keep test metadata and prompt artifacts out of the operator's AO home.
+const testHome = vi.hoisted(() => ({ path: "" }));
+vi.mock("node:os", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:os")>();
+  return { ...original, homedir: () => testHome.path };
+});
 
 let tmpDir: string;
 
@@ -236,6 +244,7 @@ describe("parseRateLimitReset", () => {
 describe("setProjectPause and clearProjectPause", () => {
   beforeEach(() => {
     tmpDir = join(tmpdir(), `ao-test-${randomUUID()}`);
+    testHome.path = tmpDir;
     mkdirSync(tmpDir, { recursive: true });
     // generateConfigHash calls realpathSync — file must exist
     writeFileSync(makeConfigPath(), "# test\n", "utf-8");
@@ -303,6 +312,27 @@ describe("setProjectPause and clearProjectPause", () => {
     expect(raw![GLOBAL_PAUSE_SOURCE_KEY]).toBe("app-1");
     expect(raw![GLOBAL_PAUSE_CREATED_AT_KEY]).toBeDefined();
   });
+
+  it("scopes pause keys by agentName and model when both are provided", () => {
+    const configPath = makeConfigPath();
+    const project = makeProject();
+    const sessionsDir = getSessionsDir(configPath, project.path);
+    const orchId = "app-orchestrator";
+    writeOrchestratorSeed(sessionsDir, orchId);
+
+    const until = new Date(Date.now() + 3_600_000);
+    setProjectPause(configPath, project, "app-1", until, false, "claude-code", "claude-3-5-sonnet");
+
+    const raw = readMetadataRaw(sessionsDir, orchId);
+    expect(raw).not.toBeNull();
+    expect(raw!["globalPauseUntil_claude-code:claude-3-5-sonnet"]).toBe(until.toISOString());
+
+    const pauseForSameModel = readProjectPause(configPath, project, Date.now(), "claude-code", "claude-3-5-sonnet");
+    expect(pauseForSameModel).not.toBeNull();
+
+    const pauseForDiffModel = readProjectPause(configPath, project, Date.now(), "claude-code", "claude-3-7-sonnet");
+    expect(pauseForDiffModel).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -312,6 +342,7 @@ describe("setProjectPause and clearProjectPause", () => {
 describe("detectAndApplyRateLimitPause", () => {
   beforeEach(() => {
     tmpDir = join(tmpdir(), `ao-test-${randomUUID()}`);
+    testHome.path = tmpDir;
     mkdirSync(tmpDir, { recursive: true });
     // generateConfigHash calls realpathSync — file must exist
     writeFileSync(makeConfigPath(), "# test\n", "utf-8");
@@ -437,5 +468,36 @@ describe("detectAndApplyRateLimitPause", () => {
     // Invalid CREATED_AT → treat as in grace period → no re-pause
     const raw = readMetadataRaw(sessionsDir, orchId);
     expect(raw![GLOBAL_PAUSE_UNTIL_KEY]).toBe(expiredUntil.toISOString());
+  });
+
+  it("detectAndApplyRateLimitPause scopes pause by agentName from session metadata", async () => {
+    vi.setSystemTime(new Date("2026-06-01T10:00:00"));
+    const configPath = makeConfigPath();
+    const project = makeProject();
+    const sessionsDir = getSessionsDir(configPath, project.path);
+    const orchId = "app-orchestrator";
+    writeOrchestratorSeed(sessionsDir, orchId);
+
+    const session = makeSession({
+      id: "app-1",
+      metadata: { agent: "claude" },
+    });
+    const mockRuntime: Runtime = {
+      getOutput: vi.fn().mockResolvedValue(
+        "usage limit reached\nlimit will reset at 2026-06-01 12:00",
+      ),
+    } as unknown as Runtime;
+    const mockSessionManager: SessionManager = {
+      get: vi.fn().mockResolvedValue({
+        id: orchId,
+        metadata: readMetadataRaw(sessionsDir, orchId) ?? {},
+      }),
+    } as unknown as SessionManager;
+
+    await detectAndApplyRateLimitPause(configPath, session, project, mockRuntime, mockSessionManager);
+
+    const raw = readMetadataRaw(sessionsDir, orchId);
+    expect(raw!["globalPauseUntil_claude"]).toBe(new Date("2026-06-01T12:00:00").toISOString());
+    expect(raw!["globalPauseSource_claude"]).toBe("app-1");
   });
 });

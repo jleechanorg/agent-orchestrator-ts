@@ -16,6 +16,7 @@ import {
   type ProjectConfig,
   type OrchestratorEvent,
   type EventPriority,
+  type DefaultPlugins,
   TERMINAL_STATUSES,
 } from "./types.js";
 import type { ProjectObserver } from "./observability.js";
@@ -39,6 +40,7 @@ import {
   readProjectPause,
 } from "./backfill-respawn-guard.js";
 import { readMetadataRaw } from "./metadata.js";
+import { resolveAgentSelection } from "./agent-selection.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -62,6 +64,7 @@ export interface BackfillParams {
   project: ProjectConfig;
   activeSessions: Session[];
   correlationId: string;
+  defaults?: DefaultPlugins;
   /** Optional configured worktree root (from config.worktreeDir). */
   worktreeDir?: string;
   /** AO config path — required for project pause and respawn-cap guards. */
@@ -156,7 +159,18 @@ export async function backfillUncoveredPRs(
   if (now - lastBackfillTime < BACKFILL_INTERVAL_MS) return false;
 
   if (configPath) {
-    const pause = readProjectPause(configPath, project, now);
+    const workerSelection = resolveAgentSelection({
+      role: "worker",
+      project,
+      defaults: params.defaults ?? ({} as unknown as DefaultPlugins),
+    });
+    const pause = readProjectPause(
+      configPath,
+      project,
+      now,
+      workerSelection.agentName,
+      workerSelection.model,
+    );
     if (pause) {
       observer.recordOperation({
         metric: "lifecycle_poll",

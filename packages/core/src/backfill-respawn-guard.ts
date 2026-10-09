@@ -44,17 +44,38 @@ export function readProjectPause(
   configPath: string,
   project: ProjectConfig,
   nowMs = Date.now(),
+  agentName?: string,
+  model?: string,
 ): ProjectPauseState | null {
   const sessionsDir = getSessionsDir(configPath, project.path);
   const raw = readMetadataRaw(sessionsDir, getOrchestratorSessionId(project));
   if (!raw) return null;
 
-  const until = parsePauseUntil(raw[GLOBAL_PAUSE_UNTIL_KEY]);
+  let until: Date | null = null;
+  let reason: string | undefined = undefined;
+
+  if (agentName && model) {
+    const modelSuffix = `_${agentName}:${model}`;
+    until = parsePauseUntil(raw[`${GLOBAL_PAUSE_UNTIL_KEY}${modelSuffix}`]);
+    reason = raw[`${GLOBAL_PAUSE_REASON_KEY}${modelSuffix}`];
+  }
+
+  if ((!until || until.getTime() <= nowMs) && agentName) {
+    const agentSuffix = `_${agentName}`;
+    until = parsePauseUntil(raw[`${GLOBAL_PAUSE_UNTIL_KEY}${agentSuffix}`]);
+    reason = raw[`${GLOBAL_PAUSE_REASON_KEY}${agentSuffix}`];
+  }
+
+  if (!until || until.getTime() <= nowMs) {
+    until = parsePauseUntil(raw[GLOBAL_PAUSE_UNTIL_KEY]);
+    reason = raw[GLOBAL_PAUSE_REASON_KEY];
+  }
+
   if (!until || until.getTime() <= nowMs) return null;
 
   return {
     until,
-    reason: raw[GLOBAL_PAUSE_REASON_KEY] ?? "Model rate limit reached",
+    reason: reason ?? "Model rate limit reached",
   };
 }
 

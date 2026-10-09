@@ -13,6 +13,7 @@ import {
   GLOBAL_PAUSE_SOURCE_KEY,
   GLOBAL_PAUSE_CREATED_AT_KEY,
   parsePauseUntil,
+  formatPauseKeySuffix,
 } from "./global-pause.js";
 import type { Session, SessionManager, Runtime, ProjectConfig as _ProjectConfig } from "./types.js";
 
@@ -189,27 +190,35 @@ export function setProjectPause(
   sourceSessionId: string,
   until: Date,
   isDurationBased = false,
+  agentName?: string,
+  model?: string,
 ): void {
   const sessionsDir = getSessionsDir(configPath, project.path);
   const orchestratorId = getOrchestratorId(project);
   // Guard: only update if orchestrator session already exists to avoid creating phantom sessions
   if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
   const message = `Model rate limit detected from ${sourceSessionId}`;
+  const suffix = formatPauseKeySuffix(agentName, model);
+  const keyUntil = `${GLOBAL_PAUSE_UNTIL_KEY}${suffix}`;
+  const keyReason = `${GLOBAL_PAUSE_REASON_KEY}${suffix}`;
+  const keySource = `${GLOBAL_PAUSE_SOURCE_KEY}${suffix}`;
+  const keyCreatedAt = `${GLOBAL_PAUSE_CREATED_AT_KEY}${suffix}`;
+
   const metadata: Record<string, string> = {
-    [GLOBAL_PAUSE_UNTIL_KEY]: until.toISOString(),
-    [GLOBAL_PAUSE_REASON_KEY]: message,
-    [GLOBAL_PAUSE_SOURCE_KEY]: sourceSessionId,
+    [keyUntil]: until.toISOString(),
+    [keyReason]: message,
+    [keySource]: sourceSessionId,
   };
   if (isDurationBased) {
     // Write creation timestamp only for duration-based pauses so the grace-window guard
     // can compute the original pause duration and prevent re-pause loops from stale banners.
-    metadata[GLOBAL_PAUSE_CREATED_AT_KEY] = new Date().toISOString();
+    metadata[keyCreatedAt] = new Date().toISOString();
   } else {
     // Explicitly clear any stale CREATED_AT left by a prior duration-based pause.
     // updateMetadata only sets keys present in the object, so without this explicit
     // clear, a previous CREATED_AT would persist and incorrectly trigger the grace window
     // for an explicit-timestamp pause.
-    metadata[GLOBAL_PAUSE_CREATED_AT_KEY] = "";
+    metadata[keyCreatedAt] = "";
   }
   updateMetadata(sessionsDir, orchestratorId, metadata);
 }
@@ -221,17 +230,19 @@ export function setProjectPause(
  * the pause expires (it reads the expired UNTIL to compute the grace period).
  * Only the human-readable REASON is cleared to signal the pause is no longer active.
  */
-export function clearProjectPause(configPath: string, project: _ProjectConfig): void {
+export function clearProjectPause(
+  configPath: string,
+  project: _ProjectConfig,
+  agentName?: string,
+  model?: string,
+): void {
   const sessionsDir = getSessionsDir(configPath, project.path);
   const orchestratorId = getOrchestratorId(project);
   // Guard: only update if orchestrator session already exists to avoid creating phantom sessions
   if (!readMetadataRaw(sessionsDir, orchestratorId)) return;
+  const suffix = formatPauseKeySuffix(agentName, model);
   updateMetadata(sessionsDir, orchestratorId, {
-    [GLOBAL_PAUSE_REASON_KEY]: "",
-    // Intentionally preserve GLOBAL_PAUSE_UNTIL_KEY so detectAndApplyRateLimitPause
-    // can read the expired timestamp as existingUntil for its grace-window check.
-    // Intentionally preserve GLOBAL_PAUSE_SOURCE_KEY and GLOBAL_PAUSE_CREATED_AT_KEY
-    // for the same reason.
+    [`${GLOBAL_PAUSE_REASON_KEY}${suffix}`]: "",
   });
 }
 
@@ -257,14 +268,21 @@ export async function detectAndApplyRateLimitPause(
     const { resetAt, isDurationBased } = result;
     if (resetAt.getTime() <= Date.now()) return;
 
+    const agentName = session.metadata?.["agent"] || (session as { agent?: string }).agent;
+    const model = session.metadata?.["model"] || (session as { agentConfig?: { model?: string } }).agentConfig?.model;
+    const suffix = formatPauseKeySuffix(agentName, model);
+    const keyUntil = `${GLOBAL_PAUSE_UNTIL_KEY}${suffix}`;
+    const keySource = `${GLOBAL_PAUSE_SOURCE_KEY}${suffix}`;
+    const keyCreatedAt = `${GLOBAL_PAUSE_CREATED_AT_KEY}${suffix}`;
+
     // Check if there's already an active pause from this session
     // to prevent infinite re-pause loops with duration-based rate limits
     const orchestratorId = getOrchestratorId(project);
     const orchestratorSession = await sessionManager.get(orchestratorId);
     if (orchestratorSession) {
-      const existingUntil = parsePauseUntil(orchestratorSession.metadata[GLOBAL_PAUSE_UNTIL_KEY]);
-      const existingSource = orchestratorSession.metadata[GLOBAL_PAUSE_SOURCE_KEY];
-      const existingCreatedAt = orchestratorSession.metadata[GLOBAL_PAUSE_CREATED_AT_KEY];
+      const existingUntil = parsePauseUntil(orchestratorSession.metadata[keyUntil]);
+      const existingSource = orchestratorSession.metadata[keySource];
+      const existingCreatedAt = orchestratorSession.metadata[keyCreatedAt];
 
       // If there's an active pause from the same session, don't override
       // This prevents extending duration-based pauses on every poll cycle
@@ -307,7 +325,7 @@ export async function detectAndApplyRateLimitPause(
       }
     }
 
-    setProjectPause(configPath, project, session.id, resetAt, isDurationBased);
+    setProjectPause(configPath, project, session.id, resetAt, isDurationBased, agentName, model);
   } catch {
     return;
   }

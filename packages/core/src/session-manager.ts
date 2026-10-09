@@ -405,7 +405,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return getSessionsDir(config.configPath, project.path);
   }
 
-  function getProjectPause(project: ProjectConfig): {
+  function getProjectPause(project: ProjectConfig, agentName?: string, model?: string): {
     until: Date;
     reason: string;
     sourceSessionId: string;
@@ -415,14 +415,36 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const orchestratorRaw = readMetadataRaw(sessionsDir, orchestratorId);
     if (!orchestratorRaw) return null;
 
-    const until = parsePauseUntil(orchestratorRaw[GLOBAL_PAUSE_UNTIL_KEY]);
-    if (!until) return null;
-    if (until.getTime() <= Date.now()) return null;
+    let until: Date | null = null;
+    let reason: string | undefined = undefined;
+    let sourceSessionId: string | undefined = undefined;
+
+    if (agentName && model) {
+      const modelSuffix = `_${agentName}:${model}`;
+      until = parsePauseUntil(orchestratorRaw[`${GLOBAL_PAUSE_UNTIL_KEY}${modelSuffix}`]);
+      reason = orchestratorRaw[`${GLOBAL_PAUSE_REASON_KEY}${modelSuffix}`];
+      sourceSessionId = orchestratorRaw[`${GLOBAL_PAUSE_SOURCE_KEY}${modelSuffix}`];
+    }
+
+    if ((!until || until.getTime() <= Date.now()) && agentName) {
+      const agentSuffix = `_${agentName}`;
+      until = parsePauseUntil(orchestratorRaw[`${GLOBAL_PAUSE_UNTIL_KEY}${agentSuffix}`]);
+      reason = orchestratorRaw[`${GLOBAL_PAUSE_REASON_KEY}${agentSuffix}`];
+      sourceSessionId = orchestratorRaw[`${GLOBAL_PAUSE_SOURCE_KEY}${agentSuffix}`];
+    }
+
+    if (!until || until.getTime() <= Date.now()) {
+      until = parsePauseUntil(orchestratorRaw[GLOBAL_PAUSE_UNTIL_KEY]);
+      reason = orchestratorRaw[GLOBAL_PAUSE_REASON_KEY];
+      sourceSessionId = orchestratorRaw[GLOBAL_PAUSE_SOURCE_KEY];
+    }
+
+    if (!until || until.getTime() <= Date.now()) return null;
 
     return {
       until,
-      reason: orchestratorRaw[GLOBAL_PAUSE_REASON_KEY] ?? "Model rate limit reached",
-      sourceSessionId: orchestratorRaw[GLOBAL_PAUSE_SOURCE_KEY] ?? "unknown",
+      reason: reason ?? "Model rate limit reached",
+      sourceSessionId: sourceSessionId ?? "unknown",
     };
   }
 
@@ -1172,10 +1194,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new Error(`Unknown project: ${spawnConfig.projectId}`);
     }
 
-    const pause = getProjectPause(project);
+    const selection = resolveAgentSelection({
+      role: "worker",
+      project,
+      defaults: config.defaults,
+      spawnAgentOverride: spawnConfig.agent,
+    });
+
+    const pause = getProjectPause(project, selection.agentName);
     if (pause) {
       throw new Error(
-        `Project is paused due to model rate limit until ${pause.until.toISOString()} (${pause.reason}; source: ${pause.sourceSessionId})`,
+        `Project is paused due to model rate limit until ${pause.until.toISOString()} (agent: ${selection.agentName}; reason: ${pause.reason}; source: ${pause.sourceSessionId})`,
       );
     }
 
@@ -1209,12 +1238,6 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       );
     }
 
-    const selection = resolveAgentSelection({
-      role: "worker",
-      project,
-      defaults: config.defaults,
-      spawnAgentOverride: spawnConfig.agent,
-    });
     const plugins = resolvePlugins(project, selection.agentName, spawnConfig.runtimeOverride);
     if (!plugins.runtime) {
       const runtimeName = spawnConfig.runtimeOverride ?? project.runtime ?? config.defaults.runtime;
@@ -1654,18 +1677,19 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new Error(`Unknown project: ${orchestratorConfig.projectId}`);
     }
 
-    const pause = getProjectPause(project);
-    if (pause) {
-      throw new Error(
-        `Project is paused due to model rate limit until ${pause.until.toISOString()} (${pause.reason}; source: ${pause.sourceSessionId})`,
-      );
-    }
-
     const selection = resolveAgentSelection({
       role: "orchestrator",
       project,
       defaults: config.defaults,
     });
+
+    const pause = getProjectPause(project, selection.agentName);
+    if (pause) {
+      throw new Error(
+        `Project is paused due to model rate limit until ${pause.until.toISOString()} (agent: ${selection.agentName}; reason: ${pause.reason}; source: ${pause.sourceSessionId})`,
+      );
+    }
+
     const plugins = resolvePlugins(project, selection.agentName);
     if (!plugins.runtime) {
       throw new Error(`Runtime plugin '${project.runtime ?? config.defaults.runtime}' not found`);
@@ -2775,16 +2799,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     options?: { skipRestore?: boolean; skipRestorePrKickoff?: boolean },
   ): Promise<void> {
     const { raw, sessionsDir, project, projectId } = requireSessionRecord(sessionId);
-    const pause = getProjectPause(project);
+    const selection = resolveSelectionForSession(project, sessionId, raw);
+    const selectedAgent = selection.agentName;
+
+    const pause = getProjectPause(project, selectedAgent);
     const orchestratorId = `${project.sessionPrefix}-orchestrator`;
     if (pause && sessionId !== orchestratorId) {
       throw new Error(
-        `Project is paused due to model rate limit until ${pause.until.toISOString()} (${pause.reason}; source: ${pause.sourceSessionId})`,
+        `Project is paused due to model rate limit until ${pause.until.toISOString()} (agent: ${selectedAgent}; reason: ${pause.reason}; source: ${pause.sourceSessionId})`,
       );
     }
 
-    const selection = resolveSelectionForSession(project, sessionId, raw);
-    const selectedAgent = selection.agentName;
     if ((selectedAgent === "opencode" || selectedAgent === "openw") && !asValidOpenCodeSessionId(raw["opencodeSessionId"])) {
       const discovered = await discoverOpenCodeSessionIdByTitle(
         sessionId,
