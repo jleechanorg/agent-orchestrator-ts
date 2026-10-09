@@ -616,6 +616,15 @@ describe("buildWorkerPromptArtifact", () => {
 // Stage C contract so a worker cannot push to the wrong remote by mistake.
 
 describe("Dispatch Repo / Remote / Push-Command (Stage C)", () => {
+  it("omits push and PR instructions for planning-only workers", () => {
+    project.repo = "test/planning-project";
+    const result = buildPrompt({ project, projectId: "test-app", skipPrBoilerplate: true });
+    expect(result).toContain("- Repository: test/planning-project");
+    expect(result).not.toContain("## Git Remote");
+    expect(result).not.toContain("git push origin HEAD");
+    expect(result).not.toContain("When you push your branch and create the PR");
+  });
+
   it("includes a Git Remote section naming the remote and its URL", () => {
     project.repo = "jleechanorg/worldarchitect.ai";
     const result = buildPrompt({
