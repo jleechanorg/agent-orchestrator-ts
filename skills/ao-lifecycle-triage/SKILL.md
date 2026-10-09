@@ -14,41 +14,65 @@ When `lifecycle.backfill.claim_failed` errors appear in the lifecycle-worker log
 
 ### Cause A: Main repo on wrong branch
 
-**Symptom**: `checked out at '/Users/jleechan/project_agento/agent-orchestrator-ts'`
-**Diagnosis**: `git -C /Users/jleechan/project_agento/agent-orchestrator-ts branch --show-current`
-**Fix**:
+**Symptom**: The path reported by git is the configured main repository.
+**Diagnosis**: Copy that exact path into `REPO_ROOT`, verify it against the AO
+project configuration, then inspect its branch, status, and owner:
 
 ```bash
-git -C /Users/jleechan/project_agento/agent-orchestrator-ts checkout main
-git -C /Users/jleechan/project_agento/agent-orchestrator-ts pull --ff-only
+: "${REPO_ROOT:?Set the verified repository path from the error and project configuration}"
+git -C "$REPO_ROOT" branch --show-current
+git -C "$REPO_ROOT" status --short
+git -C "$REPO_ROOT" worktree list --porcelain
 ```
 
-**Why it happens**: An AO agent (or manual work) checked out a feature branch in the main repo and was killed before resetting to main.
+**Fix**: Only after the existing owner releases the checkout, all work is committed
+or otherwise preserved, and the checkout is clean, switch to its configured base
+branch (usually `main`) and update with `git pull --ff-only`. Do not reset, stash,
+discard changes, or move an active owner's branch to make a claim succeed.
+
+**Why it happens**: An AO agent or manual workflow left a feature branch checked
+out in the main repository. This error alone does not prove that work is abandoned.
 
 ### Cause B: Ghost worktrees (dead AO worktrees with branches still checked out)
 
-**Symptom**: `checked out at '/Users/jleechan/.worktrees/agent-orchestrator/ao-NNN'`
-**Diagnosis**: `git worktree list | grep ao-NNN` — if present with no live tmux session, it's a ghost
-**Fix**:
+**Symptom**: The reported path is a registered linked worktree.
+**Diagnosis**:
+
+1. Match the exact path and branch in `git worktree list --porcelain`.
+2. Resolve its existing AO session metadata: project, session ID, workspace path,
+   runtime handle, and PR. Do not infer identity from a tmux prefix or directory name.
+3. Verify the recorded runtime and agent processes are dead and the owner has
+   released the work. Idle metadata, a missing tmux name, or elapsed time alone
+   does not prove a dead session, particularly for non-tmux runtimes.
+4. Inspect the worktree for staged, unstaged, untracked, and unpublished work.
+   Preserve it and hold cleanup if ownership or work preservation is uncertain.
+
+**Fix**: For a confirmed dead, released session whose work is preserved, use the
+AO session manager so metadata and the associated workspace are cleaned together:
 
 ```bash
-tmux has-session -t bb5e6b7f8db3-ao-NNN 2>/dev/null || echo "Dead"
-git worktree remove --force /Users/jleechan/.worktrees/agent-orchestrator/ao-NNN
+: "${SESSION_ID:?Resolve the existing session ID from AO metadata first}"
+ao session kill "$SESSION_ID" --keep-session
 ```
 
-**Why it happens**: AO session was killed without proper cleanup; worktree remained. The lifecycle-worker's `sweepOrphanWorktrees` auto-cleans after 6h TTL.
+Verify the session is no longer active and the exact worktree is no longer
+registered. A cleanup error remains a blocker; do not fall back to a raw runtime
+kill. If no AO record exists, obtain explicit ownership release and preservation
+proof before considering normal `git worktree remove "$WORKTREE_PATH"`. A dirty
+worktree refusal is a reason to stop, not to force removal.
+
+**Why it happens**: A prior runtime stopped without completing managed cleanup.
+Inspect the deployed lifecycle policy rather than assuming a fixed orphan TTL.
 
 ## Triage order (always check A first)
 
 1. Look at the path in the error: if it's the main repo path → Cause A
-2. If it's `~/.worktrees/...` → Cause B
+2. If git identifies it as a linked worktree → Cause B, regardless of its location
 3. If backfill is aborted (`claim_failed_abort` after 3 consecutive failures), check both
 
 ## Prevention
 
-- `sweepOrphanWorktrees` in lifecycle-worker.ts runs every 5min (orphan TTL: 6h)
-- Agents should always reset main repo to `main` before exiting
-
-## Harness note
-
-Ghost worktree accumulation cleaned manually twice in the same session on 2026-03-24 — this is the harness-level fix. If seeing this pattern again, the `orphanTtlMs` may need reduction.
+- Use isolated worktrees and AO-managed cleanup; preserve owner/session linkage.
+- Restore the configured base branch only in a clean, released main checkout.
+- Diagnose recurring orphan cleanup from actual metadata and lifecycle logs;
+  changing TTLs or restarting services is a separate operational decision.

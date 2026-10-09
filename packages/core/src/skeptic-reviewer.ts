@@ -21,10 +21,12 @@ import { execFile } from "node:child_process";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { Session } from "./types.js";
+import { isConfigNotFoundError, type Session, type ReviewerConfig } from "./types.js";
 import { type SkepticModel } from "./skeptic-model-schema.js";
 import { resolveSkepticModel } from "./skeptic-models.js";
 import { getGhBinaryPath } from "./paths.js";
+import { loadConfig } from "./config.js";
+import { runCustomReviewer } from "./skeptic-reviewer-custom.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -107,7 +109,7 @@ const VERDICT_LINE_RE = /^VERDICT:\s*(PASS|FAIL|SKIPPED)\b/im;
  * line (e.g. from an echoed prompt template) from overriding the actual terminal
  * verdict that the model emits at the end of its output.
  */
-function lastVerdictIn(text: string): "PASS" | "FAIL" | "SKIPPED" | null {
+export function lastVerdictIn(text: string): "PASS" | "FAIL" | "SKIPPED" | null {
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const m = lines[i].match(VERDICT_LINE_RE);
@@ -130,7 +132,7 @@ export interface SkepticReviewResult {
 // The nested skeptic CLI can spend up to 5 minutes per headless evaluator before
 // posting. Keep this wrapper above two-tool fallback time so slow reviews still
 // emit verdicts before the GitHub polling wrapper expires.
-const SKEPTIC_VERIFY_TIMEOUT_MS = 30 * 60_000;
+export const SKEPTIC_VERIFY_TIMEOUT_MS = 30 * 60_000;
 
 /**
  * Determine whether a CLI error is an infrastructure failure (ENOBUFS, spawn errors)
@@ -141,7 +143,7 @@ const SKEPTIC_VERIFY_TIMEOUT_MS = 30 * 60_000;
  * when the CLI echoes prompt templates that contain "VERDICT: PASS" boilerplate.
  * Infrastructure crashes never produce a clean terminal VERDICT line.
  */
-function hasVerdictInError(err: unknown): boolean {
+export function hasVerdictInError(err: unknown): boolean {
   if (err && typeof err === "object" && "stdout" in err) {
     const e = err as { stdout?: string };
     const stdout = e.stdout ?? "";
@@ -162,7 +164,7 @@ function hasVerdictInError(err: unknown): boolean {
  * hasVerdictInError: restricts to tail to skip prompt echo, then takes the
  * last matching verdict within the tail to handle multiple verdict lines.
  */
-function extractVerdictFromError(
+export function extractVerdictFromError(
   err: unknown,
   model: string,
 ): SkepticReviewResult {
@@ -262,6 +264,47 @@ async function tryModel(
 }
 
 /**
+ * Write specs/skeptic-report.json for a completed evaluation. Shared by all
+ * three report-writing sites in runSkepticReview (config-error, custom-
+ * reviewers, and model-chain paths) so they can't drift from each other —
+ * `extra` carries the fields specific to each path (e.g. reviewerResults,
+ * fallbacksAttempted). Non-fatal: returns false (does not throw) on any
+ * write failure, since a report-write failure must not fail the reaction.
+ */
+async function writeSkepticReport(
+  session: Session,
+  result: SkepticReviewResult,
+  extra?: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    if (!session.workspacePath) throw new Error("workspacePath not set");
+    const reportDir = join(session.workspacePath, "specs");
+    await mkdir(reportDir, { recursive: true });
+    await writeFile(
+      join(reportDir, "skeptic-report.json"),
+      JSON.stringify(
+        {
+          timestamp: new Date().toISOString(),
+          sessionId: session.id,
+          prNumber: session.pr!.number,
+          repo: `${session.pr!.owner}/${session.pr!.repo}`,
+          verdict: result.verdict,
+          details: result.details,
+          modelUsed: result.modelUsed,
+          ...extra,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Run the skeptic evaluation for a completed worker session.
  *
  * Uses `ao skeptic --pr N --repo owner/repo` with a fallback chain (bd-skp3):
@@ -332,6 +375,71 @@ export async function runSkepticReview(
     );
   }
 
+  // Check if project has custom reviewers configured.
+  let reviewers: ReviewerConfig[] | undefined;
+  try {
+    const config = loadConfig();
+    const project = config.projects[session.projectId];
+    if (project?.reviewers && project.reviewers.length > 0) {
+      reviewers = project.reviewers;
+    }
+  } catch (err: unknown) {
+    if (!isConfigNotFoundError(err)) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`Skeptic custom reviewer configuration error: ${errorMsg}`);
+
+      const result: SkepticReviewResult = {
+        verdict: "FAIL",
+        details: `Configuration loading error: ${errorMsg}`,
+        modelUsed: "config:loadConfig",
+      };
+
+      const reportWritten = await writeSkepticReport(session, result);
+
+      return { ...result, reportWritten };
+    }
+  }
+
+  if (reviewers && reviewers.length > 0) {
+    const reviewerResults: SkepticReviewResult[] = [];
+    const reviewerErrors: string[] = [];
+
+    for (const reviewer of reviewers) {
+      try {
+        const res = await runCustomReviewer(session, reviewer, triggerSha, requestId, postComment);
+        reviewerResults.push(res);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        reviewerErrors.push(msg);
+        reviewerResults.push({
+          verdict: "FAIL",
+          details: `Infrastructure error: ${msg}`,
+          modelUsed: reviewer.harness,
+        });
+      }
+    }
+
+    const hasFail = reviewerResults.some((r) => r.verdict === "FAIL") || reviewerErrors.length > 0;
+    const hasSkipped = reviewerResults.some((r) => r.verdict === "SKIPPED");
+    const overallVerdict = hasFail ? "FAIL" : hasSkipped ? "SKIPPED" : "PASS";
+
+    const overallDetails = reviewerResults
+      .map((r, i) => `Reviewer ${i + 1} (${r.modelUsed}): ${r.verdict} — ${r.details.slice(0, 150)}`)
+      .join("\n\n");
+    const overallModelUsed = reviewerResults.map((r) => r.modelUsed).join(", ");
+
+    const result: SkepticReviewResult = {
+      verdict: overallVerdict,
+      details: overallDetails,
+      modelUsed: overallModelUsed,
+    };
+
+    // Write report
+    const reportWritten = await writeSkepticReport(session, result, { reviewerResults, reviewerErrors });
+
+    return { ...result, reportWritten };
+  }
+
   const infraErrors: string[] = [];
 
   for (const currentModel of chain) {
@@ -340,33 +448,9 @@ export async function runSkepticReview(
     if (attempt.result) {
       // Got a verdict — write report and return
       const result = attempt.result;
-      let reportWritten = false;
-      try {
-        if (!session.workspacePath) throw new Error("workspacePath not set");
-        const reportDir = join(session.workspacePath, "specs");
-        await mkdir(reportDir, { recursive: true });
-        await writeFile(
-          join(reportDir, "skeptic-report.json"),
-          JSON.stringify(
-            {
-              timestamp: new Date().toISOString(),
-              sessionId: session.id,
-              prNumber: session.pr.number,
-              repo: `${session.pr.owner}/${session.pr.repo}`,
-              verdict: result.verdict,
-              details: result.details,
-              modelUsed: result.modelUsed,
-              fallbacksAttempted: infraErrors.length,
-            },
-            null,
-            2,
-          ),
-          "utf-8",
-        );
-        reportWritten = true;
-      } catch {
-        // Non-fatal — don't fail the reaction if report write fails
-      }
+      const reportWritten = await writeSkepticReport(session, result, {
+        fallbacksAttempted: infraErrors.length,
+      });
 
       return { ...result, reportWritten };
     }

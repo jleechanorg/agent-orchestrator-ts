@@ -1,4 +1,4 @@
-# Zero-touch-by-operator (7-green) snapshot log
+# Zero-touch-by-operator (6-green) snapshot log
 
 > **Canonical policy doc:** This file is the source of truth for zero-touch metrics.
 > Required references: `README.md`, `AGENTS.md`, `CLAUDE.md`, and metric monitor scripts must point back here.

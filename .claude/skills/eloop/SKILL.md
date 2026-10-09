@@ -171,9 +171,9 @@ Append:
 
 1. Use `/claw` for each actionable bead.
 2. Babysit open PRs that have no live worker.
-3. Run `/er` inline on PRs approaching 7-green.
+3. Run `/er` inline on PRs approaching 6-green.
 4. If `/claw` fails, fall back to manual worktree or direct fix and record the failure.
-5. Never merge without explicit 7-green verification.
+5. Never merge without explicit 6-green verification.
 
 Dispatch template:
 
@@ -182,7 +182,7 @@ Dispatch template:
 
 After implementing:
 1. Run /er on the PR evidence bundle to validate authenticity
-2. Ensure 7-green (CI, no conflicts, CR APPROVED, Bugbot clean, comments resolved, evidence reviewed, Skeptic PASS)
+2. Ensure 6-green (CI, no conflicts, CR APPROVED, Bugbot clean, comments resolved, evidence reviewed)
 3. Run /learn to capture reusable patterns"
 ```
 

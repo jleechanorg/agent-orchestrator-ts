@@ -228,9 +228,14 @@ for pr in $(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=open" --
 done
 ```
 
-### Step 3c: Zero-Touch Rate — Skeptic-Cron Auto-Merge Measurement
+### Step 3c: Merge-By Breakdown (Skeptic-Cron Auto-Merge Retired)
 
-Measure how many merged PRs were truly autonomous. A PR is "zero-touch" ONLY if `merged_by` is `github-actions[bot]` via skeptic-cron. Commit prefixes alone are insufficient.
+Skeptic-cron (the only mechanism that could produce `merged_by == github-actions[bot]`) was
+retired in PR #773 — see `skills/pr-green-definition/SKILL.md`. Every merge now requires an
+explicit human `MERGE APPROVED` per the merge-safety policy, so **0% `github-actions[bot]`-
+merged is the expected, correct steady state going forward, not a regression.** Do not report
+a 0% "zero-touch rate" as a defect. This step is retained only as a merged-by audit trail
+(who actually clicked merge, for traceability) — it is not a zero-touch health signal anymore.
 
 ```bash
 # Merge quality — last 7 days
@@ -252,10 +257,10 @@ for pr_json in $(gh api "repos/jleechanorg/agent-orchestrator-ts/pulls?state=clo
   fi
 done
 echo ""
-echo "TOTAL MERGED: $total | AUTO (skeptic-cron): $auto | MANUAL: $manual"
+echo "TOTAL MERGED: $total | github-actions[bot]: $auto | human: $manual"
 if [ "$total" -gt 0 ]; then
   rate=$((auto * 100 / total))
-  echo "ZERO-TOUCH RATE: ${rate}% ($auto/$total auto-merged by skeptic-cron)"
+  echo "github-actions[bot]-MERGED: ${rate}% ($auto/$total) -- expected ~0% post-Skeptic-retirement, not a health signal"
 fi
 ```
 
@@ -306,13 +311,13 @@ fi
 ### Lifecycle-worker duplicate check
 <Count per project — only flag if SAME PROJECT has >1 worker>
 
-### Zero-Touch Rate (last 7 days)
+### Merge-By Breakdown (last 7 days) — audit trail only, NOT a health signal
 | Metric | Value |
 |---|---|
 | Total merged | N |
-| Auto-merged by skeptic-cron | N (NN%) |
-| Manual merges | N (NN%) |
-<List auto-merged PRs by number>
+| Merged by github-actions[bot] | N (NN%) — expected ~0% post-Skeptic-retirement |
+| Merged by human | N (NN%) |
+<List github-actions[bot]-merged PRs by number, if any>
 
 ### Root cause
 <Primary reason the system is not progressing PRs autonomously>

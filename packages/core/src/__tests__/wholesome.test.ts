@@ -779,13 +779,13 @@ describe("wholesome — structural source-code assertions", () => {
       ).toHaveLength(0);
     });
 
-    it("uses the canonical shared self-hosted runner selector in coverage and skeptic gate workflows", () => {
+    it("uses the canonical shared self-hosted runner selector in coverage workflow", () => {
       const workflowDir = join(REPO_ROOT, ".github", "workflows");
       const expectedSharedLabels =
         `fromJson(vars.SELF_HOSTED_RUNNER_LABELS || '` +
         `["self-hosted","Linux","ARM64","agent-orchestrator"]')`;
 
-      for (const file of ["coverage.yml", "test.yml"]) {
+      for (const file of ["coverage.yml"]) {
         const content = readFileSync(join(workflowDir, file), "utf-8");
 
         expect(content, `${file} should fall back to ubuntu-latest when self-hosted is disabled`).toContain(
@@ -795,15 +795,6 @@ describe("wholesome — structural source-code assertions", () => {
           expectedSharedLabels,
         );
       }
-    });
-
-    it("gives skeptic gate polling more headroom than the verifier wrapper timeout", () => {
-      const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "skeptic-gate.yml"), "utf-8");
-
-      expect(workflow).toContain("timeout-minutes: 25");
-      expect(workflow).toContain("timeout-minutes: 20");
-      expect(workflow).toContain("MAX_ATTEMPTS=30  # 30 * 30s = 15 minutes");
-      expect(workflow).toContain("Max wait: $((MAX_ATTEMPTS * INTERVAL / 60)) minutes");
     });
 
     /**
@@ -826,14 +817,12 @@ describe("wholesome — structural source-code assertions", () => {
       "cr-loop-health.yml",
       // Entirely disabled (if: false) — runner selection is moot
       "generate-pr-design-docs.yml",
-      // Skeptic gate is an LLM evaluation gate, not a code execution gate
-      "skeptic-gate.yml",
-      // Green gate replaced skeptic-gate.yml — same polling/gate nature, no code execution
+      // Green gate is a polling/gate workflow, not a code execution gate
       "green-gate.yml",
-      // test.yml is the skeptic gate (alternate filename) — LLM evaluation only
-      "test.yml",
       // Reusable skeptic gate — workflow_call only, no direct pull_request trigger;
-      // fork-aware runner selection is delegated to the caller workflow
+      // fork-aware runner selection is delegated to the caller workflow. Retained
+      // (unlike this repo's own skeptic-gate.yml/skeptic-cron.yml/test.yml) because
+      // consumer-repo templates still call it via `uses:` (see PR #773).
       "skeptic-gate-reusable.yml",
       // Reusable skeptic cron — workflow_call only, same rationale as above
       "skeptic-cron-reusable.yml",
@@ -939,25 +928,6 @@ describe("wholesome — structural source-code assertions", () => {
         violations.join("\n") +
         "\n\nFix: Use github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJson(vars.SELF_HOSTED_RUNNER_LABELS) pattern. See PR #273."
       ).toHaveLength(0);
-    });
-  });
-
-  describe("skeptic-cron paginated review pipelines", () => {
-    it("uses explicit page iteration instead of --paginate for reviews", () => {
-      const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "skeptic-cron.yml"), "utf-8");
-      expect(workflow).toContain('per_page=100&page=${_EVIDENCE_REVIEWS_PAGE}');
-      expect(workflow).toContain('EVIDENCE_APPROVED=$(jq -sr');
-      expect(workflow).toContain('$_EVIDENCE_REVIEWS_TMP');
-      expect(workflow).not.toContain('--paginate');
-    });
-  });
-
-  describe("skeptic-cron trigger deadlock prevention (bd-2wdq)", () => {
-    it("does not require Green Gate before triggering skeptic evaluation", () => {
-      const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "skeptic-cron.yml"), "utf-8");
-      expect(workflow).not.toContain('GATE_PASSED');
-      expect(workflow).not.toContain('SKIPPED_GATE_NOT_PASSED');
-      expect(workflow).not.toContain('Skeptic Gate not passed');
     });
   });
 

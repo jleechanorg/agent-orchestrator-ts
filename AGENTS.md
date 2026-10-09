@@ -220,7 +220,7 @@ Why: Two workers on different beads duplicated the same env-source.test.ts mock 
 
 **Operator** (human dispatching workers): Use `ao spawn` with non-overlapping beads. If overlap is unavoidable, steer the second worker away from the first's domain via `ao send`.
 
-## PR worker harness — blocked vs done (7-green)
+## PR worker harness — blocked vs done (6-green)
 
 Use this **before** spending tokens on fixes, and **after** each push, to avoid stale loops (e.g. working a merged PR, or declaring progress while threads are unresolved).
 

@@ -220,102 +220,51 @@ jobs:
 
             echo "All 4 required proofs present for $CLAIM"
           elif [ "$CLAIM" = "merge-gate" ]; then
-            echo "Checking required proofs for: $CLAIM (merge-gate = all 7 green conditions)"
-            # merge-gate requires evidence of all 7 merge-gate conditions per CLAUDE.md:
+            echo "Checking required proofs for: $CLAIM (merge-gate = all 6 green conditions)"
+            # merge-gate requires evidence of all 6 merge-gate conditions per CLAUDE.md
+            # (Skeptic retired in PR #773 — see skills/pr-green-definition/SKILL.md):
             # 1. CI green
             if ! printf '%s' "$BODY" | grep -qiE '(CI (passing|success|green)|checks (passing|success|green))'; then
               echo "ERROR: Missing CI-green proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 1/7 (CI green): PASS"
+            echo "Condition 1/6 (CI green): PASS"
 
             # 2. No merge conflicts
             if ! printf '%s' "$BODY" | grep -qiE '(mergeable|MERGEABLE|conflict-free|no conflict)'; then
               echo "ERROR: Missing mergeable-state proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 2/7 (no merge conflicts): PASS"
+            echo "Condition 2/6 (no merge conflicts): PASS"
 
             # 3. CR approved
             if ! printf '%s' "$BODY" | grep -qiE '(CodeRabbit APPROVED|CR APPROVED|crab.*approved)'; then
               echo "ERROR: Missing CR-approved proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 3/7 (CR approved): PASS"
+            echo "Condition 3/6 (CR approved): PASS"
 
             # 4. Bugbot finished
             if ! printf '%s' "$BODY" | grep -qiE '(Bugbot finished|Cursor Bugbot|bugbot (finished|neutral|success))'; then
               echo "ERROR: Missing Bugbot-finished proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 4/7 (Bugbot finished): PASS"
+            echo "Condition 4/6 (Bugbot finished): PASS"
 
             # 5. All threads resolved
             if ! printf '%s' "$BODY" | grep -qiE '(all threads resolved|threads resolved|no unresolved threads)'; then
               echo "ERROR: Missing all-threads-resolved proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 5/7 (all threads resolved): PASS"
+            echo "Condition 5/6 (all threads resolved): PASS"
 
             # 6. Evidence review passed
             if ! printf '%s' "$BODY" | grep -qiE '(evidence review passed|/er PASS|evidence-gate PASS)'; then
               echo "ERROR: Missing evidence-review-passed proof in merge-gate evidence"
               exit 1
             fi
-            echo "Condition 6/7 (evidence review passed): PASS"
-
-            # Condition 7/7: Skeptic gate CI passed
-            # Check both PR body (evidence bundle) AND skeptic verdict comments.
-            # The verdict may be in the evidence bundle text OR posted by skeptic-cron
-            # as a PR comment (<!-- skeptic-agent-verdict -->). Either source is valid.
-            # Uses SKEPTIC_BOT_AUTHOR (defaults to jleechan2015) with github-actions[bot] fallback,
-            # and selects the MOST RECENT verdict to handle FAIL-then-PASS ordering correctly.
-            SKEPTIC_PASSED=false
-            if printf '%s' "$BODY" | grep -qiE 'skeptic.*(verdict|gate).*pass'; then
-              SKEPTIC_PASSED=true
-            else
-              # Fallback: check skeptic verdict comments via GitHub API
-              # Honor SKEPTIC_BOT_AUTHOR (from repo vars, defaults to jleechan2015),
-              # allow github-actions[bot] as fallback (when not the PR author),
-              # require HTML verdict marker, and select the most recent verdict.
-              SKEPTIC_BOT_AUTHOR="${{ vars.SKEPTIC_BOT_AUTHOR || 'jleechan2015' }}"
-              PR_AUTHOR="${{ steps.pr-context.outputs.pr_author }}"
-              HEAD_SHA="${{ steps.pr-context.outputs.head_sha }}"
-              SKEPTIC_COMMENT=$(
-                gh api "repos/${{ github.repository }}/issues/${{ steps.pr-context.outputs.pr_number }}/comments" \
-                  --paginate 2>/dev/null \
-                | jq -s \
-                  --arg head_sha "$HEAD_SHA" \
-                  --arg author "$SKEPTIC_BOT_AUTHOR" \
-                  --arg pr_author "$PR_AUTHOR" \
-                  'add
-                  | map(. + {is_gh_bot: ((.user.login | ascii_downcase) == "github-actions[bot]")})
-                  | map(select(
-                      (
-                        ((.user.login | ascii_downcase) == ($author | ascii_downcase))
-                        or ((.user.login | ascii_downcase) == "jleechan-af")
-                        or ((.user.login | ascii_downcase) == "jleechanao")
-                        or (
-                          (.is_gh_bot == true)
-                          and ((.user.login | ascii_downcase) != ($pr_author | ascii_downcase))
-                        )
-                      )
-                      and (.body | test("<!--\\s*skeptic-agent-verdict\\s*-->"; "i"))
-                      and (.body | test("<!--\\s*skeptic-head-sha-" + $head_sha + "\\s*-->"; "i"))
-                    ))
-                  | sort_by(.updated_at)
-                  | last.body // ""' 2>/dev/null || echo ""
-              )
-              if [ -n "$SKEPTIC_COMMENT" ] && printf '%s' "$SKEPTIC_COMMENT" | grep -qiE 'VERDICT:[[:space:]]*PASS'; then
-                SKEPTIC_PASSED=true
-              fi
-            fi
-            if [ "$SKEPTIC_PASSED" = "false" ]; then
-              echo "ERROR: Missing Condition 7/7 (skeptic gate PASS) in evidence bundle or skeptic-agent comment"
-              exit 1
-            fi
-            echo "Condition 7/7 (skeptic gate PASS): PASS"
-            echo "All 7 merge-gate conditions verified for $CLAIM"
+            echo "Condition 6/6 (evidence review passed): PASS"
+            echo "All 6 merge-gate conditions verified for $CLAIM"
           else
             echo "No additional validation required for claim class: $CLAIM"
           fi
@@ -581,7 +530,8 @@ jobs:
             echo "Verdict: SKIPPED — evidence gate passes"
 
           # Check for PENDING verdict — non-final state, fail closed.
-          # The skeptic gate runs asynchronously and will update the verdict when complete.
+          # Some async checks (e.g. CI, CodeRabbit review) may not have concluded yet
+          # when the bundle is written; PENDING must not be treated as a pass.
           elif printf '%s' "$EVIDENCE_SECTION" | grep -qi '[Vv]erdict.*:.*[Pp][Ee][Nn][Dd][Ii][Nn][Gg]'; then
             echo "ERROR: Verdict: PENDING is non-final. Wait for PASS/FAIL/SKIPPED."
             exit 1

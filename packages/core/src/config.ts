@@ -339,6 +339,17 @@ const ProjectConfigSchema = z.object({
       enableVerdictCooldown: z.boolean().default(true),
     })
     .optional(),
+
+  // Configured PR reviewer agents.
+  reviewers: z
+    .array(
+      z.object({
+        harness: z.string(),
+        cmd: z.array(z.string()).optional(),
+        env: z.record(z.string()).optional(),
+      })
+    )
+    .optional(),
 });
 
 const DefaultPluginsSchema = z.object({
