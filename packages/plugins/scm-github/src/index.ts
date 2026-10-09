@@ -1707,7 +1707,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
 
       const data: {
         number: number;
-        url: string;
+        html_url: string;
         title: string;
         head: { ref: string };
         base: { ref: string };
@@ -1718,7 +1718,7 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       return prInfoFromView(
         {
           number: data.number,
-          url: data.url,
+          url: data.html_url,
           title: data.title,
           headRefName: data.head.ref,
           baseRefName: data.base.ref,
@@ -1815,15 +1815,41 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
       // branch lives). Fall back to a direct branch fetch only when that ref is
       // unavailable (e.g. shallow clone that prunes pull/ refs). (bd-49u)
 
-      // Discover the actual remote URL from the workspace rather than hardcoding.
-      // This respects SSH / HTTPS / GHE configurations configured in the workspace.
+      // Preserve a matching workspace remote (SSH / HTTPS / GHE), but never fetch a
+      // PR through an origin that belongs to a different repository.
       const remoteName = "origin";
-      let remote: string;
+      const expectedRepository = repoFlag(pr).toLowerCase();
+      const prRepositoryUrl = new URL(pr.url);
+      prRepositoryUrl.pathname = `/${repoFlag(pr)}.git`;
+      prRepositoryUrl.search = "";
+      prRepositoryUrl.hash = "";
+      let remote = prRepositoryUrl.toString();
+      let trackingRemote = remote;
       try {
-        remote = (await git(["remote", "get-url", remoteName], workspacePath)).trim();
+        const candidate = (await git(["remote", "get-url", remoteName], workspacePath)).trim();
+        // Accept URI and SCP-style SSH remotes, but compare the entire repository
+        // path and host rather than an owner/repo suffix on an unrelated server.
+        const scpRemote = candidate.match(/^(?:[^@/]+@)?([^:/]+):(.+)$/);
+        const candidateUrl = candidate.includes("://")
+          ? new URL(candidate)
+          : scpRemote
+            ? new URL(`ssh://${scpRemote[1]}/${scpRemote[2]}`)
+            : null;
+        const candidateRepository = candidateUrl?.pathname
+          .replace(/^\/|\/$/g, "")
+          .replace(/\.git$/i, "")
+          .toLowerCase();
+        if (
+          candidateUrl &&
+          ["https:", "http:", "ssh:", "git:"].includes(candidateUrl.protocol) &&
+          candidateUrl.hostname.toLowerCase() === prRepositoryUrl.hostname.toLowerCase() &&
+          candidateRepository === expectedRepository
+        ) {
+          remote = candidate;
+          trackingRemote = remoteName;
+        }
       } catch {
-        // Fall back to the well-known GitHub HTTPS URL only when origin is missing
-        remote = `https://github.com/${repoFlag(pr)}.git`;
+        // The PR URL remains authoritative when origin is missing or unreadable.
       }
 
       const prRef = `refs/pull/${pr.number}/head`;
@@ -1924,25 +1950,26 @@ function createGitHubSCM(config?: Record<string, unknown>): SCM {
             );
             if (sessionBranch && sessionBranch !== pr.branch) {
               await git(
-                ["config", `branch.${sessionBranch}.remote`, remoteName],
+                ["config", `branch.${sessionBranch}.remote`, trackingRemote],
                 workspacePath,
               ).catch(() => {});
               await git(
                 ["config", `branch.${sessionBranch}.merge`, `refs/heads/${pr.branch}`],
                 workspacePath,
               ).catch(() => {});
-              // Override the push remote for this session branch so `git push` routes
-              // to the correct remote. With push.default=simple (git's default), plain
-              // `git push` still requires the local and upstream names to match; to push
-              // transparently use `git push origin HEAD:${pr.branch}` or set
-              // push.default=upstream in your personal git config.
+              // Use origin only when it matched the PR repository; otherwise track
+              // the same authoritative URL used for fetch without rewriting origin.
+              // With push.default=simple, plain `git push` still requires matching
+              // local/upstream branch names. Use an explicit HEAD:<PR branch> refspec
+              // with this tracking destination, or push.default=upstream in your
+              // personal git config.
               // NOTE: Do not set push.default here — it writes to the shared .git/config
               // (the git-common-dir shared by all worktrees in this repo) and would
               // change push behavior for every worktree/branch in the repo. The
               // "should not set push.default in checkoutPR fallback" regression test in
               // test/index.test.ts enforces this constraint.
               await git(
-                ["config", `branch.${sessionBranch}.pushRemote`, remoteName],
+                ["config", `branch.${sessionBranch}.pushRemote`, trackingRemote],
                 workspacePath,
               ).catch(() => {});
             }
