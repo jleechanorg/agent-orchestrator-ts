@@ -30,30 +30,30 @@ export function canonicalizeRemoteUrl(url: string): string | null {
   let s = url.trim();
   if (!s) return null;
 
-  // Strip protocol prefix (https://, http://, ssh://, git://)
-  s = s.replace(/^(https?|ssh|git):\/\//i, "");
+  // URI authorities include optional userinfo and ports; neither is part of the path.
+  if (/^(https?|ssh|git):\/\//i.test(s)) {
+    try {
+      const parsed = new URL(s);
+      const path = parsed.pathname.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
+      if (!parsed.hostname || path.split("/").length < 2) return null;
+      return `${parsed.hostname.toLowerCase()}/${path}`;
+    } catch {
+      return null;
+    }
+  }
 
-  // Strip trailing .git
-  s = s.replace(/\.git$/i, "");
-
-  // Strip trailing slash
-  s = s.replace(/\/+$/, "");
-
-  // ssh / git@host:path form: "git@github.com:owner/repo" → "github.com/owner/repo"
-  // Need to do this AFTER protocol strip and BEFORE host/colon split.
+  // SCP-style remotes use a colon as the path separator, not a URI port.
   const sshMatch = s.match(/^git@([^:/]+)[:/](.+)$/);
   if (sshMatch) {
     s = `${sshMatch[1].toLowerCase()}/${sshMatch[2]}`;
   } else {
-    // https://host/owner/repo or git@host style without colon (already handled above)
-    // Strip any userinfo (e.g. token@host)
     s = s.replace(/^[^@/]+@/, "");
-    // Lowercase qualified hosts; leave repository identity handling to the matcher.
     const parts = s.split("/").filter(Boolean);
     if (parts.length < 2) return null;
     if (parts.length >= 3 && parts[0].includes(".")) parts[0] = parts[0].toLowerCase();
     s = parts.join("/");
   }
+  s = s.replace(/\/+$/, "").replace(/\.git$/i, "");
 
   return s;
 }
@@ -113,7 +113,8 @@ export async function assertOriginMatchesProjectRepo(
   }
   const gitlab = scm?.plugin === "gitlab";
   const configuredHost = typeof scm?.host === "string" ? scm.host : undefined;
-  const repoHost = canonicalizeRemoteUrl(projectRepo)?.split("/")[0];
+  const repoParts = canonicalizeRemoteUrl(projectRepo)?.split("/");
+  const repoHost = repoParts && repoParts.length >= 3 ? repoParts[0] : undefined;
   const expectedHost = gitlab
     ? configuredHost ?? (repoHost?.includes(".") ? repoHost : "gitlab.com")
     : "github.com";

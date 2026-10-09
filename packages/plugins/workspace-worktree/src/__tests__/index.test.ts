@@ -1679,6 +1679,20 @@ describe("create() with stale locked worktree", () => {
 //   * When `project.repo` is unset, no assertion is performed.
 
 describe("canonicalizeRemoteUrl / remoteUrlsMatch (Stage C / 9sh5)", () => {
+  it("strips explicit URI ports while preserving repository paths", () => {
+    expect(canonicalizeRemoteUrl("ssh://git@github.com:22/Owner/Repo.git")).toBe("github.com/Owner/Repo");
+    expect(canonicalizeRemoteUrl("https://github.com:443/Owner/Repo.git")).toBe("github.com/Owner/Repo");
+    expect(remoteUrlsMatch("ssh://git@github.com:22/Owner/Repo.git", "owner/repo")).toBe(true);
+    expect(remoteUrlsMatch("https://github.com:443/Owner/Repo.git", "owner/repo")).toBe(true);
+    expect(remoteUrlsMatch("git@github.com:Owner/Repo.git", "owner/repo")).toBe(true);
+    expect(remoteUrlsMatch("ssh://git@gitlab.example:2222/group/subgroup/repo.git", "group/subgroup/repo", "gitlab.example")).toBe(true);
+  });
+
+  it("rejects port-qualified cross-provider and lookalike hosts", () => {
+    expect(remoteUrlsMatch("ssh://git@gitlab.com:22/owner/repo.git", "owner/repo")).toBe(false);
+    expect(remoteUrlsMatch("https://github.com.evil.example:443/owner/repo.git", "owner/repo")).toBe(false);
+  });
+
   it("matches GitHub identity casing across supported remote formats", () => {
     for (const remote of ["git@github.com:Owner/Repo.git", "https://github.com/Owner/Repo.git", "ssh://git@github.com/Owner/Repo.git"]) {
       expect(remoteUrlsMatch(remote, "owner/repo")).toBe(true);
@@ -1698,6 +1712,14 @@ describe("canonicalizeRemoteUrl / remoteUrlsMatch (Stage C / 9sh5)", () => {
     await expect(assertOriginMatchesProjectRepo("/repo/path", "group/subgroup/repo", { plugin: "gitlab", host: "gitlab.example" })).rejects.toThrow("remote mismatch");
     mockGitSuccess("git@gitlab.example:other/subgroup/repo.git");
     await expect(assertOriginMatchesProjectRepo("/repo/path", "group/subgroup/repo", { plugin: "gitlab", host: "gitlab.example" })).rejects.toThrow("remote mismatch");
+  });
+
+
+  it("keeps dotted GitLab namespaces on the default provider host", async () => {
+    mockGitSuccess("git@gitlab.com:group.name/repo.git");
+    await expect(assertOriginMatchesProjectRepo("/repo/path", "group.name/repo", { plugin: "gitlab" })).resolves.toBe("git@gitlab.com:group.name/repo.git");
+    mockGitSuccess("git@gitlab.example:group/subgroup/repo.git");
+    await expect(assertOriginMatchesProjectRepo("/repo/path", "gitlab.example/group/subgroup/repo", { plugin: "gitlab" })).resolves.toBe("git@gitlab.example:group/subgroup/repo.git");
   });
 
   it("accepts default GitLab origin for a GitLab project", async () => {
