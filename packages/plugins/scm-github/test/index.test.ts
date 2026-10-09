@@ -844,11 +844,17 @@ describe("scm-github plugin", () => {
       expect(result?.isDraft).toBe(true);
     });
 
-    it("resolves PR by reference", async () => {
-      // REST API format
+    it.each([
+      ["https://api.github.com/repos/acme/repo/pulls/42", "https://github.com/acme/repo/pull/42"],
+      [
+        "https://github.example/api/v3/repos/acme/repo/pulls/42",
+        "https://github.example/acme/repo/pull/42",
+      ],
+    ])("resolves REST PR metadata using its HTML URL: %s", async (apiUrl, htmlUrl) => {
       mockGh({
         number: 42,
-        url: "https://github.com/acme/repo/pull/42",
+        url: apiUrl,
+        html_url: htmlUrl,
         title: "feat: add feature",
         head: { ref: "feat/my-feature" },
         base: { ref: "main" },
@@ -857,8 +863,66 @@ describe("scm-github plugin", () => {
       });
 
       const result = await scm.resolvePR?.("42", project);
-      expect(result).toEqual(pr);
+      expect(result).toEqual({ ...pr, url: htmlUrl });
     });
+
+    it.each([
+      [
+        "https://api.github.com/repos/acme/repo/pulls/42",
+        "https://github.com/acme/repo/pull/42",
+        undefined,
+      ],
+      [
+        "https://api.github.com/repos/acme/repo/pulls/42",
+        "https://github.com/acme/repo/pull/42",
+        "https://github.com/acme/other.git",
+      ],
+      [
+        "https://github.example/api/v3/repos/acme/repo/pulls/42",
+        "https://github.example/acme/repo/pull/42",
+        undefined,
+      ],
+      [
+        "https://github.example/api/v3/repos/acme/repo/pulls/42",
+        "https://github.example/acme/repo/pull/42",
+        "https://github.example/acme/other.git",
+      ],
+    ])(
+      "fetches a resolved PR from its HTML repository when origin is unavailable or unrelated: %s %s %s",
+      async (apiUrl, htmlUrl, origin) => {
+        mockGh({
+          number: 42,
+          url: apiUrl,
+          html_url: htmlUrl,
+          title: "feat: add feature",
+          head: { ref: "feat/my-feature" },
+          base: { ref: "main" },
+          draft: false,
+          user: { login: "testuser" },
+        });
+        const resolved = await scm.resolvePR!("42", project);
+        ghMock.mockResolvedValueOnce({ stdout: "main\n" });
+        ghMock.mockResolvedValueOnce({ stdout: "" });
+        if (origin) {
+          ghMock.mockResolvedValueOnce({ stdout: `${origin}\n` });
+        } else {
+          ghMock.mockRejectedValueOnce(new Error("No such remote: origin"));
+        }
+        ghMock.mockResolvedValueOnce({ stdout: "" });
+        ghMock.mockResolvedValueOnce({ stdout: "main\n" });
+        ghMock.mockResolvedValueOnce({ stdout: "" });
+        ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" });
+        ghMock.mockResolvedValueOnce({ stdout: "deadbeef\n" });
+
+        expect(await scm.checkoutPR?.(resolved, "/tmp/repo")).toBe(true);
+        const repositoryUrl = new URL("/acme/repo.git", htmlUrl).toString();
+        expect(ghMock).toHaveBeenCalledWith(
+          "git",
+          ["fetch", "--force", repositoryUrl, "+refs/pull/42/head:feat/my-feature"],
+          expect.any(Object),
+        );
+      },
+    );
 
     it("assigns PR to current user", async () => {
       ghMock.mockResolvedValueOnce({ stdout: "" });
