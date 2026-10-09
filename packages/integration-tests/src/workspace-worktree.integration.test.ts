@@ -46,7 +46,8 @@ describe("workspace-worktree (integration)", () => {
 
     project = {
       name: "inttest",
-      repo: "test/inttest",
+      // The fixture origin is a local repository, not a GitHub remote.
+      repo: repoDir,
       path: repoDir,
       defaultBranch: "main",
       sessionPrefix: "test",
@@ -119,6 +120,16 @@ describe("workspace-worktree (integration)", () => {
     const found = list.find((w: { sessionId: string }) => w.sessionId === "session-1");
     expect(found).toBeDefined();
     expect(found!.branch).toBe("feat/test-branch");
+  });
+
+  it("rejects a project repo that differs from the fixture origin", async () => {
+    await expect(workspace.create({
+      projectId: "inttest",
+      sessionId: "mismatched-origin",
+      project: { ...project, repo: "test/different-repo" },
+      branch: "feat/mismatched-origin",
+    })).rejects.toThrow("remote mismatch");
+    expect(existsSync(join(worktreeBaseDir, "inttest", "mismatched-origin"))).toBe(false);
   });
 
   it("rejects invalid projectId", async () => {
