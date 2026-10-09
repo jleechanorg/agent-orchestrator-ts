@@ -154,7 +154,8 @@ function buildConfigLayer(config: PromptBuildConfig): string {
   // Stage C / 9sh5: dispatch prompt must state repo/remote/push-command so the
   // worker never guesses. Only emit the section when project.repo is configured
   // — without a canonical remote URL we have nothing authoritative to push to.
-  if (project.repo) {
+  // Planning-only workers must not receive push or PR instructions.
+  if (project.repo && !config.skipPrBoilerplate) {
     lines.push("");
     lines.push("## Git Remote");
     lines.push(`- Remote name: \`origin\``);

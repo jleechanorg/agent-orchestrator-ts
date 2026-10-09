@@ -48,55 +48,44 @@ export function canonicalizeRemoteUrl(url: string): string | null {
     // https://host/owner/repo or git@host style without colon (already handled above)
     // Strip any userinfo (e.g. token@host)
     s = s.replace(/^[^@/]+@/, "");
-    // Lowercase host segment only — owner/repo is case-sensitive on GH but
-    // we canonicalize for compare; matching here is enough to detect a
-    // mismatch (different host or different owner/repo tail).
+    // Lowercase qualified hosts; leave repository identity handling to the matcher.
     const parts = s.split("/").filter(Boolean);
     if (parts.length < 2) return null;
-    parts[0] = parts[0].toLowerCase();
+    if (parts.length >= 3 && parts[0].includes(".")) parts[0] = parts[0].toLowerCase();
     s = parts.join("/");
   }
 
   return s;
 }
 
-/**
- * Stage C / 9sh5: extract the owner/repo tail from a URL (canonicalized or
- * not). For `github.com/owner/repo` returns `owner/repo`. For `owner/repo`
- * (no host) returns `owner/repo`. For null/empty returns null.
- */
-function tailOfRepoRef(s: string | null | undefined): string | null {
-  if (!s) return null;
-  const parts = s.split("/").filter(Boolean);
-  if (parts.length < 2) return null;
-  return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
-}
-
-/**
- * Stage C / 9sh5: compare two git remote URLs for equivalence after
- * canonicalization. The "tail" — owner/repo — is the authoritative key,
- * so `test/repo` (no host) matches `github.com/test/repo` (with host).
- * Returns false when either side is missing or has no recognizable tail.
- */
-export function remoteUrlsMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+/** Compare complete repository identities against the configured SCM host. */
+export function remoteUrlsMatch(
+  a: string | null | undefined,
+  b: string | null | undefined,
+  expectedHost = "github.com",
+): boolean {
   if (!a || !b) return false;
-  const ca = canonicalizeRemoteUrl(a);
-  const cb = canonicalizeRemoteUrl(b);
-  // If both canonicalize to full URLs, compare them directly.
-  if (ca && cb) {
-    if (ca === cb) return true;
-    // Allow host-less `owner/repo` to match `host/owner/repo` via tail compare.
-    const ta = tailOfRepoRef(ca);
-    const tb = tailOfRepoRef(cb);
-    if (ta && tb) return ta === tb;
-    return false;
-  }
-  // One side is bare `owner/repo` (no host) — canonicalize what we can.
-  const normalize = (s: string) => s.trim().replace(/\.git$/i, "").replace(/\/+$/, "");
-  const ta = tailOfRepoRef(normalize(a));
-  const tb = tailOfRepoRef(normalize(b));
-  if (ta && tb) return ta === tb;
-  return false;
+  // Local repository paths are used by offline workspaces as well.
+  if (a === b && a.startsWith("/")) return true;
+  const parse = (value: string): { host?: string; path: string } | null => {
+    const canonical = canonicalizeRemoteUrl(value);
+    if (!canonical) return null;
+    const parts = canonical.split("/").filter(Boolean);
+    const hasHost = /^(?:https?|ssh|git):\/\/|^git@/i.test(value.trim()) ||
+      (parts.length >= 3 && parts[0].includes("."));
+    return hasHost
+      ? { host: parts[0].toLowerCase(), path: parts.slice(1).join("/") }
+      : { path: parts.join("/") };
+  };
+  const left = parse(a);
+  const right = parse(b);
+  if (!left || !right) return false;
+  const host = expectedHost.toLowerCase();
+  if ((left.host && left.host !== host) || (right.host && right.host !== host)) return false;
+  // GitHub repository identities are case-insensitive; preserve other providers' paths.
+  return host === "github.com"
+    ? left.path.toLowerCase() === right.path.toLowerCase()
+    : left.path === right.path;
 }
 
 /**
@@ -110,6 +99,7 @@ export function remoteUrlsMatch(a: string | null | undefined, b: string | null |
 export async function assertOriginMatchesProjectRepo(
   repoPath: string,
   projectRepo: string | undefined,
+  scm?: ProjectConfig["scm"],
 ): Promise<string | null> {
   if (!projectRepo) return null;
   let actual: string;
@@ -121,7 +111,13 @@ export async function assertOriginMatchesProjectRepo(
         `Expected ${projectRepo}. Refusing to create worktree until origin is configured.`,
     );
   }
-  if (!remoteUrlsMatch(actual, projectRepo)) {
+  const gitlab = scm?.plugin === "gitlab";
+  const configuredHost = typeof scm?.host === "string" ? scm.host : undefined;
+  const repoHost = canonicalizeRemoteUrl(projectRepo)?.split("/")[0];
+  const expectedHost = gitlab
+    ? configuredHost ?? (repoHost?.includes(".") ? repoHost : "gitlab.com")
+    : "github.com";
+  if (!remoteUrlsMatch(actual, projectRepo, expectedHost)) {
     throw new Error(
       `Stage C / 9sh5 remote mismatch: worktree ${repoPath} has remote.origin.url="${actual}" ` +
         `but project.repo is "${projectRepo}". Refusing to create worktree to prevent pushing to the wrong place. ` +
@@ -583,7 +579,7 @@ export function create(config?: Record<string, unknown>): Workspace {
       // a worker cannot push to the wrong place. Skipped when project.repo is
       // unset (no canonical remote expected). Failures throw — they do NOT
       // fall back silently.
-      await assertOriginMatchesProjectRepo(repoPath, cfg.project.repo);
+      await assertOriginMatchesProjectRepo(repoPath, cfg.project.repo, cfg.project.scm);
 
       // Fetch latest from remote
       try {
@@ -1010,7 +1006,7 @@ export function create(config?: Record<string, unknown>): Workspace {
 
       // Stage C / 9sh5: same remote assertion as create() — restoring a
       // misconfigured worktree is just as dangerous as creating one.
-      await assertOriginMatchesProjectRepo(repoPath, cfg.project.repo);
+      await assertOriginMatchesProjectRepo(repoPath, cfg.project.repo, cfg.project.scm);
 
       // Unlock any stale locked entry for this path before pruning.
       // This recovers worktrees whose directories were deleted externally

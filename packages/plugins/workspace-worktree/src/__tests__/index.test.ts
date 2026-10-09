@@ -38,7 +38,7 @@ vi.mock("node:fs/promises", () => ({
 import * as childProcess from "node:child_process";
 import { existsSync, lstatSync, symlinkSync, rmSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import * as fsPromises from "node:fs/promises";
-import { create, manifest, canonicalizeRemoteUrl, remoteUrlsMatch } from "../index.js";
+import { create, manifest, canonicalizeRemoteUrl, remoteUrlsMatch, assertOriginMatchesProjectRepo } from "../index.js";
 
 // ---------------------------------------------------------------------------
 // Typed mock references
@@ -1679,6 +1679,32 @@ describe("create() with stale locked worktree", () => {
 //   * When `project.repo` is unset, no assertion is performed.
 
 describe("canonicalizeRemoteUrl / remoteUrlsMatch (Stage C / 9sh5)", () => {
+  it("matches GitHub identity casing across supported remote formats", () => {
+    for (const remote of ["git@github.com:Owner/Repo.git", "https://github.com/Owner/Repo.git", "ssh://git@github.com/Owner/Repo.git"]) {
+      expect(remoteUrlsMatch(remote, "owner/repo")).toBe(true);
+    }
+  });
+
+  it("rejects cross-provider and unconfigured hosts", () => {
+    expect(remoteUrlsMatch("git@gitlab.com:owner/repo.git", "owner/repo")).toBe(false);
+    expect(remoteUrlsMatch("git@evil.example:owner/repo.git", "owner/repo")).toBe(false);
+    expect(remoteUrlsMatch("git@github.com:owner/repo.git", "https://gitlab.com/owner/repo")).toBe(false);
+  });
+
+  it("uses configured GitLab hosts while preserving nested namespaces", async () => {
+    mockGitSuccess("git@gitlab.example:group/subgroup/repo.git");
+    await expect(assertOriginMatchesProjectRepo("/repo/path", "group/subgroup/repo", { plugin: "gitlab", host: "gitlab.example" })).resolves.toBe("git@gitlab.example:group/subgroup/repo.git");
+    mockGitSuccess("git@github.com:group/subgroup/repo.git");
+    await expect(assertOriginMatchesProjectRepo("/repo/path", "group/subgroup/repo", { plugin: "gitlab", host: "gitlab.example" })).rejects.toThrow("remote mismatch");
+    mockGitSuccess("git@gitlab.example:other/subgroup/repo.git");
+    await expect(assertOriginMatchesProjectRepo("/repo/path", "group/subgroup/repo", { plugin: "gitlab", host: "gitlab.example" })).rejects.toThrow("remote mismatch");
+  });
+
+  it("accepts default GitLab origin for a GitLab project", async () => {
+    mockGitSuccess("https://gitlab.com/group/repo.git");
+    await expect(assertOriginMatchesProjectRepo("/repo/path", "group/repo", { plugin: "gitlab" })).resolves.toBe("https://gitlab.com/group/repo.git");
+  });
+
   it("canonicalizes ssh form git@host:owner/repo.git to host/owner/repo", () => {
     expect(canonicalizeRemoteUrl("git@github.com:test/repo.git")).toBe(
       "github.com/test/repo",
