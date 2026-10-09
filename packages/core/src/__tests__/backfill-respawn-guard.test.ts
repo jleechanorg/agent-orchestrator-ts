@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,6 +19,13 @@ import {
   GLOBAL_PAUSE_REASON_KEY,
 } from "../global-pause.js";
 import type { ProjectConfig } from "../types.js";
+
+// Keep test metadata and prompt artifacts out of the operator's AO home.
+const testHome = vi.hoisted(() => ({ path: "" }));
+vi.mock("node:os", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:os")>();
+  return { ...original, homedir: () => testHome.path };
+});
 
 let tmpDir: string;
 let configPath: string;
@@ -58,6 +65,7 @@ function writeArchivedPr(sessionId: string, prNumber: number): void {
 describe("readProjectPause", () => {
   beforeEach(() => {
     tmpDir = join(tmpdir(), `ao-backfill-guard-${randomUUID()}`);
+    testHome.path = tmpDir;
     mkdirSync(tmpDir, { recursive: true });
     configPath = join(tmpDir, "agent-orchestrator.yaml");
     writeFileSync(configPath, "# test\n", "utf-8");
@@ -119,6 +127,7 @@ describe("readProjectPause", () => {
 describe("backfill respawn cap", () => {
   beforeEach(() => {
     tmpDir = join(tmpdir(), `ao-backfill-guard-${randomUUID()}`);
+    testHome.path = tmpDir;
     mkdirSync(tmpDir, { recursive: true });
     configPath = join(tmpDir, "agent-orchestrator.yaml");
     writeFileSync(configPath, "# test\n", "utf-8");

@@ -24,6 +24,13 @@ import type { ProjectConfig, Session, SessionManager, Runtime } from "../types.j
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Keep test metadata and prompt artifacts out of the operator's AO home.
+const testHome = vi.hoisted(() => ({ path: "" }));
+vi.mock("node:os", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:os")>();
+  return { ...original, homedir: () => testHome.path };
+});
+
 let tmpDir: string;
 
 function makeConfigPath(): string {
@@ -237,6 +244,7 @@ describe("parseRateLimitReset", () => {
 describe("setProjectPause and clearProjectPause", () => {
   beforeEach(() => {
     tmpDir = join(tmpdir(), `ao-test-${randomUUID()}`);
+    testHome.path = tmpDir;
     mkdirSync(tmpDir, { recursive: true });
     // generateConfigHash calls realpathSync — file must exist
     writeFileSync(makeConfigPath(), "# test\n", "utf-8");
@@ -334,6 +342,7 @@ describe("setProjectPause and clearProjectPause", () => {
 describe("detectAndApplyRateLimitPause", () => {
   beforeEach(() => {
     tmpDir = join(tmpdir(), `ao-test-${randomUUID()}`);
+    testHome.path = tmpDir;
     mkdirSync(tmpDir, { recursive: true });
     // generateConfigHash calls realpathSync — file must exist
     writeFileSync(makeConfigPath(), "# test\n", "utf-8");
