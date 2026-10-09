@@ -13,6 +13,138 @@ const GIT_TIMEOUT = 30_000;
 const execFileAsync = promisify(execFile);
 
 /**
+ * Stage C / 9sh5: canonicalize a git remote URL so two equivalent forms
+ * (`git@github.com:owner/repo.git` vs `https://github.com/owner/repo.git`)
+ * compare equal. We strip:
+ *   - trailing `.git` suffix
+ *   - protocol (`https://`, `http://`, `ssh://`)
+ *   - leading `git@`
+ *   - `:port` and trailing `:`
+ * and lowercase the host. The owner/repo tail is the authoritative compare key.
+ *
+ * Returns the normalized form, or null when the URL has no recognizable
+ * owner/repo tail (e.g. file:// transports, relative paths).
+ */
+export function canonicalizeRemoteUrl(url: string): string | null {
+  if (!url || typeof url !== "string") return null;
+  let s = url.trim();
+  if (!s) return null;
+
+  // URI authorities include optional userinfo and ports; neither is part of the path.
+  if (/^(https?|ssh|git):\/\//i.test(s)) {
+    try {
+      const parsed = new URL(s);
+      const path = parsed.pathname.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
+      if (!parsed.hostname || path.split("/").length < 2) return null;
+      return `${parsed.hostname.toLowerCase()}/${path}`;
+    } catch {
+      return null;
+    }
+  }
+
+  // SCP-style remotes use a colon as the path separator, not a URI port.
+  const sshMatch = s.match(/^git@([^:/]+)[:/](.+)$/);
+  if (sshMatch) {
+    s = `${sshMatch[1].toLowerCase()}/${sshMatch[2]}`;
+  } else {
+    s = s.replace(/^[^@/]+@/, "");
+    const parts = s.split("/").filter(Boolean);
+    if (parts.length < 2) return null;
+    if (parts.length >= 3 && parts[0].includes(".")) parts[0] = parts[0].toLowerCase();
+    s = parts.join("/");
+  }
+  s = s.replace(/\/+$/, "").replace(/\.git$/i, "");
+
+  return s;
+}
+
+/** Compare complete repository identities against the configured SCM host. */
+export function remoteUrlsMatch(
+  a: string | null | undefined,
+  b: string | null | undefined,
+  expectedHost = "github.com",
+): boolean {
+  if (!a || !b) return false;
+  // Local repository paths are used by offline workspaces as well.
+  if (a === b && a.startsWith("/")) return true;
+  const parse = (value: string): { host?: string; path: string } | null => {
+    const canonical = canonicalizeRemoteUrl(value);
+    if (!canonical) return null;
+    const parts = canonical.split("/").filter(Boolean);
+    const hasHost = /^(?:https?|ssh|git):\/\/|^git@/i.test(value.trim()) ||
+      (parts.length >= 3 && parts[0].includes("."));
+    return hasHost
+      ? { host: parts[0].toLowerCase(), path: parts.slice(1).join("/") }
+      : { path: parts.join("/") };
+  };
+  const left = parse(a);
+  const right = parse(b);
+  if (!left || !right) return false;
+  const host = expectedHost.toLowerCase();
+  if ((left.host && left.host !== host) || (right.host && right.host !== host)) return false;
+  // GitHub repository identities are case-insensitive; preserve other providers' paths.
+  return host === "github.com"
+    ? left.path.toLowerCase() === right.path.toLowerCase()
+    : left.path === right.path;
+}
+
+/**
+ * Stage C / 9sh5: assert that the worktree's `origin` remote URL matches the
+ * configured `project.repo`. When `project.repo` is unset (no canonical remote
+ * expected) this is a no-op. When it is set and the URLs differ, throws an
+ * actionable error so the worker does not push to the wrong place.
+ *
+ * Returns the resolved `origin` URL on success.
+ */
+export async function assertOriginMatchesProjectRepo(
+  repoPath: string,
+  projectRepo: string | undefined,
+  scm?: ProjectConfig["scm"],
+): Promise<string | null> {
+  if (!projectRepo) return null;
+  let actual: string;
+  try {
+    actual = await git(repoPath, "config", "--get", "remote.origin.url");
+  } catch {
+    throw new Error(
+      `Stage C / 9sh5 remote assertion failed: cannot read remote.origin.url in ${repoPath}. ` +
+        `Expected ${projectRepo}. Refusing to create worktree until origin is configured.`,
+    );
+  }
+  const gitlab = scm?.plugin === "gitlab";
+  const configuredHost = typeof scm?.host === "string" ? scm.host : undefined;
+  const repoParts = canonicalizeRemoteUrl(projectRepo)?.split("/");
+  const repoHost = repoParts && repoParts.length >= 3 ? repoParts[0] : undefined;
+  const expectedHost = gitlab
+    ? configuredHost ?? (repoHost?.includes(".") ? repoHost : "gitlab.com")
+    : "github.com";
+  if (!remoteUrlsMatch(actual, projectRepo, expectedHost)) {
+    throw new Error(
+      `Stage C / 9sh5 remote mismatch: worktree ${repoPath} has remote.origin.url="${actual}" ` +
+        `but project.repo is "${projectRepo}". Refusing to create worktree to prevent pushing to the wrong place. ` +
+        `Fix the remote (e.g. \`git remote set-url origin <url>\`) or update project.repo.`,
+    );
+  }
+  let pushDestinations: string;
+  try {
+    // Git resolves pushurl, multiple destinations, and insteadOf/pushInsteadOf rules.
+    pushDestinations = await git(repoPath, "remote", "get-url", "--push", "--all", "origin");
+  } catch {
+    throw new Error(
+      `Stage C / 9sh5 remote assertion failed: cannot resolve origin push destinations in ${repoPath}.`,
+    );
+  }
+  const destinations = pushDestinations.split("\n").filter(Boolean);
+  if (destinations.length === 0 ||
+      destinations.some((destination) => !remoteUrlsMatch(destination, projectRepo, expectedHost))) {
+    throw new Error(
+      `Stage C / 9sh5 push destination mismatch: origin does not push exclusively to project.repo "${projectRepo}". Refusing to create worktree.`,
+    );
+  }
+  return actual;
+}
+
+/**
  * bd-uxs.7: AO-managed exclude patterns
  * These files are written by AO but should not cause worktree to show as dirty.
  */
@@ -459,6 +591,13 @@ export function create(config?: Record<string, unknown>): Workspace {
 
       mkdirSync(projectWorktreeDir, { recursive: true });
 
+      // Stage C / 9sh5: spawn-time worktree remote assertion. Refuse to create
+      // the worktree when `origin` is misconfigured relative to project.repo so
+      // a worker cannot push to the wrong place. Skipped when project.repo is
+      // unset (no canonical remote expected). Failures throw — they do NOT
+      // fall back silently.
+      await assertOriginMatchesProjectRepo(repoPath, cfg.project.repo, cfg.project.scm);
+
       // Fetch latest from remote
       try {
         await git(repoPath, "fetch", "origin", "--quiet");
@@ -881,6 +1020,10 @@ export function create(config?: Record<string, unknown>): Workspace {
 
     async restore(cfg: WorkspaceCreateConfig, workspacePath: string): Promise<WorkspaceInfo> {
       const repoPath = expandPath(cfg.project.path);
+
+      // Stage C / 9sh5: same remote assertion as create() — restoring a
+      // misconfigured worktree is just as dangerous as creating one.
+      await assertOriginMatchesProjectRepo(repoPath, cfg.project.repo, cfg.project.scm);
 
       // Unlock any stale locked entry for this path before pruning.
       // This recovers worktrees whose directories were deleted externally

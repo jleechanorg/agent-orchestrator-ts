@@ -4,8 +4,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import worktreePlugin from "@jleechanorg/ao-plugin-workspace-worktree";
+import { afterAll, beforeAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import worktreePlugin, { assertOriginMatchesProjectRepo } from "@jleechanorg/ao-plugin-workspace-worktree";
 import type { ProjectConfig, WorkspaceInfo } from "@jleechanorg/ao-core";
 
 const execFileAsync = promisify(execFile);
@@ -46,7 +46,8 @@ describe("workspace-worktree (integration)", () => {
 
     project = {
       name: "inttest",
-      repo: "test/inttest",
+      // The fixture origin is a local repository, not a GitHub remote.
+      repo: repoDir,
       path: repoDir,
       defaultBranch: "main",
       sessionPrefix: "test",
@@ -121,6 +122,16 @@ describe("workspace-worktree (integration)", () => {
     expect(found!.branch).toBe("feat/test-branch");
   });
 
+  it("rejects a project repo that differs from the fixture origin", async () => {
+    await expect(workspace.create({
+      projectId: "inttest",
+      sessionId: "mismatched-origin",
+      project: { ...project, repo: "test/different-repo" },
+      branch: "feat/mismatched-origin",
+    })).rejects.toThrow("remote mismatch");
+    expect(existsSync(join(worktreeBaseDir, "inttest", "mismatched-origin"))).toBe(false);
+  });
+
   it("rejects invalid projectId", async () => {
     await expect(
       workspace.create({
@@ -153,5 +164,37 @@ describe("workspace-worktree (integration)", () => {
     const list = await workspace.list("inttest");
     const found = list.find((w: { sessionId: string }) => w.sessionId === "session-1");
     expect(found).toBeUndefined();
+  });
+});
+
+
+describe("effective origin push destinations (offline)", () => {
+  let fixture: string;
+  beforeEach(async () => {
+    fixture = await mkdtemp(join(tmpdir(), "ao-push-destination-"));
+    await git(fixture, "init");
+    await git(fixture, "remote", "add", "origin", "git@github.com:Owner/Repo.git");
+  });
+  afterEach(async () => {
+    if (fixture) await rm(fixture, { recursive: true, force: true });
+  });
+  it("accepts fallback and multiple matching push destinations", async () => {
+    await expect(assertOriginMatchesProjectRepo(fixture, "owner/repo")).resolves.toBe("git@github.com:Owner/Repo.git");
+    await git(fixture, "config", "--add", "remote.origin.pushurl", "https://github.com/owner/repo.git");
+    await git(fixture, "config", "--add", "remote.origin.pushurl", "ssh://git@github.com:22/OWNER/REPO.git");
+    await expect(assertOriginMatchesProjectRepo(fixture, "owner/repo")).resolves.toBe("git@github.com:Owner/Repo.git");
+  });
+  it("rejects a mismatching pushurl", async () => {
+    await git(fixture, "config", "remote.origin.pushurl", "git@gitlab.com:Owner/Repo.git");
+    await expect(assertOriginMatchesProjectRepo(fixture, "owner/repo")).rejects.toThrow("push destination mismatch");
+  });
+  it("validates every configured pushurl", async () => {
+    await git(fixture, "config", "--add", "remote.origin.pushurl", "git@github.com:Owner/Repo.git");
+    await git(fixture, "config", "--add", "remote.origin.pushurl", "git@github.com:Other/Repo.git");
+    await expect(assertOriginMatchesProjectRepo(fixture, "owner/repo")).rejects.toThrow("push destination mismatch");
+  });
+  it.each(["insteadOf", "pushInsteadOf"])("rejects effective %s rewrites", async (rule) => {
+    await git(fixture, "config", `url.git@gitlab.com:.${rule}`, "git@github.com:");
+    await expect(assertOriginMatchesProjectRepo(fixture, "owner/repo")).rejects.toThrow("push destination mismatch");
   });
 });
