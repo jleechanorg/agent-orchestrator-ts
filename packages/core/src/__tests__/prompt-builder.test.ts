@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,11 +7,19 @@ import { buildPrompt, BASE_AGENT_PROMPT, CORE_AGENT_PROMPT, PR_BOILERPLATE, type
 import { buildWorkerPromptArtifact, type WorkerPromptArtifactConfig } from "../prompt-artifact-builder.js";
 import type { Agent, Issue, ProjectConfig } from "../types.js";
 
+// Keep test metadata and prompt artifacts out of the operator's AO home.
+const testHome = vi.hoisted(() => ({ path: "" }));
+vi.mock("node:os", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:os")>();
+  return { ...original, homedir: () => testHome.path };
+});
+
 let tmpDir: string;
 let project: ProjectConfig;
 
 beforeEach(() => {
   tmpDir = join(tmpdir(), `ao-prompt-test-${randomUUID()}`);
+    testHome.path = tmpDir;
   mkdirSync(tmpDir, { recursive: true });
 
   project = {
@@ -665,7 +673,7 @@ describe("Dispatch Repo / Remote / Push-Command (Stage C)", () => {
 
   it("is included in the dispatched prompt written to disk by buildWorkerPromptArtifact", () => {
     project.repo = "jleechanorg/worldarchitect.ai";
-    const dir = join(tmpdir(), `ao-prompt-test-${randomUUID()}`);
+    const dir = tmpDir;
     mkdirSync(dir, { recursive: true });
     const configPath = join(dir, "ao-config.yaml");
     writeFileSync(configPath, "projects: {}\n");
