@@ -125,6 +125,22 @@ export async function assertOriginMatchesProjectRepo(
         `Fix the remote (e.g. \`git remote set-url origin <url>\`) or update project.repo.`,
     );
   }
+  let pushDestinations: string;
+  try {
+    // Git resolves pushurl, multiple destinations, and insteadOf/pushInsteadOf rules.
+    pushDestinations = await git(repoPath, "remote", "get-url", "--push", "--all", "origin");
+  } catch {
+    throw new Error(
+      `Stage C / 9sh5 remote assertion failed: cannot resolve origin push destinations in ${repoPath}.`,
+    );
+  }
+  const destinations = pushDestinations.split("\n").filter(Boolean);
+  if (destinations.length === 0 ||
+      destinations.some((destination) => !remoteUrlsMatch(destination, projectRepo, expectedHost))) {
+    throw new Error(
+      `Stage C / 9sh5 push destination mismatch: origin does not push exclusively to project.repo "${projectRepo}". Refusing to create worktree.`,
+    );
+  }
   return actual;
 }
 

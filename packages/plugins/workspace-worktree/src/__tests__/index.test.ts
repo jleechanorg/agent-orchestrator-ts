@@ -5,10 +5,25 @@ import type { ProjectConfig, WorkspaceCreateConfig, WorkspaceInfo } from "@jleec
 // Mocks — must be declared before any import that uses the mocked modules
 // ---------------------------------------------------------------------------
 
+const { mockExecFileAsync, effectivePushProbe, remoteProbe } = vi.hoisted(() => ({
+  mockExecFileAsync: vi.fn(),
+  effectivePushProbe: vi.fn(),
+  remoteProbe: { stdout: "" },
+}));
+
 vi.mock("node:child_process", () => {
   const mockExecFile = vi.fn();
   // Set custom promisify so `promisify(execFile)` returns { stdout, stderr }
-  (mockExecFile as any)[Symbol.for("nodejs.util.promisify.custom")] = vi.fn();
+  (mockExecFile as any)[Symbol.for("nodejs.util.promisify.custom")] =
+    (cmd: string, args: string[], opts?: { cwd?: string }) => {
+      if (cmd === "git" && args.join(",") === "remote,get-url,--push,--all,origin") {
+        return effectivePushProbe(cmd, args, opts);
+      }
+      return mockExecFileAsync(cmd, args, opts).then((result: { stdout: string }) => {
+        if (args.join(",") === "config,--get,remote.origin.url") remoteProbe.stdout = result.stdout;
+        return result;
+      });
+    };
   return { execFile: mockExecFile };
 });
 
@@ -35,7 +50,6 @@ vi.mock("node:fs/promises", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import * as childProcess from "node:child_process";
 import { existsSync, lstatSync, symlinkSync, rmSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import { create, manifest, canonicalizeRemoteUrl, remoteUrlsMatch, assertOriginMatchesProjectRepo } from "../index.js";
@@ -44,9 +58,6 @@ import { create, manifest, canonicalizeRemoteUrl, remoteUrlsMatch, assertOriginM
 // Typed mock references
 // ---------------------------------------------------------------------------
 
-const mockExecFileAsync = (childProcess.execFile as any)[
-  Symbol.for("nodejs.util.promisify.custom")
-] as ReturnType<typeof vi.fn>;
 
 const mockExistsSync = existsSync as ReturnType<typeof vi.fn>;
 const mockLstatSync = lstatSync as ReturnType<typeof vi.fn>;
@@ -104,6 +115,12 @@ const DEFAULT_REMOTE_PROBE: Record<string, GitCallResult> = {
 function mockGitImpl(calls: Record<string, GitCallResult>, allowUnmocked = true): void {
   // Merge defaults so the Stage C remote probe never silently returns empty.
   const merged: Record<string, GitCallResult> = { ...DEFAULT_REMOTE_PROBE, ...calls };
+  effectivePushProbe.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string }) => {
+    const key = [cmd, ...args, opts?.cwd ? `(cwd=${opts.cwd})` : ""].join(",");
+    const result = merged[key];
+    if (result instanceof Error) return Promise.reject(result);
+    return Promise.resolve({ stdout: result?.stdout ?? remoteProbe.stdout, stderr: "" });
+  });
   mockExecFileAsync.mockImplementation((cmd: string, args: string[], opts?: { cwd?: string }) => {
     const key = [cmd, ...args, opts?.cwd ? `(cwd=${opts.cwd})` : ""].join(",");
     const result = merged[key];
@@ -1781,6 +1798,19 @@ describe("canonicalizeRemoteUrl / remoteUrlsMatch (Stage C / 9sh5)", () => {
 });
 
 describe("workspace.create() — spawn-time remote assertion (Stage C / 9sh5)", () => {
+
+  it("fails closed when no effective push destination is returned", async () => {
+    mockGitImpl({ "git,remote,get-url,--push,--all,origin,(cwd=/repo/path)": { stdout: "" } });
+    await expect(assertOriginMatchesProjectRepo("/repo/path", "test/repo")).rejects.toThrow("push destination mismatch");
+  });
+
+  it("fails closed when effective push URL resolution fails", async () => {
+    mockGitImpl({
+      "git,remote,get-url,--push,--all,origin,(cwd=/repo/path)": new Error("resolver failed"),
+    });
+    await expect(assertOriginMatchesProjectRepo("/repo/path", "test/repo")).rejects.toThrow("cannot resolve origin push destinations");
+  });
+
   it("queries `git config --get remote.origin.url` during create()", async () => {
     const ws = create();
 
